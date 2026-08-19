@@ -73,6 +73,10 @@
                     <label class="form-label fw-bold">ملاحظات</label>
                     <input type="text" class="form-control" id="notes">
                   </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-bold">كلمة مرور الملف 🔒</label>
+                    <input type="text" class="form-control fw-bold" id="file_password" placeholder="تلقائي: رقم الفاتورة بدون -">
+                  </div>
                 </div>
 
                 <!-- Main Table -->
@@ -174,7 +178,8 @@
             <div class="card-body text-center">
               <img id="qr-image" class="img-fluid mb-2" alt="QR Code">
               <p class="fw-black text-primary" id="qr-serial"></p>
-              <p class="small text-muted">امسح الكود لتحميل الفاتورة PDF أو Word</p>
+              <p class="fw-black text-danger" id="qr-password"></p>
+              <p class="small text-muted">امسح الكود → أدخل كلمة المرور → حمّل PDF أو Word</p>
             </div>
           </div>
           <div class="card shadow-sm">

@@ -48,6 +48,7 @@ db.exec(`
     captain_name TEXT DEFAULT 'نقيب / عمرو صالح محمد',
     manager_name TEXT DEFAULT 'رائد / جمال عبد الناصر - المدير المالي',
     qr_token TEXT UNIQUE NOT NULL,
+    file_password TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
@@ -79,5 +80,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at);
   CREATE INDEX IF NOT EXISTS idx_invoices_qr ON invoices(qr_token);
 `);
+
+try {
+  db.exec(`ALTER TABLE invoices ADD COLUMN file_password TEXT DEFAULT ''`);
+} catch {
+  /* column already exists */
+}
 
 module.exports = db;

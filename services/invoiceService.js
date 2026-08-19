@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../database/db');
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
 const { nextSerialNumber, withTransaction } = require('../services/serialService');
+const { generateFilePassword } = require('../services/passwordService');
 
 const INVOICE_TYPES = {
   civil: 'مدني (خاص)',
@@ -86,10 +87,14 @@ function saveInvoice(data, existingId = null) {
       let invoiceId = existingId;
 
       if (existingId) {
-      const existing = db.prepare('SELECT serial_number, qr_token FROM invoices WHERE id = ?').get(existingId);
+      const existing = db.prepare('SELECT serial_number, qr_token, file_password FROM invoices WHERE id = ?').get(existingId);
       if (!existing) throw new Error('الفاتورة غير موجودة');
       serialNumber = existing.serial_number;
       qrToken = existing.qr_token;
+      const filePassword =
+        data.file_password !== undefined && String(data.file_password).trim()
+          ? String(data.file_password).trim()
+          : existing.file_password || generateFilePassword(serialNumber);
 
       db.prepare(`
         UPDATE invoices SET
@@ -100,7 +105,7 @@ function saveInvoice(data, existingId = null) {
           balance = ?, final_total = ?, cash_private = ?, bank_private = ?,
           cash_external = ?, bank_external = ?, total_collected = ?, remaining = ?,
           employee_name = ?, auditor_name = ?, captain_name = ?, manager_name = ?,
-          notes = ?, updated_at = datetime('now', 'localtime')
+          file_password = ?, notes = ?, updated_at = datetime('now', 'localtime')
         WHERE id = ?
       `).run(
         data.invoice_type,
@@ -128,6 +133,7 @@ function saveInvoice(data, existingId = null) {
         data.auditor_name || '',
         data.captain_name || 'نقيب / عمرو صالح محمد',
         data.manager_name || 'رائد / جمال عبد الناصر - المدير المالي',
+        filePassword,
         data.notes || '',
         existingId
       );
@@ -137,6 +143,10 @@ function saveInvoice(data, existingId = null) {
     } else {
       serialNumber = nextSerialNumber();
       qrToken = uuidv4();
+      const filePassword =
+        data.file_password !== undefined && String(data.file_password).trim()
+          ? String(data.file_password).trim()
+          : generateFilePassword(serialNumber);
 
       const insertStmt = db.prepare(`
         INSERT INTO invoices (
@@ -145,8 +155,8 @@ function saveInvoice(data, existingId = null) {
           items_subtotal, admin_expenses_percent, admin_expenses, total_after_admin,
           balance, final_total, cash_private, bank_private, cash_external, bank_external,
           total_collected, remaining, employee_name, auditor_name, captain_name,
-          manager_name, qr_token, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          manager_name, qr_token, file_password, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const insertResult = insertStmt.run(
         serialNumber,
@@ -176,6 +186,7 @@ function saveInvoice(data, existingId = null) {
         data.captain_name || 'نقيب / عمرو صالح محمد',
         data.manager_name || 'رائد / جمال عبد الناصر - المدير المالي',
         qrToken,
+        filePassword,
         data.notes || ''
       );
 

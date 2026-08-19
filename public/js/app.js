@@ -128,6 +128,7 @@ function collectFormData() {
     financial_treatment: document.getElementById('financial_treatment').value,
     stay_type: document.getElementById('stay_type').value,
     notes: document.getElementById('notes').value,
+    file_password: document.getElementById('file_password').value,
     stamp_duty: document.getElementById('stamp_duty').value,
     professional_fees: document.getElementById('professional_fees').value,
     balance: document.getElementById('balance').value,
@@ -246,6 +247,7 @@ async function loadQR(id) {
     document.getElementById('qr-card').style.display = 'block';
     document.getElementById('qr-image').src = data.qr_data_url;
     document.getElementById('qr-serial').textContent = data.serial_number;
+    document.getElementById('qr-password').textContent = `🔒 كلمة المرور: ${data.file_password}`;
   } catch (err) {
     console.error(err);
   }
@@ -299,6 +301,7 @@ async function loadInvoiceForEdit(id) {
     document.getElementById('financial_treatment').value = inv.financial_treatment;
     document.getElementById('stay_type').value = inv.stay_type;
     document.getElementById('notes').value = inv.notes || '';
+    document.getElementById('file_password').value = inv.file_password || '';
     document.getElementById('stamp_duty').value = inv.stamp_duty;
     document.getElementById('professional_fees').value = inv.professional_fees;
     document.getElementById('balance').value = inv.balance;

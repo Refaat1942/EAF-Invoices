@@ -226,7 +226,7 @@ function buildInvoiceHtml(invoice, options = {}) {
   <div class="page">
     ${showQr && qrDataUrl ? `<div class="qr-section"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div></div>` : ''}
 
-    <div class="serial-bar">رقم الفاتورة: ${escapeHtml(invoice.serial_number)} | النوع: ${escapeHtml(invoice.invoice_type_label)}</div>
+    <div class="serial-bar">رقم الفاتورة: ${escapeHtml(invoice.serial_number)} | النوع: ${escapeHtml(invoice.invoice_type_label)} | كلمة المرور: ${escapeHtml(invoice.file_password || String(invoice.serial_number || '').replace(/-/g, ''))}</div>
 
     <div class="header">
       <div class="logo-area">

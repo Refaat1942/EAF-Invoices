@@ -47,6 +47,9 @@ install_pdf_deps() {
 
 install_pdf_deps
 
+# PDF encryption
+apt-get install -y qpdf 2>/dev/null || true
+
 # Build tools for better-sqlite3 (if prebuilt binary unavailable)
 apt-get install -y build-essential python3 2>/dev/null || true
 

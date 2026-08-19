@@ -1,6 +1,5 @@
 const express = require('express');
 const QRCode = require('qrcode');
-const puppeteer = require('puppeteer');
 const {
   listInvoices,
   getInvoiceById,
@@ -12,7 +11,8 @@ const {
 } = require('../services/invoiceService');
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
 const { buildInvoiceHtml } = require('../services/pdfService');
-const { buildWordDocument } = require('../services/wordService');
+const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
+const { resolveFilePassword } = require('../services/passwordService');
 
 const router = express.Router();
 
@@ -103,7 +103,12 @@ router.get('/:id/qr', async (req, res) => {
       errorCorrectionLevel: 'H',
     });
 
-    res.json({ qr_data_url: qrDataUrl, download_url: downloadUrl, serial_number: invoice.serial_number });
+    res.json({
+      qr_data_url: qrDataUrl,
+      download_url: downloadUrl,
+      serial_number: invoice.serial_number,
+      file_password: resolveFilePassword(invoice),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -126,37 +131,13 @@ router.get('/:id/preview', async (req, res) => {
   }
 });
 
-let browserInstance = null;
-
-async function getBrowser() {
-  if (!browserInstance || !browserInstance.isConnected()) {
-    browserInstance = await puppeteer.launch({
-      headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--font-render-hinting=none'],
-    });
-  }
-  return browserInstance;
-}
-
 router.get('/:id/pdf', async (req, res) => {
   try {
     const invoice = getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
 
     const baseUrl = getBaseUrl(req);
-    const downloadUrl = `${baseUrl}/download/${invoice.qr_token}`;
-    const qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
-
-    const html = buildInvoiceHtml(invoice, { baseUrl, showQr: true, qrDataUrl });
-    const browser = await getBrowser();
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    const pdf = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '0', right: '0', bottom: '0', left: '0' },
-    });
-    await page.close();
+    const pdf = await generatePdfBuffer(invoice, baseUrl, { encrypt: true });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
@@ -174,7 +155,7 @@ router.get('/:id/docx', async (req, res) => {
     const invoice = getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
 
-    const buffer = await buildWordDocument(invoice);
+    const buffer = await generateDocxBuffer(invoice, { encrypt: true });
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
