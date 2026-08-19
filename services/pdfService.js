@@ -25,7 +25,7 @@ function getFilePassword(invoice) {
 }
 
 function buildInvoiceHtml(invoice, options = {}) {
-  const { baseUrl = '', showQr = true, qrDataUrl = '' } = options;
+  const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
   const filePassword = getFilePassword(invoice);
 
   const minRows = 14;
@@ -233,7 +233,7 @@ function buildInvoiceHtml(invoice, options = {}) {
 
     <div class="header">
       <div class="logo-area">
-        <img src="${baseUrl}/assets/logo.svg" alt="شعار" onerror="this.parentElement.innerHTML='شعار<br>الخدمات<br>الطبية'">
+        <img src="${logoUrl || baseUrl + '/assets/logo.svg'}" alt="شعار" onerror="this.parentElement.innerHTML='شعار<br>الخدمات<br>الطبية'">
       </div>
       <div class="header-text">
         <span class="line">وزارة الدفاع</span>

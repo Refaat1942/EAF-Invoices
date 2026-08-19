@@ -1,90 +1,129 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 const fs = require('fs');
+const path = require('path');
 
-const dataDir = path.join(__dirname, '..', 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+const pool = new Pool({
+  connectionString:
+    process.env.DATABASE_URL || 'postgresql://eaf:eaf2026@localhost:5432/eaf_invoices',
+  max: 20,
+});
+
+async function query(text, params) {
+  return pool.query(text, params);
 }
 
-const dbPath = path.join(dataDir, 'invoices.db');
-const db = new Database(dbPath);
-
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS invoice_serial_counter (
-    year INTEGER PRIMARY KEY,
-    last_number INTEGER NOT NULL DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS invoices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    serial_number TEXT UNIQUE NOT NULL,
-    invoice_type TEXT NOT NULL CHECK(invoice_type IN ('civil', 'contracted', 'non_contracted', 'military')),
-    patient_name TEXT DEFAULT '',
-    admission_date TEXT DEFAULT '',
-    discharge_date TEXT DEFAULT '',
-    stay_days INTEGER DEFAULT 0,
-    financial_treatment TEXT DEFAULT '',
-    stay_type TEXT DEFAULT '',
-    stamp_duty REAL DEFAULT 0,
-    professional_fees REAL DEFAULT 0,
-    items_subtotal REAL DEFAULT 0,
-    admin_expenses_percent REAL DEFAULT 12,
-    admin_expenses REAL DEFAULT 0,
-    total_after_admin REAL DEFAULT 0,
-    balance REAL DEFAULT 0,
-    final_total REAL DEFAULT 0,
-    cash_private REAL DEFAULT 0,
-    bank_private REAL DEFAULT 0,
-    cash_external REAL DEFAULT 0,
-    bank_external REAL DEFAULT 0,
-    total_collected REAL DEFAULT 0,
-    remaining REAL DEFAULT 0,
-    employee_name TEXT DEFAULT '',
-    auditor_name TEXT DEFAULT '',
-    captain_name TEXT DEFAULT 'نقيب / عمرو صالح محمد',
-    manager_name TEXT DEFAULT 'رائد / جمال عبد الناصر - المدير المالي',
-    qr_token TEXT UNIQUE NOT NULL,
-    file_password TEXT DEFAULT '',
-    notes TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now', 'localtime')),
-    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
-  );
-
-  CREATE TABLE IF NOT EXISTS invoice_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    invoice_id INTEGER NOT NULL,
-    description TEXT DEFAULT '',
-    quantity REAL DEFAULT 0,
-    amount REAL DEFAULT 0,
-    total REAL DEFAULT 0,
-    sort_order INTEGER DEFAULT 0,
-    FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS invoice_payments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    invoice_id INTEGER NOT NULL,
-    receipt_date TEXT DEFAULT '',
-    receipt_number TEXT DEFAULT '',
-    amount REAL DEFAULT 0,
-    sort_order INTEGER DEFAULT 0,
-    FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_invoices_serial ON invoices(serial_number);
-  CREATE INDEX IF NOT EXISTS idx_invoices_type ON invoices(invoice_type);
-  CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at);
-  CREATE INDEX IF NOT EXISTS idx_invoices_qr ON invoices(qr_token);
-`);
-
-try {
-  db.exec(`ALTER TABLE invoices ADD COLUMN file_password TEXT DEFAULT ''`);
-} catch {
-  /* column already exists */
+async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
-module.exports = db;
+async function initDatabase() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS invoice_serial_counter (
+      year INTEGER PRIMARY KEY,
+      last_number INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS stay_types (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) UNIQUE NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key VARCHAR(100) PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS invoices (
+      id SERIAL PRIMARY KEY,
+      serial_number VARCHAR(50) UNIQUE NOT NULL,
+      invoice_type VARCHAR(30) NOT NULL CHECK(invoice_type IN ('civil', 'contracted', 'non_contracted', 'military')),
+      patient_name TEXT DEFAULT '',
+      admission_date DATE,
+      discharge_date DATE,
+      stay_days INTEGER DEFAULT 0,
+      financial_treatment TEXT DEFAULT '',
+      stay_type TEXT DEFAULT '',
+      stay_type_id INTEGER REFERENCES stay_types(id) ON DELETE SET NULL,
+      stamp_duty NUMERIC(14,2) DEFAULT 0,
+      professional_fees NUMERIC(14,2) DEFAULT 0,
+      items_subtotal NUMERIC(14,2) DEFAULT 0,
+      admin_expenses_percent NUMERIC(6,2) DEFAULT 12,
+      admin_expenses NUMERIC(14,2) DEFAULT 0,
+      total_after_admin NUMERIC(14,2) DEFAULT 0,
+      balance NUMERIC(14,2) DEFAULT 0,
+      final_total NUMERIC(14,2) DEFAULT 0,
+      cash_private NUMERIC(14,2) DEFAULT 0,
+      bank_private NUMERIC(14,2) DEFAULT 0,
+      cash_external NUMERIC(14,2) DEFAULT 0,
+      bank_external NUMERIC(14,2) DEFAULT 0,
+      total_collected NUMERIC(14,2) DEFAULT 0,
+      remaining NUMERIC(14,2) DEFAULT 0,
+      employee_name TEXT DEFAULT '',
+      auditor_name TEXT DEFAULT '',
+      captain_name TEXT DEFAULT 'نقيب / عمرو صالح محمد',
+      manager_name TEXT DEFAULT 'رائد / جمال عبد الناصر - المدير المالي',
+      qr_token UUID UNIQUE NOT NULL,
+      file_password TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS invoice_items (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      description TEXT DEFAULT '',
+      quantity NUMERIC(14,2) DEFAULT 0,
+      amount NUMERIC(14,2) DEFAULT 0,
+      total NUMERIC(14,2) DEFAULT 0,
+      sort_order INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS invoice_payments (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      receipt_date DATE,
+      receipt_number TEXT DEFAULT '',
+      amount NUMERIC(14,2) DEFAULT 0,
+      sort_order INTEGER DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_invoices_serial ON invoices(serial_number);
+    CREATE INDEX IF NOT EXISTS idx_invoices_type ON invoices(invoice_type);
+    CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at);
+    CREATE INDEX IF NOT EXISTS idx_invoices_qr ON invoices(qr_token);
+  `);
+
+  const defaults = await query('SELECT COUNT(*)::int AS c FROM stay_types');
+  if (defaults.rows[0].c === 0) {
+    const types = ['غرفة مفردة', 'غرفة مزدوجة', 'جناح', 'عناية مركزة', 'رقود يومي', 'خارجي'];
+    for (let i = 0; i < types.length; i++) {
+      await query('INSERT INTO stay_types (name, sort_order) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
+        types[i],
+        i + 1,
+      ]);
+    }
+  }
+
+  const uploadsDir = path.join(__dirname, '..', 'public', 'assets');
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+  console.log('✅ PostgreSQL connected and schema ready');
+}
+
+module.exports = { pool, query, withTransaction, initDatabase };

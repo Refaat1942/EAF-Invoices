@@ -1,4 +1,5 @@
 const API = '/api/invoices';
+const SETTINGS_API = '/api/settings';
 let currentInvoiceId = null;
 let rowCount = 12;
 
@@ -15,6 +16,7 @@ const TYPE_LABELS = {
 document.addEventListener('DOMContentLoaded', () => {
   initRows();
   bindEvents();
+  loadStayTypes();
   recalculate();
 });
 
@@ -77,6 +79,12 @@ function bindEvents() {
   document.getElementById('list-from').addEventListener('change', loadInvoicesList);
   document.getElementById('list-to').addEventListener('change', loadInvoicesList);
 
+  document.getElementById('upload-logo-btn').addEventListener('click', uploadLogo);
+  document.getElementById('add-stay-type-btn').addEventListener('click', addStayType);
+  document.getElementById('new-stay-type').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addStayType(); }
+  });
+
   bindCalcTriggers();
 }
 
@@ -126,7 +134,7 @@ function collectFormData() {
     discharge_date: document.getElementById('discharge_date').value,
     stay_days: document.getElementById('stay_days').value,
     financial_treatment: document.getElementById('financial_treatment').value,
-    stay_type: document.getElementById('stay_type').value,
+    stay_type_id: document.getElementById('stay_type_id').value,
     notes: document.getElementById('notes').value,
     file_password: document.getElementById('file_password').value,
     stamp_duty: document.getElementById('stamp_duty').value,
@@ -295,11 +303,12 @@ async function loadInvoiceForEdit(id) {
 
     document.getElementById('invoice_type').value = inv.invoice_type;
     document.getElementById('patient_name').value = inv.patient_name;
-    document.getElementById('admission_date').value = inv.admission_date;
-    document.getElementById('discharge_date').value = inv.discharge_date;
+    document.getElementById('admission_date').value = fmtDate(inv.admission_date);
+    document.getElementById('discharge_date').value = fmtDate(inv.discharge_date);
     document.getElementById('stay_days').value = inv.stay_days;
     document.getElementById('financial_treatment').value = inv.financial_treatment;
-    document.getElementById('stay_type').value = inv.stay_type;
+    await loadStayTypes();
+    document.getElementById('stay_type_id').value = inv.stay_type_id || '';
     document.getElementById('notes').value = inv.notes || '';
     document.getElementById('file_password').value = inv.file_password || '';
     document.getElementById('stamp_duty').value = inv.stamp_duty;
@@ -351,6 +360,110 @@ function switchView(view) {
 
   if (view === 'list') loadInvoicesList();
   if (view === 'reports') loadReports();
+  if (view === 'settings') loadSettingsPage();
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  return String(d).slice(0, 10);
+}
+
+async function loadStayTypes() {
+  try {
+    const res = await fetch(`${SETTINGS_API}/stay-types`);
+    const types = await res.json();
+    const select = document.getElementById('stay_type_id');
+    const current = select.value;
+    select.innerHTML = '<option value="">-- اختر نوع الإقامة --</option>';
+    types.forEach((t) => {
+      select.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+    });
+    if (current) select.value = current;
+    return types;
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+async function loadSettingsPage() {
+  try {
+    const [settingsRes, typesRes] = await Promise.all([
+      fetch(SETTINGS_API),
+      fetch(`${SETTINGS_API}/stay-types?all=1`),
+    ]);
+    const settings = await settingsRes.json();
+    const types = await typesRes.json();
+
+    if (settings.logo_url) {
+      document.getElementById('logo-preview').src = settings.logo_url;
+    }
+
+    const list = document.getElementById('stay-types-list');
+    list.innerHTML = types.length
+      ? types.map((t) => `
+        <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">
+          <span>${t.name}</span>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteStayType(${t.id})">🗑️</button>
+        </li>`).join('')
+      : '<li class="list-group-item text-muted">لا توجد أنواع</li>';
+
+    await loadStayTypes();
+  } catch (err) {
+    showToast('خطأ في تحميل الإعدادات', 'danger');
+  }
+}
+
+async function uploadLogo() {
+  const fileInput = document.getElementById('logo-file');
+  if (!fileInput.files.length) return showToast('اختر ملف الشعار', 'warning');
+
+  const form = new FormData();
+  form.append('logo', fileInput.files[0]);
+
+  try {
+    const res = await fetch(`${SETTINGS_API}/logo`, { method: 'POST', body: form });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    document.getElementById('logo-preview').src = data.logo_url;
+    showToast('تم رفع الشعار بنجاح', 'success');
+    fileInput.value = '';
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function addStayType() {
+  const input = document.getElementById('new-stay-type');
+  const name = input.value.trim();
+  if (!name) return showToast('اكتب اسم نوع الإقامة', 'warning');
+
+  try {
+    const res = await fetch(`${SETTINGS_API}/stay-types`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    input.value = '';
+    showToast('تمت الإضافة', 'success');
+    loadSettingsPage();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function deleteStayType(id) {
+  if (!confirm('حذف نوع الإقامة؟')) return;
+  try {
+    const res = await fetch(`${SETTINGS_API}/stay-types/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('فشل الحذف');
+    showToast('تم الحذف', 'success');
+    loadSettingsPage();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
 }
 
 async function loadInvoicesList() {
@@ -499,3 +612,4 @@ function debounce(fn, ms) {
 
 window.loadInvoiceForEdit = loadInvoiceForEdit;
 window.deleteInvoice = deleteInvoice;
+window.deleteStayType = deleteStayType;

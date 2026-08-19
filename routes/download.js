@@ -3,6 +3,7 @@ const QRCode = require('qrcode');
 const { getInvoiceByToken } = require('../services/invoiceService');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
+const { getLogoUrl } = require('../services/settingsService');
 const {
   resolveFilePassword,
   createDownloadToken,
@@ -23,69 +24,70 @@ function isAuthorized(req, invoice) {
   return verifyDownloadToken(invoice.qr_token, password, token);
 }
 
-router.post('/:token/verify', express.urlencoded({ extended: true }), (req, res) => {
-  const invoice = getInvoiceByToken(req.params.token);
-  if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
+router.post('/:token/verify', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const invoice = await getInvoiceByToken(req.params.token);
+    if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
 
-  const submitted = String(req.body.password || '').trim();
-  const expected = resolveFilePassword(invoice);
+    const submitted = String(req.body.password || '').trim();
+    const expected = resolveFilePassword(invoice);
 
-  if (submitted !== expected) {
-    return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
+    if (submitted !== expected) {
+      return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
+    }
+
+    const authToken = createDownloadToken(invoice.qr_token, expected);
+    const cookieName = getCookieName(invoice.qr_token);
+    res.cookie(cookieName, authToken, {
+      httpOnly: true,
+      maxAge: 60 * 60 * 1000,
+      sameSite: 'lax',
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const authToken = createDownloadToken(invoice.qr_token, expected);
-  const cookieName = getCookieName(invoice.qr_token);
-  res.cookie(cookieName, authToken, {
-    httpOnly: true,
-    maxAge: 60 * 60 * 1000,
-    sameSite: 'lax',
-  });
-  res.json({ success: true });
 });
 
 router.get('/:token', async (req, res) => {
-  const invoice = getInvoiceByToken(req.params.token);
-  if (!invoice) return res.status(404).send(renderNotFound());
+  try {
+    const invoice = await getInvoiceByToken(req.params.token);
+    if (!invoice) return res.status(404).send(renderNotFound());
 
-  const format = (req.query.format || 'page').toLowerCase();
-  const baseUrl = getBaseUrl(req);
-  const authorized = isAuthorized(req, invoice);
+    const format = (req.query.format || 'page').toLowerCase();
+    const baseUrl = getBaseUrl(req);
+    const logoUrl = await getLogoUrl(baseUrl);
+    const authorized = isAuthorized(req, invoice);
 
-  if ((format === 'pdf' || format === 'docx' || format === 'word') && !authorized) {
-    return res.status(401).send(renderPasswordPage(invoice, baseUrl, 'يجب إدخال كلمة المرور أولاً'));
-  }
+    if ((format === 'pdf' || format === 'docx' || format === 'word') && !authorized) {
+      return res.status(401).send(renderPasswordPage(invoice, baseUrl, 'يجب إدخال كلمة المرور أولاً'));
+    }
 
-  if (format === 'pdf') {
-    try {
-      const pdf = await generatePdfBuffer(invoice, baseUrl, { encrypt: true });
+    if (format === 'pdf') {
+      const pdf = await generatePdfBuffer(invoice, baseUrl, { encrypt: true, logoUrl });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice.serial_number}.pdf"`);
       return res.send(pdf);
-    } catch (err) {
-      return res.status(500).send('خطأ في إنشاء PDF');
     }
-  }
 
-  if (format === 'docx' || format === 'word') {
-    try {
+    if (format === 'docx' || format === 'word') {
       const buffer = await generateDocxBuffer(invoice, { encrypt: true });
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice.serial_number}.docx"`);
       return res.send(buffer);
-    } catch (err) {
-      return res.status(500).send('خطأ في إنشاء Word');
     }
-  }
 
-  if (!authorized) {
-    return res.send(renderPasswordPage(invoice, baseUrl));
-  }
+    if (!authorized) {
+      return res.send(renderPasswordPage(invoice, baseUrl));
+    }
 
-  const qrDataUrl = await QRCode.toDataURL(`${baseUrl}/download/${invoice.qr_token}`, { width: 200, margin: 1 });
-  const html = buildInvoiceHtml(invoice, { baseUrl, showQr: true, qrDataUrl });
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(wrapDownloadPage(html, invoice, baseUrl));
+    const qrDataUrl = await QRCode.toDataURL(`${baseUrl}/download/${invoice.qr_token}`, { width: 200, margin: 1 });
+    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: true, qrDataUrl });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(wrapDownloadPage(html, invoice, baseUrl));
+  } catch (err) {
+    res.status(500).send('خطأ في الخادم');
+  }
 });
 
 function renderPasswordPage(invoice, baseUrl, errorMsg = '') {
@@ -152,18 +154,9 @@ function wrapDownloadPage(invoiceHtml, invoice, baseUrl) {
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Cairo', sans-serif; background: #f0f2f5; margin: 0; padding: 16px; direction: rtl; }
-    .toolbar {
-      max-width: 210mm; margin: 0 auto 12px; display: flex; gap: 8px; flex-wrap: wrap;
-      background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1);
-      align-items: center;
-    }
-    .toolbar a, .toolbar button {
-      font-family: inherit; font-weight: 800; padding: 10px 20px; border: none; border-radius: 6px;
-      cursor: pointer; text-decoration: none; font-size: 14px;
-    }
-    .btn-pdf { background: #c0392b; color: #fff; }
-    .btn-word { background: #2980b9; color: #fff; }
-    .btn-print { background: #27ae60; color: #fff; }
+    .toolbar { max-width: 210mm; margin: 0 auto 12px; display: flex; gap: 8px; flex-wrap: wrap; background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); align-items: center; }
+    .toolbar a, .toolbar button { font-family: inherit; font-weight: 800; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 14px; }
+    .btn-pdf { background: #c0392b; color: #fff; } .btn-word { background: #2980b9; color: #fff; } .btn-print { background: #27ae60; color: #fff; }
     .serial { flex: 1; text-align: center; font-weight: 900; font-size: 16px; }
     .pw-note { width: 100%; text-align: center; font-weight: 800; color: #666; font-size: 0.85rem; }
     @media print { .toolbar { display: none; } body { background: #fff; padding: 0; } }

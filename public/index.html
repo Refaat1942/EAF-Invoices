@@ -16,6 +16,7 @@
         <button class="btn btn-outline-light btn-sm nav-btn active" data-view="create">فاتورة جديدة</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="list">الفواتير</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="reports">التقارير</button>
+        <button class="btn btn-outline-light btn-sm nav-btn" data-view="settings">الإعدادات</button>
       </div>
     </div>
   </nav>
@@ -67,7 +68,9 @@
                   </div>
                   <div class="col-md-4">
                     <label class="form-label fw-bold">نوع الإقامة</label>
-                    <input type="text" class="form-control fw-bold" id="stay_type">
+                    <select class="form-select fw-bold" id="stay_type_id">
+                      <option value="">-- اختر نوع الإقامة --</option>
+                    </select>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label fw-bold">ملاحظات</label>
@@ -234,6 +237,35 @@
               </thead>
               <tbody id="invoices-list"></tbody>
             </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings View -->
+    <section id="view-settings" class="view-section" style="display:none">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white fw-black">🖼️ شعار الفاتورة</div>
+            <div class="card-body text-center">
+              <img id="logo-preview" src="/assets/logo.svg" alt="الشعار" class="img-fluid mb-3" style="max-height:120px;border:2px solid #ddd;border-radius:8px;padding:8px">
+              <input type="file" class="form-control mb-2" id="logo-file" accept="image/png,image/jpeg,image/svg+xml,image/webp">
+              <button class="btn btn-success fw-bold" id="upload-logo-btn">رفع الشعار</button>
+              <p class="small text-muted mt-2">PNG, JPG, SVG, WEBP — حد أقصى 3MB</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white fw-black">🏨 أنواع الإقامة</div>
+            <div class="card-body">
+              <div class="input-group mb-3">
+                <input type="text" class="form-control fw-bold" id="new-stay-type" placeholder="نوع إقامة جديد...">
+                <button class="btn btn-primary fw-bold" id="add-stay-type-btn">إضافة</button>
+              </div>
+              <ul class="list-group" id="stay-types-list"></ul>
+            </div>
           </div>
         </div>
       </div>

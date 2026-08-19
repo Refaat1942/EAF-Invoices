@@ -18,10 +18,12 @@ async function getBrowser() {
   return browserInstance;
 }
 
-async function generatePdfBuffer(invoice, baseUrl, { encrypt = true } = {}) {
+async function generatePdfBuffer(invoice, baseUrl, { encrypt = true, logoUrl } = {}) {
+  const { getLogoUrl } = require('./settingsService');
+  const resolvedLogo = logoUrl || (await getLogoUrl(baseUrl));
   const downloadUrl = `${baseUrl}/download/${invoice.qr_token}`;
   const qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
-  const html = buildInvoiceHtml(invoice, { baseUrl, showQr: true, qrDataUrl });
+  const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl: resolvedLogo, showQr: true, qrDataUrl });
 
   const browser = await getBrowser();
   const page = await browser.newPage();

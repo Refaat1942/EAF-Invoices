@@ -12,6 +12,7 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 17159,
         HOST: '0.0.0.0',
+        DATABASE_URL: 'postgresql://eaf:eaf2026@localhost:5432/eaf_invoices',
       },
     },
   ],
