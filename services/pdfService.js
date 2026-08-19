@@ -112,9 +112,10 @@ function buildInvoiceHtml(invoice, options = {}) {
       direction: ltr;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
       border-bottom: 2px solid #000;
-      padding-bottom: 6px;
+      padding-bottom: 8px;
+      gap: 10px;
     }
     .header-text {
       direction: rtl;
@@ -141,6 +142,31 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     .logo-area img { width: 100%; height: 100%; object-fit: cover; }
     .header-spacer { width: 72px; flex-shrink: 0; }
+    .qr-area {
+      width: 92px;
+      flex-shrink: 0;
+      text-align: center;
+      direction: rtl;
+      padding: 5px;
+      border: 2px solid #000;
+      border-radius: 8px;
+      background: #fff;
+      align-self: flex-start;
+    }
+    .qr-area img {
+      width: 78px;
+      height: 78px;
+      display: block;
+      margin: 0 auto;
+      image-rendering: pixelated;
+    }
+    .qr-label {
+      font-size: 8px;
+      font-weight: 900;
+      margin-top: 4px;
+      line-height: 1.3;
+      color: #000;
+    }
     .meta-table {
       width: 100%;
       border-collapse: collapse;
@@ -237,15 +263,6 @@ function buildInvoiceHtml(invoice, options = {}) {
       margin-top: 28px;
       padding-top: 4px;
     }
-    .qr-section {
-      position: absolute;
-      top: 8mm;
-      left: 10mm;
-      text-align: center;
-      direction: rtl;
-    }
-    .qr-section img { width: 68px; height: 68px; }
-    .qr-label { font-size: 7px; font-weight: 900; margin-top: 2px; }
     .title-row th {
       font-weight: 900;
       font-size: 11px;
@@ -255,8 +272,6 @@ function buildInvoiceHtml(invoice, options = {}) {
 </head>
 <body>
   <div class="page">
-    ${showQr && qrDataUrl ? `<div class="qr-section"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div></div>` : ''}
-
     <div class="serial-bar">
       رقم الفاتورة: ${escapeHtml(inv.serial_number)}
       &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(inv.issue_date || inv.created_at)}
@@ -273,7 +288,11 @@ function buildInvoiceHtml(invoice, options = {}) {
         <span class="line">مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم ق.م</span>
         <span class="line">القسم المالي</span>
       </div>
-      <div class="header-spacer"></div>
+      ${
+        showQr && qrDataUrl
+          ? `<div class="qr-area"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div></div>`
+          : `<div class="header-spacer"></div>`
+      }
     </div>
 
     <table class="meta-table">
