@@ -118,7 +118,7 @@ function renderPasswordPage(invoice, baseUrl, errorMsg = '') {
       <button type="submit">فتح الفاتورة</button>
     </form>
     ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
-    <p class="hint">كلمة المرور موجودة على الفاتورة المطبوعة</p>
+    <p class="hint">كلمة المرور = رقم الفاتورة بدون شرطات<br><strong>مثال: EAF-2026-000001 ← EAF2026000001</strong></p>
   </div>
   <script>
     document.getElementById('pw-form').addEventListener('submit', async (e) => {

@@ -20,16 +20,21 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+function getFilePassword(invoice) {
+  return invoice.file_password || String(invoice.serial_number || '').replace(/-/g, '');
+}
+
 function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', showQr = true, qrDataUrl = '' } = options;
+  const filePassword = getFilePassword(invoice);
 
-  const minRows = 12;
+  const minRows = 14;
   const items = [...(invoice.items || [])];
   while (items.length < minRows) {
     items.push({ description: '', quantity: '', amount: '', total: '' });
   }
 
-  const minPaymentRows = 8;
+  const minPaymentRows = 14;
   const payments = [...(invoice.payments || [])];
   while (payments.length < minPaymentRows) {
     payments.push({ receipt_date: '', receipt_number: '', amount: '' });
@@ -62,16 +67,16 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     .serial-bar {
       text-align: center;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 900;
       border: 2px solid #000;
       padding: 4px 8px;
       margin-bottom: 6px;
       background: #f0f0f0;
-      letter-spacing: 1px;
     }
     .header {
       display: flex;
+      direction: ltr;
       justify-content: space-between;
       align-items: flex-start;
       margin-bottom: 8px;
@@ -79,16 +84,17 @@ function buildInvoiceHtml(invoice, options = {}) {
       padding-bottom: 6px;
     }
     .header-text {
+      direction: rtl;
       text-align: center;
       flex: 1;
-      line-height: 1.6;
+      line-height: 1.65;
       font-weight: 900;
       font-size: 12px;
     }
     .header-text .line { display: block; }
     .logo-area {
-      width: 70px;
-      height: 70px;
+      width: 72px;
+      height: 72px;
       border: 2px solid #000;
       border-radius: 50%;
       display: flex;
@@ -101,40 +107,28 @@ function buildInvoiceHtml(invoice, options = {}) {
       overflow: hidden;
     }
     .logo-area img { width: 100%; height: 100%; object-fit: cover; }
-    .meta-row {
-      display: grid;
-      grid-template-columns: repeat(6, 1fr);
+    .header-spacer { width: 72px; flex-shrink: 0; }
+    .meta-table {
+      width: 100%;
+      border-collapse: collapse;
       border: 2px solid #000;
       margin-bottom: 6px;
     }
-    .meta-cell {
-      border-left: 1px solid #000;
+    .meta-table th, .meta-table td {
+      border: 1px solid #000;
       text-align: center;
+      font-weight: 800;
       padding: 3px 2px;
     }
-    .meta-cell:last-child { border-left: none; }
-    .meta-label {
+    .meta-table th {
+      background: #e8e8e8;
       font-weight: 900;
       font-size: 9px;
-      border-bottom: 1px solid #000;
-      padding: 2px;
-      background: #e8e8e8;
     }
-    .meta-value {
+    .meta-table .value {
       min-height: 18px;
-      padding: 3px 2px;
-      font-weight: 800;
       font-size: 10px;
-    }
-    .type-badge {
-      text-align: center;
-      font-weight: 900;
-      font-size: 11px;
-      margin-bottom: 4px;
-      padding: 2px;
-      border: 1px solid #000;
-      display: inline-block;
-      width: 100%;
+      font-weight: 800;
     }
     table.main-table {
       width: 100%;
@@ -154,22 +148,20 @@ function buildInvoiceHtml(invoice, options = {}) {
       font-weight: 900;
       font-size: 10px;
     }
-    .col-pay-date { width: 11%; }
-    .col-pay-num { width: 10%; }
-    .col-pay-amt { width: 10%; }
-    .col-desc { width: 38%; }
+    .col-tot { width: 11%; }
+    .col-amt { width: 10%; }
     .col-qty { width: 8%; }
-    .col-amt { width: 11%; }
-    .col-tot { width: 12%; }
-    .desc { text-align: right !important; padding-right: 6px !important; }
+    .col-desc { width: 36%; }
+    .col-pay-amt { width: 10%; }
+    .col-pay-num { width: 12%; }
+    .col-pay-date { width: 13%; }
+    .desc { text-align: right !important; padding-right: 8px !important; }
     .num { direction: ltr; unicode-bidi: embed; }
-    .summary-row td {
-      font-weight: 900 !important;
-      background: #f5f5f5;
-    }
+    .summary-row td { font-weight: 900 !important; background: #f5f5f5; }
     .summary-label { text-align: right !important; padding-right: 8px !important; font-weight: 900; }
     .bottom-tables {
       display: flex;
+      direction: ltr;
       gap: 8px;
       margin-top: 8px;
     }
@@ -178,6 +170,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       width: 100%;
       border-collapse: collapse;
       border: 2px solid #000;
+      direction: rtl;
     }
     .bottom-table th, .bottom-table td {
       border: 1px solid #000;
@@ -185,18 +178,17 @@ function buildInvoiceHtml(invoice, options = {}) {
       text-align: center;
       font-weight: 800;
     }
-    .bottom-table th {
-      background: #d9d9d9;
-      font-weight: 900;
-    }
+    .bottom-table th { background: #d9d9d9; font-weight: 900; }
     .bottom-table .label-cell { text-align: right; font-weight: 900; }
     .signatures {
       display: flex;
+      direction: ltr;
       justify-content: space-between;
-      margin-top: 20px;
+      margin-top: 24px;
       padding-top: 10px;
     }
     .sig-block {
+      direction: rtl;
       text-align: center;
       font-weight: 900;
       font-size: 10px;
@@ -204,7 +196,7 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     .sig-line {
       border-top: 1px solid #000;
-      margin-top: 30px;
+      margin-top: 32px;
       padding-top: 4px;
     }
     .qr-section {
@@ -212,21 +204,32 @@ function buildInvoiceHtml(invoice, options = {}) {
       top: 8mm;
       left: 10mm;
       text-align: center;
+      direction: rtl;
     }
-    .qr-section img { width: 70px; height: 70px; }
+    .qr-section img { width: 68px; height: 68px; }
     .qr-label { font-size: 7px; font-weight: 900; margin-top: 2px; }
-    .title-row td {
+    .title-row th {
       font-weight: 900;
       font-size: 12px;
       background: #c0c0c0 !important;
+    }
+    .pw-box {
+      margin-top: 4px;
+      font-size: 10px;
+      font-weight: 900;
+      color: #333;
     }
   </style>
 </head>
 <body>
   <div class="page">
-    ${showQr && qrDataUrl ? `<div class="qr-section"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div></div>` : ''}
+    ${showQr && qrDataUrl ? `<div class="qr-section"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div><div class="pw-box">كلمة المرور:<br>${escapeHtml(filePassword)}</div></div>` : ''}
 
-    <div class="serial-bar">رقم الفاتورة: ${escapeHtml(invoice.serial_number)} | النوع: ${escapeHtml(invoice.invoice_type_label)} | كلمة المرور: ${escapeHtml(invoice.file_password || String(invoice.serial_number || '').replace(/-/g, ''))}</div>
+    <div class="serial-bar">
+      رقم الفاتورة: ${escapeHtml(invoice.serial_number)}
+      &nbsp;|&nbsp; النوع: ${escapeHtml(invoice.invoice_type_label)}
+      &nbsp;|&nbsp; 🔒 كلمة المرور: ${escapeHtml(filePassword)}
+    </div>
 
     <div class="header">
       <div class="logo-area">
@@ -238,33 +241,47 @@ function buildInvoiceHtml(invoice, options = {}) {
         <span class="line">مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم ق.م</span>
         <span class="line">القسم المالي</span>
       </div>
-      <div style="width:70px"></div>
+      <div class="header-spacer"></div>
     </div>
 
-    <div class="meta-row">
-      <div class="meta-cell"><div class="meta-label">إسم المريض</div><div class="meta-value">${escapeHtml(invoice.patient_name)}</div></div>
-      <div class="meta-cell"><div class="meta-label">تاريخ الدخول</div><div class="meta-value">${formatDate(invoice.admission_date)}</div></div>
-      <div class="meta-cell"><div class="meta-label">تاريخ الخروج</div><div class="meta-value">${formatDate(invoice.discharge_date)}</div></div>
-      <div class="meta-cell"><div class="meta-label">عدد أيام الإقامة</div><div class="meta-value">${invoice.stay_days || ''}</div></div>
-      <div class="meta-cell"><div class="meta-label">المعاملة المالية للمريض</div><div class="meta-value">${escapeHtml(invoice.financial_treatment)}</div></div>
-      <div class="meta-cell"><div class="meta-label">نوع الإقامة</div><div class="meta-value">${escapeHtml(invoice.stay_type)}</div></div>
-    </div>
+    <table class="meta-table">
+      <tr>
+        <th>إسم المريض</th>
+        <th>تاريخ الدخول</th>
+        <th>تاريخ الخروج</th>
+        <th>عدد أيام الإقامة</th>
+        <th>المعاملة المالية للمريض</th>
+      </tr>
+      <tr>
+        <td class="value">${escapeHtml(invoice.patient_name)}</td>
+        <td class="value">${formatDate(invoice.admission_date)}</td>
+        <td class="value">${formatDate(invoice.discharge_date)}</td>
+        <td class="value">${invoice.stay_days || ''}</td>
+        <td class="value">${escapeHtml(invoice.financial_treatment)}</td>
+      </tr>
+      <tr>
+        <th colspan="5">نوع الإقامة</th>
+      </tr>
+      <tr>
+        <td class="value" colspan="5">${escapeHtml(invoice.stay_type)}</td>
+      </tr>
+    </table>
 
     <table class="main-table">
       <thead>
         <tr class="title-row">
-          <th colspan="3">المبالغ المسددة</th>
-          <th>كشف حساب</th>
           <th colspan="3">القيمة المالية</th>
+          <th>كشف حساب</th>
+          <th colspan="3">المبالغ المسددة</th>
         </tr>
         <tr>
-          <th class="col-pay-date">تاريخ الإيصال</th>
-          <th class="col-pay-num">رقم الإيصال</th>
-          <th class="col-pay-amt">المبلغ</th>
-          <th class="col-desc">البيان</th>
-          <th class="col-qty">عدد</th>
-          <th class="col-amt">المبلغ</th>
           <th class="col-tot">الإجمالي</th>
+          <th class="col-amt">المبلغ</th>
+          <th class="col-qty">عدد</th>
+          <th class="col-desc">البيان</th>
+          <th class="col-pay-amt">المبلغ</th>
+          <th class="col-pay-num">رقم الإيصال</th>
+          <th class="col-pay-date">تاريخ الإيصال</th>
         </tr>
       </thead>
       <tbody>
@@ -305,10 +322,10 @@ function buildInvoiceHtml(invoice, options = {}) {
     </div>
 
     <div class="signatures">
-      <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.employee_name || 'الموظف المختص')}</div></div>
-      <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.auditor_name || 'المراجع المالي')}</div></div>
       <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.captain_name)}</div></div>
       <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.manager_name)}</div></div>
+      <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.auditor_name || 'المراجع المالي')}</div></div>
+      <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.employee_name || 'الموظف المختص')}</div></div>
     </div>
   </div>
 </body>
@@ -316,19 +333,19 @@ function buildInvoiceHtml(invoice, options = {}) {
 }
 
 function buildCombinedRows(items, payments) {
-  const maxLen = Math.max(items.length, payments.length, 10);
+  const maxLen = Math.max(items.length, payments.length, 14);
   let html = '';
   for (let i = 0; i < maxLen; i++) {
     const item = items[i] || {};
     const pay = payments[i] || {};
     html += `<tr>
-      <td>${pay.receipt_date ? formatDate(pay.receipt_date) : ''}</td>
-      <td>${escapeHtml(pay.receipt_number)}</td>
-      <td class="num">${pay.amount ? formatNumber(pay.amount) : ''}</td>
-      <td class="desc">${escapeHtml(item.description)}</td>
-      <td class="num">${item.quantity !== undefined && item.quantity !== '' ? item.quantity : ''}</td>
+      <td class="num">${item.description && item.total !== undefined && item.total !== '' ? formatNumber(item.total) : ''}</td>
       <td class="num">${item.description && item.amount !== undefined ? formatNumber(item.amount) : ''}</td>
-      <td class="num">${item.description && item.total !== undefined ? formatNumber(item.total) : ''}</td>
+      <td class="num">${item.quantity !== undefined && item.quantity !== '' ? item.quantity : ''}</td>
+      <td class="desc">${escapeHtml(item.description)}</td>
+      <td class="num">${pay.amount ? formatNumber(pay.amount) : ''}</td>
+      <td>${escapeHtml(pay.receipt_number)}</td>
+      <td>${pay.receipt_date ? formatDate(pay.receipt_date) : ''}</td>
     </tr>`;
   }
   return html;
@@ -336,49 +353,31 @@ function buildCombinedRows(items, payments) {
 
 function buildSummaryRows(invoice) {
   const adminLabel = `مصروفات إدارية ${invoice.admin_expenses_percent || 12}%`;
-  return `
+  const subtotalFees =
+    (invoice.items_subtotal || 0) + (invoice.stamp_duty || 0) + (invoice.professional_fees || 0);
+
+  const rows = [
+    ['دمغة', invoice.stamp_duty, ''],
+    ['مهن', invoice.professional_fees, ''],
+    ['الإجمالي', subtotalFees, ''],
+    [adminLabel, invoice.admin_expenses, ''],
+    ['الإجمالي بعد المصروفات الإدارية', invoice.total_after_admin, ''],
+    ['الرصيد', invoice.balance, ''],
+    ['الإجمالي', invoice.final_total, formatNumber(invoice.total_collected || 0)],
+  ];
+
+  return rows
+    .map(
+      ([label, chargeVal, payVal]) => `
     <tr class="summary-row">
-      <td colspan="3"></td>
-      <td class="summary-label">دمغة</td>
+      <td class="num">${formatNumber(chargeVal)}</td>
       <td></td><td></td>
-      <td class="num">${formatNumber(invoice.stamp_duty)}</td>
-    </tr>
-    <tr class="summary-row">
-      <td colspan="3"></td>
-      <td class="summary-label">مهن</td>
+      <td class="summary-label">${label}</td>
+      <td class="num">${payVal}</td>
       <td></td><td></td>
-      <td class="num">${formatNumber(invoice.professional_fees)}</td>
-    </tr>
-    <tr class="summary-row">
-      <td colspan="3"></td>
-      <td class="summary-label">الإجمالي</td>
-      <td></td><td></td>
-      <td class="num">${formatNumber((invoice.items_subtotal || 0) + (invoice.stamp_duty || 0) + (invoice.professional_fees || 0))}</td>
-    </tr>
-    <tr class="summary-row">
-      <td colspan="3"></td>
-      <td class="summary-label">${adminLabel}</td>
-      <td></td><td></td>
-      <td class="num">${formatNumber(invoice.admin_expenses)}</td>
-    </tr>
-    <tr class="summary-row">
-      <td colspan="3"></td>
-      <td class="summary-label">الإجمالي بعد المصروفات الإدارية</td>
-      <td></td><td></td>
-      <td class="num">${formatNumber(invoice.total_after_admin)}</td>
-    </tr>
-    <tr class="summary-row">
-      <td colspan="3"></td>
-      <td class="summary-label">الرصيد</td>
-      <td></td><td></td>
-      <td class="num">${formatNumber(invoice.balance)}</td>
-    </tr>
-    <tr class="summary-row">
-      <td colspan="3"></td>
-      <td class="summary-label">الإجمالي</td>
-      <td></td><td></td>
-      <td class="num">${formatNumber(invoice.final_total)}</td>
-    </tr>`;
+    </tr>`
+    )
+    .join('');
 }
 
-module.exports = { buildInvoiceHtml, formatNumber, formatDate };
+module.exports = { buildInvoiceHtml, formatNumber, formatDate, getFilePassword };

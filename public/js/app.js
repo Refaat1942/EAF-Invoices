@@ -31,13 +31,13 @@ function createRow(index) {
   const tr = document.createElement('tr');
   tr.dataset.index = index;
   tr.innerHTML = `
-    <td><input type="date" class="pay-date calc-trigger" data-field="receipt_date"></td>
-    <td><input type="text" class="pay-num calc-trigger" data-field="receipt_number"></td>
-    <td><input type="number" step="0.01" class="pay-amt calc-trigger" data-field="pay_amount" value=""></td>
-    <td><input type="text" class="desc-input calc-trigger" data-field="description"></td>
-    <td><input type="number" step="0.01" class="calc-trigger" data-field="quantity" value=""></td>
-    <td><input type="number" step="0.01" class="calc-trigger" data-field="amount" value=""></td>
     <td><input type="text" class="row-total" data-field="total" readonly tabindex="-1"></td>
+    <td><input type="number" step="0.01" class="calc-trigger" data-field="amount" value=""></td>
+    <td><input type="number" step="0.01" class="calc-trigger" data-field="quantity" value=""></td>
+    <td><input type="text" class="desc-input calc-trigger" data-field="description"></td>
+    <td><input type="number" step="0.01" class="pay-amt calc-trigger" data-field="pay_amount" value=""></td>
+    <td><input type="text" class="pay-num calc-trigger" data-field="receipt_number"></td>
+    <td><input type="date" class="pay-date calc-trigger" data-field="receipt_date"></td>
   `;
   return tr;
 }
@@ -190,13 +190,13 @@ function updateSummaryTable(t) {
   const subtotalFees = t.items_subtotal + t.stamp_duty + t.professional_fees;
 
   document.getElementById('summary-tfoot').innerHTML = `
-    <tr><td colspan="3"></td><td class="summary-label">دمغة</td><td></td><td></td><td>${fmt(t.stamp_duty)}</td></tr>
-    <tr><td colspan="3"></td><td class="summary-label">مهن</td><td></td><td></td><td>${fmt(t.professional_fees)}</td></tr>
-    <tr><td colspan="3"></td><td class="summary-label">الإجمالي</td><td></td><td></td><td>${fmt(subtotalFees)}</td></tr>
-    <tr><td colspan="3"></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td>${fmt(t.admin_expenses)}</td></tr>
-    <tr><td colspan="3"></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td>${fmt(t.total_after_admin)}</td></tr>
-    <tr><td colspan="3"></td><td class="summary-label">الرصيد</td><td></td><td></td><td>${fmt(t.balance)}</td></tr>
-    <tr><td colspan="3"></td><td class="summary-label">الإجمالي</td><td></td><td></td><td>${fmt(t.final_total)}</td></tr>
+    <tr><td>${fmt(t.stamp_duty)}</td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmt(t.professional_fees)}</td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmt(subtotalFees)}</td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmt(t.admin_expenses)}</td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmt(t.total_after_admin)}</td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmt(t.balance)}</td><td></td><td></td><td class="summary-label">الرصيد</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmt(t.final_total)}</td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmt(t.total_collected)}</td><td></td><td></td></tr>
   `;
 }
 
