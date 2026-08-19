@@ -154,7 +154,7 @@ router.get('/:id/pdf', requirePermission('invoices.view'), async (req, res) => {
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
 
     const baseUrl = getBaseUrl(req);
-    const pdf = await generatePdfBuffer(invoice, baseUrl, { encrypt: false });
+    const pdf = await generatePdfBuffer(invoice, baseUrl);
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice.serial_number}.pdf"`);
@@ -169,7 +169,7 @@ router.get('/:id/docx', requirePermission('invoices.view'), async (req, res) => 
     const invoice = await getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
 
-    const buffer = await generateDocxBuffer(invoice, { encrypt: false });
+    const buffer = await generateDocxBuffer(invoice);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice.serial_number}.docx"`);
     res.send(buffer);

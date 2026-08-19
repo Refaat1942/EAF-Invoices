@@ -183,6 +183,9 @@ async function runMigrations() {
     WHERE stay_type_id IS NOT NULL
       AND (stay_type_ids IS NULL OR stay_type_ids = '[]'::jsonb)
   `);
+
+  await query(`UPDATE invoices SET file_password = '' WHERE COALESCE(file_password, '') <> ''`);
+  await query(`DELETE FROM app_settings WHERE key = 'default_file_password'`);
 }
 
 module.exports = { pool, query, withTransaction, initDatabase };

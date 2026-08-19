@@ -21,14 +21,14 @@ router.get('/:token', async (req, res) => {
     const logoUrl = await getLogoUrl(baseUrl);
 
     if (format === 'pdf') {
-      const pdf = await generatePdfBuffer(invoice, baseUrl, { encrypt: false, logoUrl });
+      const pdf = await generatePdfBuffer(invoice, baseUrl, { logoUrl });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice.serial_number}.pdf"`);
       return res.send(pdf);
     }
 
     if (format === 'docx' || format === 'word') {
-      const buffer = await generateDocxBuffer(invoice, { encrypt: false });
+      const buffer = await generateDocxBuffer(invoice);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice.serial_number}.docx"`);
       return res.send(buffer);
