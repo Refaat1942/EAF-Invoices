@@ -397,4 +397,4 @@ function buildSummaryRows(invoice) {
     .join('');
 }
 
-module.exports = { buildInvoiceHtml, formatNumber, formatDate, getFilePassword };
+module.exports = { buildInvoiceHtml, formatNumber, formatDate };
