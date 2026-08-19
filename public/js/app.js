@@ -77,7 +77,6 @@ function applyPermissions() {
   document.getElementById('nav-settings').style.display = isAdmin ? '' : 'none';
   document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
   document.getElementById('file-password-settings-card').style.display = isAdmin ? '' : 'none';
-  document.getElementById('file-password-row').style.display = isAdmin ? '' : 'none';
 
   const createBtn = document.querySelector('[data-view="create"]');
   if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
@@ -98,9 +97,11 @@ function setFormReadonly(readonly) {
     if (readonly) {
       el.setAttribute('readonly', 'readonly');
       if (el.tagName === 'SELECT') el.disabled = true;
+      if (el.type === 'checkbox') el.disabled = true;
     } else {
       el.removeAttribute('readonly');
       if (el.tagName === 'SELECT') el.disabled = false;
+      if (el.type === 'checkbox') el.disabled = false;
     }
   });
 }
@@ -247,9 +248,8 @@ function collectFormData() {
     discharge_date: document.getElementById('discharge_date').value,
     stay_days: document.getElementById('stay_days').value,
     financial_treatment: document.getElementById('financial_treatment').value,
-    stay_type_id: document.getElementById('stay_type_id').value,
+    stay_type_ids: getSelectedStayTypeIds(),
     notes: document.getElementById('notes').value,
-    ...(can('settings.*') ? { file_password: document.getElementById('file_password').value } : {}),
     stamp_duty: document.getElementById('stamp_duty').value,
     professional_fees: document.getElementById('professional_fees').value,
     balance: document.getElementById('balance').value,
@@ -371,7 +371,6 @@ async function loadQR(id) {
     document.getElementById('qr-card').style.display = 'block';
     document.getElementById('qr-image').src = data.qr_data_url;
     document.getElementById('qr-serial').textContent = data.serial_number;
-    document.getElementById('qr-password').textContent = `🔒 كلمة المرور: ${data.file_password}`;
   } catch (err) {
     console.error(err);
   }
@@ -399,8 +398,7 @@ function resetForm() {
   document.getElementById('bank_private').value = '0';
   document.getElementById('cash_external').value = '0';
   document.getElementById('bank_external').value = '0';
-  document.getElementById('file_password').value = '';
-  document.getElementById('stay_type_id').value = '';
+  setSelectedStayTypes([]);
   ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
     document.getElementById(id).style.display = 'none';
   });
@@ -432,10 +430,8 @@ async function loadInvoiceForEdit(id) {
     document.getElementById('discharge_date').value = fmtDate(inv.discharge_date);
     document.getElementById('stay_days').value = inv.stay_days;
     document.getElementById('financial_treatment').value = inv.financial_treatment;
-    await loadStayTypes();
-    document.getElementById('stay_type_id').value = inv.stay_type_id || '';
+    await loadStayTypes(parseStayTypeIds(inv));
     document.getElementById('notes').value = inv.notes || '';
-    document.getElementById('file_password').value = inv.file_password || '';
     document.getElementById('stamp_duty').value = inv.stamp_duty;
     document.getElementById('professional_fees').value = inv.professional_fees;
     document.getElementById('balance').value = inv.balance;
@@ -551,17 +547,51 @@ function fmtDate(d) {
   return String(d).slice(0, 10);
 }
 
-async function loadStayTypes() {
+function getSelectedStayTypeIds() {
+  return [...document.querySelectorAll('#stay-types-checkboxes input:checked')].map((el) =>
+    Number(el.value)
+  );
+}
+
+function setSelectedStayTypes(ids = []) {
+  const selected = new Set((ids || []).map(Number));
+  document.querySelectorAll('#stay-types-checkboxes input').forEach((el) => {
+    el.checked = selected.has(Number(el.value));
+  });
+}
+
+function parseStayTypeIds(inv) {
+  let ids = inv.stay_type_ids;
+  if (typeof ids === 'string') {
+    try {
+      ids = JSON.parse(ids);
+    } catch {
+      ids = [];
+    }
+  }
+  if (Array.isArray(ids) && ids.length) return ids.map(Number).filter(Boolean);
+  if (inv.stay_type_id) return [Number(inv.stay_type_id)];
+  return [];
+}
+
+async function loadStayTypes(selectedIds = null) {
   try {
     const res = await apiFetch(`${SETTINGS_API}/stay-types`);
     const types = await res.json();
-    const select = document.getElementById('stay_type_id');
-    const current = select.value;
-    select.innerHTML = '<option value="">-- اختر نوع الإقامة --</option>';
-    types.forEach((t) => {
-      select.innerHTML += `<option value="${t.id}">${t.name}</option>`;
-    });
-    if (current) select.value = current;
+    const current =
+      selectedIds !== null && selectedIds !== undefined ? selectedIds : getSelectedStayTypeIds();
+    const container = document.getElementById('stay-types-checkboxes');
+    container.innerHTML = types.length
+      ? types
+          .map(
+            (t) => `
+      <label class="stay-type-chip">
+        <input type="checkbox" value="${t.id}" ${current.includes(t.id) ? 'checked' : ''}>
+        <span>${t.name}</span>
+      </label>`
+          )
+          .join('')
+      : '<span class="text-muted fw-bold">لا توجد أنواع إقامة — أضفها من الإعدادات</span>';
     return types;
   } catch (err) {
     console.error(err);
@@ -609,7 +639,7 @@ async function saveDefaultFilePassword() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    showToast('تم حفظ كلمة المرور الافتراضية', 'success');
+    showToast('تم حفظ كلمة مرور الفواتير', 'success');
   } catch (err) {
     showToast(err.message, 'danger');
   }

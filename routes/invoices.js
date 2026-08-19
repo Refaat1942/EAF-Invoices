@@ -12,10 +12,8 @@ const {
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
-const { resolveFilePasswordAsync } = require('../services/passwordService');
 const { getLogoUrl } = require('../services/settingsService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
-const { canAccess } = require('../services/authService');
 
 const router = express.Router();
 
@@ -82,7 +80,6 @@ router.post('/', requirePermission('invoices.create'), async (req, res) => {
     if (!req.body.invoice_type) {
       return res.status(400).json({ error: 'يجب اختيار نوع الفاتورة' });
     }
-    if (!canAccess(req.user.role, 'settings.*')) delete req.body.file_password;
     const invoice = await saveInvoice(req.body);
     res.status(201).json(invoice);
   } catch (err) {
@@ -92,7 +89,6 @@ router.post('/', requirePermission('invoices.create'), async (req, res) => {
 
 router.put('/:id', requirePermission('invoices.edit'), async (req, res) => {
   try {
-    if (!canAccess(req.user.role, 'settings.*')) delete req.body.file_password;
     const invoice = await saveInvoice(req.body, Number(req.params.id));
     res.json(invoice);
   } catch (err) {
@@ -128,7 +124,6 @@ router.get('/:id/qr', requirePermission('invoices.view'), async (req, res) => {
       qr_data_url: qrDataUrl,
       download_url: downloadUrl,
       serial_number: invoice.serial_number,
-      file_password: await resolveFilePasswordAsync(invoice),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -115,7 +115,7 @@ function renderPasswordPage(invoice, baseUrl, errorMsg = '') {
       <button type="submit">فتح الفاتورة</button>
     </form>
     ${errorMsg ? `<div class="error">${errorMsg}</div>` : ''}
-    <p class="hint">كلمة المرور = رقم الفاتورة بدون شرطات<br><strong>مثال: EAF-2026-000001 ← EAF2026000001</strong></p>
+    <p class="hint">أدخل كلمة مرور فتح الملفات المحددة من الإدارة</p>
   </div>
   <script>
     document.getElementById('pw-form').addEventListener('submit', async (e) => {
@@ -139,7 +139,6 @@ function renderPasswordPage(invoice, baseUrl, errorMsg = '') {
 }
 
 async function wrapDownloadPage(invoiceHtml, invoice, baseUrl) {
-  const password = await resolveFilePasswordAsync(invoice);
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -163,7 +162,6 @@ async function wrapDownloadPage(invoiceHtml, invoice, baseUrl) {
     <a class="btn-pdf" href="${baseUrl}/download/${invoice.qr_token}?format=pdf">تحميل PDF 🔒</a>
     <a class="btn-word" href="${baseUrl}/download/${invoice.qr_token}?format=docx">تحميل Word 🔒</a>
     <button class="btn-print" onclick="window.print()">طباعة</button>
-    <div class="pw-note">كلمة مرور الملف: <strong>${password}</strong></div>
   </div>
   ${invoiceHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] || invoiceHtml}
 </body>

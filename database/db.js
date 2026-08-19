@@ -72,6 +72,7 @@ async function initDatabase() {
       financial_treatment TEXT DEFAULT '',
       stay_type TEXT DEFAULT '',
       stay_type_id INTEGER REFERENCES stay_types(id) ON DELETE SET NULL,
+      stay_type_ids JSONB DEFAULT '[]',
       stamp_duty NUMERIC(14,2) DEFAULT 0,
       professional_fees NUMERIC(14,2) DEFAULT 0,
       stamp_duty_raw NUMERIC(14,4) DEFAULT 0,
@@ -165,6 +166,7 @@ async function runMigrations() {
     'remaining_raw NUMERIC(14,4) DEFAULT 0',
     'issue_date DATE DEFAULT CURRENT_DATE',
     'file_number TEXT DEFAULT \'\'',
+    'stay_type_ids JSONB DEFAULT \'[]\'',
   ];
   for (const col of alterColumns) {
     const name = col.split(' ')[0];
@@ -174,6 +176,13 @@ async function runMigrations() {
   await query(`UPDATE users SET role = 'user' WHERE role IN ('supervisor', 'accountant', 'viewer')`);
   await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
   await query(`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'user'))`);
+
+  await query(`
+    UPDATE invoices
+    SET stay_type_ids = jsonb_build_array(stay_type_id)
+    WHERE stay_type_id IS NOT NULL
+      AND (stay_type_ids IS NULL OR stay_type_ids = '[]'::jsonb)
+  `);
 }
 
 module.exports = { pool, query, withTransaction, initDatabase };

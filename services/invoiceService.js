@@ -2,7 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const { query, withTransaction } = require('../database/db');
 const { calculateInvoiceTotals, calculateStayDays } = require('./calculations');
 const { nextSerialNumber } = require('./serialService');
-const { generateFilePassword, resolveInvoiceFilePassword } = require('./passwordService');
+const { resolveStoredFilePassword } = require('./passwordService');
 
 const INVOICE_TYPES = {
   civil: 'مدني (خاص)',
@@ -10,6 +10,27 @@ const INVOICE_TYPES = {
   non_contracted: 'جهات غير متعاقدة',
   military: 'عسكري',
 };
+
+async function resolveStayTypes(client, data) {
+  let ids = [];
+  if (Array.isArray(data.stay_type_ids) && data.stay_type_ids.length) {
+    ids = data.stay_type_ids.map(Number).filter(Boolean);
+  } else if (data.stay_type_id) {
+    ids = [Number(data.stay_type_id)];
+  }
+
+  if (!ids.length) {
+    return { ids: [], names: data.stay_type || '', firstId: null };
+  }
+
+  const st = await client.query(
+    'SELECT id, name FROM stay_types WHERE id = ANY($1::int[]) ORDER BY sort_order, name',
+    [ids]
+  );
+  const orderedIds = st.rows.map((r) => r.id);
+  const names = st.rows.map((r) => r.name).join('، ');
+  return { ids: orderedIds, names, firstId: orderedIds[0] || null };
+}
 
 async function getInvoiceById(id) {
   const { rows } = await query('SELECT * FROM invoices WHERE id = $1', [id]);
@@ -89,13 +110,11 @@ async function saveInvoice(data, existingId = null) {
     let qrToken = data.qr_token;
     let invoiceId = existingId;
 
-    const stayTypeId = data.stay_type_id ? Number(data.stay_type_id) : null;
-    let stayTypeName = data.stay_type || '';
-
-    if (stayTypeId) {
-      const st = await client.query('SELECT name FROM stay_types WHERE id = $1', [stayTypeId]);
-      if (st.rows.length) stayTypeName = st.rows[0].name;
-    }
+    const { ids: stayTypeIds, names: stayTypeName, firstId: stayTypeId } = await resolveStayTypes(
+      client,
+      data
+    );
+    const stayTypeIdsJson = JSON.stringify(stayTypeIds);
 
     if (existingId) {
       const existing = await client.query(
@@ -106,26 +125,22 @@ async function saveInvoice(data, existingId = null) {
 
       serialNumber = existing.rows[0].serial_number;
       qrToken = existing.rows[0].qr_token;
-      const filePassword = await resolveInvoiceFilePassword(
-        data,
-        serialNumber,
-        existing.rows[0].file_password
-      );
+      const filePassword = await resolveStoredFilePassword(serialNumber);
 
       await client.query(
         `UPDATE invoices SET
           invoice_type = $1, patient_name = $2, file_number = $3, issue_date = $4, admission_date = $5, discharge_date = $6,
-          stay_days = $7, financial_treatment = $8, stay_type = $9, stay_type_id = $10,
-          stamp_duty = $11, stamp_duty_raw = $12, professional_fees = $13, professional_fees_raw = $14,
-          items_subtotal = $15, items_subtotal_raw = $16,
-          admin_expenses_percent = $17, admin_expenses = $18, admin_expenses_raw = $19,
-          total_after_admin = $20, total_after_admin_raw = $21,
-          balance = $22, balance_raw = $23, final_total = $24, final_total_raw = $25,
-          cash_private = $26, bank_private = $27, cash_external = $28, bank_external = $29,
-          total_collected = $30, total_collected_raw = $31, remaining = $32, remaining_raw = $33,
-          employee_name = $34, auditor_name = $35, captain_name = $36, manager_name = $37,
-          file_password = $38, notes = $39, updated_at = NOW()
-        WHERE id = $40`,
+          stay_days = $7, financial_treatment = $8, stay_type = $9, stay_type_id = $10, stay_type_ids = $11::jsonb,
+          stamp_duty = $12, stamp_duty_raw = $13, professional_fees = $14, professional_fees_raw = $15,
+          items_subtotal = $16, items_subtotal_raw = $17,
+          admin_expenses_percent = $18, admin_expenses = $19, admin_expenses_raw = $20,
+          total_after_admin = $21, total_after_admin_raw = $22,
+          balance = $23, balance_raw = $24, final_total = $25, final_total_raw = $26,
+          cash_private = $27, bank_private = $28, cash_external = $29, bank_external = $30,
+          total_collected = $31, total_collected_raw = $32, remaining = $33, remaining_raw = $34,
+          employee_name = $35, auditor_name = $36, captain_name = $37, manager_name = $38,
+          file_password = $39, notes = $40, updated_at = NOW()
+        WHERE id = $41`,
         [
           data.invoice_type,
           data.patient_name || '',
@@ -137,6 +152,7 @@ async function saveInvoice(data, existingId = null) {
           data.financial_treatment || '',
           stayTypeName,
           stayTypeId,
+          stayTypeIdsJson,
           totals.stamp_duty,
           totals.stamp_duty_raw,
           totals.professional_fees,
@@ -175,12 +191,12 @@ async function saveInvoice(data, existingId = null) {
     } else {
       serialNumber = await nextSerialNumber(client);
       qrToken = uuidv4();
-      const filePassword = await resolveInvoiceFilePassword(data, serialNumber);
+      const filePassword = await resolveStoredFilePassword(serialNumber);
 
       const inserted = await client.query(
         `INSERT INTO invoices (
           serial_number, issue_date, invoice_type, patient_name, file_number, admission_date, discharge_date,
-          stay_days, financial_treatment, stay_type, stay_type_id,
+          stay_days, financial_treatment, stay_type, stay_type_id, stay_type_ids,
           stamp_duty, stamp_duty_raw, professional_fees, professional_fees_raw,
           items_subtotal, items_subtotal_raw, admin_expenses_percent,
           admin_expenses, admin_expenses_raw, total_after_admin, total_after_admin_raw,
@@ -188,7 +204,7 @@ async function saveInvoice(data, existingId = null) {
           cash_private, bank_private, cash_external, bank_external,
           total_collected, total_collected_raw, remaining, remaining_raw,
           employee_name, auditor_name, captain_name, manager_name, qr_token, file_password, notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
         RETURNING id`,
         [
           serialNumber,
@@ -202,6 +218,7 @@ async function saveInvoice(data, existingId = null) {
           data.financial_treatment || '',
           stayTypeName,
           stayTypeId,
+          stayTypeIdsJson,
           totals.stamp_duty,
           totals.stamp_duty_raw,
           totals.professional_fees,

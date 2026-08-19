@@ -33,13 +33,8 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-function getFilePassword(invoice) {
-  return invoice.file_password || String(invoice.serial_number || '').replace(/-/g, '');
-}
-
 function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
-  const filePassword = getFilePassword(invoice);
 
   const minRows = 14;
   const items = [...(invoice.items || [])];
@@ -239,13 +234,12 @@ function buildInvoiceHtml(invoice, options = {}) {
 </head>
 <body>
   <div class="page">
-    ${showQr && qrDataUrl ? `<div class="qr-section"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div><div class="pw-box">كلمة المرور:<br>${escapeHtml(filePassword)}</div></div>` : ''}
+    ${showQr && qrDataUrl ? `<div class="qr-section"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div></div>` : ''}
 
     <div class="serial-bar">
       رقم الفاتورة: ${escapeHtml(invoice.serial_number)}
       &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(invoice.issue_date || invoice.created_at)}
       &nbsp;|&nbsp; النوع: ${escapeHtml(invoice.invoice_type_label)}
-      &nbsp;|&nbsp; 🔒 كلمة المرور: ${escapeHtml(filePassword)}
     </div>
 
     <div class="header">
@@ -279,7 +273,7 @@ function buildInvoiceHtml(invoice, options = {}) {
         <td class="value">${escapeHtml(invoice.financial_treatment)}</td>
       </tr>
       <tr>
-        <th colspan="6">نوع الإقامة</th>
+        <th colspan="6">أنواع الإقامة</th>
       </tr>
       <tr>
         <td class="value" colspan="6">${escapeHtml(invoice.stay_type)}</td>

@@ -9,9 +9,6 @@ function generateFilePassword(serialNumber) {
 }
 
 async function resolveFilePasswordAsync(invoice) {
-  if (invoice?.file_password && String(invoice.file_password).trim()) {
-    return String(invoice.file_password).trim();
-  }
   const defaultPw = await getSetting(DEFAULT_PW_KEY, '');
   if (defaultPw && String(defaultPw).trim()) {
     return String(defaultPw).trim();
@@ -19,21 +16,8 @@ async function resolveFilePasswordAsync(invoice) {
   return generateFilePassword(invoice?.serial_number);
 }
 
-function resolveFilePassword(invoice) {
-  if (invoice?.file_password && String(invoice.file_password).trim()) {
-    return String(invoice.file_password).trim();
-  }
-  return generateFilePassword(invoice?.serial_number);
-}
-
-async function resolveInvoiceFilePassword(data, serialNumber, existingPassword = '') {
-  if (data.file_password !== undefined && String(data.file_password).trim()) {
-    return String(data.file_password).trim();
-  }
-  if (existingPassword && String(existingPassword).trim()) {
-    return String(existingPassword).trim();
-  }
-  return resolveFilePasswordAsync({ serial_number: serialNumber, file_password: '' });
+async function resolveStoredFilePassword(serialNumber) {
+  return resolveFilePasswordAsync({ serial_number: serialNumber });
 }
 
 function createDownloadToken(qrToken, password) {
@@ -57,9 +41,8 @@ function getCookieName(qrToken) {
 module.exports = {
   DEFAULT_PW_KEY,
   generateFilePassword,
-  resolveFilePassword,
   resolveFilePasswordAsync,
-  resolveInvoiceFilePassword,
+  resolveStoredFilePassword,
   createDownloadToken,
   verifyDownloadToken,
   getCookieName,

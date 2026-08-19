@@ -48,7 +48,7 @@
     <!-- Create/Edit Invoice View -->
     <section id="view-create" class="view-section">
       <div class="row g-3">
-        <div class="col-lg-9">
+        <div class="col-xl-10 col-lg-9">
           <div class="card shadow-sm invoice-card">
             <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
               <h5 class="mb-0 fw-black" id="form-title">إنشاء فاتورة جديدة</h5>
@@ -58,59 +58,63 @@
               <form id="invoice-form">
                 <input type="hidden" id="invoice-id">
 
-                <div class="row g-2 mb-3">
-                  <div class="col-md-3">
-                    <label class="form-label fw-bold">نوع الفاتورة *</label>
-                    <select class="form-select fw-bold" id="invoice_type" required>
-                      <option value="">-- اختر النوع --</option>
-                      <option value="civil">مدني (خاص)</option>
-                      <option value="contracted">جهات متعاقدة</option>
-                      <option value="non_contracted">جهات غير متعاقدة</option>
-                      <option value="military">عسكري</option>
-                    </select>
+                <div class="invoice-meta-section mb-4">
+                  <div class="row g-3 mb-3">
+                    <div class="col-lg-3 col-md-6">
+                      <label class="form-label fw-bold">نوع الفاتورة *</label>
+                      <select class="form-select fw-bold" id="invoice_type" required>
+                        <option value="">-- اختر النوع --</option>
+                        <option value="civil">مدني (خاص)</option>
+                        <option value="contracted">جهات متعاقدة</option>
+                        <option value="non_contracted">جهات غير متعاقدة</option>
+                        <option value="military">عسكري</option>
+                      </select>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                      <label class="form-label fw-bold">تاريخ إصدار الفاتورة</label>
+                      <input type="date" class="form-control fw-bold" id="issue_date">
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                      <label class="form-label fw-bold">رقم الملف</label>
+                      <input type="text" class="form-control fw-bold" id="file_number">
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                      <label class="form-label fw-bold">إسم المريض</label>
+                      <input type="text" class="form-control fw-bold" id="patient_name">
+                    </div>
                   </div>
-                  <div class="col-md-3">
-                    <label class="form-label fw-bold">تاريخ إصدار الفاتورة</label>
-                    <input type="date" class="form-control fw-bold" id="issue_date">
+
+                  <div class="row g-3 mb-3">
+                    <div class="col-lg-3 col-md-6">
+                      <label class="form-label fw-bold">تاريخ الدخول</label>
+                      <input type="date" class="form-control" id="admission_date">
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                      <label class="form-label fw-bold">تاريخ الخروج</label>
+                      <input type="date" class="form-control" id="discharge_date">
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                      <label class="form-label fw-bold">عدد أيام الإقامة</label>
+                      <input type="number" class="form-control fw-bold" id="stay_days" min="0">
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                      <label class="form-label fw-bold">المعاملة المالية للمريض</label>
+                      <input type="text" class="form-control fw-bold" id="financial_treatment">
+                    </div>
                   </div>
-                  <div class="col-md-2">
-                    <label class="form-label fw-bold">رقم الملف</label>
-                    <input type="text" class="form-control fw-bold" id="file_number">
+
+                  <div class="row g-3 mb-3">
+                    <div class="col-12">
+                      <label class="form-label fw-bold">أنواع الإقامة <span class="text-muted fw-normal">(يمكن اختيار أكثر من واحد)</span></label>
+                      <div id="stay-types-checkboxes" class="stay-types-grid"></div>
+                    </div>
                   </div>
-                  <div class="col-md-3">
-                    <label class="form-label fw-bold">إسم المريض</label>
-                    <input type="text" class="form-control fw-bold" id="patient_name">
-                  </div>
-                  <div class="col-md-2">
-                    <label class="form-label fw-bold">تاريخ الدخول</label>
-                    <input type="date" class="form-control" id="admission_date">
-                  </div>
-                  <div class="col-md-2">
-                    <label class="form-label fw-bold">تاريخ الخروج</label>
-                    <input type="date" class="form-control" id="discharge_date">
-                  </div>
-                  <div class="col-md-2">
-                    <label class="form-label fw-bold">عدد أيام الإقامة</label>
-                    <input type="number" class="form-control fw-bold" id="stay_days" min="0">
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label fw-bold">المعاملة المالية للمريض</label>
-                    <input type="text" class="form-control fw-bold" id="financial_treatment">
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label fw-bold">نوع الإقامة</label>
-                    <select class="form-select fw-bold" id="stay_type_id">
-                      <option value="">-- اختر نوع الإقامة --</option>
-                    </select>
-                  </div>
-                  <div class="col-md-4">
-                    <label class="form-label fw-bold">ملاحظات</label>
-                    <input type="text" class="form-control" id="notes">
-                  </div>
-                  <div class="col-md-4" id="file-password-row" style="display:none">
-                    <label class="form-label fw-bold">كلمة مرور فتح الملف 🔒</label>
-                    <input type="text" class="form-control fw-bold" id="file_password" placeholder="اتركها فارغة = الإعداد الافتراضي">
-                    <div class="form-text">تُستخدم عند مسح QR Code لتحميل PDF/Word</div>
+
+                  <div class="row g-3">
+                    <div class="col-12">
+                      <label class="form-label fw-bold">ملاحظات</label>
+                      <input type="text" class="form-control" id="notes">
+                    </div>
                   </div>
                 </div>
 
@@ -207,13 +211,12 @@
           </div>
         </div>
 
-        <div class="col-lg-3">
+        <div class="col-xl-2 col-lg-3">
           <div class="card shadow-sm mb-3" id="qr-card" style="display:none">
             <div class="card-header bg-dark text-white fw-black">QR Code</div>
             <div class="card-body text-center">
               <img id="qr-image" class="img-fluid mb-2" alt="QR Code">
               <p class="fw-black text-primary" id="qr-serial"></p>
-              <p class="fw-black text-danger" id="qr-password"></p>
               <p class="small text-muted">امسح الكود → أدخل كلمة المرور → حمّل PDF أو Word</p>
             </div>
           </div>
@@ -304,12 +307,12 @@
         </div>
         <div class="col-md-6" id="file-password-settings-card" style="display:none">
           <div class="card shadow-sm">
-            <div class="card-header bg-warning text-dark fw-black">🔒 كلمة مرور فتح الملفات (QR)</div>
+            <div class="card-header bg-warning text-dark fw-black">🔒 كلمة مرور فتح جميع الفواتير</div>
             <div class="card-body">
-              <label class="form-label fw-bold">كلمة المرور الافتراضية للفواتير الجديدة</label>
-              <input type="text" class="form-control fw-bold mb-2" id="default-file-password" placeholder="فارغ = رقم الفاتورة بدون شرطات">
+              <label class="form-label fw-bold">كلمة المرور الثابتة (QR / PDF / Word)</label>
+              <input type="text" class="form-control fw-bold mb-2" id="default-file-password" placeholder="مثال: EAF2026">
               <button class="btn btn-success fw-bold" id="save-default-password-btn">حفظ</button>
-              <p class="small text-muted mt-2 mb-0">يمكن تغيير كلمة المرور لكل فاتورة على حدة من نموذج الفاتورة</p>
+              <p class="small text-muted mt-2 mb-0">تُطبّق على جميع الفواتير. إذا تُركت فارغة يُستخدم رقم الفاتورة بدون شرطات.</p>
             </div>
           </div>
         </div>
