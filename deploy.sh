@@ -47,6 +47,9 @@ install_pdf_deps() {
 
 install_pdf_deps
 
+# Build tools for better-sqlite3 (if prebuilt binary unavailable)
+apt-get install -y build-essential python3 2>/dev/null || true
+
 cd "$(dirname "$0")"
 npm install
 

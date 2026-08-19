@@ -2,7 +2,17 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 
-require('./database/db');
+process.on('uncaughtException', (err) => {
+  console.error('FATAL:', err);
+  process.exit(1);
+});
+
+try {
+  require('./database/db');
+} catch (err) {
+  console.error('Database init failed:', err.message);
+  process.exit(1);
+}
 
 const invoiceRoutes = require('./routes/invoices');
 const downloadRoutes = require('./routes/download');
