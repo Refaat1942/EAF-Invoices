@@ -4,7 +4,7 @@ const { buildInvoiceHtml } = require('./pdfService');
 const { buildWordDocument } = require('./wordService');
 const { encryptPdfBuffer } = require('./pdfEncrypt');
 const { encryptDocxBuffer } = require('./wordEncrypt');
-const { resolveFilePassword } = require('./passwordService');
+const { resolveFilePasswordAsync } = require('./passwordService');
 
 let browserInstance = null;
 
@@ -36,7 +36,7 @@ async function generatePdfBuffer(invoice, baseUrl, { encrypt = true, logoUrl } =
   await page.close();
 
   if (encrypt) {
-    const password = resolveFilePassword(invoice);
+    const password = await resolveFilePasswordAsync(invoice);
     pdf = encryptPdfBuffer(pdf, password);
   }
 
@@ -46,7 +46,7 @@ async function generatePdfBuffer(invoice, baseUrl, { encrypt = true, logoUrl } =
 async function generateDocxBuffer(invoice, { encrypt = true } = {}) {
   let buffer = await buildWordDocument(invoice);
   if (encrypt) {
-    const password = resolveFilePassword(invoice);
+    const password = await resolveFilePasswordAsync(invoice);
     buffer = await encryptDocxBuffer(buffer, password);
   }
   return buffer;

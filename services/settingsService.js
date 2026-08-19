@@ -4,6 +4,7 @@ const { query } = require('../database/db');
 
 const ASSETS_DIR = path.join(__dirname, '..', 'public', 'assets');
 const LOGO_KEY = 'invoice_logo';
+const DEFAULT_FILE_PASSWORD_KEY = 'default_file_password';
 
 async function getSetting(key, defaultValue = '') {
   const { rows } = await query('SELECT value FROM app_settings WHERE key = $1', [key]);
@@ -54,7 +55,24 @@ async function saveLogo(file) {
 
 async function getSettings() {
   const logo = await getSetting(LOGO_KEY, 'logo.svg');
-  return { invoice_logo: logo };
+  const default_file_password = await getSetting(DEFAULT_FILE_PASSWORD_KEY, '');
+  return { invoice_logo: logo, default_file_password };
 }
 
-module.exports = { getSetting, setSetting, getLogoUrl, saveLogo, getSettings, LOGO_KEY };
+async function saveGeneralSettings(data) {
+  if (data.default_file_password !== undefined) {
+    await setSetting(DEFAULT_FILE_PASSWORD_KEY, String(data.default_file_password || '').trim());
+  }
+  return getSettings();
+}
+
+module.exports = {
+  getSetting,
+  setSetting,
+  getLogoUrl,
+  saveLogo,
+  getSettings,
+  saveGeneralSettings,
+  LOGO_KEY,
+  DEFAULT_FILE_PASSWORD_KEY,
+};

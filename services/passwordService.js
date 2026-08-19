@@ -1,20 +1,39 @@
 const crypto = require('crypto');
+const { getSetting } = require('./settingsService');
 
 const APP_SECRET = process.env.APP_SECRET || 'eaf-invoices-secret-key';
+const DEFAULT_PW_KEY = 'default_file_password';
 
 function generateFilePassword(serialNumber) {
-  // Default: serial number without dashes (easy to type)
   return String(serialNumber || '').replace(/-/g, '');
 }
 
-function resolveFilePassword(invoice, customPassword) {
-  if (customPassword && String(customPassword).trim()) {
-    return String(customPassword).trim();
+async function resolveFilePasswordAsync(invoice) {
+  if (invoice?.file_password && String(invoice.file_password).trim()) {
+    return String(invoice.file_password).trim();
   }
-  if (invoice.file_password) {
-    return invoice.file_password;
+  const defaultPw = await getSetting(DEFAULT_PW_KEY, '');
+  if (defaultPw && String(defaultPw).trim()) {
+    return String(defaultPw).trim();
   }
-  return generateFilePassword(invoice.serial_number);
+  return generateFilePassword(invoice?.serial_number);
+}
+
+function resolveFilePassword(invoice) {
+  if (invoice?.file_password && String(invoice.file_password).trim()) {
+    return String(invoice.file_password).trim();
+  }
+  return generateFilePassword(invoice?.serial_number);
+}
+
+async function resolveInvoiceFilePassword(data, serialNumber, existingPassword = '') {
+  if (data.file_password !== undefined && String(data.file_password).trim()) {
+    return String(data.file_password).trim();
+  }
+  if (existingPassword && String(existingPassword).trim()) {
+    return String(existingPassword).trim();
+  }
+  return resolveFilePasswordAsync({ serial_number: serialNumber, file_password: '' });
 }
 
 function createDownloadToken(qrToken, password) {
@@ -36,8 +55,11 @@ function getCookieName(qrToken) {
 }
 
 module.exports = {
+  DEFAULT_PW_KEY,
   generateFilePassword,
   resolveFilePassword,
+  resolveFilePasswordAsync,
+  resolveInvoiceFilePassword,
   createDownloadToken,
   verifyDownloadToken,
   getCookieName,

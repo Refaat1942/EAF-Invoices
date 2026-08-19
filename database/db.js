@@ -48,11 +48,24 @@ async function initDatabase() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(100) UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      full_name TEXT DEFAULT '',
+      role VARCHAR(30) NOT NULL DEFAULT 'user' CHECK(role IN ('admin', 'user')),
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_login TIMESTAMPTZ
+    );
+
     CREATE TABLE IF NOT EXISTS invoices (
       id SERIAL PRIMARY KEY,
       serial_number VARCHAR(50) UNIQUE NOT NULL,
+      issue_date DATE DEFAULT CURRENT_DATE,
       invoice_type VARCHAR(30) NOT NULL CHECK(invoice_type IN ('civil', 'contracted', 'non_contracted', 'military')),
       patient_name TEXT DEFAULT '',
+      file_number TEXT DEFAULT '',
       admission_date DATE,
       discharge_date DATE,
       stay_days INTEGER DEFAULT 0,
@@ -61,18 +74,27 @@ async function initDatabase() {
       stay_type_id INTEGER REFERENCES stay_types(id) ON DELETE SET NULL,
       stamp_duty NUMERIC(14,2) DEFAULT 0,
       professional_fees NUMERIC(14,2) DEFAULT 0,
+      stamp_duty_raw NUMERIC(14,4) DEFAULT 0,
+      professional_fees_raw NUMERIC(14,4) DEFAULT 0,
       items_subtotal NUMERIC(14,2) DEFAULT 0,
+      items_subtotal_raw NUMERIC(14,4) DEFAULT 0,
       admin_expenses_percent NUMERIC(6,2) DEFAULT 12,
       admin_expenses NUMERIC(14,2) DEFAULT 0,
+      admin_expenses_raw NUMERIC(14,4) DEFAULT 0,
       total_after_admin NUMERIC(14,2) DEFAULT 0,
+      total_after_admin_raw NUMERIC(14,4) DEFAULT 0,
       balance NUMERIC(14,2) DEFAULT 0,
+      balance_raw NUMERIC(14,4) DEFAULT 0,
       final_total NUMERIC(14,2) DEFAULT 0,
+      final_total_raw NUMERIC(14,4) DEFAULT 0,
       cash_private NUMERIC(14,2) DEFAULT 0,
       bank_private NUMERIC(14,2) DEFAULT 0,
       cash_external NUMERIC(14,2) DEFAULT 0,
       bank_external NUMERIC(14,2) DEFAULT 0,
       total_collected NUMERIC(14,2) DEFAULT 0,
+      total_collected_raw NUMERIC(14,4) DEFAULT 0,
       remaining NUMERIC(14,2) DEFAULT 0,
+      remaining_raw NUMERIC(14,4) DEFAULT 0,
       employee_name TEXT DEFAULT '',
       auditor_name TEXT DEFAULT '',
       captain_name TEXT DEFAULT 'نقيب / عمرو صالح محمد',
@@ -123,7 +145,35 @@ async function initDatabase() {
   const uploadsDir = path.join(__dirname, '..', 'public', 'assets');
   if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+  const { seedAdminUser } = require('../services/authService');
+  await runMigrations();
+  await seedAdminUser();
+
   console.log('✅ PostgreSQL connected and schema ready');
+}
+
+async function runMigrations() {
+  const alterColumns = [
+    'stamp_duty_raw NUMERIC(14,4) DEFAULT 0',
+    'professional_fees_raw NUMERIC(14,4) DEFAULT 0',
+    'items_subtotal_raw NUMERIC(14,4) DEFAULT 0',
+    'admin_expenses_raw NUMERIC(14,4) DEFAULT 0',
+    'total_after_admin_raw NUMERIC(14,4) DEFAULT 0',
+    'balance_raw NUMERIC(14,4) DEFAULT 0',
+    'final_total_raw NUMERIC(14,4) DEFAULT 0',
+    'total_collected_raw NUMERIC(14,4) DEFAULT 0',
+    'remaining_raw NUMERIC(14,4) DEFAULT 0',
+    'issue_date DATE DEFAULT CURRENT_DATE',
+    'file_number TEXT DEFAULT \'\'',
+  ];
+  for (const col of alterColumns) {
+    const name = col.split(' ')[0];
+    await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
+  }
+
+  await query(`UPDATE users SET role = 'user' WHERE role IN ('supervisor', 'accountant', 'viewer')`);
+  await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
+  await query(`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'user'))`);
 }
 
 module.exports = { pool, query, withTransaction, initDatabase };

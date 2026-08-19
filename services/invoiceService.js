@@ -2,7 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const { query, withTransaction } = require('../database/db');
 const { calculateInvoiceTotals, calculateStayDays } = require('./calculations');
 const { nextSerialNumber } = require('./serialService');
-const { generateFilePassword } = require('./passwordService');
+const { generateFilePassword, resolveInvoiceFilePassword } = require('./passwordService');
 
 const INVOICE_TYPES = {
   civil: 'مدني (خاص)',
@@ -57,7 +57,7 @@ async function listInvoices(filters = {}) {
     params.push(filters.to_date);
   }
   if (filters.search) {
-    sql += ` AND (patient_name ILIKE $${i} OR serial_number ILIKE $${i})`;
+    sql += ` AND (patient_name ILIKE $${i} OR serial_number ILIKE $${i} OR file_number ILIKE $${i})`;
     params.push(`%${filters.search}%`);
     i++;
   }
@@ -106,25 +106,31 @@ async function saveInvoice(data, existingId = null) {
 
       serialNumber = existing.rows[0].serial_number;
       qrToken = existing.rows[0].qr_token;
-      const filePassword =
-        data.file_password !== undefined && String(data.file_password).trim()
-          ? String(data.file_password).trim()
-          : existing.rows[0].file_password || generateFilePassword(serialNumber);
+      const filePassword = await resolveInvoiceFilePassword(
+        data,
+        serialNumber,
+        existing.rows[0].file_password
+      );
 
       await client.query(
         `UPDATE invoices SET
-          invoice_type = $1, patient_name = $2, admission_date = $3, discharge_date = $4,
-          stay_days = $5, financial_treatment = $6, stay_type = $7, stay_type_id = $8,
-          stamp_duty = $9, professional_fees = $10, items_subtotal = $11,
-          admin_expenses_percent = $12, admin_expenses = $13, total_after_admin = $14,
-          balance = $15, final_total = $16, cash_private = $17, bank_private = $18,
-          cash_external = $19, bank_external = $20, total_collected = $21, remaining = $22,
-          employee_name = $23, auditor_name = $24, captain_name = $25, manager_name = $26,
-          file_password = $27, notes = $28, updated_at = NOW()
-        WHERE id = $29`,
+          invoice_type = $1, patient_name = $2, file_number = $3, issue_date = $4, admission_date = $5, discharge_date = $6,
+          stay_days = $7, financial_treatment = $8, stay_type = $9, stay_type_id = $10,
+          stamp_duty = $11, stamp_duty_raw = $12, professional_fees = $13, professional_fees_raw = $14,
+          items_subtotal = $15, items_subtotal_raw = $16,
+          admin_expenses_percent = $17, admin_expenses = $18, admin_expenses_raw = $19,
+          total_after_admin = $20, total_after_admin_raw = $21,
+          balance = $22, balance_raw = $23, final_total = $24, final_total_raw = $25,
+          cash_private = $26, bank_private = $27, cash_external = $28, bank_external = $29,
+          total_collected = $30, total_collected_raw = $31, remaining = $32, remaining_raw = $33,
+          employee_name = $34, auditor_name = $35, captain_name = $36, manager_name = $37,
+          file_password = $38, notes = $39, updated_at = NOW()
+        WHERE id = $40`,
         [
           data.invoice_type,
           data.patient_name || '',
+          data.file_number || '',
+          data.issue_date || null,
           data.admission_date || null,
           data.discharge_date || null,
           stayDays,
@@ -132,19 +138,28 @@ async function saveInvoice(data, existingId = null) {
           stayTypeName,
           stayTypeId,
           totals.stamp_duty,
+          totals.stamp_duty_raw,
           totals.professional_fees,
+          totals.professional_fees_raw,
           totals.items_subtotal,
+          totals.items_subtotal_raw,
           totals.admin_expenses_percent,
           totals.admin_expenses,
+          totals.admin_expenses_raw,
           totals.total_after_admin,
+          totals.total_after_admin_raw,
           totals.balance,
+          totals.balance_raw,
           totals.final_total,
+          totals.final_total_raw,
           totals.cash_private,
           totals.bank_private,
           totals.cash_external,
           totals.bank_external,
           totals.total_collected,
+          totals.total_collected_raw,
           totals.remaining,
+          totals.remaining_raw,
           data.employee_name || '',
           data.auditor_name || '',
           data.captain_name || 'نقيب / عمرو صالح محمد',
@@ -160,25 +175,27 @@ async function saveInvoice(data, existingId = null) {
     } else {
       serialNumber = await nextSerialNumber(client);
       qrToken = uuidv4();
-      const filePassword =
-        data.file_password !== undefined && String(data.file_password).trim()
-          ? String(data.file_password).trim()
-          : generateFilePassword(serialNumber);
+      const filePassword = await resolveInvoiceFilePassword(data, serialNumber);
 
       const inserted = await client.query(
         `INSERT INTO invoices (
-          serial_number, invoice_type, patient_name, admission_date, discharge_date,
-          stay_days, financial_treatment, stay_type, stay_type_id, stamp_duty, professional_fees,
-          items_subtotal, admin_expenses_percent, admin_expenses, total_after_admin,
-          balance, final_total, cash_private, bank_private, cash_external, bank_external,
-          total_collected, remaining, employee_name, auditor_name, captain_name,
-          manager_name, qr_token, file_password, notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+          serial_number, issue_date, invoice_type, patient_name, file_number, admission_date, discharge_date,
+          stay_days, financial_treatment, stay_type, stay_type_id,
+          stamp_duty, stamp_duty_raw, professional_fees, professional_fees_raw,
+          items_subtotal, items_subtotal_raw, admin_expenses_percent,
+          admin_expenses, admin_expenses_raw, total_after_admin, total_after_admin_raw,
+          balance, balance_raw, final_total, final_total_raw,
+          cash_private, bank_private, cash_external, bank_external,
+          total_collected, total_collected_raw, remaining, remaining_raw,
+          employee_name, auditor_name, captain_name, manager_name, qr_token, file_password, notes
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41)
         RETURNING id`,
         [
           serialNumber,
+          data.issue_date || new Date().toISOString().slice(0, 10),
           data.invoice_type,
           data.patient_name || '',
+          data.file_number || '',
           data.admission_date || null,
           data.discharge_date || null,
           stayDays,
@@ -186,19 +203,28 @@ async function saveInvoice(data, existingId = null) {
           stayTypeName,
           stayTypeId,
           totals.stamp_duty,
+          totals.stamp_duty_raw,
           totals.professional_fees,
+          totals.professional_fees_raw,
           totals.items_subtotal,
+          totals.items_subtotal_raw,
           totals.admin_expenses_percent,
           totals.admin_expenses,
+          totals.admin_expenses_raw,
           totals.total_after_admin,
+          totals.total_after_admin_raw,
           totals.balance,
+          totals.balance_raw,
           totals.final_total,
+          totals.final_total_raw,
           totals.cash_private,
           totals.bank_private,
           totals.cash_external,
           totals.bank_external,
           totals.total_collected,
+          totals.total_collected_raw,
           totals.remaining,
+          totals.remaining_raw,
           data.employee_name || '',
           data.auditor_name || '',
           data.captain_name || 'نقيب / عمرو صالح محمد',

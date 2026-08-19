@@ -4,12 +4,7 @@ const { getInvoiceByToken } = require('../services/invoiceService');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
 const { getLogoUrl } = require('../services/settingsService');
-const {
-  resolveFilePassword,
-  createDownloadToken,
-  verifyDownloadToken,
-  getCookieName,
-} = require('../services/passwordService');
+const { resolveFilePasswordAsync, createDownloadToken, verifyDownloadToken, getCookieName } = require('../services/passwordService');
 
 const router = express.Router();
 
@@ -17,10 +12,10 @@ function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
-function isAuthorized(req, invoice) {
+async function isAuthorized(req, invoice) {
   const cookieName = getCookieName(invoice.qr_token);
   const token = req.cookies?.[cookieName] || req.query.auth;
-  const password = resolveFilePassword(invoice);
+  const password = await resolveFilePasswordAsync(invoice);
   return verifyDownloadToken(invoice.qr_token, password, token);
 }
 
@@ -30,7 +25,7 @@ router.post('/:token/verify', express.urlencoded({ extended: true }), async (req
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
 
     const submitted = String(req.body.password || '').trim();
-    const expected = resolveFilePassword(invoice);
+    const expected = await resolveFilePasswordAsync(invoice);
 
     if (submitted !== expected) {
       return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
@@ -57,7 +52,7 @@ router.get('/:token', async (req, res) => {
     const format = (req.query.format || 'page').toLowerCase();
     const baseUrl = getBaseUrl(req);
     const logoUrl = await getLogoUrl(baseUrl);
-    const authorized = isAuthorized(req, invoice);
+    const authorized = await isAuthorized(req, invoice);
 
     if ((format === 'pdf' || format === 'docx' || format === 'word') && !authorized) {
       return res.status(401).send(renderPasswordPage(invoice, baseUrl, 'يجب إدخال كلمة المرور أولاً'));
@@ -78,13 +73,13 @@ router.get('/:token', async (req, res) => {
     }
 
     if (!authorized) {
-      return res.send(renderPasswordPage(invoice, baseUrl));
+      return res.send(await renderPasswordPage(invoice, baseUrl));
     }
 
     const qrDataUrl = await QRCode.toDataURL(`${baseUrl}/download/${invoice.qr_token}`, { width: 200, margin: 1 });
     const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: true, qrDataUrl });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(wrapDownloadPage(html, invoice, baseUrl));
+    res.send(await wrapDownloadPage(html, invoice, baseUrl));
   } catch (err) {
     res.status(500).send('خطأ في الخادم');
   }
@@ -143,8 +138,8 @@ function renderPasswordPage(invoice, baseUrl, errorMsg = '') {
 </html>`;
 }
 
-function wrapDownloadPage(invoiceHtml, invoice, baseUrl) {
-  const password = resolveFilePassword(invoice);
+async function wrapDownloadPage(invoiceHtml, invoice, baseUrl) {
+  const password = await resolveFilePasswordAsync(invoice);
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>

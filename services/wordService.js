@@ -174,7 +174,7 @@ function buildWordDocument(invoice) {
             bidirectional: true,
             children: [
               new TextRun({
-                text: `المريض: ${invoice.patient_name} | الدخول: ${invoice.admission_date || '-'} | الخروج: ${invoice.discharge_date || '-'} | الأيام: ${invoice.stay_days}`,
+                text: `رقم الملف: ${invoice.file_number || '-'} | المريض: ${invoice.patient_name} | الدخول: ${invoice.admission_date || '-'} | الخروج: ${invoice.discharge_date || '-'} | الإصدار: ${invoice.issue_date || '-'} | الأيام: ${invoice.stay_days}`,
                 bold: true,
                 size: 20,
                 rightToLeft: true,

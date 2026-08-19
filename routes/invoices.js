@@ -12,20 +12,24 @@ const {
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
-const { resolveFilePassword } = require('../services/passwordService');
+const { resolveFilePasswordAsync } = require('../services/passwordService');
 const { getLogoUrl } = require('../services/settingsService');
+const { requireAuth, requirePermission } = require('../middleware/auth');
+const { canAccess } = require('../services/authService');
 
 const router = express.Router();
+
+router.use(requireAuth);
 
 function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
-router.get('/types', (req, res) => {
+router.get('/types', requirePermission('invoices.view'), (req, res) => {
   res.json(INVOICE_TYPES);
 });
 
-router.post('/calculate', (req, res) => {
+router.post('/calculate', requirePermission('invoices.view'), (req, res) => {
   const data = req.body;
   if (!data.stay_days && data.admission_date && data.discharge_date) {
     data.stay_days = calculateStayDays(data.admission_date, data.discharge_date);
@@ -33,7 +37,7 @@ router.post('/calculate', (req, res) => {
   res.json(calculateInvoiceTotals(data));
 });
 
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('invoices.view'), async (req, res) => {
   try {
     const invoices = await listInvoices({
       invoice_type: req.query.type,
@@ -48,7 +52,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.get('/reports/summary', async (req, res) => {
+router.get('/reports/summary', requirePermission('reports.view'), async (req, res) => {
   try {
     res.json(
       await getReportsSummary({
@@ -63,7 +67,7 @@ router.get('/reports/summary', async (req, res) => {
   }
 });
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePermission('invoices.view'), async (req, res) => {
   try {
     const invoice = await getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
@@ -73,11 +77,12 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requirePermission('invoices.create'), async (req, res) => {
   try {
     if (!req.body.invoice_type) {
       return res.status(400).json({ error: 'يجب اختيار نوع الفاتورة' });
     }
+    if (!canAccess(req.user.role, 'settings.*')) delete req.body.file_password;
     const invoice = await saveInvoice(req.body);
     res.status(201).json(invoice);
   } catch (err) {
@@ -85,8 +90,9 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requirePermission('invoices.edit'), async (req, res) => {
   try {
+    if (!canAccess(req.user.role, 'settings.*')) delete req.body.file_password;
     const invoice = await saveInvoice(req.body, Number(req.params.id));
     res.json(invoice);
   } catch (err) {
@@ -94,7 +100,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePermission('invoices.delete'), async (req, res) => {
   try {
     const deleted = await deleteInvoice(Number(req.params.id));
     if (!deleted) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
@@ -104,7 +110,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-router.get('/:id/qr', async (req, res) => {
+router.get('/:id/qr', requirePermission('invoices.view'), async (req, res) => {
   try {
     const invoice = await getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
@@ -122,14 +128,14 @@ router.get('/:id/qr', async (req, res) => {
       qr_data_url: qrDataUrl,
       download_url: downloadUrl,
       serial_number: invoice.serial_number,
-      file_password: resolveFilePassword(invoice),
+      file_password: await resolveFilePasswordAsync(invoice),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.get('/:id/preview', async (req, res) => {
+router.get('/:id/preview', requirePermission('invoices.view'), async (req, res) => {
   try {
     const invoice = await getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).send('Not found');
@@ -147,7 +153,7 @@ router.get('/:id/preview', async (req, res) => {
   }
 });
 
-router.get('/:id/pdf', async (req, res) => {
+router.get('/:id/pdf', requirePermission('invoices.view'), async (req, res) => {
   try {
     const invoice = await getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
@@ -163,7 +169,7 @@ router.get('/:id/pdf', async (req, res) => {
   }
 });
 
-router.get('/:id/docx', async (req, res) => {
+router.get('/:id/docx', requirePermission('invoices.view'), async (req, res) => {
   try {
     const invoice = await getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).json({ error: 'الفاتورة غير موجودة' });

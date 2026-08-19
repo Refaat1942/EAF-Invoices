@@ -9,14 +9,37 @@
   <link href="/css/style.css" rel="stylesheet">
 </head>
 <body>
+  <!-- Login Screen -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-card">
+      <h2 class="fw-black text-center mb-1">🏥 نظام فواتير EAF</h2>
+      <p class="text-center text-muted mb-4">مركز الطب الطبيعي والتأهيل</p>
+      <form id="login-form">
+        <div class="mb-3">
+          <label class="form-label fw-bold">اسم المستخدم</label>
+          <input type="text" class="form-control fw-bold" id="login-username" required autofocus>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-bold">كلمة المرور</label>
+          <input type="password" class="form-control fw-bold" id="login-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-100 fw-black btn-lg">دخول</button>
+      </form>
+      <p class="small text-muted text-center mt-3 mb-0">الافتراضي: admin / Admin@2026</p>
+    </div>
+  </div>
+
+  <div id="app-container" style="display:none">
   <nav class="navbar navbar-dark bg-dark shadow-sm">
     <div class="container-fluid">
       <span class="navbar-brand fw-black">🏥 نظام فواتير EAF</span>
-      <div class="d-flex gap-2">
+      <div class="d-flex gap-2 align-items-center">
+        <span class="text-light small fw-bold" id="nav-user"></span>
         <button class="btn btn-outline-light btn-sm nav-btn active" data-view="create">فاتورة جديدة</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="list">الفواتير</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="reports">التقارير</button>
-        <button class="btn btn-outline-light btn-sm nav-btn" data-view="settings">الإعدادات</button>
+        <button class="btn btn-outline-light btn-sm nav-btn" data-view="settings" id="nav-settings">الإعدادات</button>
+        <button class="btn btn-outline-danger btn-sm fw-bold" id="logout-btn">خروج</button>
       </div>
     </div>
   </nav>
@@ -45,6 +68,14 @@
                       <option value="non_contracted">جهات غير متعاقدة</option>
                       <option value="military">عسكري</option>
                     </select>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">تاريخ إصدار الفاتورة</label>
+                    <input type="date" class="form-control fw-bold" id="issue_date">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">رقم الملف</label>
+                    <input type="text" class="form-control fw-bold" id="file_number">
                   </div>
                   <div class="col-md-3">
                     <label class="form-label fw-bold">إسم المريض</label>
@@ -76,9 +107,10 @@
                     <label class="form-label fw-bold">ملاحظات</label>
                     <input type="text" class="form-control" id="notes">
                   </div>
-                  <div class="col-md-4">
-                    <label class="form-label fw-bold">كلمة مرور الملف 🔒</label>
-                    <input type="text" class="form-control fw-bold" id="file_password" placeholder="تلقائي: رقم الفاتورة بدون -">
+                  <div class="col-md-4" id="file-password-row" style="display:none">
+                    <label class="form-label fw-bold">كلمة مرور فتح الملف 🔒</label>
+                    <input type="text" class="form-control fw-bold" id="file_password" placeholder="اتركها فارغة = الإعداد الافتراضي">
+                    <div class="form-text">تُستخدم عند مسح QR Code لتحميل PDF/Word</div>
                   </div>
                 </div>
 
@@ -192,8 +224,9 @@
               <div class="summary-item"><span>دمغة + مهن:</span><strong id="sum_fees">0.00</strong></div>
               <div class="summary-item"><span>مصروفات إدارية:</span><strong id="sum_admin">0.00</strong></div>
               <div class="summary-item"><span>بعد المصروفات:</span><strong id="sum_after_admin">0.00</strong></div>
-              <div class="summary-item total"><span>الإجمالي النهائي:</span><strong id="sum_final">0.00</strong></div>
-              <div class="summary-item"><span>المحصل:</span><strong id="sum_collected">0.00</strong></div>
+              <div class="summary-item total"><span>الإجمالي النهائي:</span><strong id="sum_final">0</strong></div>
+              <div class="summary-item"><span>قبل التقريب:</span><strong id="sum_final_raw" class="text-muted">0</strong></div>
+              <div class="summary-item"><span>المحصل:</span><strong id="sum_collected">0</strong></div>
               <div class="summary-item remaining"><span>المتبقي:</span><strong id="sum_remaining">0.00</strong></div>
             </div>
           </div>
@@ -226,12 +259,13 @@
               <thead class="table-dark">
                 <tr>
                   <th>الرقم التسلسلي</th>
+                  <th>رقم الملف</th>
                   <th>المريض</th>
                   <th>النوع</th>
                   <th>الإجمالي</th>
                   <th>المحصل</th>
                   <th>المتبقي</th>
-                  <th>التاريخ</th>
+                  <th>تاريخ الإصدار</th>
                   <th>إجراءات</th>
                 </tr>
               </thead>
@@ -268,6 +302,42 @@
             </div>
           </div>
         </div>
+        <div class="col-md-6" id="file-password-settings-card" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-warning text-dark fw-black">🔒 كلمة مرور فتح الملفات (QR)</div>
+            <div class="card-body">
+              <label class="form-label fw-bold">كلمة المرور الافتراضية للفواتير الجديدة</label>
+              <input type="text" class="form-control fw-bold mb-2" id="default-file-password" placeholder="فارغ = رقم الفاتورة بدون شرطات">
+              <button class="btn btn-success fw-bold" id="save-default-password-btn">حفظ</button>
+              <p class="small text-muted mt-2 mb-0">يمكن تغيير كلمة المرور لكل فاتورة على حدة من نموذج الفاتورة</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-12" id="users-settings-card" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white fw-black">👥 المستخدمين والصلاحيات</div>
+            <div class="card-body">
+              <div class="row g-2 mb-3">
+                <div class="col-md-3"><input class="form-control form-control-sm fw-bold" id="new-user-name" placeholder="اسم المستخدم"></div>
+                <div class="col-md-3"><input class="form-control form-control-sm" id="new-user-fullname" placeholder="الاسم الكامل"></div>
+                <div class="col-md-3"><input type="password" class="form-control form-control-sm" id="new-user-pass" placeholder="كلمة المرور"></div>
+                <div class="col-md-2">
+                  <select class="form-select form-select-sm fw-bold" id="new-user-role">
+                    <option value="user">مستخدم</option>
+                    <option value="admin">مدير النظام</option>
+                  </select>
+                </div>
+                <div class="col-md-1"><button class="btn btn-sm btn-success fw-bold w-100" id="add-user-btn">+</button></div>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered mb-0">
+                  <thead class="table-light"><tr><th>المستخدم</th><th>الاسم</th><th>الصلاحية</th><th></th></tr></thead>
+                  <tbody id="users-list"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -280,6 +350,7 @@
   </main>
 
   <div class="toast-container position-fixed bottom-0 start-0 p-3" id="toast-container"></div>
+  </div><!-- app-container -->
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/app.js"></script>

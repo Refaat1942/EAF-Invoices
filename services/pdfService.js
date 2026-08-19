@@ -1,6 +1,19 @@
+const { formatDual, round2 } = require('./calculations');
+
 function formatNumber(n) {
   const num = Number(n) || 0;
   return num.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatNumberInt(n) {
+  const num = Number(n) || 0;
+  return num.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+}
+
+function fmtDual(raw, rounded) {
+  return formatDual(raw, rounded, (n) =>
+    round2(n) === Math.round(round2(n)) ? formatNumberInt(n) : formatNumber(n)
+  );
 }
 
 function formatDate(d) {
@@ -213,7 +226,10 @@ function buildInvoiceHtml(invoice, options = {}) {
       font-size: 12px;
       background: #c0c0c0 !important;
     }
-    .pw-box {
+    .dual-num { font-size: 9px; line-height: 1.3; }
+    .dual-num .raw { color: #555; display: block; }
+    .dual-num .arrow { color: #c0392b; font-weight: 900; }
+    .dual-num .rounded { color: #000; font-weight: 900; display: block; }
       margin-top: 4px;
       font-size: 10px;
       font-weight: 900;
@@ -227,6 +243,7 @@ function buildInvoiceHtml(invoice, options = {}) {
 
     <div class="serial-bar">
       رقم الفاتورة: ${escapeHtml(invoice.serial_number)}
+      &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(invoice.issue_date || invoice.created_at)}
       &nbsp;|&nbsp; النوع: ${escapeHtml(invoice.invoice_type_label)}
       &nbsp;|&nbsp; 🔒 كلمة المرور: ${escapeHtml(filePassword)}
     </div>
@@ -246,6 +263,7 @@ function buildInvoiceHtml(invoice, options = {}) {
 
     <table class="meta-table">
       <tr>
+        <th>رقم الملف</th>
         <th>إسم المريض</th>
         <th>تاريخ الدخول</th>
         <th>تاريخ الخروج</th>
@@ -253,6 +271,7 @@ function buildInvoiceHtml(invoice, options = {}) {
         <th>المعاملة المالية للمريض</th>
       </tr>
       <tr>
+        <td class="value">${escapeHtml(invoice.file_number)}</td>
         <td class="value">${escapeHtml(invoice.patient_name)}</td>
         <td class="value">${formatDate(invoice.admission_date)}</td>
         <td class="value">${formatDate(invoice.discharge_date)}</td>
@@ -260,10 +279,10 @@ function buildInvoiceHtml(invoice, options = {}) {
         <td class="value">${escapeHtml(invoice.financial_treatment)}</td>
       </tr>
       <tr>
-        <th colspan="5">نوع الإقامة</th>
+        <th colspan="6">نوع الإقامة</th>
       </tr>
       <tr>
-        <td class="value" colspan="5">${escapeHtml(invoice.stay_type)}</td>
+        <td class="value" colspan="6">${escapeHtml(invoice.stay_type)}</td>
       </tr>
     </table>
 
@@ -302,7 +321,7 @@ function buildInvoiceHtml(invoice, options = {}) {
             <tr><td>2</td><td class="label-cell">تحويل بنكي (خاص)</td><td class="num">${formatNumber(invoice.bank_private)}</td></tr>
             <tr><td>3</td><td class="label-cell">دفع نقدي (جهات خارجية)</td><td class="num">${formatNumber(invoice.cash_external)}</td></tr>
             <tr><td>4</td><td class="label-cell">تحويل بنكي (جهات خارجية)</td><td class="num">${formatNumber(invoice.bank_external)}</td></tr>
-            <tr><td colspan="2" class="label-cell" style="font-weight:900">إجمالي المبالغ المحصلة</td><td class="num" style="font-weight:900">${formatNumber(invoice.total_collected)}</td></tr>
+            <tr><td colspan="2" class="label-cell" style="font-weight:900">إجمالي المبالغ المحصلة</td><td class="num" style="font-weight:900">${fmtDual(invoice.total_collected_raw, invoice.total_collected)}</td></tr>
           </tbody>
         </table>
       </div>
@@ -313,9 +332,9 @@ function buildInvoiceHtml(invoice, options = {}) {
             <tr><th>م</th><th>البيان</th><th>المبلغ</th></tr>
           </thead>
           <tbody>
-            <tr><td>1</td><td class="label-cell">إجمالي الفاتورة</td><td class="num">${formatNumber(invoice.final_total)}</td></tr>
-            <tr><td>2</td><td class="label-cell">إجمالي المبالغ المحصلة</td><td class="num">${formatNumber(invoice.total_collected)}</td></tr>
-            <tr><td>3</td><td class="label-cell">المتبقي</td><td class="num">${formatNumber(invoice.remaining)}</td></tr>
+            <tr><td>1</td><td class="label-cell">إجمالي الفاتورة</td><td class="num">${fmtDual(invoice.final_total_raw, invoice.final_total)}</td></tr>
+            <tr><td>2</td><td class="label-cell">إجمالي المبالغ المحصلة</td><td class="num">${fmtDual(invoice.total_collected_raw, invoice.total_collected)}</td></tr>
+            <tr><td>3</td><td class="label-cell">المتبقي</td><td class="num">${fmtDual(invoice.remaining_raw, invoice.remaining)}</td></tr>
           </tbody>
         </table>
       </div>
@@ -353,24 +372,28 @@ function buildCombinedRows(items, payments) {
 
 function buildSummaryRows(invoice) {
   const adminLabel = `مصروفات إدارية ${invoice.admin_expenses_percent || 12}%`;
+  const subtotalFeesRaw =
+    (invoice.items_subtotal_raw ?? invoice.items_subtotal) +
+    (invoice.stamp_duty_raw ?? invoice.stamp_duty) +
+    (invoice.professional_fees_raw ?? invoice.professional_fees);
   const subtotalFees =
     (invoice.items_subtotal || 0) + (invoice.stamp_duty || 0) + (invoice.professional_fees || 0);
 
   const rows = [
-    ['دمغة', invoice.stamp_duty, ''],
-    ['مهن', invoice.professional_fees, ''],
-    ['الإجمالي', subtotalFees, ''],
-    [adminLabel, invoice.admin_expenses, ''],
-    ['الإجمالي بعد المصروفات الإدارية', invoice.total_after_admin, ''],
-    ['الرصيد', invoice.balance, ''],
-    ['الإجمالي', invoice.final_total, formatNumber(invoice.total_collected || 0)],
+    ['دمغة', invoice.stamp_duty_raw, invoice.stamp_duty, ''],
+    ['مهن', invoice.professional_fees_raw, invoice.professional_fees, ''],
+    ['الإجمالي', subtotalFeesRaw, subtotalFees, ''],
+    [adminLabel, invoice.admin_expenses_raw, invoice.admin_expenses, ''],
+    ['الإجمالي بعد المصروفات الإدارية', invoice.total_after_admin_raw, invoice.total_after_admin, ''],
+    ['الرصيد', invoice.balance_raw, invoice.balance, ''],
+    ['الإجمالي', invoice.final_total_raw, invoice.final_total, fmtDual(invoice.total_collected_raw, invoice.total_collected)],
   ];
 
   return rows
     .map(
-      ([label, chargeVal, payVal]) => `
+      ([label, rawVal, roundedVal, payVal]) => `
     <tr class="summary-row">
-      <td class="num">${formatNumber(chargeVal)}</td>
+      <td class="num">${fmtDual(rawVal, roundedVal)}</td>
       <td></td><td></td>
       <td class="summary-label">${label}</td>
       <td class="num">${payVal}</td>

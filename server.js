@@ -1,4 +1,5 @@
 const express = require('express');
+const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
@@ -15,6 +16,8 @@ if (fs.existsSync(envPath)) {
 
 const { initDatabase } = require('./database/db');
 
+const authRoutes = require('./routes/auth');
+const userRoutes = require('./routes/users');
 const invoiceRoutes = require('./routes/invoices');
 const downloadRoutes = require('./routes/download');
 const settingsRoutes = require('./routes/settings');
@@ -23,8 +26,16 @@ const app = express();
 const PORT = process.env.PORT || 17159;
 const HOST = process.env.HOST || '0.0.0.0';
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || process.env.APP_SECRET || 'eaf-session-secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 8 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax' },
+  })
+);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -47,6 +58,8 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/download', downloadRoutes);

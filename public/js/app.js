@@ -1,10 +1,35 @@
 const API = '/api/invoices';
 const SETTINGS_API = '/api/settings';
+const AUTH_API = '/api/auth';
+const USERS_API = '/api/users';
 let currentInvoiceId = null;
+let currentUser = null;
 let rowCount = 12;
 
 const fmt = (n) =>
   (Number(n) || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const fmtInt = (n) => (Number(n) || 0).toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+
+function fmtDual(raw, rounded) {
+  const r = Number(raw) || 0;
+  const rd = Number(rounded) || 0;
+  if (Math.round(r * 100) === Math.round(rd * 100)) return fmtInt(rd);
+  return `<span class="dual-value"><span class="raw-part">${fmt(r)}</span> <span class="rounded-part">← ${fmtInt(rd)}</span></span>`;
+}
+
+function can(permission) {
+  if (!currentUser) return false;
+  const perms = currentUser.permissions || [];
+  if (perms.includes('*')) return true;
+  if (perms.includes(permission)) return true;
+  const [group] = permission.split('.');
+  return perms.includes(`${group}.*`);
+}
+
+async function apiFetch(url, opts = {}) {
+  return fetch(url, { credentials: 'include', ...opts });
+}
 
 const TYPE_LABELS = {
   civil: 'مدني (خاص)',
@@ -14,11 +39,97 @@ const TYPE_LABELS = {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  initRows();
+  document.getElementById('login-form').addEventListener('submit', handleLogin);
+  document.getElementById('logout-btn').addEventListener('click', handleLogout);
+  document.getElementById('add-user-btn').addEventListener('click', addUser);
+  document.getElementById('save-default-password-btn').addEventListener('click', saveDefaultFilePassword);
+  checkAuth();
+});
+
+async function checkAuth() {
+  try {
+    const res = await apiFetch(`${AUTH_API}/me`);
+    if (!res.ok) throw new Error('not auth');
+    currentUser = await res.json();
+    showApp();
+  } catch {
+    showLogin();
+  }
+}
+
+function showLogin() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('app-container').style.display = 'none';
+}
+
+function showApp() {
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('app-container').style.display = 'block';
+  document.getElementById('nav-user').textContent = `${currentUser.full_name || currentUser.username} (${currentUser.role_label})`;
+  applyPermissions();
   bindEvents();
   loadStayTypes();
-  recalculate();
-});
+  resetForm();
+}
+
+function applyPermissions() {
+  const isAdmin = can('settings.*');
+  document.getElementById('nav-settings').style.display = isAdmin ? '' : 'none';
+  document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
+  document.getElementById('file-password-settings-card').style.display = isAdmin ? '' : 'none';
+  document.getElementById('file-password-row').style.display = isAdmin ? '' : 'none';
+
+  const createBtn = document.querySelector('[data-view="create"]');
+  if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
+
+  const canEdit = can('invoices.create') || can('invoices.edit');
+  const saveBtn = document.querySelector('#invoice-form button[type="submit"]');
+  if (saveBtn) saveBtn.style.display = canEdit ? '' : 'none';
+  ['reset-form-btn', 'add-row-btn', 'remove-row-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = canEdit ? '' : 'none';
+  });
+  setFormReadonly(!canEdit);
+}
+
+function setFormReadonly(readonly) {
+  document.querySelectorAll('#invoice-form input, #invoice-form select, #invoice-form textarea').forEach((el) => {
+    if (el.type === 'hidden') return;
+    if (readonly) {
+      el.setAttribute('readonly', 'readonly');
+      if (el.tagName === 'SELECT') el.disabled = true;
+    } else {
+      el.removeAttribute('readonly');
+      if (el.tagName === 'SELECT') el.disabled = false;
+    }
+  });
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value;
+  const password = document.getElementById('login-password').value;
+  try {
+    const res = await apiFetch(`${AUTH_API}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل الدخول');
+    currentUser = data.user;
+    showApp();
+    showToast(`مرحباً ${currentUser.full_name || currentUser.username}`, 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function handleLogout() {
+  await apiFetch(`${AUTH_API}/logout`, { method: 'POST' });
+  currentUser = null;
+  showLogin();
+}
 
 function initRows(count = rowCount) {
   const tbody = document.getElementById('items-tbody');
@@ -129,6 +240,8 @@ function collectFormData() {
 
   return {
     invoice_type: document.getElementById('invoice_type').value,
+    issue_date: document.getElementById('issue_date').value,
+    file_number: document.getElementById('file_number').value,
     patient_name: document.getElementById('patient_name').value,
     admission_date: document.getElementById('admission_date').value,
     discharge_date: document.getElementById('discharge_date').value,
@@ -136,7 +249,7 @@ function collectFormData() {
     financial_treatment: document.getElementById('financial_treatment').value,
     stay_type_id: document.getElementById('stay_type_id').value,
     notes: document.getElementById('notes').value,
-    file_password: document.getElementById('file_password').value,
+    ...(can('settings.*') ? { file_password: document.getElementById('file_password').value } : {}),
     stamp_duty: document.getElementById('stamp_duty').value,
     professional_fees: document.getElementById('professional_fees').value,
     balance: document.getElementById('balance').value,
@@ -165,7 +278,7 @@ async function recalculate() {
   });
 
   try {
-    const res = await fetch(`${API}/calculate`, {
+    const res = await apiFetch(`${API}/calculate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -179,32 +292,35 @@ async function recalculate() {
 }
 
 function updateSummaryDisplay(t) {
-  document.getElementById('sum_items').textContent = fmt(t.items_subtotal);
-  document.getElementById('sum_fees').textContent = fmt(t.stamp_duty + t.professional_fees);
-  document.getElementById('sum_admin').textContent = fmt(t.admin_expenses);
-  document.getElementById('sum_after_admin').textContent = fmt(t.total_after_admin);
-  document.getElementById('sum_final').textContent = fmt(t.final_total);
-  document.getElementById('sum_collected').textContent = fmt(t.total_collected);
-  document.getElementById('sum_remaining').textContent = fmt(t.remaining);
+  document.getElementById('sum_items').innerHTML = fmtDual(t.items_subtotal_raw, t.items_subtotal);
+  document.getElementById('sum_fees').innerHTML = fmtDual(
+    (t.stamp_duty_raw || 0) + (t.professional_fees_raw || 0),
+    (t.stamp_duty || 0) + (t.professional_fees || 0)
+  );
+  document.getElementById('sum_admin').innerHTML = fmtDual(t.admin_expenses_raw, t.admin_expenses);
+  document.getElementById('sum_after_admin').innerHTML = fmtDual(t.total_after_admin_raw, t.total_after_admin);
+  document.getElementById('sum_final').innerHTML = fmtDual(t.final_total_raw, t.final_total);
+  document.getElementById('sum_final_raw').textContent = fmt(t.final_total_raw);
+  document.getElementById('sum_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
+  document.getElementById('sum_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
 
-  document.getElementById('display_final_total').textContent = fmt(t.final_total);
-  document.getElementById('display_total_collected').textContent = fmt(t.total_collected);
-  document.getElementById('display_total_collected2').textContent = fmt(t.total_collected);
-  document.getElementById('display_remaining').textContent = fmt(t.remaining);
+  document.getElementById('display_final_total').innerHTML = fmtDual(t.final_total_raw, t.final_total);
+  document.getElementById('display_total_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
+  document.getElementById('display_total_collected2').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
+  document.getElementById('display_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
 }
 
 function updateSummaryTable(t) {
   const adminLabel = `مصروفات إدارية ${t.admin_expenses_percent}%`;
-  const subtotalFees = t.items_subtotal + t.stamp_duty + t.professional_fees;
 
   document.getElementById('summary-tfoot').innerHTML = `
-    <tr><td>${fmt(t.stamp_duty)}</td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmt(t.professional_fees)}</td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmt(subtotalFees)}</td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmt(t.admin_expenses)}</td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmt(t.total_after_admin)}</td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmt(t.balance)}</td><td></td><td></td><td class="summary-label">الرصيد</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmt(t.final_total)}</td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmt(t.total_collected)}</td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.professional_fees_raw, t.professional_fees)}</td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.subtotal_before_admin_raw, t.subtotal_before_admin)}</td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.balance_raw, t.balance)}</td><td></td><td></td><td class="summary-label">الرصيد</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td></td><td></td></tr>
   `;
 }
 
@@ -222,7 +338,7 @@ async function handleSave(e) {
     const url = isEdit ? `${API}/${currentInvoiceId}` : API;
     const method = isEdit ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -250,7 +366,7 @@ async function handleSave(e) {
 
 async function loadQR(id) {
   try {
-    const res = await fetch(`${API}/${id}/qr`);
+    const res = await apiFetch(`${API}/${id}/qr`);
     const data = await res.json();
     document.getElementById('qr-card').style.display = 'block';
     document.getElementById('qr-image').src = data.qr_data_url;
@@ -272,12 +388,19 @@ function resetForm() {
   document.getElementById('invoice-id').value = '';
   document.getElementById('form-title').textContent = 'إنشاء فاتورة جديدة';
   document.getElementById('edit-serial').style.display = 'none';
+  document.getElementById('issue_date').value = new Date().toISOString().slice(0, 10);
   document.getElementById('captain_name').value = 'نقيب / عمرو صالح محمد';
   document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر - المدير المالي';
   document.getElementById('admin_expenses_percent').value = '12';
   document.getElementById('stamp_duty').value = '0';
   document.getElementById('professional_fees').value = '0';
   document.getElementById('balance').value = '0';
+  document.getElementById('cash_private').value = '0';
+  document.getElementById('bank_private').value = '0';
+  document.getElementById('cash_external').value = '0';
+  document.getElementById('bank_external').value = '0';
+  document.getElementById('file_password').value = '';
+  document.getElementById('stay_type_id').value = '';
   ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
     document.getElementById(id).style.display = 'none';
   });
@@ -289,12 +412,12 @@ function resetForm() {
 
 async function loadInvoiceForEdit(id) {
   try {
-    const res = await fetch(`${API}/${id}`);
+    const res = await apiFetch(`${API}/${id}`);
     const inv = await res.json();
     if (!res.ok) throw new Error(inv.error);
 
     currentInvoiceId = inv.id;
-    switchView('create');
+    switchView('create', { keepForm: true });
 
     document.getElementById('invoice-id').value = inv.id;
     document.getElementById('form-title').textContent = 'تعديل الفاتورة';
@@ -303,6 +426,8 @@ async function loadInvoiceForEdit(id) {
 
     document.getElementById('invoice_type').value = inv.invoice_type;
     document.getElementById('patient_name').value = inv.patient_name;
+    document.getElementById('file_number').value = inv.file_number || '';
+    document.getElementById('issue_date').value = fmtDate(inv.issue_date || inv.created_at);
     document.getElementById('admission_date').value = fmtDate(inv.admission_date);
     document.getElementById('discharge_date').value = fmtDate(inv.discharge_date);
     document.getElementById('stay_days').value = inv.stay_days;
@@ -353,14 +478,72 @@ async function loadInvoiceForEdit(id) {
   }
 }
 
-function switchView(view) {
+function switchView(view, options = {}) {
   document.querySelectorAll('.view-section').forEach((s) => (s.style.display = 'none'));
   document.getElementById(`view-${view}`).style.display = 'block';
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
 
+  if (view === 'create' && !options.keepForm) resetForm();
   if (view === 'list') loadInvoicesList();
   if (view === 'reports') loadReports();
   if (view === 'settings') loadSettingsPage();
+}
+
+async function loadUsers() {
+  if (!can('users.*')) return;
+  try {
+    const res = await apiFetch(USERS_API);
+    const users = await res.json();
+    document.getElementById('users-list').innerHTML = users
+      .map(
+        (u) => `
+      <tr>
+        <td class="fw-bold">${u.username}</td>
+        <td>${u.full_name || '-'}</td>
+        <td><span class="badge bg-primary">${u.role_label}</span></td>
+        <td>${u.username !== 'admin' ? `<button class="btn btn-sm btn-outline-danger" onclick="removeSystemUser(${u.id})">🗑️</button>` : ''}</td>
+      </tr>`
+      )
+      .join('');
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function addUser() {
+  const username = document.getElementById('new-user-name').value.trim();
+  const full_name = document.getElementById('new-user-fullname').value.trim();
+  const password = document.getElementById('new-user-pass').value;
+  const role = document.getElementById('new-user-role').value;
+  if (!username || !password) return showToast('اسم المستخدم وكلمة المرور مطلوبان', 'warning');
+  try {
+    const res = await apiFetch(USERS_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, full_name, password, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    document.getElementById('new-user-name').value = '';
+    document.getElementById('new-user-fullname').value = '';
+    document.getElementById('new-user-pass').value = '';
+    showToast('تم إضافة المستخدم', 'success');
+    loadUsers();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function removeSystemUser(id) {
+  if (!confirm('حذف المستخدم؟')) return;
+  try {
+    const res = await apiFetch(`${USERS_API}/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('فشل الحذف');
+    showToast('تم الحذف', 'success');
+    loadUsers();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
 }
 
 function fmtDate(d) {
@@ -370,7 +553,7 @@ function fmtDate(d) {
 
 async function loadStayTypes() {
   try {
-    const res = await fetch(`${SETTINGS_API}/stay-types`);
+    const res = await apiFetch(`${SETTINGS_API}/stay-types`);
     const types = await res.json();
     const select = document.getElementById('stay_type_id');
     const current = select.value;
@@ -389,8 +572,8 @@ async function loadStayTypes() {
 async function loadSettingsPage() {
   try {
     const [settingsRes, typesRes] = await Promise.all([
-      fetch(SETTINGS_API),
-      fetch(`${SETTINGS_API}/stay-types?all=1`),
+      apiFetch(SETTINGS_API),
+      apiFetch(`${SETTINGS_API}/stay-types?all=1`),
     ]);
     const settings = await settingsRes.json();
     const types = await typesRes.json();
@@ -398,6 +581,7 @@ async function loadSettingsPage() {
     if (settings.logo_url) {
       document.getElementById('logo-preview').src = settings.logo_url;
     }
+    document.getElementById('default-file-password').value = settings.default_file_password || '';
 
     const list = document.getElementById('stay-types-list');
     list.innerHTML = types.length
@@ -409,8 +593,25 @@ async function loadSettingsPage() {
       : '<li class="list-group-item text-muted">لا توجد أنواع</li>';
 
     await loadStayTypes();
+    loadUsers();
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
+  }
+}
+
+async function saveDefaultFilePassword() {
+  const default_file_password = document.getElementById('default-file-password').value.trim();
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/general`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ default_file_password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast('تم حفظ كلمة المرور الافتراضية', 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
   }
 }
 
@@ -422,7 +623,7 @@ async function uploadLogo() {
   form.append('logo', fileInput.files[0]);
 
   try {
-    const res = await fetch(`${SETTINGS_API}/logo`, { method: 'POST', body: form });
+    const res = await apiFetch(`${SETTINGS_API}/logo`, { method: 'POST', body: form });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     document.getElementById('logo-preview').src = data.logo_url;
@@ -439,7 +640,7 @@ async function addStayType() {
   if (!name) return showToast('اكتب اسم نوع الإقامة', 'warning');
 
   try {
-    const res = await fetch(`${SETTINGS_API}/stay-types`, {
+    const res = await apiFetch(`${SETTINGS_API}/stay-types`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
@@ -457,7 +658,7 @@ async function addStayType() {
 async function deleteStayType(id) {
   if (!confirm('حذف نوع الإقامة؟')) return;
   try {
-    const res = await fetch(`${SETTINGS_API}/stay-types/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${SETTINGS_API}/stay-types/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('فشل الحذف');
     showToast('تم الحذف', 'success');
     loadSettingsPage();
@@ -478,8 +679,10 @@ async function loadInvoicesList() {
   if (to) params.set('to', to);
 
   try {
-    const res = await fetch(`${API}?${params}`);
+    const res = await apiFetch(`${API}?${params}`);
     const invoices = await res.json();
+    const canEdit = can('invoices.edit');
+    const canDelete = can('invoices.delete');
     const tbody = document.getElementById('invoices-list');
     tbody.innerHTML = invoices.length
       ? invoices
@@ -487,21 +690,22 @@ async function loadInvoicesList() {
             (inv) => `
         <tr>
           <td class="fw-black text-primary">${inv.serial_number}</td>
+          <td class="fw-bold">${inv.file_number || '-'}</td>
           <td>${inv.patient_name || '-'}</td>
           <td><span class="badge bg-secondary">${TYPE_LABELS[inv.invoice_type] || inv.invoice_type}</span></td>
-          <td class="fw-bold">${fmt(inv.final_total)}</td>
-          <td>${fmt(inv.total_collected)}</td>
-          <td class="${inv.remaining > 0 ? 'text-danger fw-bold' : ''}">${fmt(inv.remaining)}</td>
-          <td>${new Date(inv.created_at).toLocaleDateString('ar-EG')}</td>
+          <td class="fw-bold">${fmtDual(inv.final_total_raw ?? inv.final_total, inv.final_total)}</td>
+          <td>${fmtDual(inv.total_collected_raw ?? inv.total_collected, inv.total_collected)}</td>
+          <td class="${inv.remaining > 0 ? 'text-danger fw-bold' : ''}">${fmtDual(inv.remaining_raw ?? inv.remaining, inv.remaining)}</td>
+          <td>${inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ar-EG') : new Date(inv.created_at).toLocaleDateString('ar-EG')}</td>
           <td>
-            <button class="btn btn-sm btn-outline-primary" onclick="loadInvoiceForEdit(${inv.id})">✏️</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="loadInvoiceForEdit(${inv.id})">${canEdit ? '✏️' : '👁️'}</button>
             <button class="btn btn-sm btn-outline-danger" onclick="window.open('${API}/${inv.id}/pdf')">📄</button>
-            <button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})">🗑️</button>
+            ${canDelete ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})">🗑️</button>` : ''}
           </td>
         </tr>`
           )
           .join('')
-      : '<tr><td colspan="8" class="text-center py-4">لا توجد فواتير</td></tr>';
+      : '<tr><td colspan="9" class="text-center py-4">لا توجد فواتير</td></tr>';
   } catch (err) {
     showToast('خطأ في تحميل الفواتير', 'danger');
   }
@@ -510,7 +714,7 @@ async function loadInvoicesList() {
 async function deleteInvoice(id) {
   if (!confirm('هل أنت متأكد من حذف هذه الفاتورة؟')) return;
   try {
-    const res = await fetch(`${API}/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`${API}/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('فشل الحذف');
     showToast('تم حذف الفاتورة', 'success');
     loadInvoicesList();
@@ -524,7 +728,7 @@ async function loadReports() {
   container.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
   try {
-    const res = await fetch(`${API}/reports/summary`);
+    const res = await apiFetch(`${API}/reports/summary`);
     const data = await res.json();
 
     const typeCards = Object.entries(data.by_type)
@@ -612,4 +816,5 @@ function debounce(fn, ms) {
 
 window.loadInvoiceForEdit = loadInvoiceForEdit;
 window.deleteInvoice = deleteInvoice;
+window.removeSystemUser = removeSystemUser;
 window.deleteStayType = deleteStayType;
