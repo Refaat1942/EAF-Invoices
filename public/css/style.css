@@ -73,6 +73,118 @@ body {
   min-height: 42px;
 }
 
+.stay-entries-wrap {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  padding: 0.35rem;
+}
+
+.stay-entries-table input,
+.stay-entries-table select {
+  min-height: 36px;
+  font-weight: 700;
+}
+
+.stay-entries-table .row-total {
+  background: #f8f9fa;
+}
+
+.calculation-flow-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.calculation-flow-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.45rem 0.35rem;
+  border-bottom: 1px dashed #dee2e6;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.calculation-flow-list li:last-child {
+  border-bottom: none;
+}
+
+.calculation-flow-list li.is-total {
+  background: #fff3cd;
+  border-radius: 6px;
+  margin-top: 0.25rem;
+  font-weight: 900;
+}
+
+.calculation-flow-list li.is-deduction strong {
+  color: #dc3545;
+}
+
+.calculation-flow-list li.is-remaining strong {
+  color: #0d6efd;
+}
+
+.calc-validation-banner {
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+
+.calc-validation-banner.is-valid {
+  background: #d1e7dd;
+  border: 1px solid #198754;
+  color: #0f5132;
+}
+
+.calc-validation-banner.is-error {
+  background: #f8d7da;
+  border: 1px solid #dc3545;
+  color: #842029;
+}
+
+.calc-validation-banner.is-warning {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  color: #664d03;
+}
+
+.payment-validation-banner {
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  font-weight: 800;
+  font-size: 0.92rem;
+}
+
+.payment-validation-banner.is-balanced {
+  background: #d1e7dd;
+  border: 2px solid #198754;
+  color: #0f5132;
+}
+
+.payment-validation-banner.is-underpaid {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  color: #664d03;
+}
+
+.payment-validation-banner.is-overpaid {
+  background: #f8d7da;
+  border: 2px solid #dc3545;
+  color: #842029;
+}
+
+.payment-methods-table input.payment-method-input.is-active {
+  border-color: #198754;
+  background: #f0fff4;
+}
+
+.payment-methods-table tr.payment-row-active td {
+  background: #f8fff9;
+}
+
 .stay-types-grid {
   display: flex;
   flex-wrap: wrap;

@@ -37,6 +37,7 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS stay_types (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) UNIQUE NOT NULL,
+      daily_rate NUMERIC(14,2) NOT NULL DEFAULT 0,
       is_active BOOLEAN NOT NULL DEFAULT TRUE,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -171,6 +172,22 @@ async function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_invoices_type ON invoices(invoice_type);
     CREATE INDEX IF NOT EXISTS idx_invoices_created ON invoices(created_at);
     CREATE INDEX IF NOT EXISTS idx_invoices_qr ON invoices(qr_token);
+
+    CREATE TABLE IF NOT EXISTS invoice_stay_entries (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      stay_type_id INTEGER REFERENCES stay_types(id) ON DELETE SET NULL,
+      stay_type_name TEXT DEFAULT '',
+      from_date DATE,
+      to_date DATE,
+      days INTEGER DEFAULT 0,
+      daily_rate NUMERIC(14,2) DEFAULT 0,
+      total NUMERIC(14,2) DEFAULT 0,
+      total_raw NUMERIC(14,4) DEFAULT 0,
+      sort_order INTEGER DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_stay_entries_invoice ON invoice_stay_entries(invoice_id);
   `);
 
   const defaults = await query('SELECT COUNT(*)::int AS c FROM stay_types');
@@ -213,7 +230,7 @@ async function initDatabase() {
   const paymentMethodCount = await query('SELECT COUNT(*)::int AS c FROM payment_methods');
   if (paymentMethodCount.rows[0].c === 0) {
     const paymentMethods = [
-      { code: 'cash', name: 'نقدي', accepts_amount: true },
+      { code: 'cash', name: 'دفع نقدي', accepts_amount: true },
       { code: 'bank_transfer', name: 'تحويل بنكي', accepts_amount: true },
       { code: 'check', name: 'شيك مقبول الدفع', accepts_amount: true },
       { code: 'multi', name: 'دفع بأكثر من طريقة', accepts_amount: false },
@@ -338,6 +355,10 @@ async function runMigrations() {
     'discount_amount_raw NUMERIC(14,4) DEFAULT 0',
     'items_subtotal_after_discount NUMERIC(14,2) DEFAULT 0',
     'items_subtotal_after_discount_raw NUMERIC(14,4) DEFAULT 0',
+    'letter_from_date DATE',
+    'letter_to_date DATE',
+    'created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL',
+    'created_by_name TEXT DEFAULT \'\'',
   ];
   for (const col of phase2InvoiceColumns) {
     const name = col.split(' ')[0];
@@ -353,6 +374,48 @@ async function runMigrations() {
     const name = col.split(' ')[0];
     await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
   }
+
+  await query(`ALTER TABLE stay_types ADD COLUMN IF NOT EXISTS daily_rate NUMERIC(14,2) NOT NULL DEFAULT 0`);
+
+  const phase4InvoiceColumns = [
+    'stay_subtotal NUMERIC(14,2) DEFAULT 0',
+    'stay_subtotal_raw NUMERIC(14,4) DEFAULT 0',
+  ];
+  for (const col of phase4InvoiceColumns) {
+    const name = col.split(' ')[0];
+    await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
+  }
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS invoice_stay_entries (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      stay_type_id INTEGER REFERENCES stay_types(id) ON DELETE SET NULL,
+      stay_type_name TEXT DEFAULT '',
+      from_date DATE,
+      to_date DATE,
+      days INTEGER DEFAULT 0,
+      daily_rate NUMERIC(14,2) DEFAULT 0,
+      total NUMERIC(14,2) DEFAULT 0,
+      total_raw NUMERIC(14,4) DEFAULT 0,
+      sort_order INTEGER DEFAULT 0
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_stay_entries_invoice ON invoice_stay_entries(invoice_id)`);
+
+  const phase6InvoiceColumns = ['fiscal_year INTEGER', 'serial_sequence INTEGER'];
+  for (const col of phase6InvoiceColumns) {
+    const name = col.split(' ')[0];
+    await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
+  }
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_fiscal_serial
+    ON invoices (fiscal_year, serial_sequence)
+    WHERE fiscal_year IS NOT NULL AND serial_sequence IS NOT NULL
+  `);
+
+  const { syncSerialCountersFromInvoices } = require('../services/serialService');
+  await syncSerialCountersFromInvoices();
 
   await seedLookupTables();
 }
@@ -392,7 +455,7 @@ async function seedLookupTables() {
   }
 
   const paymentMethods = [
-    { code: 'cash', name: 'نقدي', accepts_amount: true },
+    { code: 'cash', name: 'دفع نقدي', accepts_amount: true },
     { code: 'bank_transfer', name: 'تحويل بنكي', accepts_amount: true },
     { code: 'check', name: 'شيك مقبول الدفع', accepts_amount: true },
     { code: 'multi', name: 'دفع بأكثر من طريقة', accepts_amount: false },

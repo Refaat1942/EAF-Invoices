@@ -10,7 +10,8 @@ const {
 } = require('../services/invoiceService');
 const { listInvoiceTypes } = require('../services/invoiceTypeService');
 const { listDiscountExclusions } = require('../services/discountExclusionService');
-const { getEffectiveDiscountPercent } = require('../services/contractedEntityService');
+const { peekNextSerialNumber } = require('../services/serialService');
+const { getStayTypeById } = require('../services/stayTypeService');
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
@@ -38,6 +39,16 @@ router.get('/types', requirePermission('invoices.view'), async (req, res) => {
   }
 });
 
+router.get('/next-serial', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const issueDate = req.query.issue_date || new Date().toISOString().slice(0, 10);
+    const info = await peekNextSerialNumber(issueDate);
+    res.json(info);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/calculate', requirePermission('invoices.view'), async (req, res) => {
   try {
     const data = req.body;
@@ -47,6 +58,23 @@ router.post('/calculate', requirePermission('invoices.view'), async (req, res) =
     data.discount_exclusions = await listDiscountExclusions(true);
     if (data.invoice_type === 'contracted' && data.contracted_entity_id && !data.discount_percent) {
       data.discount_percent = await getEffectiveDiscountPercent(Number(data.contracted_entity_id));
+    }
+    if (Array.isArray(data.stay_entries)) {
+      data.stay_entries = await Promise.all(
+        data.stay_entries.map(async (entry) => {
+          const next = { ...entry };
+          if (next.stay_type_id) {
+            const stayType = await getStayTypeById(Number(next.stay_type_id));
+            if (stayType) {
+              next.stay_type_name = stayType.name;
+              if (next.daily_rate === undefined || next.daily_rate === '' || next.daily_rate === null) {
+                next.daily_rate = stayType.daily_rate;
+              }
+            }
+          }
+          return next;
+        })
+      );
     }
     res.json(calculateInvoiceTotals(data));
   } catch (err) {
@@ -99,7 +127,11 @@ router.post('/', requirePermission('invoices.create'), async (req, res) => {
     if (!req.body.invoice_type) {
       return res.status(400).json({ error: 'يجب اختيار نوع الفاتورة' });
     }
-    const invoice = await saveInvoice(req.body);
+    const user = req.session.user;
+    const createdBy = user
+      ? { id: user.id, name: user.full_name || user.username }
+      : null;
+    const invoice = await saveInvoice(req.body, null, createdBy);
     res.status(201).json(invoice);
   } catch (err) {
     res.status(500).json({ error: err.message });

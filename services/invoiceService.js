@@ -1,14 +1,34 @@
 const { v4: uuidv4 } = require('uuid');
 const { query, withTransaction } = require('../database/db');
-const { calculateInvoiceTotals, calculateStayDays } = require('./calculations');
-const { nextSerialNumber } = require('./serialService');
+const { calculateInvoiceTotals, calculateStayDays, validatePaymentBalance, validateInvoiceCalculations } = require('./calculations');
+const { nextSerialNumber, formatFiscalYearLabel } = require('./serialService');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
 const { getContractedEntityById, getEffectiveDiscountPercent } = require('./contractedEntityService');
 const { listDiscountExclusions } = require('./discountExclusionService');
 
+const { getStayTypeById } = require('./stayTypeService');
+
 async function prepareCalculationData(data) {
   const calcData = { ...data };
   calcData.discount_exclusions = await listDiscountExclusions(true);
+
+  if (Array.isArray(calcData.stay_entries)) {
+    calcData.stay_entries = await Promise.all(
+      calcData.stay_entries.map(async (entry) => {
+        const next = { ...entry };
+        if (next.stay_type_id) {
+          const stayType = await getStayTypeById(Number(next.stay_type_id));
+          if (stayType) {
+            next.stay_type_name = stayType.name;
+            if (next.daily_rate === undefined || next.daily_rate === '' || next.daily_rate === null) {
+              next.daily_rate = stayType.daily_rate;
+            }
+          }
+        }
+        return next;
+      })
+    );
+  }
 
   if (calcData.invoice_type === 'contracted' && calcData.contracted_entity_id) {
     const entity = await getContractedEntityById(Number(calcData.contracted_entity_id));
@@ -27,7 +47,7 @@ async function prepareCalculationData(data) {
   return calcData;
 }
 
-async function saveDiscountFields(client, invoiceId, data, totals) {
+async function saveDiscountFields(client, invoiceId, data, totals, createdBy = null) {
   await client.query(
     `UPDATE invoices SET
       contracted_entity_id = $2,
@@ -38,7 +58,11 @@ async function saveDiscountFields(client, invoiceId, data, totals) {
       discount_amount = $7,
       discount_amount_raw = $8,
       items_subtotal_after_discount = $9,
-      items_subtotal_after_discount_raw = $10
+      items_subtotal_after_discount_raw = $10,
+      letter_from_date = $11,
+      letter_to_date = $12,
+      created_by_user_id = COALESCE(created_by_user_id, $13),
+      created_by_name = CASE WHEN COALESCE(created_by_name, '') = '' THEN $14 ELSE created_by_name END
      WHERE id = $1`,
     [
       invoiceId,
@@ -49,17 +73,23 @@ async function saveDiscountFields(client, invoiceId, data, totals) {
       totals.discount_eligible_subtotal_raw || 0,
       totals.discount_amount || 0,
       totals.discount_amount_raw || 0,
-      totals.items_subtotal_after_discount || 0,
-      totals.items_subtotal_after_discount_raw || 0,
+      totals.net_after_discount ?? totals.items_subtotal_after_discount ?? 0,
+      totals.net_after_discount_raw ?? totals.items_subtotal_after_discount_raw ?? 0,
+      data.letter_from_date || null,
+      data.letter_to_date || null,
+      createdBy?.id || null,
+      createdBy?.name || '',
     ]
   );
 }
 
 async function attachInvoiceLabels(invoice, typeMap) {
   const labels = typeMap || (await getInvoiceTypesMap());
+  const fiscalYear = invoice.fiscal_year;
   return {
     ...invoice,
     invoice_type_label: labels[invoice.invoice_type] || invoice.invoice_type,
+    fiscal_year_label: fiscalYear ? formatFiscalYearLabel(fiscalYear) : null,
   };
 }
 
@@ -91,7 +121,9 @@ async function saveMethodPayments(client, invoiceId, methodPayments = []) {
 }
 async function resolveStayTypes(client, data) {
   let ids = [];
-  if (Array.isArray(data.stay_type_ids) && data.stay_type_ids.length) {
+  if (Array.isArray(data.stay_entries) && data.stay_entries.length) {
+    ids = data.stay_entries.map((entry) => Number(entry.stay_type_id)).filter(Boolean);
+  } else if (Array.isArray(data.stay_type_ids) && data.stay_type_ids.length) {
     ids = data.stay_type_ids.map(Number).filter(Boolean);
   } else if (data.stay_type_id) {
     ids = [Number(data.stay_type_id)];
@@ -110,6 +142,40 @@ async function resolveStayTypes(client, data) {
   return { ids: orderedIds, names, firstId: orderedIds[0] || null };
 }
 
+async function loadStayEntries(invoiceId, client = null) {
+  const run = client ? client.query.bind(client) : query;
+  const { rows } = await run(
+    'SELECT * FROM invoice_stay_entries WHERE invoice_id = $1 ORDER BY sort_order, id',
+    [invoiceId]
+  );
+  return rows;
+}
+
+async function saveStayEntries(client, invoiceId, stayEntries = []) {
+  await client.query('DELETE FROM invoice_stay_entries WHERE invoice_id = $1', [invoiceId]);
+  for (let index = 0; index < stayEntries.length; index++) {
+    const entry = stayEntries[index];
+    await client.query(
+      `INSERT INTO invoice_stay_entries (
+        invoice_id, stay_type_id, stay_type_name, from_date, to_date, days,
+        daily_rate, total, total_raw, sort_order
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        invoiceId,
+        entry.stay_type_id ? Number(entry.stay_type_id) : null,
+        entry.stay_type_name || '',
+        entry.from_date || null,
+        entry.to_date || null,
+        entry.days || 0,
+        entry.daily_rate || 0,
+        entry.total || 0,
+        entry.total_raw || 0,
+        index,
+      ]
+    );
+  }
+}
+
 async function getInvoiceById(id, client = null) {
   const run = client ? client.query.bind(client) : query;
   const { rows } = await run('SELECT * FROM invoices WHERE id = $1', [id]);
@@ -125,6 +191,7 @@ async function getInvoiceById(id, client = null) {
     [id]
   );
   const methodPayments = await loadMethodPayments(id, client);
+  const stayEntries = await loadStayEntries(id, client);
   const typeMap = await getInvoiceTypesMap();
 
   return {
@@ -132,6 +199,7 @@ async function getInvoiceById(id, client = null) {
     items: items.rows,
     payments: payments.rows,
     method_payments: methodPayments,
+    stay_entries: stayEntries,
   };
 }
 
@@ -176,34 +244,60 @@ async function listInvoices(filters = {}) {
   return Promise.all(rows.map((row) => attachInvoiceLabels(row, typeMap)));
 }
 
-async function saveInvoice(data, existingId = null) {
+async function saveInvoice(data, existingId = null, createdBy = null) {
   const calcData = await prepareCalculationData(data);
-  const stayDays =
+  const totals = calculateInvoiceTotals(calcData);
+
+  const calcValidation = totals.calculation_validation || validateInvoiceCalculations(calcData, totals);
+  if (!calcValidation.is_valid) {
+    throw new Error(`خطأ في حسابات الفاتورة:\n${calcValidation.errors.join('\n')}`);
+  }
+
+  const paymentValidation = validatePaymentBalance(totals);
+  if (paymentValidation.has_payments && !paymentValidation.is_balanced) {
+    const diff = Math.abs(paymentValidation.difference_raw);
+    const direction =
+      paymentValidation.status === 'overpaid'
+        ? `زيادة ${diff.toLocaleString('ar-EG')}`
+        : `نقص ${diff.toLocaleString('ar-EG')}`;
+    throw new Error(
+      `مجموع طرق الدفع (${paymentValidation.total_collected_raw.toLocaleString('ar-EG')}) لا يساوي إجمالي الفاتورة (${paymentValidation.final_total_raw.toLocaleString('ar-EG')}) — ${direction}`
+    );
+  }
+
+  let stayDays =
     calcData.stay_days !== undefined && calcData.stay_days !== ''
       ? Number(calcData.stay_days)
       : calculateStayDays(calcData.admission_date, calcData.discharge_date);
+  if (totals.stay_entries?.length) {
+    stayDays = totals.stay_entries.reduce((sum, entry) => sum + (Number(entry.days) || 0), 0);
+  }
 
-  const totals = calculateInvoiceTotals({ ...calcData, stay_days: stayDays });
+  const manualItems = totals.items.filter((item) => !item.is_stay_entry);
 
   return withTransaction(async (client) => {
     let serialNumber = data.serial_number;
+    let fiscalYear = data.fiscal_year || null;
+    let serialSequence = data.serial_sequence || null;
     let qrToken = data.qr_token;
     let invoiceId = existingId;
 
     const { ids: stayTypeIds, names: stayTypeName, firstId: stayTypeId } = await resolveStayTypes(
       client,
-      data
+      calcData
     );
     const stayTypeIdsJson = JSON.stringify(stayTypeIds);
 
     if (existingId) {
       const existing = await client.query(
-        'SELECT serial_number, qr_token, file_password FROM invoices WHERE id = $1',
+        'SELECT serial_number, qr_token, file_password, fiscal_year, serial_sequence FROM invoices WHERE id = $1',
         [existingId]
       );
       if (!existing.rows.length) throw new Error('الفاتورة غير موجودة');
 
       serialNumber = existing.rows[0].serial_number;
+      fiscalYear = existing.rows[0].fiscal_year;
+      serialSequence = existing.rows[0].serial_sequence;
       qrToken = existing.rows[0].qr_token;
       const filePassword = '';
 
@@ -213,14 +307,15 @@ async function saveInvoice(data, existingId = null) {
           stay_days = $7, financial_treatment = $8, stay_type = $9, stay_type_id = $10, stay_type_ids = $11::jsonb,
           stamp_duty = $12, stamp_duty_raw = $13, professional_fees = $14, professional_fees_raw = $15,
           items_subtotal = $16, items_subtotal_raw = $17,
-          admin_expenses_percent = $18, admin_expenses = $19, admin_expenses_raw = $20,
-          total_after_admin = $21, total_after_admin_raw = $22,
-          balance = $23, balance_raw = $24, final_total = $25, final_total_raw = $26,
-          cash_private = $27, bank_private = $28, cash_external = $29, bank_external = $30,
-          total_collected = $31, total_collected_raw = $32, remaining = $33, remaining_raw = $34,
-          employee_name = $35, auditor_name = $36, captain_name = $37, manager_name = $38,
-          file_password = $39, notes = $40, updated_at = NOW()
-        WHERE id = $41`,
+          stay_subtotal = $18, stay_subtotal_raw = $19,
+          admin_expenses_percent = $20, admin_expenses = $21, admin_expenses_raw = $22,
+          total_after_admin = $23, total_after_admin_raw = $24,
+          balance = $25, balance_raw = $26, final_total = $27, final_total_raw = $28,
+          cash_private = $29, bank_private = $30, cash_external = $31, bank_external = $32,
+          total_collected = $33, total_collected_raw = $34, remaining = $35, remaining_raw = $36,
+          employee_name = $37, auditor_name = $38, captain_name = $39, manager_name = $40,
+          file_password = $41, notes = $42, updated_at = NOW()
+        WHERE id = $43`,
         [
           data.invoice_type,
           data.patient_name || '',
@@ -239,6 +334,8 @@ async function saveInvoice(data, existingId = null) {
           totals.professional_fees_raw,
           totals.items_subtotal,
           totals.items_subtotal_raw,
+          totals.stay_subtotal,
+          totals.stay_subtotal_raw,
           totals.admin_expenses_percent,
           totals.admin_expenses,
           totals.admin_expenses_raw,
@@ -268,28 +365,35 @@ async function saveInvoice(data, existingId = null) {
 
       await client.query('DELETE FROM invoice_items WHERE invoice_id = $1', [existingId]);
       await client.query('DELETE FROM invoice_payments WHERE invoice_id = $1', [existingId]);
+      await client.query('DELETE FROM invoice_stay_entries WHERE invoice_id = $1', [existingId]);
       await saveDiscountFields(client, existingId, calcData, totals);
     } else {
-      serialNumber = await nextSerialNumber(client);
+      const issueDate = data.issue_date || new Date().toISOString().slice(0, 10);
+      const serialInfo = await nextSerialNumber(client, issueDate);
+      serialNumber = serialInfo.serial_number;
+      fiscalYear = serialInfo.fiscal_year;
+      serialSequence = serialInfo.serial_sequence;
       qrToken = uuidv4();
       const filePassword = '';
 
       const inserted = await client.query(
         `INSERT INTO invoices (
-          serial_number, issue_date, invoice_type, patient_name, file_number, admission_date, discharge_date,
+          serial_number, fiscal_year, serial_sequence, issue_date, invoice_type, patient_name, file_number, admission_date, discharge_date,
           stay_days, financial_treatment, stay_type, stay_type_id, stay_type_ids,
           stamp_duty, stamp_duty_raw, professional_fees, professional_fees_raw,
-          items_subtotal, items_subtotal_raw, admin_expenses_percent,
+          items_subtotal, items_subtotal_raw, stay_subtotal, stay_subtotal_raw, admin_expenses_percent,
           admin_expenses, admin_expenses_raw, total_after_admin, total_after_admin_raw,
           balance, balance_raw, final_total, final_total_raw,
           cash_private, bank_private, cash_external, bank_external,
           total_collected, total_collected_raw, remaining, remaining_raw,
           employee_name, auditor_name, captain_name, manager_name, qr_token, file_password, notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46)
         RETURNING id`,
         [
           serialNumber,
-          data.issue_date || new Date().toISOString().slice(0, 10),
+          fiscalYear,
+          serialSequence,
+          issueDate,
           data.invoice_type,
           data.patient_name || '',
           data.file_number || '',
@@ -306,6 +410,8 @@ async function saveInvoice(data, existingId = null) {
           totals.professional_fees_raw,
           totals.items_subtotal,
           totals.items_subtotal_raw,
+          totals.stay_subtotal,
+          totals.stay_subtotal_raw,
           totals.admin_expenses_percent,
           totals.admin_expenses,
           totals.admin_expenses_raw,
@@ -335,11 +441,11 @@ async function saveInvoice(data, existingId = null) {
 
       invoiceId = inserted.rows[0]?.id;
       if (!invoiceId) throw new Error('فشل إنشاء الفاتورة');
-      await saveDiscountFields(client, invoiceId, calcData, totals);
+      await saveDiscountFields(client, invoiceId, calcData, totals, createdBy);
     }
 
-    for (let index = 0; index < totals.items.length; index++) {
-      const item = totals.items[index];
+    for (let index = 0; index < manualItems.length; index++) {
+      const item = manualItems[index];
       await client.query(
         `INSERT INTO invoice_items (
           invoice_id, description, quantity, amount, total,
@@ -374,6 +480,7 @@ async function saveInvoice(data, existingId = null) {
       );
     }
 
+    await saveStayEntries(client, invoiceId, totals.stay_entries || []);
     await saveMethodPayments(client, invoiceId, data.method_payments || []);
 
     return getInvoiceById(invoiceId, client);

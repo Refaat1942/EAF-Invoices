@@ -50,11 +50,14 @@ function enrichInvoice(invoice) {
     ...invoice,
     items: invoice.items || [],
     payments: invoice.payments || [],
+    stay_entries: invoice.stay_entries || [],
   });
 
   return {
     ...invoice,
     ...totals,
+    items: invoice.items || [],
+    stay_entries: totals.stay_entries || invoice.stay_entries || [],
     invoice_type_label: invoice.invoice_type_label || invoice.invoice_type,
   };
 }
@@ -263,17 +266,41 @@ function buildInvoiceHtml(invoice, options = {}) {
       margin-top: 28px;
       padding-top: 4px;
     }
+    .created-by-footer {
+      direction: rtl;
+      text-align: center;
+      font-weight: 700;
+      font-size: 9px;
+      color: #444;
+      margin-top: 8px;
+    }
     .title-row th {
       font-weight: 900;
       font-size: 11px;
       background: #c0c0c0 !important;
     }
+    .stay-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid #000;
+      direction: rtl;
+      margin-bottom: 8px;
+    }
+    .stay-table th, .stay-table td {
+      border: 1px solid #000;
+      padding: 4px 5px;
+      text-align: center;
+      font-weight: 800;
+      font-size: 10px;
+    }
+    .stay-table th { background: #e8e8e8; font-weight: 900; }
   </style>
 </head>
 <body>
   <div class="page">
     <div class="serial-bar">
       رقم الفاتورة: ${escapeHtml(inv.serial_number)}
+      ${inv.fiscal_year_label ? `&nbsp;|&nbsp; السنة المالية: ${escapeHtml(inv.fiscal_year_label)}` : ''}
       &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(inv.issue_date || inv.created_at)}
       &nbsp;|&nbsp; النوع: ${escapeHtml(inv.invoice_type_label)}
     </div>
@@ -297,30 +324,53 @@ function buildInvoiceHtml(invoice, options = {}) {
 
     <table class="meta-table">
       <tr>
+        <th>نوع الفاتورة</th>
         <th>رقم الملف</th>
         <th>إسم المريض</th>
         <th>تاريخ الدخول</th>
         <th>تاريخ الخروج</th>
         <th>عدد أيام الإقامة</th>
-        <th>المعاملة المالية للمريض</th>
-        ${inv.invoice_type === 'contracted' && inv.contracted_entity_name ? '<th>الجهة المتعاقدة</th><th>نسبة الخصم</th>' : ''}
       </tr>
       <tr>
+        <td class="value">${escapeHtml(inv.invoice_type_label || inv.invoice_type)}</td>
         <td class="value">${escapeHtml(inv.file_number)}</td>
         <td class="value">${escapeHtml(inv.patient_name)}</td>
         <td class="value">${formatDate(inv.admission_date)}</td>
         <td class="value">${formatDate(inv.discharge_date)}</td>
         <td class="value">${inv.stay_days ?? ''}</td>
-        <td class="value">${escapeHtml(inv.financial_treatment)}</td>
-        ${inv.invoice_type === 'contracted' && inv.contracted_entity_name ? `<td class="value">${escapeHtml(inv.contracted_entity_name)}</td><td class="value">${inv.discount_percent || 0}%</td>` : ''}
+      </tr>
+      ${
+        inv.invoice_type === 'contracted' && inv.contracted_entity_name
+          ? `<tr>
+        <th>الجهة المتعاقدة</th>
+        <th>نسبة الخصم</th>
+        <th>خطاب الجهة من</th>
+        <th>خطاب الجهة إلى</th>
+        <th colspan="2">المعاملة المالية للمريض</th>
       </tr>
       <tr>
-        <th colspan="6">أنواع الإقامة</th>
+        <td class="value">${escapeHtml(inv.contracted_entity_name)}</td>
+        <td class="value">${inv.discount_percent || 0}%</td>
+        <td class="value">${formatDate(inv.letter_from_date)}</td>
+        <td class="value">${formatDate(inv.letter_to_date)}</td>
+        <td class="value" colspan="2">${escapeHtml(inv.financial_treatment)}</td>
+      </tr>`
+          : `<tr>
+        <th colspan="6">المعاملة المالية للمريض</th>
       </tr>
       <tr>
-        <td class="value" colspan="6">${escapeHtml(inv.stay_type)}</td>
+        <td class="value" colspan="6">${escapeHtml(inv.financial_treatment)}</td>
+      </tr>`
+      }
+      <tr>
+        <th colspan="6">تفاصيل الإقامة</th>
+      </tr>
+      <tr>
+        <td class="value" colspan="6">${escapeHtml(formatStaySummary(inv))}</td>
       </tr>
     </table>
+
+    ${buildStayDetailsTable(inv)}
 
     <table class="main-table">
       <thead>
@@ -380,6 +430,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       <div class="sig-block"><div class="sig-line">${escapeHtml(inv.auditor_name || 'المراجع المالي')}</div></div>
       <div class="sig-block"><div class="sig-line">${escapeHtml(inv.employee_name || 'الموظف المختص')}</div></div>
     </div>
+    ${inv.created_by_name ? `<div class="created-by-footer">أُنشئت بواسطة: ${escapeHtml(inv.created_by_name)}</div>` : ''}
   </div>
 </body>
 </html>`;
@@ -427,26 +478,85 @@ function buildCombinedRows(items, payments) {
   return html;
 }
 
+function formatStaySummary(inv) {
+  const entries = inv.stay_entries || [];
+  if (entries.length) {
+    return entries
+      .map((entry) => {
+        const days = entry.days ?? 0;
+        const rate = Number(entry.daily_rate) || 0;
+        return `${entry.stay_type_name || '-'}: ${formatDate(entry.from_date)} → ${formatDate(entry.to_date)} (${days} يوم × ${fmtPlain(rate)})`;
+      })
+      .join(' | ');
+  }
+  return inv.stay_type || '-';
+}
+
+function buildStayDetailsTable(inv) {
+  const entries = inv.stay_entries || [];
+  if (!entries.length) return '';
+
+  const rows = entries
+    .map(
+      (entry) => `<tr>
+      <td>${escapeHtml(entry.stay_type_name || '-')}</td>
+      <td>${formatDate(entry.from_date)}</td>
+      <td>${formatDate(entry.to_date)}</td>
+      <td class="num">${entry.days ?? 0}</td>
+      <td class="num">${fmtPlain(entry.daily_rate)}</td>
+      <td class="num">${fmtPlain(entry.total)}</td>
+    </tr>`
+    )
+    .join('');
+
+  return `<table class="stay-table">
+    <thead>
+      <tr><th colspan="6">بيان تكاليف الإقامة</th></tr>
+      <tr>
+        <th>نوع الإقامة</th>
+        <th>من</th>
+        <th>إلى</th>
+        <th>الأيام</th>
+        <th>سعر اليوم</th>
+        <th>الإجمالي</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+      <tr>
+        <td colspan="5" style="text-align:right;font-weight:900">إجمالي تكاليف الإقامة</td>
+        <td class="num">${fmtDual(inv.stay_subtotal_raw, inv.stay_subtotal)}</td>
+      </tr>
+    </tbody>
+  </table>`;
+}
+
 function buildSummaryRows(inv) {
   const adminLabel = `مصروفات إدارية ${inv.admin_expenses_percent || 12}%`;
+  const hasDiscount = Number(inv.discount_amount) > 0 || Number(inv.discount_percent) > 0;
+  const hasStay = Number(inv.stay_subtotal) > 0;
 
-  const rows = [
+  const rows = [];
+  if (hasStay) {
+    rows.push(['إجمالي تكلفة الإقامة', inv.stay_subtotal_raw, inv.stay_subtotal, '']);
+  }
+  rows.push(
+    ['إجمالي البنود', inv.items_subtotal_raw, inv.items_subtotal, ''],
     ['دمغة', inv.stamp_duty_raw, inv.stamp_duty, ''],
     ['مهن', inv.professional_fees_raw, inv.professional_fees, ''],
-  ];
+    ['الإجمالي', inv.subtotal_before_admin_raw, inv.subtotal_before_admin, ''],
+    [adminLabel, inv.admin_expenses_raw, inv.admin_expenses, ''],
+    ['الإجمالي بعد المصروفات الإدارية', inv.total_after_admin_raw, inv.total_after_admin, '']
+  );
 
-  if (Number(inv.discount_amount) > 0 || Number(inv.discount_percent) > 0) {
-    rows.unshift(
-      ['إجمالي البنود', inv.items_subtotal_raw, inv.items_subtotal, ''],
+  if (hasDiscount) {
+    rows.push(
       [`خصم جهة متعاقدة ${inv.discount_percent || 0}%`, inv.discount_amount_raw, inv.discount_amount, ''],
-      ['بعد الخصم', inv.items_subtotal_after_discount_raw, inv.items_subtotal_after_discount, '']
+      ['صافي بعد الخصم', inv.net_after_discount_raw ?? inv.items_subtotal_after_discount_raw, inv.net_after_discount ?? inv.items_subtotal_after_discount, '']
     );
   }
 
   rows.push(
-    ['الإجمالي', inv.subtotal_before_admin_raw, inv.subtotal_before_admin, ''],
-    [adminLabel, inv.admin_expenses_raw, inv.admin_expenses, ''],
-    ['الإجمالي بعد المصروفات الإدارية', inv.total_after_admin_raw, inv.total_after_admin, ''],
     ['الرصيد', inv.balance_raw, inv.balance, ''],
     ['الإجمالي', inv.final_total_raw, inv.final_total, fmtDual(inv.total_collected_raw, inv.total_collected)]
   );

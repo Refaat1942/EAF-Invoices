@@ -76,9 +76,23 @@
                       <label class="form-label fw-bold">نسبة الخصم %</label>
                       <input type="text" class="form-control fw-bold text-center" id="discount_percent_display" readonly value="0">
                     </div>
+                    <div class="col-lg-4 col-md-8" id="contracted-letter-wrap" style="display:none">
+                      <div class="row g-2">
+                        <div class="col-6">
+                          <label class="form-label fw-bold">خطاب الجهة — من</label>
+                          <input type="date" class="form-control fw-bold" id="letter_from_date">
+                        </div>
+                        <div class="col-6">
+                          <label class="form-label fw-bold">خطاب الجهة — إلى</label>
+                          <input type="date" class="form-control fw-bold" id="letter_to_date">
+                        </div>
+                      </div>
+                    </div>
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">تاريخ إصدار الفاتورة</label>
                       <input type="date" class="form-control fw-bold" id="issue_date">
+                      <div class="small text-muted fw-bold mt-1" id="fiscal-year-label"></div>
+                      <div class="small text-primary fw-bold" id="next-serial-preview"></div>
                     </div>
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">رقم الملف</label>
@@ -111,8 +125,33 @@
 
                   <div class="row g-3 mb-3">
                     <div class="col-12">
-                      <label class="form-label fw-bold">أنواع الإقامة <span class="text-muted fw-normal">(يمكن اختيار أكثر من واحد)</span></label>
-                      <div id="stay-types-checkboxes" class="stay-types-grid"></div>
+                      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                        <label class="form-label fw-bold mb-0">تفاصيل الإقامة <span class="text-muted fw-normal">(يمكن إضافة أكثر من نوع)</span></label>
+                        <button type="button" class="btn btn-outline-primary btn-sm fw-bold" id="add-stay-entry-btn">+ إضافة إقامة</button>
+                      </div>
+                      <div class="table-responsive stay-entries-wrap">
+                        <table class="table table-bordered table-sm stay-entries-table mb-2">
+                          <thead class="table-light">
+                            <tr>
+                              <th style="width:22%">نوع الإقامة</th>
+                              <th style="width:14%">من</th>
+                              <th style="width:14%">إلى</th>
+                              <th style="width:10%">الأيام</th>
+                              <th style="width:14%">سعر اليوم</th>
+                              <th style="width:14%">الإجمالي</th>
+                              <th style="width:6%"></th>
+                            </tr>
+                          </thead>
+                          <tbody id="stay-entries-tbody"></tbody>
+                          <tfoot>
+                            <tr class="table-warning">
+                              <td colspan="5" class="fw-black text-end">إجمالي تكاليف الإقامة</td>
+                              <td class="fw-black" id="stay-subtotal-display">0.00</td>
+                              <td></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
                     </div>
                   </div>
 
@@ -175,8 +214,17 @@
                 <!-- Bottom Summary -->
                 <div class="row g-3 mb-3">
                   <div class="col-md-6">
-                    <h6 class="fw-black">بيان المدفوعات طبقاً لأذونات الدفع</h6>
-                    <table class="table table-bordered table-sm">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                      <h6 class="fw-black mb-0">بيان المدفوعات طبقاً لأذونات الدفع</h6>
+                      <div class="payment-quick-actions d-flex flex-wrap gap-1">
+                        <button type="button" class="btn btn-outline-success btn-sm fw-bold" id="pay-full-cash-btn" title="تعبئة المبلغ كاملًا نقدًا">💵 نقدي كامل</button>
+                        <button type="button" class="btn btn-outline-primary btn-sm fw-bold" id="pay-full-bank-btn" title="تعبئة المبلغ كاملًا تحويلًا">🏦 تحويل كامل</button>
+                        <button type="button" class="btn btn-outline-info btn-sm fw-bold" id="pay-full-check-btn" title="تعبئة المبلغ كاملًا بشيك">📄 شيك كامل</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="clear-payments-btn" title="مسح جميع المدفوعات">🗑️ مسح</button>
+                      </div>
+                    </div>
+                    <div id="payment-validation-banner" class="payment-validation-banner mb-2" style="display:none"></div>
+                    <table class="table table-bordered table-sm payment-methods-table">
                       <tbody id="payment-methods-tbody">
                         <tr><td colspan="2" class="text-muted text-center">جاري تحميل طرق الدفع...</td></tr>
                       </tbody>
@@ -192,6 +240,7 @@
                         <tr><td class="fw-bold">1 - إجمالي الفاتورة</td><td class="fw-black" id="display_final_total">0.00</td></tr>
                         <tr><td class="fw-bold">2 - إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected2">0.00</td></tr>
                         <tr class="table-warning"><td class="fw-black">3 - المتبقي</td><td class="fw-black" id="display_remaining">0.00</td></tr>
+                        <tr id="payment-match-row" style="display:none"><td class="fw-black">4 - حالة التطابق</td><td class="fw-black" id="display_payment_status">—</td></tr>
                       </tbody>
                     </table>
                   </div>
@@ -212,6 +261,9 @@
                   <button type="button" class="btn btn-primary fw-bold" id="download-docx-btn" style="display:none">📝 Word</button>
                   <button type="button" class="btn btn-info fw-bold" id="preview-btn" style="display:none">👁️ معاينة</button>
                 </div>
+                <div class="mt-2" id="created-by-wrap" style="display:none">
+                  <small class="text-muted fw-bold">أُنشئت بواسطة: <span id="created_by_display"></span></small>
+                </div>
               </form>
             </div>
           </div>
@@ -226,13 +278,25 @@
               <p class="small text-muted">امسح الكود لعرض الفاتورة وتحميلها</p>
             </div>
           </div>
+          <div class="card shadow-sm mb-3">
+            <div class="card-header bg-info text-white fw-black">📊 مسار الحساب</div>
+            <div class="card-body p-2">
+              <div id="calculation-validation-banner" class="calc-validation-banner mb-2" style="display:none"></div>
+              <ol class="calculation-flow-list mb-0" id="calculation-flow-list">
+                <li class="text-muted small">أدخل البيانات لعرض مسار الحساب...</li>
+              </ol>
+            </div>
+          </div>
           <div class="card shadow-sm">
             <div class="card-header bg-secondary text-white fw-black">ملخص الحسابات</div>
             <div class="card-body">
               <div class="summary-item"><span>إجمالي البنود:</span><strong id="sum_items">0.00</strong></div>
+              <div class="summary-item" id="sum_stay_wrap" style="display:none"><span>تكلفة الإقامة:</span><strong id="sum_stay">0.00</strong></div>
               <div class="summary-item"><span>دمغة + مهن:</span><strong id="sum_fees">0.00</strong></div>
               <div class="summary-item"><span>مصروفات إدارية:</span><strong id="sum_admin">0.00</strong></div>
               <div class="summary-item"><span>بعد المصروفات:</span><strong id="sum_after_admin">0.00</strong></div>
+              <div class="summary-item" id="sum_discount_wrap" style="display:none"><span>خصم الجهة:</span><strong id="sum_discount">0.00</strong></div>
+              <div class="summary-item" id="sum_net_wrap" style="display:none"><span>صافي بعد الخصم:</span><strong id="sum_net">0.00</strong></div>
               <div class="summary-item total"><span>الإجمالي النهائي:</span><strong id="sum_final">0</strong></div>
               <div class="summary-item"><span>قبل التقريب:</span><strong id="sum_final_raw" class="text-muted">0</strong></div>
               <div class="summary-item"><span>المحصل:</span><strong id="sum_collected">0</strong></div>
@@ -325,6 +389,7 @@
             <div class="card-body">
               <div class="input-group mb-3">
                 <input type="text" class="form-control fw-bold" id="new-stay-type" placeholder="نوع إقامة جديد...">
+                <input type="number" step="0.01" min="0" class="form-control fw-bold" id="new-stay-rate" placeholder="سعر اليوم" style="max-width:140px">
                 <button class="btn btn-primary fw-bold" id="add-stay-type-btn">إضافة</button>
               </div>
               <ul class="list-group admin-lookup-list" id="stay-types-list"></ul>

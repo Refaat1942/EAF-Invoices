@@ -78,7 +78,7 @@ router.get('/discount-exclusions', lookupListHandler(listDiscountExclusions, 'in
 
 router.post('/stay-types', requirePermission('settings.*'), async (req, res) => {
   try {
-    const row = await createStayType(req.body.name);
+    const row = await createStayType(req.body.name, req.body.daily_rate);
     res.status(201).json(row);
   } catch (err) {
     res.status(400).json({ error: err.message });

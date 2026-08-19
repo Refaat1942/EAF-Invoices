@@ -8,6 +8,8 @@ let rowCount = 12;
 let invoiceTypeLabels = {};
 let paymentMethodsCache = [];
 let contractedEntitiesCache = [];
+let stayTypesCache = [];
+let lastCalculationTotals = null;
 
 const fmt = (n) =>
   (Number(n) || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -85,7 +87,7 @@ function applyPermissions() {
   const canEdit = can('invoices.create') || can('invoices.edit');
   const saveBtn = document.querySelector('#invoice-form button[type="submit"]');
   if (saveBtn) saveBtn.style.display = canEdit ? '' : 'none';
-  ['reset-form-btn', 'add-row-btn', 'remove-row-btn'].forEach((id) => {
+  ['reset-form-btn', 'add-row-btn', 'remove-row-btn', 'add-stay-entry-btn', 'pay-full-cash-btn', 'pay-full-bank-btn', 'pay-full-check-btn', 'clear-payments-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.style.display = canEdit ? '' : 'none';
   });
@@ -178,8 +180,19 @@ function bindEvents() {
     }
   });
 
-  document.getElementById('admission_date').addEventListener('change', autoStayDays);
-  document.getElementById('discharge_date').addEventListener('change', autoStayDays);
+  document.getElementById('add-stay-entry-btn').addEventListener('click', () => {
+    addStayEntryRow();
+    bindStayEntryTriggers();
+  });
+
+  document.getElementById('admission_date').addEventListener('change', () => {
+    autoStayDays();
+    prefillStayEntryDatesFromAdmission();
+  });
+  document.getElementById('discharge_date').addEventListener('change', () => {
+    autoStayDays();
+    prefillStayEntryDatesFromAdmission();
+  });
 
   document.getElementById('download-pdf-btn').addEventListener('click', () => downloadFile('pdf'));
   document.getElementById('download-docx-btn').addEventListener('click', () => downloadFile('docx'));
@@ -208,6 +221,12 @@ function bindEvents() {
   });
   document.getElementById('add-entity-btn').addEventListener('click', addContractedEntity);
   document.getElementById('add-exclusion-btn').addEventListener('click', addDiscountExclusion);
+  document.getElementById('issue_date').addEventListener('change', updateFiscalYearPreview);
+
+  document.getElementById('pay-full-cash-btn').addEventListener('click', () => fillFullPayment('cash'));
+  document.getElementById('pay-full-bank-btn').addEventListener('click', () => fillFullPayment('bank_transfer'));
+  document.getElementById('pay-full-check-btn').addEventListener('click', () => fillFullPayment('check'));
+  document.getElementById('clear-payments-btn').addEventListener('click', clearAllPayments);
   document.getElementById('invoice_type').addEventListener('change', toggleContractedFields);
   document.getElementById('contracted_entity_id').addEventListener('change', onContractedEntityChange);
 
@@ -219,6 +238,216 @@ function bindCalcTriggers() {
     el.removeEventListener('input', recalculate);
     el.addEventListener('input', recalculate);
   });
+}
+
+function calcDaysBetween(fromDate, toDate) {
+  if (!fromDate || !toDate) return 0;
+  const start = new Date(fromDate);
+  const end = new Date(toDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  return Math.max(Math.ceil((end - start) / 86400000), 0);
+}
+
+function buildStayTypeOptions(selectedId = '') {
+  if (!stayTypesCache.length) {
+    return '<option value="">-- اختر نوع الإقامة --</option>';
+  }
+  return (
+    '<option value="">-- اختر نوع الإقامة --</option>' +
+    stayTypesCache
+      .map((t) => {
+        const rate = Number(t.daily_rate) || 0;
+        const rateLabel = rate ? ` (${fmt(rate)}/يوم)` : '';
+        return `<option value="${t.id}" data-rate="${rate}" ${String(selectedId) === String(t.id) ? 'selected' : ''}>${t.name}${rateLabel}</option>`;
+      })
+      .join('')
+  );
+}
+
+function createStayEntryRow(entry = {}) {
+  const tr = document.createElement('tr');
+  tr.className = 'stay-entry-row';
+  tr.innerHTML = `
+    <td><select class="form-select form-select-sm stay-type-select" data-field="stay_type_id">${buildStayTypeOptions(entry.stay_type_id)}</select></td>
+    <td><input type="date" class="form-control form-control-sm stay-entry-trigger" data-field="from_date" value="${fmtDate(entry.from_date)}"></td>
+    <td><input type="date" class="form-control form-control-sm stay-entry-trigger" data-field="to_date" value="${fmtDate(entry.to_date)}"></td>
+    <td><input type="number" min="0" class="form-control form-control-sm stay-entry-trigger" data-field="days" value="${entry.days ?? ''}"></td>
+    <td><input type="number" step="0.01" min="0" class="form-control form-control-sm stay-entry-trigger" data-field="daily_rate" value="${entry.daily_rate ?? ''}"></td>
+    <td><input type="text" class="form-control form-control-sm row-total" data-field="total" readonly tabindex="-1" value="${entry.total ? fmt(entry.total) : ''}"></td>
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger remove-stay-entry-btn" title="حذف">×</button></td>
+  `;
+  return tr;
+}
+
+function initStayEntries(entries = []) {
+  const tbody = document.getElementById('stay-entries-tbody');
+  tbody.innerHTML = '';
+  const list = entries.length ? entries : [{}];
+  list.forEach((entry) => tbody.appendChild(createStayEntryRow(entry)));
+  bindStayEntryTriggers();
+  updateStayEntryTotalsLocal();
+}
+
+function addStayEntryRow(entry = {}) {
+  const tbody = document.getElementById('stay-entries-tbody');
+  const rowEntry = { ...entry };
+  if (!rowEntry.from_date) rowEntry.from_date = document.getElementById('admission_date').value;
+  if (!rowEntry.to_date) rowEntry.to_date = document.getElementById('discharge_date').value;
+  tbody.appendChild(createStayEntryRow(rowEntry));
+  bindStayEntryTriggers();
+  onStayEntryRowChange(tbody.lastElementChild);
+}
+
+function bindStayEntryTriggers() {
+  document.querySelectorAll('.stay-entry-trigger').forEach((el) => {
+    el.removeEventListener('input', onStayEntryInput);
+    el.removeEventListener('change', onStayEntryInput);
+    el.addEventListener('input', onStayEntryInput);
+    el.addEventListener('change', onStayEntryInput);
+  });
+  document.querySelectorAll('.stay-type-select').forEach((el) => {
+    el.removeEventListener('change', onStayTypeSelect);
+    el.addEventListener('change', onStayTypeSelect);
+  });
+  document.querySelectorAll('.remove-stay-entry-btn').forEach((btn) => {
+    btn.onclick = () => {
+      const tbody = document.getElementById('stay-entries-tbody');
+      if (tbody.children.length > 1) {
+        btn.closest('tr').remove();
+      } else {
+        const row = btn.closest('tr');
+        row.querySelectorAll('input, select').forEach((input) => {
+          if (input.tagName === 'SELECT') input.selectedIndex = 0;
+          else input.value = '';
+        });
+      }
+      syncStayDaysFromEntries();
+      updateStayEntryTotalsLocal();
+      recalculate();
+    };
+  });
+}
+
+function onStayTypeSelect(e) {
+  const row = e.target.closest('tr');
+  const option = e.target.selectedOptions[0];
+  const rate = option?.dataset?.rate;
+  if (rate !== undefined && rate !== '') {
+    row.querySelector('[data-field="daily_rate"]').value = rate;
+  }
+  onStayEntryRowChange(row);
+}
+
+function onStayEntryInput(e) {
+  onStayEntryRowChange(e.target.closest('tr'));
+}
+
+function onStayEntryRowChange(row) {
+  if (!row) return;
+  const fromDate = row.querySelector('[data-field="from_date"]').value;
+  const toDate = row.querySelector('[data-field="to_date"]').value;
+  const daysInput = row.querySelector('[data-field="days"]');
+  const rate = parseFloat(row.querySelector('[data-field="daily_rate"]').value) || 0;
+
+  if (fromDate && toDate) {
+    daysInput.value = calcDaysBetween(fromDate, toDate);
+  }
+
+  const days = parseFloat(daysInput.value) || 0;
+  const total = Math.round(days * rate * 100) / 100;
+  row.querySelector('[data-field="total"]').value = total ? fmt(total) : '';
+  syncStayDaysFromEntries();
+  updateStayEntryTotalsLocal();
+  recalculate();
+}
+
+function updateStayEntryTotalsLocal() {
+  let subtotal = 0;
+  document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
+    const days = parseFloat(row.querySelector('[data-field="days"]').value) || 0;
+    const rate = parseFloat(row.querySelector('[data-field="daily_rate"]').value) || 0;
+    subtotal += Math.round(days * rate * 100) / 100;
+  });
+  document.getElementById('stay-subtotal-display').textContent = fmt(subtotal);
+}
+
+function collectStayEntries() {
+  const entries = [];
+  document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
+    const stayTypeId = row.querySelector('[data-field="stay_type_id"]').value;
+    const fromDate = row.querySelector('[data-field="from_date"]').value;
+    const toDate = row.querySelector('[data-field="to_date"]').value;
+    const days = row.querySelector('[data-field="days"]').value;
+    const dailyRate = row.querySelector('[data-field="daily_rate"]').value;
+    if (!stayTypeId && !fromDate && !toDate && !dailyRate) return;
+    entries.push({
+      stay_type_id: stayTypeId || null,
+      from_date: fromDate || null,
+      to_date: toDate || null,
+      days,
+      daily_rate: dailyRate,
+    });
+  });
+  return entries;
+}
+
+function syncStayDaysFromEntries() {
+  const entries = collectStayEntries().filter((e) => e.stay_type_id || e.from_date || e.to_date);
+  if (entries.length) {
+    const totalDays = entries.reduce((sum, entry) => sum + (Number(entry.days) || 0), 0);
+    document.getElementById('stay_days').value = totalDays;
+  } else {
+    autoStayDays();
+  }
+}
+
+function prefillStayEntryDatesFromAdmission() {
+  const admission = document.getElementById('admission_date').value;
+  const discharge = document.getElementById('discharge_date').value;
+  document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
+    const fromInput = row.querySelector('[data-field="from_date"]');
+    const toInput = row.querySelector('[data-field="to_date"]');
+    if (!fromInput.value && admission) fromInput.value = admission;
+    if (!toInput.value && discharge) toInput.value = discharge;
+    onStayEntryRowChange(row);
+  });
+}
+
+function getFiscalYearLabelFromDate(dateStr) {
+  if (!dateStr) return '';
+  const [y, m] = dateStr.split('-').map(Number);
+  if (!y || !m) return '';
+  const fiscalStart = m >= 7 ? y : y - 1;
+  return `${fiscalStart}/${fiscalStart + 1}`;
+}
+
+async function updateFiscalYearPreview() {
+  const issueDate = document.getElementById('issue_date').value;
+  const fiscalLabel = document.getElementById('fiscal-year-label');
+  const serialPreview = document.getElementById('next-serial-preview');
+
+  if (!issueDate) {
+    fiscalLabel.textContent = '';
+    serialPreview.textContent = '';
+    return;
+  }
+
+  fiscalLabel.textContent = `السنة المالية: ${getFiscalYearLabelFromDate(issueDate)} (1 يوليو → 30 يونيو)`;
+
+  if (currentInvoiceId) {
+    serialPreview.textContent = '';
+    return;
+  }
+
+  try {
+    const res = await apiFetch(`${API}/next-serial?issue_date=${encodeURIComponent(issueDate)}`);
+    const data = await res.json();
+    if (res.ok) {
+      serialPreview.textContent = `الرقم التالي: ${data.serial_number}`;
+    }
+  } catch {
+    serialPreview.textContent = '';
+  }
 }
 
 function autoStayDays() {
@@ -262,6 +491,8 @@ function collectFormData() {
     invoice_type: document.getElementById('invoice_type').value,
     contracted_entity_id: document.getElementById('contracted_entity_id').value || null,
     discount_percent: parseFloat(document.getElementById('discount_percent_display').value) || 0,
+    letter_from_date: document.getElementById('letter_from_date').value || null,
+    letter_to_date: document.getElementById('letter_to_date').value || null,
     issue_date: document.getElementById('issue_date').value,
     file_number: document.getElementById('file_number').value,
     patient_name: document.getElementById('patient_name').value,
@@ -269,7 +500,7 @@ function collectFormData() {
     discharge_date: document.getElementById('discharge_date').value,
     stay_days: document.getElementById('stay_days').value,
     financial_treatment: document.getElementById('financial_treatment').value,
-    stay_type_ids: getSelectedStayTypeIds(),
+    stay_entries: collectStayEntries(),
     notes: document.getElementById('notes').value,
     stamp_duty: document.getElementById('stamp_duty').value,
     professional_fees: document.getElementById('professional_fees').value,
@@ -314,22 +545,61 @@ async function recalculate() {
       body: JSON.stringify(data),
     });
     const totals = await res.json();
+    lastCalculationTotals = totals;
     updateSummaryDisplay(totals);
     updateSummaryTable(totals);
-    applyItemDiscountPercents(totals.items || []);
+    updatePaymentValidationUI(totals);
+    updateCalculationFlowUI(totals);
+    updateCalculationValidationUI(totals);
+    applyItemDiscountPercents((totals.items || []).filter((item) => !item.is_stay_entry));
+    updateStayEntriesFromTotals(totals.stay_entries || []);
+    return totals;
   } catch (err) {
     console.error(err);
+    return null;
+  }
+}
+
+function updateStayEntriesFromTotals(entries) {
+  document.querySelectorAll('#stay-entries-tbody tr').forEach((row, i) => {
+    const entry = entries[i];
+    if (!entry) return;
+    row.querySelector('[data-field="days"]').value = entry.days ?? '';
+    row.querySelector('[data-field="total"]').value = entry.total ? fmt(entry.total) : '';
+  });
+  if (Number(entries.length)) {
+    document.getElementById('stay-subtotal-display').innerHTML = fmtDual(
+      entries.reduce((sum, entry) => sum + (Number(entry.total_raw ?? entry.total) || 0), 0),
+      entries.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0)
+    );
   }
 }
 
 function updateSummaryDisplay(t) {
   document.getElementById('sum_items').innerHTML = fmtDual(t.items_subtotal_raw, t.items_subtotal);
+  const hasStay = Number(t.stay_subtotal) > 0;
+  document.getElementById('sum_stay_wrap').style.display = hasStay ? '' : 'none';
+  if (hasStay) {
+    document.getElementById('sum_stay').innerHTML = fmtDual(t.stay_subtotal_raw, t.stay_subtotal);
+    document.getElementById('stay-subtotal-display').innerHTML = fmtDual(t.stay_subtotal_raw, t.stay_subtotal);
+  }
   document.getElementById('sum_fees').innerHTML = fmtDual(
     (t.stamp_duty_raw || 0) + (t.professional_fees_raw || 0),
     (t.stamp_duty || 0) + (t.professional_fees || 0)
   );
   document.getElementById('sum_admin').innerHTML = fmtDual(t.admin_expenses_raw, t.admin_expenses);
   document.getElementById('sum_after_admin').innerHTML = fmtDual(t.total_after_admin_raw, t.total_after_admin);
+
+  const hasDiscount = Number(t.discount_amount) > 0 || Number(t.discount_percent) > 0;
+  document.getElementById('sum_discount_wrap').style.display = hasDiscount ? '' : 'none';
+  document.getElementById('sum_net_wrap').style.display = hasDiscount ? '' : 'none';
+  if (hasDiscount) {
+    document.getElementById('sum_discount').innerHTML = fmtDual(t.discount_amount_raw, t.discount_amount);
+    const netRaw = t.net_after_discount_raw ?? t.items_subtotal_after_discount_raw;
+    const netRounded = t.net_after_discount ?? t.items_subtotal_after_discount;
+    document.getElementById('sum_net').innerHTML = fmtDual(netRaw, netRounded);
+  }
+
   document.getElementById('sum_final').innerHTML = fmtDual(t.final_total_raw, t.final_total);
   document.getElementById('sum_final_raw').textContent = fmt(t.final_total_raw);
   document.getElementById('sum_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
@@ -339,6 +609,168 @@ function updateSummaryDisplay(t) {
   document.getElementById('display_total_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
   document.getElementById('display_total_collected2').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
   document.getElementById('display_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
+  updatePaymentValidationUI(t);
+}
+
+function updateCalculationFlowUI(t) {
+  const list = document.getElementById('calculation-flow-list');
+  const steps = t.calculation_steps || [];
+  if (!steps.length) {
+    list.innerHTML = '<li class="text-muted small">أدخل البيانات لعرض مسار الحساب...</li>';
+    return;
+  }
+
+  list.innerHTML = steps
+    .map((step) => {
+      const classes = [
+        step.is_total ? 'is-total' : '',
+        step.is_deduction ? 'is-deduction' : '',
+        step.is_remaining ? 'is-remaining' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      const value = step.is_percent
+        ? `${step.rounded}%`
+        : step.is_deduction
+          ? `− ${fmtDual(step.raw, step.rounded)}`
+          : fmtDual(step.raw, step.rounded);
+      return `<li class="${classes}"><span>${step.label}</span><strong>${value}</strong></li>`;
+    })
+    .join('');
+}
+
+function updateCalculationValidationUI(t) {
+  const banner = document.getElementById('calculation-validation-banner');
+  const validation = t.calculation_validation;
+  if (!validation) {
+    banner.style.display = 'none';
+    return;
+  }
+
+  banner.style.display = '';
+  if (validation.is_valid && !(validation.warnings || []).length) {
+    banner.className = 'calc-validation-banner is-valid';
+    banner.textContent = '✓ الحسابات متسقة — لا توجد أخطاء';
+    return;
+  }
+
+  if (!validation.is_valid) {
+    banner.className = 'calc-validation-banner is-error';
+    banner.innerHTML = validation.errors.map((e) => `✗ ${e}`).join('<br>');
+    return;
+  }
+
+  banner.className = 'calc-validation-banner is-warning';
+  banner.innerHTML = (validation.warnings || []).map((w) => `⚠ ${w}`).join('<br>');
+}
+
+function validateCalculationsBeforeSave(totals) {
+  const validation = totals?.calculation_validation;
+  if (!validation) return { ok: true };
+  if (validation.is_valid) return { ok: true };
+  return {
+    ok: false,
+    message: validation.errors[0] || 'خطأ في حسابات الفاتورة',
+  };
+}
+
+function updatePaymentValidationUI(t) {
+  const validation = t.payment_validation || {};
+  const banner = document.getElementById('payment-validation-banner');
+  const matchRow = document.getElementById('payment-match-row');
+  const statusEl = document.getElementById('display_payment_status');
+  const finalTotal = Number(t.final_total) || 0;
+  const collected = Number(t.total_collected) || 0;
+  const hasPayments = validation.has_payments || collected > 0;
+
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    const amount = parseFloat(input.value) || 0;
+    const row = input.closest('tr');
+    input.classList.toggle('is-active', amount > 0);
+    if (row) row.classList.toggle('payment-row-active', amount > 0);
+  });
+
+  if (!hasPayments && finalTotal === 0) {
+    banner.style.display = 'none';
+    matchRow.style.display = 'none';
+    return;
+  }
+
+  banner.style.display = '';
+  matchRow.style.display = '';
+
+  if (!hasPayments) {
+    banner.className = 'payment-validation-banner is-underpaid';
+    banner.textContent = `لم يتم إدخال مدفوعات — إجمالي الفاتورة: ${fmt(finalTotal)}`;
+    statusEl.textContent = 'بانتظار الدفع';
+    statusEl.className = 'fw-black text-warning';
+    return;
+  }
+
+  if (validation.is_balanced || Math.abs(Number(t.remaining) || 0) < 0.01) {
+    banner.className = 'payment-validation-banner is-balanced';
+    banner.textContent = `✓ متطابق: مجموع طرق الدفع (${fmt(collected)}) = إجمالي الفاتورة (${fmt(finalTotal)})`;
+    statusEl.textContent = '✓ متطابق';
+    statusEl.className = 'fw-black text-success';
+    return;
+  }
+
+  const diff = Math.abs(Number(validation.difference ?? t.remaining) || 0);
+  if (validation.status === 'overpaid' || Number(t.remaining) < -0.01) {
+    banner.className = 'payment-validation-banner is-overpaid';
+    banner.textContent = `⚠ زيادة في الدفع: ${fmt(diff)} — المجموع ${fmt(collected)} أكبر من ${fmt(finalTotal)}`;
+    statusEl.textContent = `زيادة ${fmt(diff)}`;
+    statusEl.className = 'fw-black text-danger';
+  } else {
+    banner.className = 'payment-validation-banner is-underpaid';
+    banner.textContent = `⚠ نقص في الدفع: ${fmt(diff)} — المجموع ${fmt(collected)} أقل من ${fmt(finalTotal)}`;
+    statusEl.textContent = `نقص ${fmt(diff)}`;
+    statusEl.className = 'fw-black text-warning';
+  }
+}
+
+function getPaymentInputsByCode(code) {
+  return [...document.querySelectorAll('.payment-method-input')].filter(
+    (input) => input.dataset.methodCode === code
+  );
+}
+
+function getInvoiceFinalTotalForPayment() {
+  if (lastCalculationTotals) {
+    return Number(lastCalculationTotals.final_total_raw ?? lastCalculationTotals.final_total) || 0;
+  }
+  return parseFloat(document.getElementById('display_final_total').textContent.replace(/[^\d.-]/g, '')) || 0;
+}
+
+function fillFullPayment(code) {
+  const total = getInvoiceFinalTotalForPayment();
+  if (total <= 0) {
+    showToast('أدخل بنود الفاتورة أولاً لحساب الإجمالي', 'warning');
+    return;
+  }
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    input.value = input.dataset.methodCode === code ? total : 0;
+  });
+  recalculate();
+}
+
+function clearAllPayments() {
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    input.value = 0;
+  });
+  recalculate();
+}
+
+function validatePaymentsBeforeSave(totals) {
+  const validation = totals?.payment_validation;
+  if (!validation?.has_payments) return { ok: true };
+  if (validation.is_balanced) return { ok: true };
+  const diff = Math.abs(Number(validation.difference_raw ?? validation.difference) || 0);
+  const msg =
+    validation.status === 'overpaid'
+      ? `مجموع طرق الدفع أكبر من إجمالي الفاتورة بمقدار ${fmt(diff)}`
+      : `مجموع طرق الدفع أقل من إجمالي الفاتورة بمقدار ${fmt(diff)}`;
+  return { ok: false, message: msg };
 }
 
 function applyItemDiscountPercents(items) {
@@ -348,32 +780,44 @@ function applyItemDiscountPercents(items) {
     const pctField = row.querySelector('[data-field="discount_percent"]');
     if (!pctField) return;
     if (item) {
-      pctField.value = `${item.item_discount_percent || 0}%`;
+      const pct = item.item_discount_percent || 0;
+      const amt = item.item_discount_amount || 0;
+      pctField.value =
+        pct > 0 && amt > 0 ? `${pct}% (${fmt(amt)})` : pct > 0 ? `${pct}%` : '0%';
+      pctField.title = item.is_discount_eligible ? 'خاضع للخصم' : 'غير خاضع للخصم';
       pctField.classList.toggle('text-success', item.is_discount_eligible);
       pctField.classList.toggle('text-muted', !item.is_discount_eligible);
     } else {
       pctField.value = '0%';
+      pctField.title = '';
     }
   });
 }
 
 function updateSummaryTable(t) {
   const adminLabel = `مصروفات إدارية ${t.admin_expenses_percent}%`;
-  const discountRows =
-    Number(t.discount_amount) > 0 || Number(t.discount_percent) > 0
-      ? `
-    <tr><td>${fmtDual(t.items_subtotal_raw, t.items_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي البنود</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.discount_amount_raw, t.discount_amount)}</td><td></td><td></td><td></td><td class="summary-label">خصم ${t.discount_percent}%</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.items_subtotal_after_discount_raw, t.items_subtotal_after_discount)}</td><td></td><td></td><td></td><td class="summary-label">بعد الخصم</td><td></td><td></td><td></td></tr>`
+  const hasDiscount = Number(t.discount_amount) > 0 || Number(t.discount_percent) > 0;
+
+  const discountRows = hasDiscount
+    ? `
+    <tr><td>${fmtDual(t.discount_amount_raw, t.discount_amount)}</td><td></td><td></td><td></td><td class="summary-label">خصم جهة متعاقدة ${t.discount_percent}%</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.net_after_discount_raw ?? t.items_subtotal_after_discount_raw, t.net_after_discount ?? t.items_subtotal_after_discount)}</td><td></td><td></td><td></td><td class="summary-label">صافي بعد الخصم</td><td></td><td></td><td></td></tr>`
+    : '';
+
+  const stayRows =
+    Number(t.stay_subtotal) > 0
+      ? `<tr><td>${fmtDual(t.stay_subtotal_raw, t.stay_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي تكلفة الإقامة</td><td></td><td></td><td></td></tr>`
       : '';
 
   document.getElementById('summary-tfoot').innerHTML = `
+    ${stayRows}
+    <tr><td>${fmtDual(t.items_subtotal_raw, t.items_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي البنود</td><td></td><td></td><td></td></tr>
     <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td></td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td></tr>
     <tr><td>${fmtDual(t.professional_fees_raw, t.professional_fees)}</td><td></td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td></tr>
-    ${discountRows}
     <tr><td>${fmtDual(t.subtotal_before_admin_raw, t.subtotal_before_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td></tr>
     <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td></td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td></tr>
     <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td></tr>
+    ${discountRows}
     <tr><td>${fmtDual(t.balance_raw, t.balance)}</td><td></td><td></td><td></td><td class="summary-label">الرصيد</td><td></td><td></td><td></td></tr>
     <tr><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td></td><td></td></tr>
   `;
@@ -389,6 +833,22 @@ async function handleSave(e) {
   }
   if (data.invoice_type === 'contracted' && !data.contracted_entity_id) {
     showToast('يجب اختيار الجهة المتعاقدة', 'danger');
+    return;
+  }
+
+  if (!lastCalculationTotals) {
+    await recalculate();
+  }
+
+  const calcCheck = validateCalculationsBeforeSave(lastCalculationTotals);
+  if (!calcCheck.ok) {
+    showToast(calcCheck.message, 'danger');
+    return;
+  }
+
+  const paymentCheck = validatePaymentsBeforeSave(lastCalculationTotals);
+  if (!paymentCheck.ok) {
+    showToast(paymentCheck.message, 'danger');
     return;
   }
 
@@ -411,7 +871,14 @@ async function handleSave(e) {
     document.getElementById('invoice-id').value = result.id;
     document.getElementById('form-title').textContent = 'تعديل الفاتورة';
     document.getElementById('edit-serial').style.display = 'inline';
-    document.getElementById('edit-serial').textContent = result.serial_number;
+    document.getElementById('edit-serial').textContent = result.fiscal_year_label
+      ? `${result.serial_number} (${result.fiscal_year_label})`
+      : result.serial_number;
+
+    if (result.created_by_name) {
+      document.getElementById('created_by_display').textContent = result.created_by_name;
+      document.getElementById('created-by-wrap').style.display = '';
+    }
 
     ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
       document.getElementById(id).style.display = 'inline-block';
@@ -448,17 +915,22 @@ function resetForm() {
   document.getElementById('form-title').textContent = 'إنشاء فاتورة جديدة';
   document.getElementById('edit-serial').style.display = 'none';
   document.getElementById('issue_date').value = new Date().toISOString().slice(0, 10);
+  updateFiscalYearPreview();
   document.getElementById('captain_name').value = 'نقيب / عمرو صالح محمد';
   document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر - المدير المالي';
   document.getElementById('admin_expenses_percent').value = '12';
   document.getElementById('stamp_duty').value = '0';
   document.getElementById('professional_fees').value = '0';
   document.getElementById('balance').value = '0';
-  setSelectedStayTypes([]);
+  loadStayTypes().then(() => initStayEntries());
   ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
     document.getElementById(id).style.display = 'none';
   });
   document.getElementById('qr-card').style.display = 'none';
+  document.getElementById('created-by-wrap').style.display = 'none';
+  document.getElementById('created_by_display').textContent = '';
+  document.getElementById('letter_from_date').value = '';
+  document.getElementById('letter_to_date').value = '';
   loadPaymentMethodsForm();
   toggleContractedFields();
   initRows();
@@ -478,7 +950,9 @@ async function loadInvoiceForEdit(id) {
     document.getElementById('invoice-id').value = inv.id;
     document.getElementById('form-title').textContent = 'تعديل الفاتورة';
     document.getElementById('edit-serial').style.display = 'inline';
-    document.getElementById('edit-serial').textContent = inv.serial_number;
+    document.getElementById('edit-serial').textContent = inv.fiscal_year_label
+      ? `${inv.serial_number} (${inv.fiscal_year_label})`
+      : inv.serial_number;
 
     document.getElementById('invoice_type').value = inv.invoice_type;
     toggleContractedFields();
@@ -487,14 +961,24 @@ async function loadInvoiceForEdit(id) {
       document.getElementById('contracted_entity_id').value = inv.contracted_entity_id;
     }
     document.getElementById('discount_percent_display').value = inv.discount_percent || 0;
+    document.getElementById('letter_from_date').value = fmtDate(inv.letter_from_date);
+    document.getElementById('letter_to_date').value = fmtDate(inv.letter_to_date);
+    if (inv.created_by_name) {
+      document.getElementById('created_by_display').textContent = inv.created_by_name;
+      document.getElementById('created-by-wrap').style.display = '';
+    } else {
+      document.getElementById('created-by-wrap').style.display = 'none';
+    }
     document.getElementById('patient_name').value = inv.patient_name;
     document.getElementById('file_number').value = inv.file_number || '';
     document.getElementById('issue_date').value = fmtDate(inv.issue_date || inv.created_at);
+    updateFiscalYearPreview();
     document.getElementById('admission_date').value = fmtDate(inv.admission_date);
     document.getElementById('discharge_date').value = fmtDate(inv.discharge_date);
     document.getElementById('stay_days').value = inv.stay_days;
     document.getElementById('financial_treatment').value = inv.financial_treatment;
-    await loadStayTypes(parseStayTypeIds(inv));
+    await loadStayTypes();
+    initStayEntries(inv.stay_entries || []);
     document.getElementById('notes').value = inv.notes || '';
     document.getElementById('stamp_duty').value = inv.stamp_duty;
     document.getElementById('professional_fees').value = inv.professional_fees;
@@ -622,51 +1106,63 @@ function fmtDate(d) {
   return String(d).slice(0, 10);
 }
 
-function getSelectedStayTypeIds() {
-  return [...document.querySelectorAll('#stay-types-checkboxes input:checked')].map((el) =>
-    Number(el.value)
-  );
+function renderStayTypesList(items) {
+  if (!items.length) return '<li class="list-group-item text-muted">لا توجد أنواع إقامة</li>';
+  return items
+    .map(
+      (item) => `
+    <li class="list-group-item admin-lookup-item ${item.is_active ? '' : 'is-inactive'}">
+      <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div class="flex-grow-1">
+          <input type="text" class="form-control form-control-sm fw-bold admin-lookup-name"
+            data-id="${item.id}" data-kind="stay" value="${escapeAttr(item.name)}">
+          <small class="text-muted">سعر اليوم الافتراضي</small>
+        </div>
+        <div class="d-flex gap-1 align-items-center flex-wrap">
+          <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" style="width:110px"
+            id="stay-rate-${item.id}" value="${item.daily_rate || 0}">
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="saveStayTypeItem(${item.id})">💾</button>
+          <button type="button" class="btn btn-sm btn-outline-${item.is_active ? 'warning' : 'success'}"
+            onclick="toggleLookupItem('stay', ${item.id}, ${!item.is_active})">${item.is_active ? '⏸️' : '▶️'}</button>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteLookupItem('stay', ${item.id})">🗑️</button>
+        </div>
+      </div>
+    </li>`
+    )
+    .join('');
 }
 
-function setSelectedStayTypes(ids = []) {
-  const selected = new Set((ids || []).map(Number));
-  document.querySelectorAll('#stay-types-checkboxes input').forEach((el) => {
-    el.checked = selected.has(Number(el.value));
-  });
-}
-
-function parseStayTypeIds(inv) {
-  let ids = inv.stay_type_ids;
-  if (typeof ids === 'string') {
-    try {
-      ids = JSON.parse(ids);
-    } catch {
-      ids = [];
-    }
+async function saveStayTypeItem(id) {
+  const nameInput = document.querySelector(`.admin-lookup-name[data-kind="stay"][data-id="${id}"]`);
+  const rateInput = document.getElementById(`stay-rate-${id}`);
+  const name = nameInput?.value.trim();
+  const daily_rate = parseFloat(rateInput?.value) || 0;
+  if (!name) return showToast('اسم نوع الإقامة مطلوب', 'warning');
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/stay-types/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, daily_rate }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast('تم الحفظ', 'success');
+    loadSettingsPage();
+    loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
   }
-  if (Array.isArray(ids) && ids.length) return ids.map(Number).filter(Boolean);
-  if (inv.stay_type_id) return [Number(inv.stay_type_id)];
-  return [];
 }
 
-async function loadStayTypes(selectedIds = null) {
+async function loadStayTypes() {
   try {
     const res = await apiFetch(`${SETTINGS_API}/stay-types`);
     const types = await res.json();
-    const current =
-      selectedIds !== null && selectedIds !== undefined ? selectedIds : getSelectedStayTypeIds();
-    const container = document.getElementById('stay-types-checkboxes');
-    container.innerHTML = types.length
-      ? types
-          .map(
-            (t) => `
-      <label class="stay-type-chip">
-        <input type="checkbox" value="${t.id}" ${current.includes(t.id) ? 'checked' : ''}>
-        <span>${t.name}</span>
-      </label>`
-          )
-          .join('')
-      : '<span class="text-muted fw-bold">لا توجد أنواع إقامة — أضفها من الإعدادات</span>';
+    stayTypesCache = types;
+    document.querySelectorAll('.stay-type-select').forEach((select) => {
+      const current = select.value;
+      select.innerHTML = buildStayTypeOptions(current);
+    });
     return types;
   } catch (err) {
     console.error(err);
@@ -714,10 +1210,10 @@ async function loadPaymentMethodsForm(values = {}) {
     let html = amountMethods
       .map((m, i) => {
         const val = values[m.id] ?? values[m.code] ?? 0;
-        return `<tr>
+        return `<tr class="payment-method-row" data-method-code="${m.code}">
           <td class="fw-bold">${i + 1} - ${m.name}</td>
-          <td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger payment-method-input"
-            data-method-id="${m.id}" data-method-code="${m.code}" value="${val}"></td>
+          <td><input type="number" step="0.01" min="0" class="form-control form-control-sm calc-trigger payment-method-input"
+            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${val}"></td>
         </tr>`;
       })
       .join('');
@@ -866,9 +1362,12 @@ function toggleContractedFields() {
   const isContracted = document.getElementById('invoice_type').value === 'contracted';
   document.getElementById('contracted-entity-wrap').style.display = isContracted ? '' : 'none';
   document.getElementById('contracted-discount-wrap').style.display = isContracted ? '' : 'none';
+  document.getElementById('contracted-letter-wrap').style.display = isContracted ? '' : 'none';
   if (!isContracted) {
     document.getElementById('contracted_entity_id').value = '';
     document.getElementById('discount_percent_display').value = '0';
+    document.getElementById('letter_from_date').value = '';
+    document.getElementById('letter_to_date').value = '';
   } else {
     onContractedEntityChange();
   }
@@ -1005,7 +1504,7 @@ async function loadSettingsPage() {
       document.getElementById('logo-preview').src = settings.logo_url;
     }
 
-    document.getElementById('stay-types-list').innerHTML = renderAdminLookupList(stayTypes, 'stay');
+    document.getElementById('stay-types-list').innerHTML = renderStayTypesList(stayTypes);
     document.getElementById('invoice-types-list').innerHTML = renderAdminLookupList(invoiceTypes, 'invoice');
     document.getElementById('payment-methods-list').innerHTML = renderAdminLookupList(paymentMethods, 'payment');
     document.getElementById('contracted-entities-list').innerHTML = renderContractedEntitiesList(entities);
@@ -1042,20 +1541,24 @@ async function uploadLogo() {
 
 async function addStayType() {
   const input = document.getElementById('new-stay-type');
+  const rateInput = document.getElementById('new-stay-rate');
   const name = input.value.trim();
+  const daily_rate = parseFloat(rateInput?.value) || 0;
   if (!name) return showToast('اكتب اسم نوع الإقامة', 'warning');
 
   try {
     const res = await apiFetch(`${SETTINGS_API}/stay-types`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, daily_rate }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     input.value = '';
+    if (rateInput) rateInput.value = '';
     showToast('تمت الإضافة', 'success');
     loadSettingsPage();
+    loadStayTypes();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -1125,7 +1628,7 @@ async function loadInvoicesList() {
           .map(
             (inv) => `
         <tr>
-          <td class="fw-black text-primary">${inv.serial_number}</td>
+          <td class="fw-black text-primary">${inv.fiscal_year_label ? `${inv.serial_number} <small class="text-muted">(${inv.fiscal_year_label})</small>` : inv.serial_number}</td>
           <td class="fw-bold">${inv.file_number || '-'}</td>
           <td>${inv.patient_name || '-'}</td>
           <td><span class="badge bg-secondary">${inv.invoice_type_label || invoiceTypeLabels[inv.invoice_type] || inv.invoice_type}</span></td>
