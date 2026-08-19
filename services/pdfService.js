@@ -1,4 +1,4 @@
-const { formatDual, round2 } = require('./calculations');
+const { formatDual, round2, calculateInvoiceTotals } = require('./calculations');
 
 function formatNumber(n) {
   const num = Number(n) || 0;
@@ -11,14 +11,26 @@ function formatNumberInt(n) {
 }
 
 function fmtDual(raw, rounded) {
-  return formatDual(raw, rounded, (n) =>
-    round2(n) === Math.round(round2(n)) ? formatNumberInt(n) : formatNumber(n)
-  );
+  const r = Number(raw) || 0;
+  const rd = Number(rounded) || 0;
+  if (Math.abs(round2(r) - round2(rd)) < 0.001) {
+    return `<span class="num-main">${formatNumberInt(rd)}</span>`;
+  }
+  return `<span class="dual-wrap"><span class="num-main">${formatNumberInt(rd)}</span><span class="num-raw">(${formatNumber(r)})</span></span>`;
+}
+
+function fmtPlain(n) {
+  const num = Number(n) || 0;
+  if (Math.abs(num - Math.round(num)) < 0.001) return formatNumberInt(num);
+  return formatNumber(num);
 }
 
 function formatDate(d) {
   if (!d) return '';
   try {
+    const s = String(d).slice(0, 10);
+    const [y, m, day] = s.split('-');
+    if (y && m && day) return `${day}/${m}/${y}`;
     return new Date(d).toLocaleDateString('ar-EG');
   } catch {
     return d;
@@ -33,20 +45,33 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+function enrichInvoice(invoice) {
+  const totals = calculateInvoiceTotals({
+    ...invoice,
+    items: invoice.items || [],
+    payments: invoice.payments || [],
+  });
+
+  return {
+    ...invoice,
+    ...totals,
+    invoice_type_label: invoice.invoice_type_label || invoice.invoice_type,
+  };
+}
+
 function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
+  const inv = enrichInvoice(invoice);
 
-  const minRows = 14;
-  const items = [...(invoice.items || [])];
-  while (items.length < minRows) {
-    items.push({ description: '', quantity: '', amount: '', total: '' });
-  }
+  const realItems = (inv.items || []).filter((i) => i.description || i.quantity || i.amount);
+  const realPayments = (inv.payments || []).filter((p) => p.amount || p.receipt_number || p.receipt_date);
 
-  const minPaymentRows = 14;
-  const payments = [...(invoice.payments || [])];
-  while (payments.length < minPaymentRows) {
-    payments.push({ receipt_date: '', receipt_number: '', amount: '' });
-  }
+  const padRows = 2;
+  const rowCount = Math.max(realItems.length, realPayments.length, 1) + padRows;
+  const items = [...realItems];
+  const payments = [...realPayments];
+  while (items.length < rowCount) items.push({});
+  while (payments.length < rowCount) payments.push({});
 
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -75,10 +100,10 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     .serial-bar {
       text-align: center;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 900;
       border: 2px solid #000;
-      padding: 4px 8px;
+      padding: 5px 8px;
       margin-bottom: 6px;
       background: #f0f0f0;
     }
@@ -126,7 +151,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       border: 1px solid #000;
       text-align: center;
       font-weight: 800;
-      padding: 3px 2px;
+      padding: 4px 3px;
     }
     .meta-table th {
       background: #e8e8e8;
@@ -134,7 +159,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       font-size: 9px;
     }
     .meta-table .value {
-      min-height: 18px;
+      min-height: 20px;
       font-size: 10px;
       font-weight: 800;
     }
@@ -146,15 +171,15 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     table.main-table th, table.main-table td {
       border: 1px solid #000;
-      padding: 2px 3px;
+      padding: 3px 4px;
       text-align: center;
       vertical-align: middle;
       font-weight: 800;
+      font-size: 10px;
     }
     table.main-table th {
       background: #d9d9d9;
       font-weight: 900;
-      font-size: 10px;
     }
     .col-tot { width: 11%; }
     .col-amt { width: 10%; }
@@ -164,9 +189,13 @@ function buildInvoiceHtml(invoice, options = {}) {
     .col-pay-num { width: 12%; }
     .col-pay-date { width: 13%; }
     .desc { text-align: right !important; padding-right: 8px !important; }
-    .num { direction: ltr; unicode-bidi: embed; }
+    .num { direction: ltr; unicode-bidi: embed; white-space: nowrap; }
     .summary-row td { font-weight: 900 !important; background: #f5f5f5; }
     .summary-label { text-align: right !important; padding-right: 8px !important; font-weight: 900; }
+    .empty-row td { height: 22px; }
+    .num-main { font-weight: 900; }
+    .num-raw { font-size: 8px; color: #666; font-weight: 700; display: block; margin-top: 1px; }
+    .dual-wrap { display: inline-block; line-height: 1.2; }
     .bottom-tables {
       display: flex;
       direction: ltr;
@@ -182,9 +211,10 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     .bottom-table th, .bottom-table td {
       border: 1px solid #000;
-      padding: 3px 5px;
+      padding: 4px 5px;
       text-align: center;
       font-weight: 800;
+      font-size: 10px;
     }
     .bottom-table th { background: #d9d9d9; font-weight: 900; }
     .bottom-table .label-cell { text-align: right; font-weight: 900; }
@@ -192,7 +222,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       display: flex;
       direction: ltr;
       justify-content: space-between;
-      margin-top: 24px;
+      margin-top: 20px;
       padding-top: 10px;
     }
     .sig-block {
@@ -204,7 +234,7 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     .sig-line {
       border-top: 1px solid #000;
-      margin-top: 32px;
+      margin-top: 28px;
       padding-top: 4px;
     }
     .qr-section {
@@ -218,17 +248,8 @@ function buildInvoiceHtml(invoice, options = {}) {
     .qr-label { font-size: 7px; font-weight: 900; margin-top: 2px; }
     .title-row th {
       font-weight: 900;
-      font-size: 12px;
+      font-size: 11px;
       background: #c0c0c0 !important;
-    }
-    .dual-num { font-size: 9px; line-height: 1.3; }
-    .dual-num .raw { color: #555; display: block; }
-    .dual-num .arrow { color: #c0392b; font-weight: 900; }
-    .dual-num .rounded { color: #000; font-weight: 900; display: block; }
-      margin-top: 4px;
-      font-size: 10px;
-      font-weight: 900;
-      color: #333;
     }
   </style>
 </head>
@@ -237,9 +258,9 @@ function buildInvoiceHtml(invoice, options = {}) {
     ${showQr && qrDataUrl ? `<div class="qr-section"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div></div>` : ''}
 
     <div class="serial-bar">
-      رقم الفاتورة: ${escapeHtml(invoice.serial_number)}
-      &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(invoice.issue_date || invoice.created_at)}
-      &nbsp;|&nbsp; النوع: ${escapeHtml(invoice.invoice_type_label)}
+      رقم الفاتورة: ${escapeHtml(inv.serial_number)}
+      &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(inv.issue_date || inv.created_at)}
+      &nbsp;|&nbsp; النوع: ${escapeHtml(inv.invoice_type_label)}
     </div>
 
     <div class="header">
@@ -265,18 +286,18 @@ function buildInvoiceHtml(invoice, options = {}) {
         <th>المعاملة المالية للمريض</th>
       </tr>
       <tr>
-        <td class="value">${escapeHtml(invoice.file_number)}</td>
-        <td class="value">${escapeHtml(invoice.patient_name)}</td>
-        <td class="value">${formatDate(invoice.admission_date)}</td>
-        <td class="value">${formatDate(invoice.discharge_date)}</td>
-        <td class="value">${invoice.stay_days || ''}</td>
-        <td class="value">${escapeHtml(invoice.financial_treatment)}</td>
+        <td class="value">${escapeHtml(inv.file_number)}</td>
+        <td class="value">${escapeHtml(inv.patient_name)}</td>
+        <td class="value">${formatDate(inv.admission_date)}</td>
+        <td class="value">${formatDate(inv.discharge_date)}</td>
+        <td class="value">${inv.stay_days ?? ''}</td>
+        <td class="value">${escapeHtml(inv.financial_treatment)}</td>
       </tr>
       <tr>
         <th colspan="6">أنواع الإقامة</th>
       </tr>
       <tr>
-        <td class="value" colspan="6">${escapeHtml(invoice.stay_type)}</td>
+        <td class="value" colspan="6">${escapeHtml(inv.stay_type)}</td>
       </tr>
     </table>
 
@@ -284,7 +305,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       <thead>
         <tr class="title-row">
           <th colspan="3">القيمة المالية</th>
-          <th>كشف حساب</th>
+          <th>كشف حساب - البيان</th>
           <th colspan="3">المبالغ المسددة</th>
         </tr>
         <tr>
@@ -299,7 +320,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       </thead>
       <tbody>
         ${buildCombinedRows(items, payments)}
-        ${buildSummaryRows(invoice)}
+        ${buildSummaryRows(inv)}
       </tbody>
     </table>
 
@@ -311,11 +332,11 @@ function buildInvoiceHtml(invoice, options = {}) {
             <tr><th>م</th><th>البيان</th><th>المبلغ</th></tr>
           </thead>
           <tbody>
-            <tr><td>1</td><td class="label-cell">دفع نقدي (خاص)</td><td class="num">${formatNumber(invoice.cash_private)}</td></tr>
-            <tr><td>2</td><td class="label-cell">تحويل بنكي (خاص)</td><td class="num">${formatNumber(invoice.bank_private)}</td></tr>
-            <tr><td>3</td><td class="label-cell">دفع نقدي (جهات خارجية)</td><td class="num">${formatNumber(invoice.cash_external)}</td></tr>
-            <tr><td>4</td><td class="label-cell">تحويل بنكي (جهات خارجية)</td><td class="num">${formatNumber(invoice.bank_external)}</td></tr>
-            <tr><td colspan="2" class="label-cell" style="font-weight:900">إجمالي المبالغ المحصلة</td><td class="num" style="font-weight:900">${fmtDual(invoice.total_collected_raw, invoice.total_collected)}</td></tr>
+            <tr><td>1</td><td class="label-cell">دفع نقدي (خاص)</td><td class="num">${fmtPlain(inv.cash_private)}</td></tr>
+            <tr><td>2</td><td class="label-cell">تحويل بنكي (خاص)</td><td class="num">${fmtPlain(inv.bank_private)}</td></tr>
+            <tr><td>3</td><td class="label-cell">دفع نقدي (جهات خارجية)</td><td class="num">${fmtPlain(inv.cash_external)}</td></tr>
+            <tr><td>4</td><td class="label-cell">تحويل بنكي (جهات خارجية)</td><td class="num">${fmtPlain(inv.bank_external)}</td></tr>
+            <tr><td colspan="2" class="label-cell" style="font-weight:900">إجمالي المبالغ المحصلة</td><td class="num" style="font-weight:900">${fmtDual(inv.total_collected_raw, inv.total_collected)}</td></tr>
           </tbody>
         </table>
       </div>
@@ -326,19 +347,19 @@ function buildInvoiceHtml(invoice, options = {}) {
             <tr><th>م</th><th>البيان</th><th>المبلغ</th></tr>
           </thead>
           <tbody>
-            <tr><td>1</td><td class="label-cell">إجمالي الفاتورة</td><td class="num">${fmtDual(invoice.final_total_raw, invoice.final_total)}</td></tr>
-            <tr><td>2</td><td class="label-cell">إجمالي المبالغ المحصلة</td><td class="num">${fmtDual(invoice.total_collected_raw, invoice.total_collected)}</td></tr>
-            <tr><td>3</td><td class="label-cell">المتبقي</td><td class="num">${fmtDual(invoice.remaining_raw, invoice.remaining)}</td></tr>
+            <tr><td>1</td><td class="label-cell">إجمالي الفاتورة</td><td class="num">${fmtDual(inv.final_total_raw, inv.final_total)}</td></tr>
+            <tr><td>2</td><td class="label-cell">إجمالي المبالغ المحصلة</td><td class="num">${fmtDual(inv.total_collected_raw, inv.total_collected)}</td></tr>
+            <tr><td>3</td><td class="label-cell">المتبقي</td><td class="num">${fmtDual(inv.remaining_raw, inv.remaining)}</td></tr>
           </tbody>
         </table>
       </div>
     </div>
 
     <div class="signatures">
-      <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.captain_name)}</div></div>
-      <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.manager_name)}</div></div>
-      <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.auditor_name || 'المراجع المالي')}</div></div>
-      <div class="sig-block"><div class="sig-line">${escapeHtml(invoice.employee_name || 'الموظف المختص')}</div></div>
+      <div class="sig-block"><div class="sig-line">${escapeHtml(inv.captain_name)}</div></div>
+      <div class="sig-block"><div class="sig-line">${escapeHtml(inv.manager_name)}</div></div>
+      <div class="sig-block"><div class="sig-line">${escapeHtml(inv.auditor_name || 'المراجع المالي')}</div></div>
+      <div class="sig-block"><div class="sig-line">${escapeHtml(inv.employee_name || 'الموظف المختص')}</div></div>
     </div>
   </div>
 </body>
@@ -346,41 +367,38 @@ function buildInvoiceHtml(invoice, options = {}) {
 }
 
 function buildCombinedRows(items, payments) {
-  const maxLen = Math.max(items.length, payments.length, 14);
   let html = '';
-  for (let i = 0; i < maxLen; i++) {
+  for (let i = 0; i < items.length; i++) {
     const item = items[i] || {};
     const pay = payments[i] || {};
-    html += `<tr>
-      <td class="num">${item.description && item.total !== undefined && item.total !== '' ? formatNumber(item.total) : ''}</td>
-      <td class="num">${item.description && item.amount !== undefined ? formatNumber(item.amount) : ''}</td>
-      <td class="num">${item.quantity !== undefined && item.quantity !== '' ? item.quantity : ''}</td>
-      <td class="desc">${escapeHtml(item.description)}</td>
-      <td class="num">${pay.amount ? formatNumber(pay.amount) : ''}</td>
-      <td>${escapeHtml(pay.receipt_number)}</td>
+    const hasItem = !!(item.description || item.quantity || item.amount);
+    const hasPay = !!(pay.amount || pay.receipt_number || pay.receipt_date);
+    const rowClass = !hasItem && !hasPay ? 'empty-row' : '';
+
+    html += `<tr class="${rowClass}">
+      <td class="num">${hasItem ? fmtPlain(item.total) : ''}</td>
+      <td class="num">${hasItem ? fmtPlain(item.amount) : ''}</td>
+      <td class="num">${hasItem && item.quantity !== undefined && item.quantity !== '' ? item.quantity : ''}</td>
+      <td class="desc">${escapeHtml(item.description || '')}</td>
+      <td class="num">${hasPay ? fmtPlain(pay.amount) : ''}</td>
+      <td>${escapeHtml(pay.receipt_number || '')}</td>
       <td>${pay.receipt_date ? formatDate(pay.receipt_date) : ''}</td>
     </tr>`;
   }
   return html;
 }
 
-function buildSummaryRows(invoice) {
-  const adminLabel = `مصروفات إدارية ${invoice.admin_expenses_percent || 12}%`;
-  const subtotalFeesRaw =
-    (invoice.items_subtotal_raw ?? invoice.items_subtotal) +
-    (invoice.stamp_duty_raw ?? invoice.stamp_duty) +
-    (invoice.professional_fees_raw ?? invoice.professional_fees);
-  const subtotalFees =
-    (invoice.items_subtotal || 0) + (invoice.stamp_duty || 0) + (invoice.professional_fees || 0);
+function buildSummaryRows(inv) {
+  const adminLabel = `مصروفات إدارية ${inv.admin_expenses_percent || 12}%`;
 
   const rows = [
-    ['دمغة', invoice.stamp_duty_raw, invoice.stamp_duty, ''],
-    ['مهن', invoice.professional_fees_raw, invoice.professional_fees, ''],
-    ['الإجمالي', subtotalFeesRaw, subtotalFees, ''],
-    [adminLabel, invoice.admin_expenses_raw, invoice.admin_expenses, ''],
-    ['الإجمالي بعد المصروفات الإدارية', invoice.total_after_admin_raw, invoice.total_after_admin, ''],
-    ['الرصيد', invoice.balance_raw, invoice.balance, ''],
-    ['الإجمالي', invoice.final_total_raw, invoice.final_total, fmtDual(invoice.total_collected_raw, invoice.total_collected)],
+    ['دمغة', inv.stamp_duty_raw, inv.stamp_duty, ''],
+    ['مهن', inv.professional_fees_raw, inv.professional_fees, ''],
+    ['الإجمالي', inv.subtotal_before_admin_raw, inv.subtotal_before_admin, ''],
+    [adminLabel, inv.admin_expenses_raw, inv.admin_expenses, ''],
+    ['الإجمالي بعد المصروفات الإدارية', inv.total_after_admin_raw, inv.total_after_admin, ''],
+    ['الرصيد', inv.balance_raw, inv.balance, ''],
+    ['الإجمالي', inv.final_total_raw, inv.final_total, fmtDual(inv.total_collected_raw, inv.total_collected)],
   ];
 
   return rows
@@ -397,4 +415,4 @@ function buildSummaryRows(invoice) {
     .join('');
 }
 
-module.exports = { buildInvoiceHtml, formatNumber, formatDate };
+module.exports = { buildInvoiceHtml, formatNumber, formatDate, enrichInvoice };
