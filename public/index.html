@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>نظام فواتير EAF - مركز الطب الطبيعي والتأهيل</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+  <link href="/css/style.css" rel="stylesheet">
+</head>
+<body>
+  <nav class="navbar navbar-dark bg-dark shadow-sm">
+    <div class="container-fluid">
+      <span class="navbar-brand fw-black">🏥 نظام فواتير EAF</span>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-light btn-sm nav-btn active" data-view="create">فاتورة جديدة</button>
+        <button class="btn btn-outline-light btn-sm nav-btn" data-view="list">الفواتير</button>
+        <button class="btn btn-outline-light btn-sm nav-btn" data-view="reports">التقارير</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container-fluid py-3">
+    <!-- Create/Edit Invoice View -->
+    <section id="view-create" class="view-section">
+      <div class="row g-3">
+        <div class="col-lg-9">
+          <div class="card shadow-sm invoice-card">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+              <h5 class="mb-0 fw-black" id="form-title">إنشاء فاتورة جديدة</h5>
+              <span class="badge bg-light text-dark fw-bold" id="edit-serial" style="display:none"></span>
+            </div>
+            <div class="card-body">
+              <form id="invoice-form">
+                <input type="hidden" id="invoice-id">
+
+                <div class="row g-2 mb-3">
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">نوع الفاتورة *</label>
+                    <select class="form-select fw-bold" id="invoice_type" required>
+                      <option value="">-- اختر النوع --</option>
+                      <option value="civil">مدني (خاص)</option>
+                      <option value="contracted">جهات متعاقدة</option>
+                      <option value="non_contracted">جهات غير متعاقدة</option>
+                      <option value="military">عسكري</option>
+                    </select>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">إسم المريض</label>
+                    <input type="text" class="form-control fw-bold" id="patient_name">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">تاريخ الدخول</label>
+                    <input type="date" class="form-control" id="admission_date">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">تاريخ الخروج</label>
+                    <input type="date" class="form-control" id="discharge_date">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">عدد أيام الإقامة</label>
+                    <input type="number" class="form-control fw-bold" id="stay_days" min="0">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-bold">المعاملة المالية للمريض</label>
+                    <input type="text" class="form-control fw-bold" id="financial_treatment">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-bold">نوع الإقامة</label>
+                    <input type="text" class="form-control fw-bold" id="stay_type">
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label fw-bold">ملاحظات</label>
+                    <input type="text" class="form-control" id="notes">
+                  </div>
+                </div>
+
+                <!-- Main Table -->
+                <div class="table-responsive mb-3">
+                  <table class="table table-bordered invoice-table mb-0">
+                    <thead>
+                      <tr class="table-secondary">
+                        <th colspan="3">المبالغ المسددة</th>
+                        <th>كشف حساب - البيان</th>
+                        <th colspan="3">القيمة المالية</th>
+                      </tr>
+                      <tr class="table-light">
+                        <th style="width:10%">تاريخ الإيصال</th>
+                        <th style="width:10%">رقم الإيصال</th>
+                        <th style="width:10%">المبلغ</th>
+                        <th style="width:40%">البيان</th>
+                        <th style="width:8%">عدد</th>
+                        <th style="width:11%">المبلغ</th>
+                        <th style="width:11%">الإجمالي</th>
+                      </tr>
+                    </thead>
+                    <tbody id="items-tbody"></tbody>
+                    <tfoot id="summary-tfoot"></tfoot>
+                  </table>
+                </div>
+
+                <div class="row g-2 mb-3">
+                  <div class="col-md-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="add-row-btn">+ صف جديد</button>
+                    <button type="button" class="btn btn-outline-danger btn-sm fw-bold" id="remove-row-btn">- حذف آخر صف</button>
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">دمغة</label>
+                    <input type="number" step="0.01" class="form-control calc-trigger" id="stamp_duty" value="0">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">مهن</label>
+                    <input type="number" step="0.01" class="form-control calc-trigger" id="professional_fees" value="0">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">الرصيد</label>
+                    <input type="number" step="0.01" class="form-control calc-trigger" id="balance" value="0">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">نسبة المصروفات الإدارية %</label>
+                    <input type="number" step="0.01" class="form-control calc-trigger" id="admin_expenses_percent" value="12">
+                  </div>
+                </div>
+
+                <!-- Bottom Summary -->
+                <div class="row g-3 mb-3">
+                  <div class="col-md-6">
+                    <h6 class="fw-black">بيان المدفوعات طبقاً لأذونات الدفع</h6>
+                    <table class="table table-bordered table-sm">
+                      <tbody>
+                        <tr><td class="fw-bold">1 - دفع نقدي (خاص)</td><td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger" id="cash_private" value="0"></td></tr>
+                        <tr><td class="fw-bold">2 - تحويل بنكي (خاص)</td><td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger" id="bank_private" value="0"></td></tr>
+                        <tr><td class="fw-bold">3 - دفع نقدي (جهات خارجية)</td><td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger" id="cash_external" value="0"></td></tr>
+                        <tr><td class="fw-bold">4 - تحويل بنكي (جهات خارجية)</td><td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger" id="bank_external" value="0"></td></tr>
+                        <tr class="table-warning"><td class="fw-black">إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected">0.00</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="col-md-6">
+                    <h6 class="fw-black">حركة الرصيد النقدي للمريض</h6>
+                    <table class="table table-bordered table-sm">
+                      <tbody>
+                        <tr><td class="fw-bold">1 - إجمالي الفاتورة</td><td class="fw-black" id="display_final_total">0.00</td></tr>
+                        <tr><td class="fw-bold">2 - إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected2">0.00</td></tr>
+                        <tr class="table-warning"><td class="fw-black">3 - المتبقي</td><td class="fw-black" id="display_remaining">0.00</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <!-- Signatures -->
+                <div class="row g-2 mb-3">
+                  <div class="col-md-3"><label class="form-label fw-bold">الموظف المختص</label><input type="text" class="form-control" id="employee_name"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">المراجع المالي</label><input type="text" class="form-control" id="auditor_name"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">نقيب</label><input type="text" class="form-control" id="captain_name" value="نقيب / عمرو صالح محمد"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">المدير المالي</label><input type="text" class="form-control" id="manager_name" value="رائد / جمال عبد الناصر - المدير المالي"></div>
+                </div>
+
+                <div class="d-flex gap-2 flex-wrap">
+                  <button type="submit" class="btn btn-success btn-lg fw-black">💾 حفظ الفاتورة</button>
+                  <button type="button" class="btn btn-secondary fw-bold" id="reset-form-btn">🔄 فاتورة جديدة</button>
+                  <button type="button" class="btn btn-danger fw-bold" id="download-pdf-btn" style="display:none">📄 PDF</button>
+                  <button type="button" class="btn btn-primary fw-bold" id="download-docx-btn" style="display:none">📝 Word</button>
+                  <button type="button" class="btn btn-info fw-bold" id="preview-btn" style="display:none">👁️ معاينة</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-3">
+          <div class="card shadow-sm mb-3" id="qr-card" style="display:none">
+            <div class="card-header bg-dark text-white fw-black">QR Code</div>
+            <div class="card-body text-center">
+              <img id="qr-image" class="img-fluid mb-2" alt="QR Code">
+              <p class="fw-black text-primary" id="qr-serial"></p>
+              <p class="small text-muted">امسح الكود لتحميل الفاتورة PDF أو Word</p>
+            </div>
+          </div>
+          <div class="card shadow-sm">
+            <div class="card-header bg-secondary text-white fw-black">ملخص الحسابات</div>
+            <div class="card-body">
+              <div class="summary-item"><span>إجمالي البنود:</span><strong id="sum_items">0.00</strong></div>
+              <div class="summary-item"><span>دمغة + مهن:</span><strong id="sum_fees">0.00</strong></div>
+              <div class="summary-item"><span>مصروفات إدارية:</span><strong id="sum_admin">0.00</strong></div>
+              <div class="summary-item"><span>بعد المصروفات:</span><strong id="sum_after_admin">0.00</strong></div>
+              <div class="summary-item total"><span>الإجمالي النهائي:</span><strong id="sum_final">0.00</strong></div>
+              <div class="summary-item"><span>المحصل:</span><strong id="sum_collected">0.00</strong></div>
+              <div class="summary-item remaining"><span>المتبقي:</span><strong id="sum_remaining">0.00</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- List View -->
+    <section id="view-list" class="view-section" style="display:none">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <h5 class="mb-0 fw-black">قائمة الفواتير</h5>
+          <div class="d-flex gap-2 flex-wrap">
+            <input type="text" class="form-control form-control-sm" id="list-search" placeholder="بحث..." style="width:150px">
+            <select class="form-select form-select-sm" id="list-type-filter" style="width:160px">
+              <option value="">كل الأنواع</option>
+              <option value="civil">مدني (خاص)</option>
+              <option value="contracted">جهات متعاقدة</option>
+              <option value="non_contracted">جهات غير متعاقدة</option>
+              <option value="military">عسكري</option>
+            </select>
+            <input type="date" class="form-control form-control-sm" id="list-from" style="width:140px">
+            <input type="date" class="form-control form-control-sm" id="list-to" style="width:140px">
+            <button class="btn btn-light btn-sm fw-bold" id="list-refresh">🔄</button>
+          </div>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover table-striped mb-0">
+              <thead class="table-dark">
+                <tr>
+                  <th>الرقم التسلسلي</th>
+                  <th>المريض</th>
+                  <th>النوع</th>
+                  <th>الإجمالي</th>
+                  <th>المحصل</th>
+                  <th>المتبقي</th>
+                  <th>التاريخ</th>
+                  <th>إجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="invoices-list"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Reports View -->
+    <section id="view-reports" class="view-section" style="display:none">
+      <div class="row g-3" id="reports-content">
+        <div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast-container position-fixed bottom-0 start-0 p-3" id="toast-container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

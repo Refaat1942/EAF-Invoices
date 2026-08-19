@@ -1,0 +1,22 @@
+{
+  "name": "eaf-invoices",
+  "version": "1.0.0",
+  "description": "نظام فواتير مركز الطب الطبيعي والتأهيل - وزارة الدفاع",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "init-db": "node database/init.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "docx": "^9.1.0",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4",
+    "puppeteer": "^24.2.0",
+    "uuid": "^11.0.5"
+  }
+}
