@@ -7,6 +7,7 @@ let currentUser = null;
 let rowCount = 12;
 let invoiceTypeLabels = {};
 let paymentMethodsCache = [];
+let contractedEntitiesCache = [];
 
 const fmt = (n) =>
   (Number(n) || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -69,6 +70,7 @@ function showApp() {
   loadInvoiceTypes();
   loadStayTypes();
   loadPaymentMethodsForm();
+  loadContractedEntities();
   resetForm();
 }
 
@@ -147,6 +149,7 @@ function createRow(index) {
     <td><input type="text" class="row-total" data-field="total" readonly tabindex="-1"></td>
     <td><input type="number" step="0.01" class="calc-trigger" data-field="amount" value=""></td>
     <td><input type="number" step="0.01" class="calc-trigger" data-field="quantity" value=""></td>
+    <td><input type="text" class="discount-pct-display" data-field="discount_percent" readonly tabindex="-1" value="0%"></td>
     <td><input type="text" class="desc-input calc-trigger" data-field="description"></td>
     <td><input type="number" step="0.01" class="pay-amt calc-trigger" data-field="pay_amount" value=""></td>
     <td><input type="text" class="pay-num calc-trigger" data-field="receipt_number"></td>
@@ -203,6 +206,10 @@ function bindEvents() {
   document.getElementById('new-payment-method-name').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); addPaymentMethod(); }
   });
+  document.getElementById('add-entity-btn').addEventListener('click', addContractedEntity);
+  document.getElementById('add-exclusion-btn').addEventListener('click', addDiscountExclusion);
+  document.getElementById('invoice_type').addEventListener('change', toggleContractedFields);
+  document.getElementById('contracted_entity_id').addEventListener('change', onContractedEntityChange);
 
   bindCalcTriggers();
 }
@@ -239,7 +246,12 @@ function collectFormData() {
     const receiptNum = row.querySelector('[data-field="receipt_number"]').value;
 
     if (desc || qty || amt) {
-      items.push({ description: desc, quantity: qty, amount: amt });
+      const item = { description: desc, quantity: qty, amount: amt };
+      const override = row.dataset.discountOverride;
+      if (override === 'true' || override === 'false') {
+        item.discount_eligible_override = override === 'true';
+      }
+      items.push(item);
     }
     if (payAmt || receiptDate || receiptNum) {
       payments.push({ receipt_date: receiptDate, receipt_number: receiptNum, amount: payAmt });
@@ -248,6 +260,8 @@ function collectFormData() {
 
   return {
     invoice_type: document.getElementById('invoice_type').value,
+    contracted_entity_id: document.getElementById('contracted_entity_id').value || null,
+    discount_percent: parseFloat(document.getElementById('discount_percent_display').value) || 0,
     issue_date: document.getElementById('issue_date').value,
     file_number: document.getElementById('file_number').value,
     patient_name: document.getElementById('patient_name').value,
@@ -302,6 +316,7 @@ async function recalculate() {
     const totals = await res.json();
     updateSummaryDisplay(totals);
     updateSummaryTable(totals);
+    applyItemDiscountPercents(totals.items || []);
   } catch (err) {
     console.error(err);
   }
@@ -326,17 +341,41 @@ function updateSummaryDisplay(t) {
   document.getElementById('display_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
 }
 
+function applyItemDiscountPercents(items) {
+  const rows = document.querySelectorAll('#items-tbody tr');
+  rows.forEach((row, i) => {
+    const item = items[i];
+    const pctField = row.querySelector('[data-field="discount_percent"]');
+    if (!pctField) return;
+    if (item) {
+      pctField.value = `${item.item_discount_percent || 0}%`;
+      pctField.classList.toggle('text-success', item.is_discount_eligible);
+      pctField.classList.toggle('text-muted', !item.is_discount_eligible);
+    } else {
+      pctField.value = '0%';
+    }
+  });
+}
+
 function updateSummaryTable(t) {
   const adminLabel = `مصروفات إدارية ${t.admin_expenses_percent}%`;
+  const discountRows =
+    Number(t.discount_amount) > 0 || Number(t.discount_percent) > 0
+      ? `
+    <tr><td>${fmtDual(t.items_subtotal_raw, t.items_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي البنود</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.discount_amount_raw, t.discount_amount)}</td><td></td><td></td><td></td><td class="summary-label">خصم ${t.discount_percent}%</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.items_subtotal_after_discount_raw, t.items_subtotal_after_discount)}</td><td></td><td></td><td></td><td class="summary-label">بعد الخصم</td><td></td><td></td><td></td></tr>`
+      : '';
 
   document.getElementById('summary-tfoot').innerHTML = `
-    <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.professional_fees_raw, t.professional_fees)}</td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.subtotal_before_admin_raw, t.subtotal_before_admin)}</td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.balance_raw, t.balance)}</td><td></td><td></td><td class="summary-label">الرصيد</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td></td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.professional_fees_raw, t.professional_fees)}</td><td></td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td></tr>
+    ${discountRows}
+    <tr><td>${fmtDual(t.subtotal_before_admin_raw, t.subtotal_before_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td></td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.balance_raw, t.balance)}</td><td></td><td></td><td></td><td class="summary-label">الرصيد</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td></td><td></td></tr>
   `;
 }
 
@@ -346,6 +385,10 @@ async function handleSave(e) {
 
   if (!data.invoice_type) {
     showToast('يجب اختيار نوع الفاتورة', 'danger');
+    return;
+  }
+  if (data.invoice_type === 'contracted' && !data.contracted_entity_id) {
+    showToast('يجب اختيار الجهة المتعاقدة', 'danger');
     return;
   }
 
@@ -417,6 +460,7 @@ function resetForm() {
   });
   document.getElementById('qr-card').style.display = 'none';
   loadPaymentMethodsForm();
+  toggleContractedFields();
   initRows();
   bindCalcTriggers();
   recalculate();
@@ -437,6 +481,12 @@ async function loadInvoiceForEdit(id) {
     document.getElementById('edit-serial').textContent = inv.serial_number;
 
     document.getElementById('invoice_type').value = inv.invoice_type;
+    toggleContractedFields();
+    await loadContractedEntities(inv.contracted_entity_id || null);
+    if (inv.contracted_entity_id) {
+      document.getElementById('contracted_entity_id').value = inv.contracted_entity_id;
+    }
+    document.getElementById('discount_percent_display').value = inv.discount_percent || 0;
     document.getElementById('patient_name').value = inv.patient_name;
     document.getElementById('file_number').value = inv.file_number || '';
     document.getElementById('issue_date').value = fmtDate(inv.issue_date || inv.created_at);
@@ -480,6 +530,8 @@ async function loadInvoiceForEdit(id) {
       row.querySelector('[data-field="description"]').value = item.description || '';
       row.querySelector('[data-field="quantity"]').value = item.quantity || '';
       row.querySelector('[data-field="amount"]').value = item.amount || '';
+      const pctField = row.querySelector('[data-field="discount_percent"]');
+      if (pctField) pctField.value = `${item.item_discount_percent || 0}%`;
       row.querySelector('[data-field="receipt_date"]').value = pay.receipt_date || '';
       row.querySelector('[data-field="receipt_number"]').value = pay.receipt_number || '';
       row.querySelector('[data-field="pay_amount"]').value = pay.amount || '';
@@ -712,6 +764,8 @@ function lookupEndpoint(kind, id = '') {
     stay: `${SETTINGS_API}/stay-types${id ? `/${id}` : ''}`,
     invoice: `${SETTINGS_API}/invoice-types${id ? `/${id}` : ''}`,
     payment: `${SETTINGS_API}/payment-methods${id ? `/${id}` : ''}`,
+    entity: `${SETTINGS_API}/contracted-entities${id ? `/${id}` : ''}`,
+    exclusion: `${SETTINGS_API}/discount-exclusions${id ? `/${id}` : ''}`,
   };
   return map[kind];
 }
@@ -734,6 +788,8 @@ async function saveLookupItem(kind, id) {
     if (kind === 'invoice') loadInvoiceTypes();
     if (kind === 'payment') loadPaymentMethodsForm();
     if (kind === 'stay') loadStayTypes();
+    if (kind === 'entity') loadContractedEntities();
+    if (kind === 'exclusion') recalculate();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -753,6 +809,8 @@ async function toggleLookupItem(kind, id, isActive) {
     if (kind === 'invoice') loadInvoiceTypes();
     if (kind === 'payment') loadPaymentMethodsForm();
     if (kind === 'stay') loadStayTypes();
+    if (kind === 'entity') loadContractedEntities();
+    if (kind === 'exclusion') recalculate();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -769,6 +827,158 @@ async function deleteLookupItem(kind, id) {
     if (kind === 'invoice') loadInvoiceTypes();
     if (kind === 'payment') loadPaymentMethodsForm();
     if (kind === 'stay') loadStayTypes();
+    if (kind === 'entity') loadContractedEntities();
+    if (kind === 'exclusion') recalculate();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function loadContractedEntities(selectedId = null) {
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/contracted-entities/tree`);
+    const entities = await res.json();
+    contractedEntitiesCache = entities;
+
+    const select = document.getElementById('contracted_entity_id');
+    const parentSelect = document.getElementById('new-entity-parent');
+    const current = selectedId || select.value;
+
+    const options = entities
+      .map((e) => {
+        const indent = '— '.repeat(e.depth || 0);
+        const effective = getEffectiveDiscountFromCache(e.id);
+        const discount = effective ? ` (${effective}%)` : '';
+        return `<option value="${e.id}">${indent}${e.name}${discount}</option>`;
+      })
+      .join('');
+
+    select.innerHTML = `<option value="">-- اختر الجهة --</option>${options}`;
+    parentSelect.innerHTML = `<option value="">— جهة رئيسية —</option>${options}`;
+    if (current) select.value = current;
+    onContractedEntityChange();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function toggleContractedFields() {
+  const isContracted = document.getElementById('invoice_type').value === 'contracted';
+  document.getElementById('contracted-entity-wrap').style.display = isContracted ? '' : 'none';
+  document.getElementById('contracted-discount-wrap').style.display = isContracted ? '' : 'none';
+  if (!isContracted) {
+    document.getElementById('contracted_entity_id').value = '';
+    document.getElementById('discount_percent_display').value = '0';
+  } else {
+    onContractedEntityChange();
+  }
+  recalculate();
+}
+
+function getEffectiveDiscountFromCache(entityId) {
+  let current = contractedEntitiesCache.find((e) => e.id === Number(entityId));
+  while (current) {
+    const rate = Number(current.discount_percent) || 0;
+    if (rate > 0) return rate;
+    if (!current.parent_id) break;
+    current = contractedEntitiesCache.find((e) => e.id === current.parent_id);
+  }
+  return 0;
+}
+
+function onContractedEntityChange() {
+  const select = document.getElementById('contracted_entity_id');
+  const entityId = select.value;
+  const discount = entityId ? getEffectiveDiscountFromCache(entityId) : 0;
+  document.getElementById('discount_percent_display').value = discount;
+  recalculate();
+}
+
+function renderContractedEntitiesList(items) {
+  if (!items.length) return '<li class="list-group-item text-muted">لا توجد جهات</li>';
+  return items
+    .map((item) => {
+      const indent = '&nbsp;'.repeat((item.depth || 0) * 4);
+      return `
+    <li class="list-group-item admin-lookup-item ${item.is_active ? '' : 'is-inactive'}">
+      <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div class="flex-grow-1">
+          <div class="fw-bold">${indent}${item.name}</div>
+          <small class="text-muted">خصم: ${item.discount_percent || 0}%</small>
+        </div>
+        <div class="d-flex gap-1 align-items-center flex-wrap">
+          <input type="text" class="form-control form-control-sm fw-bold admin-lookup-name" style="max-width:180px"
+            data-id="${item.id}" data-kind="entity" value="${escapeAttr(item.name)}">
+          <input type="number" step="0.01" min="0" max="100" class="form-control form-control-sm" style="width:80px"
+            id="entity-discount-${item.id}" value="${item.discount_percent || 0}">
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="saveEntityItem(${item.id})">💾</button>
+          <button type="button" class="btn btn-sm btn-outline-${item.is_active ? 'warning' : 'success'}"
+            onclick="toggleLookupItem('entity', ${item.id}, ${!item.is_active})">${item.is_active ? '⏸️' : '▶️'}</button>
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteLookupItem('entity', ${item.id})">🗑️</button>
+        </div>
+      </div>
+    </li>`;
+    })
+    .join('');
+}
+
+async function saveEntityItem(id) {
+  const nameInput = document.querySelector(`.admin-lookup-name[data-kind="entity"][data-id="${id}"]`);
+  const discountInput = document.getElementById(`entity-discount-${id}`);
+  const name = nameInput?.value.trim();
+  const discount_percent = parseFloat(discountInput?.value) || 0;
+  if (!name) return showToast('اسم الجهة مطلوب', 'warning');
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/contracted-entities/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, discount_percent }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast('تم الحفظ', 'success');
+    loadSettingsPage();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function addContractedEntity() {
+  const name = document.getElementById('new-entity-name').value.trim();
+  const parent_id = document.getElementById('new-entity-parent').value || null;
+  const discount_percent = parseFloat(document.getElementById('new-entity-discount').value) || 0;
+  if (!name) return showToast('اسم الجهة مطلوب', 'warning');
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/contracted-entities`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parent_id, discount_percent }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    document.getElementById('new-entity-name').value = '';
+    document.getElementById('new-entity-discount').value = '';
+    showToast('تمت الإضافة', 'success');
+    loadSettingsPage();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function addDiscountExclusion() {
+  const name = document.getElementById('new-exclusion-name').value.trim();
+  if (!name) return showToast('اسم البند مطلوب', 'warning');
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/discount-exclusions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    document.getElementById('new-exclusion-name').value = '';
+    showToast('تمت الإضافة', 'success');
+    loadSettingsPage();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -776,16 +986,20 @@ async function deleteLookupItem(kind, id) {
 
 async function loadSettingsPage() {
   try {
-    const [settingsRes, stayRes, invoiceRes, paymentRes] = await Promise.all([
+    const [settingsRes, stayRes, invoiceRes, paymentRes, entityRes, exclusionRes] = await Promise.all([
       apiFetch(SETTINGS_API),
       apiFetch(`${SETTINGS_API}/stay-types?all=1`),
       apiFetch(`${SETTINGS_API}/invoice-types?all=1`),
       apiFetch(`${SETTINGS_API}/payment-methods?all=1`),
+      apiFetch(`${SETTINGS_API}/contracted-entities/tree?all=1`),
+      apiFetch(`${SETTINGS_API}/discount-exclusions?all=1`),
     ]);
     const settings = await settingsRes.json();
     const stayTypes = await stayRes.json();
     const invoiceTypes = await invoiceRes.json();
     const paymentMethods = await paymentRes.json();
+    const entities = await entityRes.json();
+    const exclusions = await exclusionRes.json();
 
     if (settings.logo_url) {
       document.getElementById('logo-preview').src = settings.logo_url;
@@ -794,10 +1008,13 @@ async function loadSettingsPage() {
     document.getElementById('stay-types-list').innerHTML = renderAdminLookupList(stayTypes, 'stay');
     document.getElementById('invoice-types-list').innerHTML = renderAdminLookupList(invoiceTypes, 'invoice');
     document.getElementById('payment-methods-list').innerHTML = renderAdminLookupList(paymentMethods, 'payment');
+    document.getElementById('contracted-entities-list').innerHTML = renderContractedEntitiesList(entities);
+    document.getElementById('discount-exclusions-list').innerHTML = renderAdminLookupList(exclusions, 'exclusion');
 
     await loadInvoiceTypes();
     await loadStayTypes();
     await loadPaymentMethodsForm();
+    await loadContractedEntities();
     loadUsers();
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
@@ -1039,3 +1256,4 @@ window.removeSystemUser = removeSystemUser;
 window.saveLookupItem = saveLookupItem;
 window.toggleLookupItem = toggleLookupItem;
 window.deleteLookupItem = deleteLookupItem;
+window.saveEntityItem = saveEntityItem;

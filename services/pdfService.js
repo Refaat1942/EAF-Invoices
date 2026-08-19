@@ -303,6 +303,7 @@ function buildInvoiceHtml(invoice, options = {}) {
         <th>تاريخ الخروج</th>
         <th>عدد أيام الإقامة</th>
         <th>المعاملة المالية للمريض</th>
+        ${inv.invoice_type === 'contracted' && inv.contracted_entity_name ? '<th>الجهة المتعاقدة</th><th>نسبة الخصم</th>' : ''}
       </tr>
       <tr>
         <td class="value">${escapeHtml(inv.file_number)}</td>
@@ -311,6 +312,7 @@ function buildInvoiceHtml(invoice, options = {}) {
         <td class="value">${formatDate(inv.discharge_date)}</td>
         <td class="value">${inv.stay_days ?? ''}</td>
         <td class="value">${escapeHtml(inv.financial_treatment)}</td>
+        ${inv.invoice_type === 'contracted' && inv.contracted_entity_name ? `<td class="value">${escapeHtml(inv.contracted_entity_name)}</td><td class="value">${inv.discount_percent || 0}%</td>` : ''}
       </tr>
       <tr>
         <th colspan="6">أنواع الإقامة</th>
@@ -323,7 +325,7 @@ function buildInvoiceHtml(invoice, options = {}) {
     <table class="main-table">
       <thead>
         <tr class="title-row">
-          <th colspan="3">القيمة المالية</th>
+          <th colspan="4">القيمة المالية</th>
           <th>كشف حساب - البيان</th>
           <th colspan="3">المبالغ المسددة</th>
         </tr>
@@ -331,6 +333,7 @@ function buildInvoiceHtml(invoice, options = {}) {
           <th class="col-tot">الإجمالي</th>
           <th class="col-amt">المبلغ</th>
           <th class="col-qty">عدد</th>
+          <th class="col-disc">الخصم%</th>
           <th class="col-desc">البيان</th>
           <th class="col-pay-amt">المبلغ</th>
           <th class="col-pay-num">رقم الإيصال</th>
@@ -414,6 +417,7 @@ function buildCombinedRows(items, payments) {
       <td class="num">${hasItem ? fmtPlain(item.total) : ''}</td>
       <td class="num">${hasItem ? fmtPlain(item.amount) : ''}</td>
       <td class="num">${hasItem && item.quantity !== undefined && item.quantity !== '' ? item.quantity : ''}</td>
+      <td class="num disc-pct">${hasItem ? `${item.item_discount_percent || 0}%` : ''}</td>
       <td class="desc">${escapeHtml(item.description || '')}</td>
       <td class="num">${hasPay ? fmtPlain(pay.amount) : ''}</td>
       <td>${escapeHtml(pay.receipt_number || '')}</td>
@@ -429,19 +433,30 @@ function buildSummaryRows(inv) {
   const rows = [
     ['دمغة', inv.stamp_duty_raw, inv.stamp_duty, ''],
     ['مهن', inv.professional_fees_raw, inv.professional_fees, ''],
+  ];
+
+  if (Number(inv.discount_amount) > 0 || Number(inv.discount_percent) > 0) {
+    rows.unshift(
+      ['إجمالي البنود', inv.items_subtotal_raw, inv.items_subtotal, ''],
+      [`خصم جهة متعاقدة ${inv.discount_percent || 0}%`, inv.discount_amount_raw, inv.discount_amount, ''],
+      ['بعد الخصم', inv.items_subtotal_after_discount_raw, inv.items_subtotal_after_discount, '']
+    );
+  }
+
+  rows.push(
     ['الإجمالي', inv.subtotal_before_admin_raw, inv.subtotal_before_admin, ''],
     [adminLabel, inv.admin_expenses_raw, inv.admin_expenses, ''],
     ['الإجمالي بعد المصروفات الإدارية', inv.total_after_admin_raw, inv.total_after_admin, ''],
     ['الرصيد', inv.balance_raw, inv.balance, ''],
-    ['الإجمالي', inv.final_total_raw, inv.final_total, fmtDual(inv.total_collected_raw, inv.total_collected)],
-  ];
+    ['الإجمالي', inv.final_total_raw, inv.final_total, fmtDual(inv.total_collected_raw, inv.total_collected)]
+  );
 
   return rows
     .map(
       ([label, rawVal, roundedVal, payVal]) => `
     <tr class="summary-row">
       <td class="num">${fmtDual(rawVal, roundedVal)}</td>
-      <td></td><td></td>
+      <td></td><td></td><td></td>
       <td class="summary-label">${label}</td>
       <td class="num">${payVal}</td>
       <td></td><td></td>

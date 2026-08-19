@@ -66,6 +66,16 @@
                         <option value="">-- اختر النوع --</option>
                       </select>
                     </div>
+                    <div class="col-lg-3 col-md-6" id="contracted-entity-wrap" style="display:none">
+                      <label class="form-label fw-bold">الجهة المتعاقدة *</label>
+                      <select class="form-select fw-bold" id="contracted_entity_id">
+                        <option value="">-- اختر الجهة --</option>
+                      </select>
+                    </div>
+                    <div class="col-lg-2 col-md-4" id="contracted-discount-wrap" style="display:none">
+                      <label class="form-label fw-bold">نسبة الخصم %</label>
+                      <input type="text" class="form-control fw-bold text-center" id="discount_percent_display" readonly value="0">
+                    </div>
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">تاريخ إصدار الفاتورة</label>
                       <input type="date" class="form-control fw-bold" id="issue_date">
@@ -119,15 +129,16 @@
                   <table class="table table-bordered invoice-table mb-0">
                     <thead>
                       <tr class="table-secondary">
-                        <th colspan="3">القيمة المالية</th>
+                        <th colspan="4">القيمة المالية</th>
                         <th>كشف حساب - البيان</th>
                         <th colspan="3">المبالغ المسددة</th>
                       </tr>
                       <tr class="table-light">
-                        <th style="width:11%">الإجمالي</th>
-                        <th style="width:10%">المبلغ</th>
-                        <th style="width:8%">عدد</th>
-                        <th style="width:36%">البيان</th>
+                        <th style="width:10%">الإجمالي</th>
+                        <th style="width:9%">المبلغ</th>
+                        <th style="width:7%">عدد</th>
+                        <th style="width:7%">الخصم%</th>
+                        <th style="width:30%">البيان</th>
                         <th style="width:10%">المبلغ</th>
                         <th style="width:12%">رقم الإيصال</th>
                         <th style="width:13%">تاريخ الإيصال</th>
@@ -317,6 +328,37 @@
                 <button class="btn btn-primary fw-bold" id="add-stay-type-btn">إضافة</button>
               </div>
               <ul class="list-group admin-lookup-list" id="stay-types-list"></ul>
+            </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="card shadow-sm">
+            <div class="card-header bg-warning text-dark fw-black">🏢 الجهات المتعاقدة ونسب الخصم</div>
+            <div class="card-body">
+              <div class="row g-2 mb-3">
+                <div class="col-md-4"><input type="text" class="form-control fw-bold" id="new-entity-name" placeholder="اسم الجهة..."></div>
+                <div class="col-md-3">
+                  <select class="form-select fw-bold" id="new-entity-parent">
+                    <option value="">— جهة رئيسية —</option>
+                  </select>
+                </div>
+                <div class="col-md-2"><input type="number" step="0.01" min="0" max="100" class="form-control fw-bold" id="new-entity-discount" placeholder="الخصم %"></div>
+                <div class="col-md-2"><button class="btn btn-primary fw-bold w-100" id="add-entity-btn">إضافة</button></div>
+              </div>
+              <ul class="list-group admin-lookup-list" id="contracted-entities-list"></ul>
+            </div>
+          </div>
+        </div>
+        <div class="col-12">
+          <div class="card shadow-sm">
+            <div class="card-header bg-danger text-white fw-black">🚫 البنود المستثناة من الخصم</div>
+            <div class="card-body">
+              <div class="input-group mb-3">
+                <input type="text" class="form-control fw-bold" id="new-exclusion-name" placeholder="بند مستثنى جديد (مثل: الأدوية)...">
+                <button class="btn btn-primary fw-bold" id="add-exclusion-btn">إضافة</button>
+              </div>
+              <p class="small text-muted">إذا احتوى بيان السطر على هذا النص → يظهر أمامه 0% خصم</p>
+              <ul class="list-group admin-lookup-list" id="discount-exclusions-list"></ul>
             </div>
           </div>
         </div>

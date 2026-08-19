@@ -3,6 +3,57 @@ const { query, withTransaction } = require('../database/db');
 const { calculateInvoiceTotals, calculateStayDays } = require('./calculations');
 const { nextSerialNumber } = require('./serialService');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
+const { getContractedEntityById, getEffectiveDiscountPercent } = require('./contractedEntityService');
+const { listDiscountExclusions } = require('./discountExclusionService');
+
+async function prepareCalculationData(data) {
+  const calcData = { ...data };
+  calcData.discount_exclusions = await listDiscountExclusions(true);
+
+  if (calcData.invoice_type === 'contracted' && calcData.contracted_entity_id) {
+    const entity = await getContractedEntityById(Number(calcData.contracted_entity_id));
+    if (entity) {
+      calcData.contracted_entity_name = entity.name;
+      if (!calcData.discount_percent) {
+        calcData.discount_percent = await getEffectiveDiscountPercent(entity.id);
+      }
+    }
+  } else {
+    calcData.contracted_entity_id = null;
+    calcData.contracted_entity_name = '';
+    calcData.discount_percent = 0;
+  }
+
+  return calcData;
+}
+
+async function saveDiscountFields(client, invoiceId, data, totals) {
+  await client.query(
+    `UPDATE invoices SET
+      contracted_entity_id = $2,
+      contracted_entity_name = $3,
+      discount_percent = $4,
+      discount_eligible_subtotal = $5,
+      discount_eligible_subtotal_raw = $6,
+      discount_amount = $7,
+      discount_amount_raw = $8,
+      items_subtotal_after_discount = $9,
+      items_subtotal_after_discount_raw = $10
+     WHERE id = $1`,
+    [
+      invoiceId,
+      data.contracted_entity_id ? Number(data.contracted_entity_id) : null,
+      data.contracted_entity_name || '',
+      totals.discount_percent || 0,
+      totals.discount_eligible_subtotal || 0,
+      totals.discount_eligible_subtotal_raw || 0,
+      totals.discount_amount || 0,
+      totals.discount_amount_raw || 0,
+      totals.items_subtotal_after_discount || 0,
+      totals.items_subtotal_after_discount_raw || 0,
+    ]
+  );
+}
 
 async function attachInvoiceLabels(invoice, typeMap) {
   const labels = typeMap || (await getInvoiceTypesMap());
@@ -126,12 +177,13 @@ async function listInvoices(filters = {}) {
 }
 
 async function saveInvoice(data, existingId = null) {
+  const calcData = await prepareCalculationData(data);
   const stayDays =
-    data.stay_days !== undefined && data.stay_days !== ''
-      ? Number(data.stay_days)
-      : calculateStayDays(data.admission_date, data.discharge_date);
+    calcData.stay_days !== undefined && calcData.stay_days !== ''
+      ? Number(calcData.stay_days)
+      : calculateStayDays(calcData.admission_date, calcData.discharge_date);
 
-  const totals = calculateInvoiceTotals({ ...data, stay_days: stayDays });
+  const totals = calculateInvoiceTotals({ ...calcData, stay_days: stayDays });
 
   return withTransaction(async (client) => {
     let serialNumber = data.serial_number;
@@ -216,6 +268,7 @@ async function saveInvoice(data, existingId = null) {
 
       await client.query('DELETE FROM invoice_items WHERE invoice_id = $1', [existingId]);
       await client.query('DELETE FROM invoice_payments WHERE invoice_id = $1', [existingId]);
+      await saveDiscountFields(client, existingId, calcData, totals);
     } else {
       serialNumber = await nextSerialNumber(client);
       qrToken = uuidv4();
@@ -282,14 +335,27 @@ async function saveInvoice(data, existingId = null) {
 
       invoiceId = inserted.rows[0]?.id;
       if (!invoiceId) throw new Error('فشل إنشاء الفاتورة');
+      await saveDiscountFields(client, invoiceId, calcData, totals);
     }
 
     for (let index = 0; index < totals.items.length; index++) {
       const item = totals.items[index];
       await client.query(
-        `INSERT INTO invoice_items (invoice_id, description, quantity, amount, total, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [invoiceId, item.description || '', item.quantity || 0, item.amount || 0, item.total || 0, index]
+        `INSERT INTO invoice_items (
+          invoice_id, description, quantity, amount, total,
+          is_discount_eligible, item_discount_percent, discount_exclusion_id, sort_order
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          invoiceId,
+          item.description || '',
+          item.quantity || 0,
+          item.amount || 0,
+          item.total || 0,
+          item.is_discount_eligible !== false,
+          item.item_discount_percent || 0,
+          item.discount_exclusion_id || null,
+          index,
+        ]
       );
     }
 

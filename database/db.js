@@ -61,6 +61,25 @@ async function initDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS contracted_entities (
+      id SERIAL PRIMARY KEY,
+      parent_id INTEGER REFERENCES contracted_entities(id) ON DELETE SET NULL,
+      name VARCHAR(255) NOT NULL,
+      discount_percent NUMERIC(6,2) NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS discount_exclusion_items (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      match_type VARCHAR(20) NOT NULL DEFAULT 'contains',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS app_settings (
       key VARCHAR(100) PRIMARY KEY,
       value TEXT NOT NULL,
@@ -133,6 +152,9 @@ async function initDatabase() {
       quantity NUMERIC(14,2) DEFAULT 0,
       amount NUMERIC(14,2) DEFAULT 0,
       total NUMERIC(14,2) DEFAULT 0,
+      is_discount_eligible BOOLEAN NOT NULL DEFAULT TRUE,
+      item_discount_percent NUMERIC(6,2) DEFAULT 0,
+      discount_exclusion_id INTEGER REFERENCES discount_exclusion_items(id) ON DELETE SET NULL,
       sort_order INTEGER DEFAULT 0
     );
 
@@ -283,6 +305,55 @@ async function runMigrations() {
     )
   `);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS contracted_entities (
+      id SERIAL PRIMARY KEY,
+      parent_id INTEGER REFERENCES contracted_entities(id) ON DELETE SET NULL,
+      name VARCHAR(255) NOT NULL,
+      discount_percent NUMERIC(6,2) NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS discount_exclusion_items (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      match_type VARCHAR(20) NOT NULL DEFAULT 'contains',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  const phase2InvoiceColumns = [
+    'contracted_entity_id INTEGER REFERENCES contracted_entities(id) ON DELETE SET NULL',
+    'contracted_entity_name TEXT DEFAULT \'\'',
+    'discount_percent NUMERIC(6,2) DEFAULT 0',
+    'discount_eligible_subtotal NUMERIC(14,2) DEFAULT 0',
+    'discount_eligible_subtotal_raw NUMERIC(14,4) DEFAULT 0',
+    'discount_amount NUMERIC(14,2) DEFAULT 0',
+    'discount_amount_raw NUMERIC(14,4) DEFAULT 0',
+    'items_subtotal_after_discount NUMERIC(14,2) DEFAULT 0',
+    'items_subtotal_after_discount_raw NUMERIC(14,4) DEFAULT 0',
+  ];
+  for (const col of phase2InvoiceColumns) {
+    const name = col.split(' ')[0];
+    await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
+  }
+
+  const phase2ItemColumns = [
+    'is_discount_eligible BOOLEAN NOT NULL DEFAULT TRUE',
+    'item_discount_percent NUMERIC(6,2) DEFAULT 0',
+    'discount_exclusion_id INTEGER REFERENCES discount_exclusion_items(id) ON DELETE SET NULL',
+  ];
+  for (const col of phase2ItemColumns) {
+    const name = col.split(' ')[0];
+    await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
+  }
+
   await seedLookupTables();
 }
 
@@ -337,6 +408,24 @@ async function seedLookupTables() {
          is_active = TRUE`,
       [paymentMethods[i].code, paymentMethods[i].name, paymentMethods[i].accepts_amount, i + 1]
     );
+  }
+
+  const exclusionCount = await query('SELECT COUNT(*)::int AS c FROM discount_exclusion_items');
+  if (exclusionCount.rows[0].c === 0) {
+    const exclusions = [
+      'الأدوية',
+      'المستلزمات الطبية',
+      'الجهات الحكومية',
+      'المصروفات الإدارية',
+      'أجر الطبيب',
+      'أجر التخدير في التدخلات الجراحية',
+    ];
+    for (let i = 0; i < exclusions.length; i++) {
+      await query(
+        'INSERT INTO discount_exclusion_items (name, match_type, sort_order) VALUES ($1, $2, $3)',
+        [exclusions[i], 'contains', i + 1]
+      );
+    }
   }
 }
 

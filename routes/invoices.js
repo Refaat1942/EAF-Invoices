@@ -9,6 +9,8 @@ const {
   getReportsSummary,
 } = require('../services/invoiceService');
 const { listInvoiceTypes } = require('../services/invoiceTypeService');
+const { listDiscountExclusions } = require('../services/discountExclusionService');
+const { getEffectiveDiscountPercent } = require('../services/contractedEntityService');
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
@@ -36,12 +38,20 @@ router.get('/types', requirePermission('invoices.view'), async (req, res) => {
   }
 });
 
-router.post('/calculate', requirePermission('invoices.view'), (req, res) => {
-  const data = req.body;
-  if (!data.stay_days && data.admission_date && data.discharge_date) {
-    data.stay_days = calculateStayDays(data.admission_date, data.discharge_date);
+router.post('/calculate', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const data = req.body;
+    if (!data.stay_days && data.admission_date && data.discharge_date) {
+      data.stay_days = calculateStayDays(data.admission_date, data.discharge_date);
+    }
+    data.discount_exclusions = await listDiscountExclusions(true);
+    if (data.invoice_type === 'contracted' && data.contracted_entity_id && !data.discount_percent) {
+      data.discount_percent = await getEffectiveDiscountPercent(Number(data.contracted_entity_id));
+    }
+    res.json(calculateInvoiceTotals(data));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(calculateInvoiceTotals(data));
 });
 
 router.get('/', requirePermission('invoices.view'), async (req, res) => {

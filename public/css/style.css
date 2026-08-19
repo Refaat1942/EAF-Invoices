@@ -236,3 +236,10 @@ body {
 .admin-lookup-name {
   min-width: 160px;
 }
+
+.discount-pct-display {
+  text-align: center;
+  font-weight: 800;
+  background: #f8f9fa;
+  font-size: 0.85rem;
+}

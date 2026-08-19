@@ -17,6 +17,58 @@ function calculateItemTotal(quantity, amount) {
   return { raw, rounded: roundNearest(raw), total: roundNearest(raw) };
 }
 
+function normalizeArabic(text) {
+  return String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function matchesExclusion(description, exclusion) {
+  const desc = normalizeArabic(description);
+  const pattern = normalizeArabic(exclusion.name);
+  if (!desc || !pattern) return false;
+  if (exclusion.match_type === 'exact') return desc === pattern;
+  if (exclusion.match_type === 'starts_with') return desc.startsWith(pattern);
+  return desc.includes(pattern);
+}
+
+function resolveItemEligibility(item, exclusions, discountActive) {
+  if (!discountActive) {
+    return {
+      is_discount_eligible: false,
+      item_discount_percent: 0,
+      discount_exclusion_id: null,
+    };
+  }
+
+  if (item.discount_eligible_override === true || item.discount_eligible_override === false) {
+    const eligible = item.discount_eligible_override === true;
+    return {
+      is_discount_eligible: eligible,
+      item_discount_percent: eligible ? Number(item.entity_discount_percent || item.item_discount_percent || 0) : 0,
+      discount_exclusion_id: eligible ? null : item.discount_exclusion_id || null,
+    };
+  }
+
+  for (const rule of exclusions) {
+    if (matchesExclusion(item.description, rule)) {
+      return {
+        is_discount_eligible: false,
+        item_discount_percent: 0,
+        discount_exclusion_id: rule.id,
+        exclusion_name: rule.name,
+      };
+    }
+  }
+
+  return {
+    is_discount_eligible: true,
+    item_discount_percent: Number(item.entity_discount_percent || item.item_discount_percent || 0),
+    discount_exclusion_id: null,
+  };
+}
+
 function resolvePaymentTotals(data) {
   if (Array.isArray(data.method_payments) && data.method_payments.length) {
     const totalCollectedRaw = round2(
@@ -63,13 +115,42 @@ function resolvePaymentTotals(data) {
 }
 
 function calculateInvoiceTotals(data) {
+  const discountPercent = Number(data.discount_percent) || 0;
+  const discountActive =
+    data.invoice_type === 'contracted' && discountPercent > 0 && Number(data.contracted_entity_id);
+  const exclusions = data.discount_exclusions || [];
+
   const items = (data.items || []).map((item) => {
     const calc = calculateItemTotal(item.quantity, item.amount);
-    return { ...item, total: calc.rounded, total_raw: calc.raw, total_rounded: calc.rounded };
+    const eligibility = resolveItemEligibility(
+      { ...item, entity_discount_percent: discountPercent },
+      exclusions,
+      discountActive
+    );
+    return {
+      ...item,
+      total: calc.rounded,
+      total_raw: calc.raw,
+      total_rounded: calc.rounded,
+      ...eligibility,
+    };
   });
 
   const itemsSubtotalRaw = round2(items.reduce((sum, item) => sum + item.total_raw, 0));
   const itemsSubtotal = roundNearest(itemsSubtotalRaw);
+
+  const discountEligibleSubtotalRaw = round2(
+    items.filter((item) => item.is_discount_eligible).reduce((sum, item) => sum + item.total_raw, 0)
+  );
+  const discountEligibleSubtotal = roundNearest(discountEligibleSubtotalRaw);
+
+  const discountAmountRaw = discountActive
+    ? round2(discountEligibleSubtotalRaw * (discountPercent / 100))
+    : 0;
+  const discountAmount = roundNearest(discountAmountRaw);
+
+  const itemsSubtotalAfterDiscountRaw = round2(itemsSubtotalRaw - discountAmountRaw);
+  const itemsSubtotalAfterDiscount = roundNearest(itemsSubtotalAfterDiscountRaw);
 
   const payments = (data.payments || []).map((p) => ({
     ...p,
@@ -85,7 +166,7 @@ function calculateInvoiceTotals(data) {
   const adminPercent = Number(data.admin_expenses_percent) || 12;
 
   const subtotalBeforeAdminRaw = round2(
-    itemsSubtotalRaw + stampDutyD.raw + professionalFeesD.raw
+    itemsSubtotalAfterDiscountRaw + stampDutyD.raw + professionalFeesD.raw
   );
   const subtotalBeforeAdmin = roundNearest(subtotalBeforeAdminRaw);
 
@@ -116,6 +197,13 @@ function calculateInvoiceTotals(data) {
     payments,
     items_subtotal: itemsSubtotal,
     items_subtotal_raw: itemsSubtotalRaw,
+    discount_percent: discountActive ? discountPercent : 0,
+    discount_eligible_subtotal: discountEligibleSubtotal,
+    discount_eligible_subtotal_raw: discountEligibleSubtotalRaw,
+    discount_amount: discountAmount,
+    discount_amount_raw: discountAmountRaw,
+    items_subtotal_after_discount: itemsSubtotalAfterDiscount,
+    items_subtotal_after_discount_raw: itemsSubtotalAfterDiscountRaw,
     stamp_duty: stampDutyD.rounded,
     stamp_duty_raw: stampDutyD.raw,
     professional_fees: professionalFeesD.rounded,
@@ -171,4 +259,5 @@ module.exports = {
   calculateInvoiceTotals,
   calculateStayDays,
   formatDual,
+  matchesExclusion,
 };
