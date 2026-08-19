@@ -346,6 +346,7 @@ async function handleSave(e) {
 
     const result = await res.json();
     if (!res.ok) throw new Error(result.error || 'خطأ في الحفظ');
+    if (!result?.id) throw new Error('فشل حفظ الفاتورة — لم يتم إرجاع بيانات صالحة');
 
     currentInvoiceId = result.id;
     document.getElementById('invoice-id').value = result.id;

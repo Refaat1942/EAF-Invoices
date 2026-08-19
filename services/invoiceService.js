@@ -32,16 +32,17 @@ async function resolveStayTypes(client, data) {
   return { ids: orderedIds, names, firstId: orderedIds[0] || null };
 }
 
-async function getInvoiceById(id) {
-  const { rows } = await query('SELECT * FROM invoices WHERE id = $1', [id]);
+async function getInvoiceById(id, client = null) {
+  const run = client ? client.query.bind(client) : query;
+  const { rows } = await run('SELECT * FROM invoices WHERE id = $1', [id]);
   if (!rows.length) return null;
   const invoice = rows[0];
 
-  const items = await query(
+  const items = await run(
     'SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY sort_order, id',
     [id]
   );
-  const payments = await query(
+  const payments = await run(
     'SELECT * FROM invoice_payments WHERE invoice_id = $1 ORDER BY sort_order, id',
     [id]
   );
@@ -252,7 +253,8 @@ async function saveInvoice(data, existingId = null) {
         ]
       );
 
-      invoiceId = inserted.rows[0].id;
+      invoiceId = inserted.rows[0]?.id;
+      if (!invoiceId) throw new Error('فشل إنشاء الفاتورة');
     }
 
     for (let index = 0; index < totals.items.length; index++) {
@@ -279,7 +281,7 @@ async function saveInvoice(data, existingId = null) {
       );
     }
 
-    return getInvoiceById(invoiceId);
+    return getInvoiceById(invoiceId, client);
   });
 }
 
