@@ -417,6 +417,60 @@ async function runMigrations() {
   const { syncSerialCountersFromInvoices } = require('../services/serialService');
   await syncSerialCountersFromInvoices();
 
+  // Phase 8 — draft workflow, patients, user permissions
+  await query(`ALTER TABLE invoices ALTER COLUMN serial_number DROP NOT NULL`);
+  await query(`ALTER TABLE invoices ALTER COLUMN qr_token DROP NOT NULL`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'draft'`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_by_name TEXT DEFAULT ''`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_credit_applied NUMERIC(14,2) DEFAULT 0`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_credit_deducted BOOLEAN DEFAULT FALSE`);
+
+  await query(`
+    UPDATE invoices SET status = 'approved'
+    WHERE COALESCE(status, '') = '' AND serial_number IS NOT NULL
+  `);
+  await query(`
+    UPDATE invoices SET status = 'draft'
+    WHERE COALESCE(status, '') = '' AND serial_number IS NULL
+  `);
+
+  await query(`DROP INDEX IF EXISTS idx_invoices_serial_unique`);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_serial_unique
+    ON invoices (serial_number) WHERE serial_number IS NOT NULL
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS patients (
+      id SERIAL PRIMARY KEY,
+      file_number VARCHAR(100) UNIQUE NOT NULL,
+      name TEXT DEFAULT '',
+      account_balance NUMERIC(14,2) DEFAULT 0,
+      account_balance_raw NUMERIC(14,4) DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS patient_transactions (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+      amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      balance_after NUMERIC(14,2) NOT NULL DEFAULT 0,
+      note TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_permissions JSONB DEFAULT '[]'::jsonb`);
+  await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
+  await query(`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'reviewer', 'user'))`);
+
   await seedLookupTables();
 }
 

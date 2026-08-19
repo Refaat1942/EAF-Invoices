@@ -1,4 +1,4 @@
-const { canAccess } = require('../services/authService');
+const { userHasPermission } = require('../services/authService');
 
 function requireAuth(req, res, next) {
   if (!req.session?.user) {
@@ -14,7 +14,7 @@ function requirePermission(permission) {
       return res.status(401).json({ error: 'يجب تسجيل الدخول' });
     }
     req.user = req.session.user;
-    if (!canAccess(req.user.role, permission)) {
+    if (!userHasPermission(req.user, permission)) {
       return res.status(403).json({ error: 'ليس لديك صلاحية لهذا الإجراء' });
     }
     next();

@@ -355,3 +355,101 @@ body {
   background: #f8f9fa;
   font-size: 0.85rem;
 }
+
+.sidebar-panel .card-header.collapsed-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sidebar-panel .toggle-icon {
+  float: left;
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.compact-summary .summary-item {
+  padding: 4px 0;
+  font-size: 0.88rem;
+}
+
+.status-badge {
+  font-size: 0.85rem;
+  padding: 0.45em 0.75em;
+}
+
+.patient-balance-hint .badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.permissions-grid {
+  background: #f8f9fb;
+  border: 1px solid #e3e7ee;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+
+.permission-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.permission-chip input {
+  margin: 0;
+}
+
+.invoice-meta-section {
+  padding: 1rem 1.1rem;
+}
+
+.invoice-table {
+  font-size: 0.82rem;
+}
+
+.payment-methods-table {
+  font-size: 0.88rem;
+}
+
+#view-create .card-body {
+  padding: 1.1rem 1.25rem;
+}
+
+.patient-report-card .patient-stat-box {
+  background: #f8f9fb;
+  border: 1px solid #e3e7ee;
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  height: 100%;
+}
+
+.patient-report-card .patient-stat-box span {
+  display: block;
+  font-size: 0.78rem;
+  color: #6c757d;
+  margin-bottom: 0.25rem;
+}
+
+.patient-report-card .patient-stat-box strong {
+  font-size: 1rem;
+}
+
+.patient-report-table {
+  font-size: 0.82rem;
+}
+
+.patient-report-table th,
+.patient-report-table td {
+  vertical-align: middle;
+}
+
+.patient-report-empty {
+  border-style: dashed;
+}

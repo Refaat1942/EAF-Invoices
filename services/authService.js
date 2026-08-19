@@ -3,22 +3,71 @@ const { query } = require('../database/db');
 
 const ROLES = {
   admin: { label: 'مدير النظام', level: 100 },
+  reviewer: { label: 'مراجع مالي', level: 75 },
   user: { label: 'مستخدم', level: 50 },
 };
 
+const PERMISSION_CATALOG = [
+  { key: 'invoices.view', label: 'عرض الفواتير', description: 'رؤية قائمة الفواتير وتفاصيلها', group: 'الفواتير' },
+  { key: 'invoices.create', label: 'إنشاء فاتورة', description: 'إنشاء فاتورة جديدة وحفظها مؤقتًا', group: 'الفواتير' },
+  { key: 'invoices.edit', label: 'تعديل فاتورة', description: 'تعديل الفواتير غير المعتمدة', group: 'الفواتير' },
+  { key: 'invoices.delete', label: 'حذف فاتورة', description: 'حذف الفواتير (مسودة أو معتمدة)', group: 'الفواتير' },
+  { key: 'invoices.approve', label: 'اعتماد فاتورة', description: 'المراجعة النهائية وإصدار الرقم التسلسلي', group: 'الفواتير' },
+  { key: 'invoices.submit', label: 'إرسال للمراجعة', description: 'إرسال الفاتورة للمراجع المالي', group: 'الفواتير' },
+  { key: 'reports.view', label: 'عرض التقارير', description: 'رؤية التقارير والإحصائيات', group: 'التقارير' },
+  { key: 'reports.export', label: 'تصدير Excel', description: 'تحميل التقارير بصيغة Excel', group: 'التقارير' },
+  { key: 'settings.*', label: 'إدارة الإعدادات', description: 'أنواع الفواتير، الإقامة، الجهات، الشعار', group: 'الإعدادات' },
+  { key: 'users.*', label: 'إدارة المستخدمين', description: 'إضافة وتعديل وحذف المستخدمين', group: 'المستخدمين' },
+  { key: 'patients.view', label: 'عرض أرصدة المرضى', description: 'رؤية رصيد حساب المريض', group: 'المرضى' },
+  { key: 'patients.manage', label: 'إدارة أرصدة المرضى', description: 'تعديل رصيد حساب المريض', group: 'المرضى' },
+];
+
 const PERMISSIONS = {
-  admin: ['invoices.*', 'reports.*', 'settings.*', 'users.*'],
-  user: ['invoices.create', 'invoices.edit', 'invoices.view', 'reports.view'],
+  admin: PERMISSION_CATALOG.map((p) => p.key),
+  reviewer: [
+    'invoices.view',
+    'invoices.approve',
+    'reports.view',
+    'reports.export',
+    'patients.view',
+  ],
+  user: [
+    'invoices.view',
+    'invoices.create',
+    'invoices.edit',
+    'invoices.submit',
+    'reports.view',
+  ],
 };
 
 function normalizeRole(role) {
   if (role === 'admin') return 'admin';
+  if (role === 'reviewer') return 'reviewer';
   return 'user';
 }
 
-function roleHasPermission(role, permission) {
-  const normalized = normalizeRole(role);
-  const perms = PERMISSIONS[normalized] || [];
+function parseCustomPermissions(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : null;
+  } catch {
+    return null;
+  }
+}
+
+function getRoleDefaultPermissions(role) {
+  return PERMISSIONS[normalizeRole(role)] || PERMISSIONS.user;
+}
+
+function getUserPermissions(user) {
+  const custom = parseCustomPermissions(user?.custom_permissions);
+  if (custom && custom.length) return custom;
+  return getRoleDefaultPermissions(user?.role);
+}
+
+function permissionsInclude(perms, permission) {
   if (perms.includes('*')) return true;
   if (perms.includes(permission)) return true;
   const [group] = permission.split('.');
@@ -26,8 +75,18 @@ function roleHasPermission(role, permission) {
   return false;
 }
 
-function canAccess(role, permission) {
-  return roleHasPermission(role, permission);
+function roleHasPermission(role, permission) {
+  return permissionsInclude(getRoleDefaultPermissions(role), permission);
+}
+
+function userHasPermission(user, permission) {
+  if (!user) return false;
+  return permissionsInclude(getUserPermissions(user), permission);
+}
+
+function canAccess(userOrRole, permission) {
+  if (typeof userOrRole === 'string') return roleHasPermission(userOrRole, permission);
+  return userHasPermission(userOrRole, permission);
 }
 
 async function findUserByUsername(username) {
@@ -39,7 +98,10 @@ async function findUserByUsername(username) {
 }
 
 async function findUserById(id) {
-  const { rows } = await query('SELECT id, username, full_name, role, is_active, created_at, last_login FROM users WHERE id = $1', [id]);
+  const { rows } = await query(
+    'SELECT id, username, full_name, role, custom_permissions, is_active, created_at, last_login FROM users WHERE id = $1',
+    [id]
+  );
   return rows[0] || null;
 }
 
@@ -58,24 +120,40 @@ async function login(username, password) {
 
 function sanitizeUser(user) {
   const role = normalizeRole(user.role);
+  const permissions = getUserPermissions(user);
   return {
     id: user.id,
     username: user.username,
     full_name: user.full_name,
     role,
     role_label: ROLES[role]?.label || role,
-    permissions: PERMISSIONS[role] || [],
+    permissions,
+    custom_permissions: parseCustomPermissions(user.custom_permissions) || [],
   };
 }
 
 async function listUsers() {
   const { rows } = await query(
-    'SELECT id, username, full_name, role, is_active, created_at, last_login FROM users ORDER BY id'
+    'SELECT id, username, full_name, role, custom_permissions, is_active, created_at, last_login FROM users ORDER BY id'
   );
   return rows.map((u) => {
     const role = normalizeRole(u.role);
-    return { ...u, role, role_label: ROLES[role]?.label || role };
+    const permissions = getUserPermissions(u);
+    return {
+      ...u,
+      role,
+      role_label: ROLES[role]?.label || role,
+      permissions,
+      custom_permissions: parseCustomPermissions(u.custom_permissions) || [],
+    };
   });
+}
+
+function validatePermissionsList(list) {
+  if (!list) return null;
+  const allowed = new Set(PERMISSION_CATALOG.map((p) => p.key));
+  const cleaned = [...new Set(list.filter((p) => allowed.has(p)))];
+  return cleaned;
 }
 
 async function createUser(data) {
@@ -88,15 +166,18 @@ async function createUser(data) {
   }
   if (!ROLES[role]) throw new Error('الصلاحية غير صالحة');
 
+  const customPermissions = validatePermissionsList(data.custom_permissions);
   const hash = await bcrypt.hash(password, 10);
   const { rows } = await query(
-    `INSERT INTO users (username, password_hash, full_name, role) VALUES ($1, $2, $3, $4) RETURNING id, username, full_name, role, is_active, created_at`,
-    [username, hash, data.full_name || '', role]
+    `INSERT INTO users (username, password_hash, full_name, role, custom_permissions)
+     VALUES ($1, $2, $3, $4, $5::jsonb)
+     RETURNING id, username, full_name, role, custom_permissions, is_active, created_at`,
+    [username, hash, data.full_name || '', role, JSON.stringify(customPermissions || [])]
   );
-  return { ...rows[0], role_label: ROLES[rows[0].role]?.label };
+  return sanitizeUser(rows[0]);
 }
 
-async function updateUser(id, data, actorRole) {
+async function updateUser(id, data, actor) {
   const fields = [];
   const params = [id];
   let i = 2;
@@ -108,9 +189,15 @@ async function updateUser(id, data, actorRole) {
   if (data.role !== undefined) {
     const role = normalizeRole(data.role);
     if (!ROLES[role]) throw new Error('الصلاحية غير صالحة');
-    if (normalizeRole(actorRole) !== 'admin') throw new Error('فقط مدير النظام يغير الصلاحيات');
+    if (!userHasPermission(actor, 'users.*')) throw new Error('فقط مدير النظام يغير الصلاحيات');
     fields.push(`role = $${i++}`);
     params.push(role);
+  }
+  if (data.custom_permissions !== undefined) {
+    if (!userHasPermission(actor, 'users.*')) throw new Error('فقط مدير النظام يغير الصلاحيات');
+    const cleaned = validatePermissionsList(data.custom_permissions) || [];
+    fields.push(`custom_permissions = $${i++}::jsonb`);
+    params.push(JSON.stringify(cleaned));
   }
   if (data.is_active !== undefined) {
     fields.push(`is_active = $${i++}`);
@@ -125,11 +212,12 @@ async function updateUser(id, data, actorRole) {
   if (!fields.length) throw new Error('لا توجد بيانات للتحديث');
 
   const { rows } = await query(
-    `UPDATE users SET ${fields.join(', ')} WHERE id = $1 RETURNING id, username, full_name, role, is_active, created_at, last_login`,
+    `UPDATE users SET ${fields.join(', ')} WHERE id = $1
+     RETURNING id, username, full_name, role, custom_permissions, is_active, created_at, last_login`,
     params
   );
   if (!rows.length) throw new Error('المستخدم غير موجود');
-  return { ...rows[0], role_label: ROLES[rows[0].role]?.label };
+  return sanitizeUser(rows[0]);
 }
 
 async function deleteUser(id) {
@@ -143,8 +231,8 @@ async function seedAdminUser() {
 
   const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'Admin@2026', 10);
   await query(
-    `INSERT INTO users (username, password_hash, full_name, role) VALUES ($1, $2, $3, $4)`,
-    ['admin', hash, 'مدير النظام', 'admin']
+    `INSERT INTO users (username, password_hash, full_name, role, custom_permissions) VALUES ($1, $2, $3, $4, $5::jsonb)`,
+    ['admin', hash, 'مدير النظام', 'admin', JSON.stringify([])]
   );
   console.log('👤 Default admin created: admin / Admin@2026');
 }
@@ -152,8 +240,12 @@ async function seedAdminUser() {
 module.exports = {
   ROLES,
   PERMISSIONS,
+  PERMISSION_CATALOG,
   normalizeRole,
   canAccess,
+  userHasPermission,
+  getUserPermissions,
+  getRoleDefaultPermissions,
   login,
   findUserById,
   listUsers,

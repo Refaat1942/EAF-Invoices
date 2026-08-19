@@ -19,6 +19,7 @@ const { initDatabase } = require('./database/db');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const invoiceRoutes = require('./routes/invoices');
+const patientRoutes = require('./routes/patients');
 const downloadRoutes = require('./routes/download');
 const settingsRoutes = require('./routes/settings');
 
@@ -61,6 +62,7 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/patients', patientRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/download', downloadRoutes);
 

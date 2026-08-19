@@ -2,14 +2,26 @@ const API = '/api/invoices';
 const SETTINGS_API = '/api/settings';
 const AUTH_API = '/api/auth';
 const USERS_API = '/api/users';
+const PATIENTS_API = '/api/patients';
 let currentInvoiceId = null;
 let currentUser = null;
+let currentInvoiceStatus = null;
 let rowCount = 12;
 let invoiceTypeLabels = {};
 let paymentMethodsCache = [];
 let contractedEntitiesCache = [];
 let stayTypesCache = [];
 let lastCalculationTotals = null;
+let permissionCatalog = [];
+let roleDefaults = {};
+let currentReportType = 'summary';
+let selectedPatientFileNumber = '';
+
+const STATUS_BADGES = {
+  draft: { text: 'مسودة', class: 'bg-secondary' },
+  pending_review: { text: 'قيد المراجعة', class: 'bg-warning text-dark' },
+  approved: { text: 'معتمدة', class: 'bg-success' },
+};
 
 const fmt = (n) =>
   (Number(n) || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -73,6 +85,7 @@ function showApp() {
   loadStayTypes();
   loadPaymentMethodsForm();
   loadContractedEntities();
+  loadPermissionCatalog();
   resetForm();
 }
 
@@ -85,13 +98,17 @@ function applyPermissions() {
   if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
 
   const canEdit = can('invoices.create') || can('invoices.edit');
-  const saveBtn = document.querySelector('#invoice-form button[type="submit"]');
-  if (saveBtn) saveBtn.style.display = canEdit ? '' : 'none';
+  document.getElementById('save-draft-btn').style.display = canEdit ? '' : 'none';
+  document.getElementById('submit-review-btn').style.display = can('invoices.submit') ? '' : 'none';
+  document.getElementById('approve-invoice-btn').style.display = can('invoices.approve') ? '' : 'none';
+  document.getElementById('report-export-btn').style.display = can('reports.export') ? '' : 'none';
+
   ['reset-form-btn', 'add-row-btn', 'remove-row-btn', 'add-stay-entry-btn', 'pay-full-cash-btn', 'pay-full-bank-btn', 'pay-full-check-btn', 'clear-payments-btn'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.style.display = canEdit ? '' : 'none';
   });
   setFormReadonly(!canEdit);
+  updateInvoiceActionButtons();
 }
 
 function setFormReadonly(readonly) {
@@ -165,7 +182,13 @@ function bindEvents() {
     btn.addEventListener('click', () => switchView(btn.dataset.view));
   });
 
-  document.getElementById('invoice-form').addEventListener('submit', handleSave);
+  document.getElementById('invoice-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveInvoiceWithMode('draft');
+  });
+  document.getElementById('save-draft-btn').addEventListener('click', () => saveInvoiceWithMode('draft'));
+  document.getElementById('submit-review-btn').addEventListener('click', () => saveInvoiceWithMode('submit'));
+  document.getElementById('approve-invoice-btn').addEventListener('click', approveCurrentInvoice);
   document.getElementById('reset-form-btn').addEventListener('click', resetForm);
   document.getElementById('add-row-btn').addEventListener('click', () => {
     document.getElementById('items-tbody').appendChild(createRow(rowCount++));
@@ -203,8 +226,39 @@ function bindEvents() {
   document.getElementById('list-refresh').addEventListener('click', loadInvoicesList);
   document.getElementById('list-search').addEventListener('input', debounce(loadInvoicesList, 300));
   document.getElementById('list-type-filter').addEventListener('change', loadInvoicesList);
+  document.getElementById('list-status-filter').addEventListener('change', loadInvoicesList);
   document.getElementById('list-from').addEventListener('change', loadInvoicesList);
   document.getElementById('list-to').addEventListener('change', loadInvoicesList);
+
+  document.getElementById('report-refresh-btn').addEventListener('click', loadReports);
+  document.getElementById('report-export-btn').addEventListener('click', exportCurrentReport);
+  document.querySelectorAll('.report-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.report-tab').forEach((b) => {
+        b.classList.toggle('active', b === btn);
+        b.classList.toggle('btn-primary', b === btn);
+        b.classList.toggle('btn-outline-primary', b !== btn);
+      });
+      currentReportType = btn.dataset.report;
+      selectedPatientFileNumber = '';
+      updateReportFiltersUI();
+      loadReports();
+    });
+  });
+
+  document.getElementById('report-patient-search')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      selectedPatientFileNumber = '';
+      loadReports();
+    }
+  });
+
+  document.getElementById('file_number').addEventListener('blur', loadPatientBalance);
+  document.getElementById('edit-patient-balance-btn').addEventListener('click', editPatientBalance);
+  document.getElementById('new-user-role').addEventListener('change', () => {
+    renderPermissionCheckboxes('new-user-permissions', getDefaultPermissionsForRole(document.getElementById('new-user-role').value));
+  });
 
   document.getElementById('upload-logo-btn').addEventListener('click', uploadLogo);
   document.getElementById('add-stay-type-btn').addEventListener('click', addStayType);
@@ -221,7 +275,6 @@ function bindEvents() {
   });
   document.getElementById('add-entity-btn').addEventListener('click', addContractedEntity);
   document.getElementById('add-exclusion-btn').addEventListener('click', addDiscountExclusion);
-  document.getElementById('issue_date').addEventListener('change', updateFiscalYearPreview);
 
   document.getElementById('pay-full-cash-btn').addEventListener('click', () => fillFullPayment('cash'));
   document.getElementById('pay-full-bank-btn').addEventListener('click', () => fillFullPayment('bank_transfer'));
@@ -413,41 +466,147 @@ function prefillStayEntryDatesFromAdmission() {
   });
 }
 
-function getFiscalYearLabelFromDate(dateStr) {
-  if (!dateStr) return '';
-  const [y, m] = dateStr.split('-').map(Number);
-  if (!y || !m) return '';
-  const fiscalStart = m >= 7 ? y : y - 1;
-  return `${fiscalStart}/${fiscalStart + 1}`;
+function getDefaultPermissionsForRole(role) {
+  return roleDefaults[role] || [];
 }
 
-async function updateFiscalYearPreview() {
-  const issueDate = document.getElementById('issue_date').value;
-  const fiscalLabel = document.getElementById('fiscal-year-label');
-  const serialPreview = document.getElementById('next-serial-preview');
+function renderPermissionCheckboxes(containerId, selected = [], prefix = 'perm') {
+  const container = document.getElementById(containerId);
+  if (!container || !permissionCatalog.length) return;
 
-  if (!issueDate) {
-    fiscalLabel.textContent = '';
-    serialPreview.textContent = '';
-    return;
-  }
+  const groups = {};
+  permissionCatalog.forEach((p) => {
+    if (!groups[p.group]) groups[p.group] = [];
+    groups[p.group].push(p);
+  });
 
-  fiscalLabel.textContent = `السنة المالية: ${getFiscalYearLabelFromDate(issueDate)} (1 يوليو → 30 يونيو)`;
+  container.innerHTML = Object.entries(groups)
+    .map(
+      ([group, items]) => `
+    <div class="permission-group mb-2">
+      <div class="fw-black small text-muted mb-1">${group}</div>
+      <div class="d-flex flex-wrap gap-2">
+        ${items
+          .map(
+            (p) => `
+          <label class="permission-chip" title="${escapeAttr(p.description)}">
+            <input type="checkbox" class="form-check-input ${prefix}-checkbox" value="${p.key}" ${selected.includes(p.key) ? 'checked' : ''}>
+            <span>${p.label}</span>
+          </label>`
+          )
+          .join('')}
+      </div>
+    </div>`
+    )
+    .join('');
+}
 
-  if (currentInvoiceId) {
-    serialPreview.textContent = '';
-    return;
-  }
+function collectSelectedPermissions(containerId, prefix = 'perm') {
+  return [...document.querySelectorAll(`#${containerId} .${prefix}-checkbox:checked`)].map((el) => el.value);
+}
 
+async function loadPermissionCatalog() {
+  if (!can('users.*')) return;
   try {
-    const res = await apiFetch(`${API}/next-serial?issue_date=${encodeURIComponent(issueDate)}`);
-    const data = await res.json();
-    if (res.ok) {
-      serialPreview.textContent = `الرقم التالي: ${data.serial_number}`;
-    }
-  } catch {
-    serialPreview.textContent = '';
+    const [permRes, rolesRes] = await Promise.all([
+      apiFetch(`${USERS_API}/permissions`),
+      apiFetch(`${USERS_API}/roles`),
+    ]);
+    permissionCatalog = await permRes.json();
+    const roles = await rolesRes.json();
+    roleDefaults = {};
+    roles.forEach((r) => {
+      roleDefaults[r.id] = r.default_permissions || [];
+    });
+    renderPermissionCheckboxes('new-user-permissions', getDefaultPermissionsForRole('user'), 'new');
+  } catch (err) {
+    console.error(err);
   }
+}
+
+async function loadPatientBalance() {
+  const fileNumber = document.getElementById('file_number').value.trim();
+  const hint = document.getElementById('patient-balance-hint');
+  const creditWrap = document.getElementById('patient-credit-wrap');
+  if (!fileNumber) {
+    hint.style.display = 'none';
+    creditWrap.style.display = 'none';
+    return;
+  }
+  try {
+    const res = await apiFetch(`${PATIENTS_API}/by-file/${encodeURIComponent(fileNumber)}`);
+    const patient = await res.json();
+    const balance = Number(patient.account_balance) || 0;
+    document.getElementById('patient-balance-display').textContent = fmt(balance);
+    hint.style.display = '';
+    document.getElementById('edit-patient-balance-btn').style.display = can('patients.manage') ? '' : 'none';
+    creditWrap.style.display = balance > 0 || can('patients.view') ? '' : 'none';
+  } catch {
+    hint.style.display = 'none';
+  }
+}
+
+async function editPatientBalance() {
+  const fileNumber = document.getElementById('file_number').value.trim();
+  const patientName = document.getElementById('patient_name').value.trim();
+  if (!fileNumber) return showToast('أدخل رقم الملف أولًا', 'warning');
+  const current = document.getElementById('patient-balance-display').textContent.replace(/[^\d.,]/g, '');
+  const input = prompt('رصيد حساب المريض:', current || '0');
+  if (input === null) return;
+  try {
+    const res = await apiFetch(`${PATIENTS_API}/balance`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_number: fileNumber, name: patientName, account_balance: input }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    await loadPatientBalance();
+    showToast('تم تحديث رصيد المريض', 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+function updateInvoiceStatusUI(status, serialNumber = null) {
+  currentInvoiceStatus = status;
+  const badge = document.getElementById('invoice-status-badge');
+  const editSerial = document.getElementById('edit-serial');
+  const info = STATUS_BADGES[status] || { text: status, class: 'bg-secondary' };
+
+  badge.style.display = status ? '' : 'none';
+  badge.className = `badge status-badge ${info.class}`;
+  badge.textContent = info.text;
+
+  if (status === 'approved' && serialNumber) {
+    editSerial.style.display = 'inline';
+    editSerial.textContent = serialNumber;
+  } else if (serialNumber) {
+    editSerial.style.display = 'inline';
+    editSerial.textContent = serialNumber;
+  } else {
+    editSerial.style.display = 'none';
+    editSerial.textContent = '';
+  }
+
+  updateInvoiceActionButtons();
+}
+
+function updateInvoiceActionButtons() {
+  const canEdit = can('invoices.create') || can('invoices.edit');
+  const isApproved = currentInvoiceStatus === 'approved';
+  const isPending = currentInvoiceStatus === 'pending_review';
+
+  document.getElementById('save-draft-btn').style.display = canEdit && !isApproved ? '' : 'none';
+  document.getElementById('submit-review-btn').style.display = can('invoices.submit') && !isApproved ? '' : 'none';
+  document.getElementById('approve-invoice-btn').style.display =
+    can('invoices.approve') && (isPending || currentInvoiceId) && !isApproved ? '' : 'none';
+
+  const showExports = isApproved && currentInvoiceId;
+  ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
+    document.getElementById(id).style.display = showExports ? 'inline-block' : 'none';
+  });
+  document.getElementById('qr-card').style.display = showExports ? 'block' : 'none';
 }
 
 function autoStayDays() {
@@ -511,6 +670,7 @@ function collectFormData() {
     auditor_name: document.getElementById('auditor_name').value,
     captain_name: document.getElementById('captain_name').value,
     manager_name: document.getElementById('manager_name').value,
+    patient_credit_applied: document.getElementById('patient_credit_applied').value,
     items,
     payments,
   };
@@ -601,7 +761,6 @@ function updateSummaryDisplay(t) {
   }
 
   document.getElementById('sum_final').innerHTML = fmtDual(t.final_total_raw, t.final_total);
-  document.getElementById('sum_final_raw').textContent = fmt(t.final_total_raw);
   document.getElementById('sum_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
   document.getElementById('sum_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
 
@@ -823,9 +982,9 @@ function updateSummaryTable(t) {
   `;
 }
 
-async function handleSave(e) {
-  e.preventDefault();
+async function saveInvoiceWithMode(saveMode) {
   const data = collectFormData();
+  data.save_mode = saveMode;
 
   if (!data.invoice_type) {
     showToast('يجب اختيار نوع الفاتورة', 'danger');
@@ -846,10 +1005,12 @@ async function handleSave(e) {
     return;
   }
 
-  const paymentCheck = validatePaymentsBeforeSave(lastCalculationTotals);
-  if (!paymentCheck.ok) {
-    showToast(paymentCheck.message, 'danger');
-    return;
+  if (saveMode === 'submit') {
+    const paymentCheck = validatePaymentsBeforeSave(lastCalculationTotals);
+    if (!paymentCheck.ok) {
+      showToast(paymentCheck.message, 'danger');
+      return;
+    }
   }
 
   try {
@@ -870,25 +1031,57 @@ async function handleSave(e) {
     currentInvoiceId = result.id;
     document.getElementById('invoice-id').value = result.id;
     document.getElementById('form-title').textContent = 'تعديل الفاتورة';
-    document.getElementById('edit-serial').style.display = 'inline';
-    document.getElementById('edit-serial').textContent = result.fiscal_year_label
-      ? `${result.serial_number} (${result.fiscal_year_label})`
-      : result.serial_number;
+    updateInvoiceStatusUI(result.status, result.serial_number);
 
     if (result.created_by_name) {
       document.getElementById('created_by_display').textContent = result.created_by_name;
       document.getElementById('created-by-wrap').style.display = '';
     }
 
-    ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
-      document.getElementById(id).style.display = 'inline-block';
-    });
+    if (result.status === 'approved' && result.qr_token) {
+      await loadQR(result.id);
+    }
 
-    await loadQR(result.id);
-    showToast(`تم حفظ الفاتورة بنجاح - ${result.serial_number}`, 'success');
+    const msg =
+      saveMode === 'submit'
+        ? 'تم إرسال الفاتورة للمراجعة'
+        : result.status === 'approved'
+          ? `تم حفظ الفاتورة - ${result.serial_number}`
+          : 'تم حفظ الفاتورة مؤقتًا (بدون رقم)';
+    showToast(msg, 'success');
   } catch (err) {
     showToast(err.message, 'danger');
   }
+}
+
+async function approveCurrentInvoice() {
+  if (!currentInvoiceId) {
+    showToast('احفظ الفاتورة وأرسلها للمراجعة أولًا', 'warning');
+    return;
+  }
+  if (!confirm('اعتماد الفاتورة نهائيًا وإصدار الرقم التسلسلي؟')) return;
+
+  try {
+    const res = await apiFetch(`${API}/${currentInvoiceId}/approve`, { method: 'POST' });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'فشل الاعتماد');
+
+    updateInvoiceStatusUI(result.status, result.serial_number);
+    if (result.created_by_name) {
+      document.getElementById('created_by_display').textContent = result.created_by_name;
+      document.getElementById('created-by-wrap').style.display = '';
+    }
+    await loadQR(result.id);
+    await loadPatientBalance();
+    showToast(`تم اعتماد الفاتورة - ${result.serial_number}`, 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function handleSave(e) {
+  e.preventDefault();
+  await saveInvoiceWithMode('draft');
 }
 
 async function loadQR(id) {
@@ -910,18 +1103,21 @@ function downloadFile(format) {
 
 function resetForm() {
   currentInvoiceId = null;
+  currentInvoiceStatus = null;
   document.getElementById('invoice-form').reset();
   document.getElementById('invoice-id').value = '';
   document.getElementById('form-title').textContent = 'إنشاء فاتورة جديدة';
-  document.getElementById('edit-serial').style.display = 'none';
   document.getElementById('issue_date').value = new Date().toISOString().slice(0, 10);
-  updateFiscalYearPreview();
+  updateInvoiceStatusUI(null);
   document.getElementById('captain_name').value = 'نقيب / عمرو صالح محمد';
   document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر - المدير المالي';
   document.getElementById('admin_expenses_percent').value = '12';
   document.getElementById('stamp_duty').value = '0';
   document.getElementById('professional_fees').value = '0';
   document.getElementById('balance').value = '0';
+  document.getElementById('patient_credit_applied').value = '0';
+  document.getElementById('patient-balance-hint').style.display = 'none';
+  document.getElementById('patient-credit-wrap').style.display = 'none';
   loadStayTypes().then(() => initStayEntries());
   ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
     document.getElementById(id).style.display = 'none';
@@ -949,10 +1145,7 @@ async function loadInvoiceForEdit(id) {
 
     document.getElementById('invoice-id').value = inv.id;
     document.getElementById('form-title').textContent = 'تعديل الفاتورة';
-    document.getElementById('edit-serial').style.display = 'inline';
-    document.getElementById('edit-serial').textContent = inv.fiscal_year_label
-      ? `${inv.serial_number} (${inv.fiscal_year_label})`
-      : inv.serial_number;
+    updateInvoiceStatusUI(inv.status, inv.serial_number);
 
     document.getElementById('invoice_type').value = inv.invoice_type;
     toggleContractedFields();
@@ -971,8 +1164,9 @@ async function loadInvoiceForEdit(id) {
     }
     document.getElementById('patient_name').value = inv.patient_name;
     document.getElementById('file_number').value = inv.file_number || '';
+    document.getElementById('patient_credit_applied').value = inv.patient_credit_applied || 0;
+    await loadPatientBalance();
     document.getElementById('issue_date').value = fmtDate(inv.issue_date || inv.created_at);
-    updateFiscalYearPreview();
     document.getElementById('admission_date').value = fmtDate(inv.admission_date);
     document.getElementById('discharge_date').value = fmtDate(inv.discharge_date);
     document.getElementById('stay_days').value = inv.stay_days;
@@ -1022,12 +1216,19 @@ async function loadInvoiceForEdit(id) {
     }
 
     ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
-      document.getElementById(id).style.display = 'inline-block';
+      document.getElementById(id).style.display = inv.status === 'approved' ? 'inline-block' : 'none';
     });
+
+    if (inv.status === 'approved') {
+      setFormReadonly(true);
+    } else {
+      setFormReadonly(!(can('invoices.create') || can('invoices.edit')));
+    }
 
     bindCalcTriggers();
     recalculate();
-    loadQR(inv.id);
+    if (inv.status === 'approved') loadQR(inv.id);
+    updateInvoiceActionButtons();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -1040,28 +1241,152 @@ function switchView(view, options = {}) {
 
   if (view === 'create' && !options.keepForm) resetForm();
   if (view === 'list') loadInvoicesList();
-  if (view === 'reports') loadReports();
+  if (view === 'reports') {
+    populateReportTypeFilter();
+    updateReportFiltersUI();
+    loadReports();
+  }
   if (view === 'settings') loadSettingsPage();
+}
+
+function populateReportTypeFilter() {
+  const select = document.getElementById('report-type-filter');
+  if (!select || select.options.length > 1) return;
+  Object.entries(invoiceTypeLabels).forEach(([code, label]) => {
+    select.insertAdjacentHTML('beforeend', `<option value="${code}">${label}</option>`);
+  });
+}
+
+function updateReportFiltersUI() {
+  const isPatientReport = currentReportType === 'patient_status';
+  document.getElementById('report-patient-wrap').style.display = isPatientReport ? '' : 'none';
+  document.getElementById('report-invoice-type-wrap').style.display = isPatientReport ? '' : '';
+}
+
+function getReportQueryParams() {
+  const params = new URLSearchParams();
+  const from = document.getElementById('report-from')?.value;
+  const to = document.getElementById('report-to')?.value;
+  const type = document.getElementById('report-type-filter')?.value;
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (type) params.set('type', type);
+
+  if (currentReportType === 'patient_status') {
+    const rawSearch = document.getElementById('report-patient-search')?.value.trim();
+    const fileNumber = selectedPatientFileNumber || (rawSearch?.includes('—') ? rawSearch.split('—')[0].trim() : rawSearch);
+    if (fileNumber) {
+      if (/[\u0600-\u06FF]/.test(fileNumber) && !selectedPatientFileNumber) {
+        params.set('patient_search', fileNumber);
+      } else {
+        params.set('file_number', fileNumber);
+      }
+    } else if (rawSearch) {
+      params.set('patient_search', rawSearch);
+    }
+  }
+  return params;
+}
+
+function exportCurrentReport() {
+  const params = getReportQueryParams();
+  params.set('report', currentReportType);
+  window.open(`${API}/reports/export?${params}`, '_blank');
 }
 
 async function loadUsers() {
   if (!can('users.*')) return;
+  await loadPermissionCatalog();
   try {
     const res = await apiFetch(USERS_API);
     const users = await res.json();
     document.getElementById('users-list').innerHTML = users
-      .map(
-        (u) => `
+      .map((u) => {
+        const permLabels = (u.permissions || [])
+          .map((key) => permissionCatalog.find((p) => p.key === key)?.label || key)
+          .slice(0, 6)
+          .join('، ');
+        const more = (u.permissions || []).length > 6 ? ` +${u.permissions.length - 6}` : '';
+        return `
       <tr>
         <td class="fw-bold">${u.username}</td>
         <td>${u.full_name || '-'}</td>
         <td><span class="badge bg-primary">${u.role_label}</span></td>
+        <td>
+          <small class="text-muted d-block mb-1">${permLabels}${more}</small>
+          <button class="btn btn-sm btn-outline-secondary" onclick="editUserPermissions(${u.id})">⚙️ الصلاحيات</button>
+        </td>
         <td>${u.username !== 'admin' ? `<button class="btn btn-sm btn-outline-danger" onclick="removeSystemUser(${u.id})">🗑️</button>` : ''}</td>
-      </tr>`
-      )
+      </tr>`;
+      })
       .join('');
   } catch (err) {
     console.error(err);
+  }
+}
+
+async function editUserPermissions(userId) {
+  try {
+    const res = await apiFetch(USERS_API);
+    const users = await res.json();
+    const user = users.find((u) => u.id === userId);
+    if (!user) return;
+
+    const modalId = `user-perm-modal-${userId}`;
+    let modal = document.getElementById(modalId);
+    if (!modal) {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `<div class="modal fade" id="${modalId}" tabindex="-1">
+          <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+              <div class="modal-header"><h5 class="modal-title fw-black">صلاحيات: ${user.username}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+              <div class="modal-body">
+                <div class="mb-2">
+                  <label class="form-label fw-bold">الدور</label>
+                  <select class="form-select form-select-sm" id="${modalId}-role">
+                    <option value="user">مستخدم</option>
+                    <option value="reviewer">مراجع مالي</option>
+                    <option value="admin">مدير النظام</option>
+                  </select>
+                </div>
+                <div id="${modalId}-permissions"></div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">إلغاء</button>
+                <button type="button" class="btn btn-primary fw-bold" id="${modalId}-save">حفظ</button>
+              </div>
+            </div>
+          </div>
+        </div>`
+      );
+      modal = document.getElementById(modalId);
+    }
+
+    document.getElementById(`${modalId}-role`).value = user.role;
+    renderPermissionCheckboxes(`${modalId}-permissions`, user.custom_permissions?.length ? user.custom_permissions : user.permissions, `u${userId}`);
+    document.getElementById(`${modalId}-role`).onchange = () => {
+      renderPermissionCheckboxes(`${modalId}-permissions`, getDefaultPermissionsForRole(document.getElementById(`${modalId}-role`).value), `u${userId}`);
+    };
+    document.getElementById(`${modalId}-save`).onclick = async () => {
+      const role = document.getElementById(`${modalId}-role`).value;
+      const custom_permissions = collectSelectedPermissions(`${modalId}-permissions`, `u${userId}`);
+      const updateRes = await apiFetch(`${USERS_API}/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role, custom_permissions }),
+      });
+      const data = await updateRes.json();
+      if (!updateRes.ok) throw new Error(data.error);
+      bootstrap.Modal.getInstance(modal).hide();
+      showToast('تم تحديث الصلاحيات', 'success');
+      loadUsers();
+    };
+
+    new bootstrap.Modal(modal).show();
+  } catch (err) {
+    showToast(err.message, 'danger');
   }
 }
 
@@ -1070,12 +1395,13 @@ async function addUser() {
   const full_name = document.getElementById('new-user-fullname').value.trim();
   const password = document.getElementById('new-user-pass').value;
   const role = document.getElementById('new-user-role').value;
+  const custom_permissions = collectSelectedPermissions('new-user-permissions', 'new');
   if (!username || !password) return showToast('اسم المستخدم وكلمة المرور مطلوبان', 'warning');
   try {
     const res = await apiFetch(USERS_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, full_name, password, role }),
+      body: JSON.stringify({ username, full_name, password, role, custom_permissions }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -1609,10 +1935,12 @@ async function addPaymentMethod() {
 async function loadInvoicesList() {
   const params = new URLSearchParams();
   const type = document.getElementById('list-type-filter').value;
+  const status = document.getElementById('list-status-filter').value;
   const search = document.getElementById('list-search').value;
   const from = document.getElementById('list-from').value;
   const to = document.getElementById('list-to').value;
   if (type) params.set('type', type);
+  if (status) params.set('status', status);
   if (search) params.set('search', search);
   if (from) params.set('from', from);
   if (to) params.set('to', to);
@@ -1622,13 +1950,19 @@ async function loadInvoicesList() {
     const invoices = await res.json();
     const canEdit = can('invoices.edit');
     const canDelete = can('invoices.delete');
+    const canApprove = can('invoices.approve');
     const tbody = document.getElementById('invoices-list');
     tbody.innerHTML = invoices.length
       ? invoices
-          .map(
-            (inv) => `
+          .map((inv) => {
+            const statusInfo = STATUS_BADGES[inv.status] || { text: inv.status_label || inv.status, class: 'bg-secondary' };
+            const serialCell =
+              inv.status === 'approved' && inv.serial_number
+                ? `<span class="fw-black text-primary">${inv.serial_number}</span>`
+                : `<span class="text-muted">—</span>`;
+            return `
         <tr>
-          <td class="fw-black text-primary">${inv.fiscal_year_label ? `${inv.serial_number} <small class="text-muted">(${inv.fiscal_year_label})</small>` : inv.serial_number}</td>
+          <td>${serialCell}<br><span class="badge ${statusInfo.class}">${statusInfo.text}</span></td>
           <td class="fw-bold">${inv.file_number || '-'}</td>
           <td>${inv.patient_name || '-'}</td>
           <td><span class="badge bg-secondary">${inv.invoice_type_label || invoiceTypeLabels[inv.invoice_type] || inv.invoice_type}</span></td>
@@ -1636,17 +1970,31 @@ async function loadInvoicesList() {
           <td>${fmtDual(inv.total_collected_raw ?? inv.total_collected, inv.total_collected)}</td>
           <td class="${inv.remaining > 0 ? 'text-danger fw-bold' : ''}">${fmtDual(inv.remaining_raw ?? inv.remaining, inv.remaining)}</td>
           <td>${inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ar-EG') : new Date(inv.created_at).toLocaleDateString('ar-EG')}</td>
-          <td>
+          <td class="text-nowrap">
             <button class="btn btn-sm btn-outline-primary" onclick="loadInvoiceForEdit(${inv.id})">${canEdit ? '✏️' : '👁️'}</button>
-            <button class="btn btn-sm btn-outline-danger" onclick="window.open('${API}/${inv.id}/pdf')">📄</button>
-            ${canDelete ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})">🗑️</button>` : ''}
+            ${inv.status === 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="window.open('${API}/${inv.id}/pdf')">📄</button>` : ''}
+            ${canApprove && inv.status === 'pending_review' ? `<button class="btn btn-sm btn-outline-success" onclick="quickApproveInvoice(${inv.id})">✅</button>` : ''}
+            ${canDelete && inv.status !== 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})">🗑️</button>` : ''}
           </td>
-        </tr>`
-          )
+        </tr>`;
+          })
           .join('')
       : '<tr><td colspan="9" class="text-center py-4">لا توجد فواتير</td></tr>';
   } catch (err) {
     showToast('خطأ في تحميل الفواتير', 'danger');
+  }
+}
+
+async function quickApproveInvoice(id) {
+  if (!confirm('اعتماد هذه الفاتورة؟')) return;
+  try {
+    const res = await apiFetch(`${API}/${id}/approve`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(`تم الاعتماد - ${data.serial_number}`, 'success');
+    loadInvoicesList();
+  } catch (err) {
+    showToast(err.message, 'danger');
   }
 }
 
@@ -1666,70 +2014,278 @@ async function loadReports() {
   const container = document.getElementById('reports-content');
   container.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
-  try {
-    const res = await apiFetch(`${API}/reports/summary`);
-    const data = await res.json();
-
-    const typeCards = Object.entries(data.by_type)
-      .map(
-        ([key, val]) => `
-      <div class="col-md-3">
-        <div class="card report-card shadow-sm h-100">
-          <div class="card-body text-center">
-            <div class="report-label">${val.label}</div>
-            <div class="report-stat text-primary">${val.count}</div>
-            <div class="small fw-bold">فاتورة</div>
-            <hr>
-            <div class="d-flex justify-content-between small fw-bold">
-              <span>الإجمالي:</span><span>${fmt(val.total)}</span>
-            </div>
-            <div class="d-flex justify-content-between small fw-bold">
-              <span>المحصل:</span><span>${fmt(val.collected)}</span>
-            </div>
-            <div class="d-flex justify-content-between small fw-bold text-danger">
-              <span>المتبقي:</span><span>${fmt(val.remaining)}</span>
+  if (currentReportType === 'patient_status') {
+    const search = document.getElementById('report-patient-search')?.value.trim();
+    if (!search && !selectedPatientFileNumber) {
+      container.innerHTML = `
+        <div class="col-12">
+          <div class="card shadow-sm patient-report-empty">
+            <div class="card-body text-center py-5">
+              <h5 class="fw-black mb-2">تقرير موقف مريض</h5>
+              <p class="text-muted mb-0">أدخل رقم الملف أو اسم المريض في الأعلى ثم اضغط تحديث</p>
             </div>
           </div>
-        </div>
-      </div>`
-      )
-      .join('');
-
-    const monthlyRows = (data.monthly || [])
-      .map(
-        (m) => `
-      <tr>
-        <td class="fw-bold">${m.month}</td>
-        <td>${m.count}</td>
-        <td>${fmt(m.total)}</td>
-        <td>${fmt(m.collected)}</td>
-        <td class="text-danger">${fmt(m.remaining)}</td>
-      </tr>`
-      )
-      .join('');
-
-    container.innerHTML = `
-      <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
-        <div class="report-label">إجمالي الفواتير</div><div class="report-stat">${data.total_invoices}</div>
-      </div></div></div>
-      <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
-        <div class="report-label">إجمالي المبالغ</div><div class="report-stat text-success">${fmt(data.grand_total)}</div>
-      </div></div></div>
-      <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
-        <div class="report-label">إجمالي المحصل</div><div class="report-stat text-primary">${fmt(data.grand_collected)}</div>
-      </div></div></div>
-      <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
-        <div class="report-label">إجمالي المتبقي</div><div class="report-stat text-danger">${fmt(data.grand_remaining)}</div>
-      </div></div></div>
-      ${typeCards}
-      <div class="col-12"><div class="card shadow-sm mt-2"><div class="card-header bg-dark text-white fw-black">التقرير الشهري</div>
-        <div class="card-body p-0"><table class="table table-striped mb-0">
-          <thead class="table-dark"><tr><th>الشهر</th><th>عدد الفواتير</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th></tr></thead>
-          <tbody>${monthlyRows || '<tr><td colspan="5" class="text-center">لا توجد بيانات</td></tr>'}</tbody>
-        </table></div></div></div>`;
-  } catch (err) {
-    container.innerHTML = '<div class="col-12 text-center text-danger py-5">خطأ في تحميل التقارير</div>';
+        </div>`;
+      return;
+    }
   }
+
+  const params = getReportQueryParams();
+
+  try {
+    let endpoint = `${API}/reports/summary?${params}`;
+    if (currentReportType === 'payments') endpoint = `${API}/reports/payments?${params}`;
+    if (currentReportType === 'remaining') endpoint = `${API}/reports/remaining?${params}`;
+    if (currentReportType === 'patient_status') endpoint = `${API}/reports/patient-status?${params}`;
+    if (currentReportType === 'invoices') {
+      params.set('approved_only', 'false');
+      endpoint = `${API}?${params}`;
+    }
+
+    const res = await apiFetch(endpoint);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'خطأ');
+
+    if (currentReportType === 'patient_status') {
+      if (data.multiple_matches) {
+        container.innerHTML = `
+          <div class="col-12">
+            <div class="card shadow-sm">
+              <div class="card-header bg-warning text-dark fw-black">تم العثور على أكثر من مريض — اختر المطلوب</div>
+              <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                  <thead class="table-light"><tr><th>رقم الملف</th><th>الاسم</th><th>عدد الفواتير</th><th>أول دخول</th><th></th></tr></thead>
+                  <tbody>
+                    ${data.matches
+                      .map(
+                        (m) => `
+                      <tr>
+                        <td class="fw-black">${m.file_number}</td>
+                        <td>${m.patient_name || '-'}</td>
+                        <td>${m.invoice_count}</td>
+                        <td>${m.first_admission ? new Date(m.first_admission).toLocaleDateString('ar-EG') : '—'}</td>
+                        <td><button class="btn btn-sm btn-primary fw-bold" onclick="selectPatientForReport('${escapeAttr(m.file_number)}', '${escapeAttr(m.patient_name || '')}')">عرض الموقف</button></td>
+                      </tr>`
+                      )
+                      .join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = renderPatientStatusReport(data);
+      return;
+    }
+
+    if (currentReportType === 'summary') {
+      const typeCards = Object.entries(data.by_type)
+        .filter(([, val]) => val.count > 0)
+        .map(
+          ([, val]) => `
+        <div class="col-md-3">
+          <div class="card report-card shadow-sm h-100">
+            <div class="card-body text-center">
+              <div class="report-label">${val.label}</div>
+              <div class="report-stat text-primary">${val.count}</div>
+              <div class="small fw-bold">فاتورة</div>
+              <hr>
+              <div class="d-flex justify-content-between small fw-bold"><span>الإجمالي:</span><span>${fmt(val.total)}</span></div>
+              <div class="d-flex justify-content-between small fw-bold"><span>المحصل:</span><span>${fmt(val.collected)}</span></div>
+              <div class="d-flex justify-content-between small fw-bold text-danger"><span>المتبقي:</span><span>${fmt(val.remaining)}</span></div>
+            </div>
+          </div>
+        </div>`
+        )
+        .join('');
+
+      const monthlyRows = (data.monthly || [])
+        .map(
+          (m) => `<tr>
+          <td class="fw-bold">${m.month}</td><td>${m.count}</td><td>${fmt(m.total)}</td>
+          <td>${fmt(m.collected)}</td><td class="text-danger">${fmt(m.remaining)}</td></tr>`
+        )
+        .join('');
+
+      container.innerHTML = `
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">فواتير معتمدة</div><div class="report-stat">${data.total_invoices}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">إجمالي المبالغ</div><div class="report-stat text-success">${fmt(data.grand_total)}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">إجمالي المحصل</div><div class="report-stat text-primary">${fmt(data.grand_collected)}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">إجمالي المتبقي</div><div class="report-stat text-danger">${fmt(data.grand_remaining)}</div></div></div></div>
+        ${typeCards}
+        <div class="col-12"><div class="card shadow-sm mt-2"><div class="card-header bg-dark text-white fw-black">التقرير الشهري (فواتير معتمدة)</div>
+          <div class="card-body p-0"><table class="table table-striped mb-0">
+            <thead class="table-dark"><tr><th>الشهر</th><th>عدد</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th></tr></thead>
+            <tbody>${monthlyRows || '<tr><td colspan="5" class="text-center">لا توجد بيانات</td></tr>'}</tbody>
+          </table></div></div></div>`;
+      return;
+    }
+
+    if (currentReportType === 'invoices') {
+      const rows = (Array.isArray(data) ? data : [])
+        .map((inv) => {
+          const st = STATUS_BADGES[inv.status] || { text: inv.status, class: 'bg-secondary' };
+          return `<tr>
+            <td>${inv.serial_number || '—'}</td>
+            <td><span class="badge ${st.class}">${st.text}</span></td>
+            <td>${inv.file_number || '-'}</td>
+            <td>${inv.patient_name || '-'}</td>
+            <td>${inv.invoice_type_label || invoiceTypeLabels[inv.invoice_type] || inv.invoice_type}</td>
+            <td>${fmt(inv.final_total)}</td>
+            <td>${fmt(inv.total_collected)}</td>
+            <td class="text-danger">${fmt(inv.remaining)}</td>
+          </tr>`;
+        })
+        .join('');
+      container.innerHTML = `<div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">تقرير الفواتير</div>
+        <div class="card-body p-0"><table class="table table-striped mb-0">
+          <thead class="table-dark"><tr><th>الرقم</th><th>الحالة</th><th>الملف</th><th>المريض</th><th>النوع</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="8" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
+        </table></div></div></div>`;
+      return;
+    }
+
+    const isPayments = currentReportType === 'payments';
+    const rows = (Array.isArray(data) ? data : [])
+      .map((r) =>
+        isPayments
+          ? `<tr><td>${r.serial_number}</td><td>${r.file_number || '-'}</td><td>${r.patient_name || '-'}</td>
+             <td>${r.issue_date || '-'}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.cash_private)}</td>
+             <td>${fmt(r.bank_private)}</td><td>${fmt(r.cash_external)}</td><td>${fmt(r.patient_credit_applied)}</td>
+             <td>${fmt(r.total_collected)}</td><td class="text-danger">${fmt(r.remaining)}</td></tr>`
+          : `<tr><td>${r.serial_number}</td><td>${r.file_number || '-'}</td><td>${r.patient_name || '-'}</td>
+             <td>${r.issue_date || '-'}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.total_collected)}</td>
+             <td class="text-danger fw-bold">${fmt(r.remaining)}</td></tr>`
+      )
+      .join('');
+
+    const title = isPayments ? 'تقرير المدفوعات' : 'تقرير المتبقي';
+    const head = isPayments
+      ? '<th>الرقم</th><th>الملف</th><th>المريض</th><th>التاريخ</th><th>الإجمالي</th><th>نقدي</th><th>تحويل</th><th>شيك</th><th>خصم رصيد</th><th>المحصل</th><th>المتبقي</th>'
+      : '<th>الرقم</th><th>الملف</th><th>المريض</th><th>التاريخ</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th>';
+
+    container.innerHTML = `<div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">${title}</div>
+      <div class="card-body p-0"><table class="table table-striped mb-0">
+        <thead class="table-dark"><tr>${head}</tr></thead>
+        <tbody>${rows || '<tr><td colspan="11" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
+      </table></div></div></div>`;
+  } catch (err) {
+    container.innerHTML = `<div class="col-12 text-center text-danger py-5">${err.message || 'خطأ في تحميل التقارير'}</div>`;
+  }
+}
+
+function renderPatientStatusReport(data) {
+  const stayBadge = data.stay.is_still_admitted
+    ? '<span class="badge bg-info">لا يزال بالمركز</span>'
+    : data.stay.latest_discharge
+      ? '<span class="badge bg-secondary">خرج</span>'
+      : '<span class="badge bg-light text-dark border">غير محدد</span>';
+
+  const invoiceRows = (data.invoices || [])
+    .map((inv) => {
+      const st = STATUS_BADGES[inv.status] || { text: inv.status_label, class: 'bg-secondary' };
+      const paymentLines = (inv.payments || [])
+        .map(
+          (pay) =>
+            `<div class="small text-muted">📄 ${pay.receipt_date ? new Date(pay.receipt_date).toLocaleDateString('ar-EG') : '—'} — ${pay.receipt_number || 'بدون رقم'} — ${fmt(pay.amount)}</div>`
+        )
+        .join('');
+      return `<tr>
+        <td>${inv.serial_number || `<span class="text-muted">مسودة #${inv.id}</span>`}</td>
+        <td><span class="badge ${st.class}">${st.text}</span></td>
+        <td>${inv.invoice_type_label}</td>
+        <td>${inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ar-EG') : '—'}</td>
+        <td>${inv.admission_date ? new Date(inv.admission_date).toLocaleDateString('ar-EG') : '—'}</td>
+        <td>${inv.discharge_date ? new Date(inv.discharge_date).toLocaleDateString('ar-EG') : '—'}</td>
+        <td>${inv.stay_days || 0}</td>
+        <td class="fw-bold">${fmt(inv.final_total)}</td>
+        <td>${fmt(inv.total_collected)}</td>
+        <td>${fmt(inv.patient_credit_applied)}</td>
+        <td class="${inv.remaining > 0 ? 'text-danger fw-bold' : ''}">${fmt(inv.remaining)}</td>
+        <td>${paymentLines || '<span class="text-muted small">—</span>'}</td>
+      </tr>`;
+    })
+    .join('');
+
+  const txRows = (data.transactions || [])
+    .map(
+      (tx) => `<tr>
+      <td>${new Date(tx.created_at).toLocaleDateString('ar-EG')}</td>
+      <td class="${Number(tx.amount) < 0 ? 'text-danger' : 'text-success'} fw-bold">${fmt(tx.amount)}</td>
+      <td>${fmt(tx.balance_after)}</td>
+      <td>${tx.serial_number || '—'}</td>
+      <td>${tx.note || '—'}</td>
+    </tr>`
+    )
+    .join('');
+
+  return `
+    <div class="col-12">
+      <div class="card shadow-sm patient-report-card mb-3">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <h5 class="mb-0 fw-black">موقف المريض: ${data.patient.name || '—'}</h5>
+          ${stayBadge}
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-3"><div class="patient-stat-box"><span>رقم الملف</span><strong>${data.patient.file_number}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الدخول</span><strong>${data.stay.earliest_admission ? new Date(data.stay.earliest_admission).toLocaleDateString('ar-EG') : '—'}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الخروج</span><strong>${data.stay.latest_discharge ? new Date(data.stay.latest_discharge).toLocaleDateString('ar-EG') : '—'}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>مدة الإقامة</span><strong>${data.stay.duration_label}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>أيام الإقامة (مجموع)</span><strong>${data.stay.total_stay_days || 0} يوم</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>رصيد الحساب</span><strong class="text-success">${fmt(data.patient.account_balance)}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>عدد الفواتير</span><strong>${data.totals.invoices_count}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>معتمدة / مسودة / مراجعة</span><strong>${data.totals.approved_count} / ${data.totals.draft_count} / ${data.totals.pending_count}</strong></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3"><div class="card report-card shadow-sm h-100"><div class="card-body text-center">
+      <div class="report-label">إجمالي الفواتير</div><div class="report-stat text-success">${fmt(data.totals.total_billed)}</div></div></div></div>
+    <div class="col-md-3"><div class="card report-card shadow-sm h-100"><div class="card-body text-center">
+      <div class="report-label">إجمالي المحصل</div><div class="report-stat text-primary">${fmt(data.totals.total_collected)}</div></div></div></div>
+    <div class="col-md-3"><div class="card report-card shadow-sm h-100"><div class="card-body text-center">
+      <div class="report-label">خصم من الرصيد</div><div class="report-stat">${fmt(data.totals.total_credit_applied)}</div></div></div></div>
+    <div class="col-md-3"><div class="card report-card shadow-sm h-100"><div class="card-body text-center">
+      <div class="report-label">المتبقي</div><div class="report-stat text-danger">${fmt(data.totals.total_remaining)}</div></div></div></div>
+    <div class="col-12">
+      <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white fw-black">فواتير المريض والمدفوعات</div>
+        <div class="card-body p-0 table-responsive">
+          <table class="table table-striped mb-0 patient-report-table">
+            <thead class="table-light">
+              <tr>
+                <th>الرقم</th><th>الحالة</th><th>النوع</th><th>الإصدار</th><th>الدخول</th><th>الخروج</th><th>الأيام</th>
+                <th>الإجمالي</th><th>المحصل</th><th>خصم الرصيد</th><th>المتبقي</th><th>إيصالات الدفع</th>
+              </tr>
+            </thead>
+            <tbody>${invoiceRows || '<tr><td colspan="12" class="text-center py-4">لا توجد فواتير</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    ${
+      txRows
+        ? `<div class="col-12"><div class="card shadow-sm"><div class="card-header bg-secondary text-white fw-black">حركة رصيد الحساب</div>
+      <div class="card-body p-0 table-responsive"><table class="table table-sm mb-0">
+        <thead class="table-light"><tr><th>التاريخ</th><th>الحركة</th><th>الرصيد بعد</th><th>الفاتورة</th><th>البيان</th></tr></thead>
+        <tbody>${txRows}</tbody>
+      </table></div></div></div>`
+        : ''
+    }`;
+}
+
+function selectPatientForReport(fileNumber, patientName) {
+  selectedPatientFileNumber = fileNumber;
+  const input = document.getElementById('report-patient-search');
+  if (input) input.value = `${fileNumber}${patientName ? ` — ${patientName}` : ''}`;
+  loadReports();
 }
 
 function showToast(message, type = 'info') {
@@ -1755,6 +2311,9 @@ function debounce(fn, ms) {
 
 window.loadInvoiceForEdit = loadInvoiceForEdit;
 window.deleteInvoice = deleteInvoice;
+window.quickApproveInvoice = quickApproveInvoice;
+window.selectPatientForReport = selectPatientForReport;
+window.editUserPermissions = editUserPermissions;
 window.removeSystemUser = removeSystemUser;
 window.saveLookupItem = saveLookupItem;
 window.toggleLookupItem = toggleLookupItem;

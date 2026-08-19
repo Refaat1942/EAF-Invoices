@@ -1,5 +1,5 @@
 const express = require('express');
-const { listUsers, createUser, updateUser, deleteUser, ROLES } = require('../services/authService');
+const { listUsers, createUser, updateUser, deleteUser, ROLES, PERMISSION_CATALOG, getRoleDefaultPermissions } = require('../services/authService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
@@ -8,8 +8,17 @@ router.use(requireAuth);
 
 router.get('/roles', (req, res) => {
   res.json(
-    Object.entries(ROLES).map(([key, val]) => ({ id: key, label: val.label, level: val.level }))
+    Object.entries(ROLES).map(([key, val]) => ({
+      id: key,
+      label: val.label,
+      level: val.level,
+      default_permissions: getRoleDefaultPermissions(key),
+    }))
   );
+});
+
+router.get('/permissions', requirePermission('users.*'), (req, res) => {
+  res.json(PERMISSION_CATALOG);
 });
 
 router.get('/', requirePermission('users.*'), async (req, res) => {
@@ -31,7 +40,7 @@ router.post('/', requirePermission('users.*'), async (req, res) => {
 
 router.put('/:id', requirePermission('users.*'), async (req, res) => {
   try {
-    const user = await updateUser(Number(req.params.id), req.body, req.user.role);
+    const user = await updateUser(Number(req.params.id), req.body, req.session.user);
     res.json(user);
   } catch (err) {
     res.status(400).json({ error: err.message });

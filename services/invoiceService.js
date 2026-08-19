@@ -5,6 +5,8 @@ const { nextSerialNumber, formatFiscalYearLabel } = require('./serialService');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
 const { getContractedEntityById, getEffectiveDiscountPercent } = require('./contractedEntityService');
 const { listDiscountExclusions } = require('./discountExclusionService');
+const { upsertPatient, applyPatientCredit } = require('./patientService');
+const { getSummaryReport, STATUS_LABELS } = require('./reportService');
 
 const { getStayTypeById } = require('./stayTypeService');
 
@@ -90,6 +92,7 @@ async function attachInvoiceLabels(invoice, typeMap) {
     ...invoice,
     invoice_type_label: labels[invoice.invoice_type] || invoice.invoice_type,
     fiscal_year_label: fiscalYear ? formatFiscalYearLabel(fiscalYear) : null,
+    status_label: STATUS_LABELS[invoice.status] || invoice.status || '',
   };
 }
 
@@ -219,17 +222,21 @@ async function listInvoices(filters = {}) {
     params.push(filters.invoice_type);
   }
   if (filters.from_date) {
-    sql += ` AND created_at::date >= $${i++}::date`;
+    sql += ` AND COALESCE(issue_date, created_at::date) >= $${i++}::date`;
     params.push(filters.from_date);
   }
   if (filters.to_date) {
-    sql += ` AND created_at::date <= $${i++}::date`;
+    sql += ` AND COALESCE(issue_date, created_at::date) <= $${i++}::date`;
     params.push(filters.to_date);
   }
   if (filters.search) {
     sql += ` AND (patient_name ILIKE $${i} OR serial_number ILIKE $${i} OR file_number ILIKE $${i})`;
     params.push(`%${filters.search}%`);
     i++;
+  }
+  if (filters.status) {
+    sql += ` AND status = $${i++}`;
+    params.push(filters.status);
   }
 
   sql += ' ORDER BY created_at DESC';
@@ -244,7 +251,8 @@ async function listInvoices(filters = {}) {
   return Promise.all(rows.map((row) => attachInvoiceLabels(row, typeMap)));
 }
 
-async function saveInvoice(data, existingId = null, createdBy = null) {
+async function saveInvoice(data, existingId = null, createdBy = null, options = {}) {
+  const saveMode = options.save_mode || data.save_mode || 'draft';
   const calcData = await prepareCalculationData(data);
   const totals = calculateInvoiceTotals(calcData);
 
@@ -253,17 +261,23 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
     throw new Error(`خطأ في حسابات الفاتورة:\n${calcValidation.errors.join('\n')}`);
   }
 
-  const paymentValidation = validatePaymentBalance(totals);
-  if (paymentValidation.has_payments && !paymentValidation.is_balanced) {
-    const diff = Math.abs(paymentValidation.difference_raw);
-    const direction =
-      paymentValidation.status === 'overpaid'
-        ? `زيادة ${diff.toLocaleString('ar-EG')}`
-        : `نقص ${diff.toLocaleString('ar-EG')}`;
-    throw new Error(
-      `مجموع طرق الدفع (${paymentValidation.total_collected_raw.toLocaleString('ar-EG')}) لا يساوي إجمالي الفاتورة (${paymentValidation.final_total_raw.toLocaleString('ar-EG')}) — ${direction}`
-    );
+  const isDraftSave = saveMode === 'draft';
+  if (!isDraftSave) {
+    const paymentValidation = validatePaymentBalance(totals);
+    if (paymentValidation.has_payments && !paymentValidation.is_balanced) {
+      const diff = Math.abs(paymentValidation.difference_raw);
+      const direction =
+        paymentValidation.status === 'overpaid'
+          ? `زيادة ${diff.toLocaleString('ar-EG')}`
+          : `نقص ${diff.toLocaleString('ar-EG')}`;
+      throw new Error(
+        `مجموع طرق الدفع (${paymentValidation.total_collected_raw.toLocaleString('ar-EG')}) لا يساوي إجمالي الفاتورة (${paymentValidation.final_total_raw.toLocaleString('ar-EG')}) — ${direction}`
+      );
+    }
   }
+
+  const patientCreditApplied = Math.round((Number(data.patient_credit_applied) || 0) * 100) / 100;
+  const nextStatus = saveMode === 'submit' ? 'pending_review' : 'draft';
 
   let stayDays =
     calcData.stay_days !== undefined && calcData.stay_days !== ''
@@ -275,12 +289,17 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
 
   const manualItems = totals.items.filter((item) => !item.is_stay_entry);
 
+  if (data.file_number?.trim()) {
+    await upsertPatient(data.file_number, data.patient_name || '');
+  }
+
   return withTransaction(async (client) => {
-    let serialNumber = data.serial_number;
-    let fiscalYear = data.fiscal_year || null;
-    let serialSequence = data.serial_sequence || null;
-    let qrToken = data.qr_token;
+    let serialNumber = null;
+    let fiscalYear = null;
+    let serialSequence = null;
+    let qrToken = null;
     let invoiceId = existingId;
+    let invoiceStatus = nextStatus;
 
     const { ids: stayTypeIds, names: stayTypeName, firstId: stayTypeId } = await resolveStayTypes(
       client,
@@ -290,15 +309,22 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
 
     if (existingId) {
       const existing = await client.query(
-        'SELECT serial_number, qr_token, file_password, fiscal_year, serial_sequence FROM invoices WHERE id = $1',
+        `SELECT serial_number, qr_token, file_password, fiscal_year, serial_sequence, status, patient_credit_deducted
+         FROM invoices WHERE id = $1`,
         [existingId]
       );
       if (!existing.rows.length) throw new Error('الفاتورة غير موجودة');
 
-      serialNumber = existing.rows[0].serial_number;
-      fiscalYear = existing.rows[0].fiscal_year;
-      serialSequence = existing.rows[0].serial_sequence;
-      qrToken = existing.rows[0].qr_token;
+      const current = existing.rows[0];
+      if (current.status === 'approved') {
+        throw new Error('لا يمكن تعديل فاتورة معتمدة — تواصل مع المراجع');
+      }
+
+      serialNumber = current.serial_number;
+      fiscalYear = current.fiscal_year;
+      serialSequence = current.serial_sequence;
+      qrToken = current.qr_token;
+      invoiceStatus = nextStatus;
       const filePassword = '';
 
       await client.query(
@@ -314,8 +340,11 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
           cash_private = $29, bank_private = $30, cash_external = $31, bank_external = $32,
           total_collected = $33, total_collected_raw = $34, remaining = $35, remaining_raw = $36,
           employee_name = $37, auditor_name = $38, captain_name = $39, manager_name = $40,
-          file_password = $41, notes = $42, updated_at = NOW()
-        WHERE id = $43`,
+          file_password = $41, notes = $42,
+          status = $43, submitted_at = CASE WHEN $43 = 'pending_review' THEN NOW() ELSE submitted_at END,
+          patient_credit_applied = $44,
+          updated_at = NOW()
+        WHERE id = $45`,
         [
           data.invoice_type,
           data.patient_name || '',
@@ -359,6 +388,8 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
           data.manager_name || 'رائد / جمال عبد الناصر - المدير المالي',
           filePassword,
           data.notes || '',
+          invoiceStatus,
+          patientCreditApplied,
           existingId,
         ]
       );
@@ -369,11 +400,6 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
       await saveDiscountFields(client, existingId, calcData, totals);
     } else {
       const issueDate = data.issue_date || new Date().toISOString().slice(0, 10);
-      const serialInfo = await nextSerialNumber(client, issueDate);
-      serialNumber = serialInfo.serial_number;
-      fiscalYear = serialInfo.fiscal_year;
-      serialSequence = serialInfo.serial_sequence;
-      qrToken = uuidv4();
       const filePassword = '';
 
       const inserted = await client.query(
@@ -386,8 +412,9 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
           balance, balance_raw, final_total, final_total_raw,
           cash_private, bank_private, cash_external, bank_external,
           total_collected, total_collected_raw, remaining, remaining_raw,
-          employee_name, auditor_name, captain_name, manager_name, qr_token, file_password, notes
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46)
+          employee_name, auditor_name, captain_name, manager_name, qr_token, file_password, notes,
+          status, submitted_at, patient_credit_applied
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48)
         RETURNING id`,
         [
           serialNumber,
@@ -436,6 +463,9 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
           qrToken,
           filePassword,
           data.notes || '',
+          invoiceStatus,
+          invoiceStatus === 'pending_review' ? new Date() : null,
+          patientCreditApplied,
         ]
       );
 
@@ -487,65 +517,65 @@ async function saveInvoice(data, existingId = null, createdBy = null) {
   });
 }
 
+async function approveInvoice(id, reviewer) {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id]);
+    if (!rows.length) throw new Error('الفاتورة غير موجودة');
+    const invoice = rows[0];
+
+    if (invoice.status === 'approved') {
+      throw new Error('الفاتورة معتمدة بالفعل');
+    }
+    if (invoice.status === 'draft') {
+      throw new Error('يجب إرسال الفاتورة للمراجعة أولًا');
+    }
+
+    const calcData = await getInvoiceById(id, client);
+    const totals = calculateInvoiceTotals(calcData);
+    const paymentValidation = validatePaymentBalance(totals);
+    if (paymentValidation.has_payments && !paymentValidation.is_balanced) {
+      throw new Error('مجموع طرق الدفع لا يساوي إجمالي الفاتورة — راجع المدفوعات قبل الاعتماد');
+    }
+
+    const issueDate = invoice.issue_date || new Date().toISOString().slice(0, 10);
+    const serialInfo = await nextSerialNumber(client, issueDate);
+    const qrToken = uuidv4();
+    const reviewerName = reviewer?.full_name || reviewer?.username || '';
+
+    await client.query(
+      `UPDATE invoices SET
+        serial_number = $2,
+        fiscal_year = $3,
+        serial_sequence = $4,
+        qr_token = $5,
+        status = 'approved',
+        reviewed_at = NOW(),
+        reviewed_by_user_id = $6,
+        reviewed_by_name = $7,
+        auditor_name = CASE WHEN COALESCE(auditor_name, '') = '' THEN $7 ELSE auditor_name END,
+        updated_at = NOW()
+       WHERE id = $1`,
+      [id, serialInfo.serial_number, serialInfo.fiscal_year, serialInfo.serial_sequence, qrToken, reviewer?.id || null, reviewerName]
+    );
+
+    const updated = { ...invoice, id, patient_credit_applied: invoice.patient_credit_applied, patient_credit_deducted: invoice.patient_credit_deducted };
+    await applyPatientCredit(client, updated);
+
+    return getInvoiceById(id, client);
+  });
+}
+
 async function deleteInvoice(id) {
+  const { rows } = await query('SELECT status FROM invoices WHERE id = $1', [id]);
+  if (rows.length && rows[0].status === 'approved') {
+    throw new Error('لا يمكن حذف فاتورة معتمدة');
+  }
   const { rowCount } = await query('DELETE FROM invoices WHERE id = $1', [id]);
   return rowCount > 0;
 }
 
 async function getReportsSummary(filters = {}) {
-  const invoices = await listInvoices(filters);
-  const typeMap = await getInvoiceTypesMap();
-
-  const byType = {};
-  Object.entries(typeMap).forEach(([key, label]) => {
-    byType[key] = { count: 0, total: 0, collected: 0, remaining: 0, label };
-  });
-
-  let grandTotal = 0;
-  let grandCollected = 0;
-  let grandRemaining = 0;
-
-  invoices.forEach((inv) => {
-    if (!byType[inv.invoice_type]) {
-      byType[inv.invoice_type] = {
-        count: 0,
-        total: 0,
-        collected: 0,
-        remaining: 0,
-        label: typeMap[inv.invoice_type] || inv.invoice_type,
-      };
-    }
-    byType[inv.invoice_type].count += 1;
-    byType[inv.invoice_type].total += Number(inv.final_total) || 0;
-    byType[inv.invoice_type].collected += Number(inv.total_collected) || 0;
-    byType[inv.invoice_type].remaining += Number(inv.remaining) || 0;
-
-    grandTotal += Number(inv.final_total) || 0;
-    grandCollected += Number(inv.total_collected) || 0;
-    grandRemaining += Number(inv.remaining) || 0;
-  });
-
-  const monthlyResult = await query(`
-    SELECT to_char(created_at, 'YYYY-MM') AS month,
-           COUNT(*)::int AS count,
-           COALESCE(SUM(final_total), 0) AS total,
-           COALESCE(SUM(total_collected), 0) AS collected,
-           COALESCE(SUM(remaining), 0) AS remaining
-    FROM invoices
-    GROUP BY to_char(created_at, 'YYYY-MM')
-    ORDER BY month DESC
-    LIMIT 12
-  `);
-
-  return {
-    total_invoices: invoices.length,
-    grand_total: Math.round(grandTotal * 100) / 100,
-    grand_collected: Math.round(grandCollected * 100) / 100,
-    grand_remaining: Math.round(grandRemaining * 100) / 100,
-    by_type: byType,
-    monthly: monthlyResult.rows,
-    recent: invoices.slice(0, 10),
-  };
+  return getSummaryReport(filters);
 }
 
 module.exports = {
@@ -553,6 +583,7 @@ module.exports = {
   getInvoiceByToken,
   listInvoices,
   saveInvoice,
+  approveInvoice,
   deleteInvoice,
   getReportsSummary,
 };
