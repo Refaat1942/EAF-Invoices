@@ -42,7 +42,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-form').addEventListener('submit', handleLogin);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
   document.getElementById('add-user-btn').addEventListener('click', addUser);
-  document.getElementById('save-default-password-btn').addEventListener('click', saveDefaultFilePassword);
   checkAuth();
 });
 
@@ -76,7 +75,6 @@ function applyPermissions() {
   const isAdmin = can('settings.*');
   document.getElementById('nav-settings').style.display = isAdmin ? '' : 'none';
   document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
-  document.getElementById('file-password-settings-card').style.display = isAdmin ? '' : 'none';
 
   const createBtn = document.querySelector('[data-view="create"]');
   if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
@@ -612,7 +610,6 @@ async function loadSettingsPage() {
     if (settings.logo_url) {
       document.getElementById('logo-preview').src = settings.logo_url;
     }
-    document.getElementById('default-file-password').value = settings.default_file_password || '';
 
     const list = document.getElementById('stay-types-list');
     list.innerHTML = types.length
@@ -627,22 +624,6 @@ async function loadSettingsPage() {
     loadUsers();
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
-  }
-}
-
-async function saveDefaultFilePassword() {
-  const default_file_password = document.getElementById('default-file-password').value.trim();
-  try {
-    const res = await apiFetch(`${SETTINGS_API}/general`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ default_file_password }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    showToast('تم حفظ كلمة مرور الفواتير', 'success');
-  } catch (err) {
-    showToast(err.message, 'danger');
   }
 }
 

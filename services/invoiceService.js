@@ -2,7 +2,6 @@ const { v4: uuidv4 } = require('uuid');
 const { query, withTransaction } = require('../database/db');
 const { calculateInvoiceTotals, calculateStayDays } = require('./calculations');
 const { nextSerialNumber } = require('./serialService');
-const { resolveStoredFilePassword } = require('./passwordService');
 
 const INVOICE_TYPES = {
   civil: 'مدني (خاص)',
@@ -126,7 +125,7 @@ async function saveInvoice(data, existingId = null) {
 
       serialNumber = existing.rows[0].serial_number;
       qrToken = existing.rows[0].qr_token;
-      const filePassword = await resolveStoredFilePassword(serialNumber);
+      const filePassword = '';
 
       await client.query(
         `UPDATE invoices SET
@@ -192,7 +191,7 @@ async function saveInvoice(data, existingId = null) {
     } else {
       serialNumber = await nextSerialNumber(client);
       qrToken = uuidv4();
-      const filePassword = await resolveStoredFilePassword(serialNumber);
+      const filePassword = '';
 
       const inserted = await client.query(
         `INSERT INTO invoices (
