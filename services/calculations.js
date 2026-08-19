@@ -17,6 +17,51 @@ function calculateItemTotal(quantity, amount) {
   return { raw, rounded: roundNearest(raw), total: roundNearest(raw) };
 }
 
+function resolvePaymentTotals(data) {
+  if (Array.isArray(data.method_payments) && data.method_payments.length) {
+    const totalCollectedRaw = round2(
+      data.method_payments.reduce((sum, entry) => sum + round2(entry.amount), 0)
+    );
+    const totalCollected = roundNearest(totalCollectedRaw);
+
+    const byCode = {};
+    data.method_payments.forEach((entry) => {
+      if (entry.code) byCode[entry.code] = roundNearest(entry.amount);
+    });
+
+    return {
+      cash_private: byCode.cash || 0,
+      bank_private: byCode.bank_transfer || 0,
+      cash_external: byCode.check || 0,
+      bank_external: 0,
+      total_collected: totalCollected,
+      total_collected_raw: totalCollectedRaw,
+    };
+  }
+
+  const cashPrivateD = dualValue(data.cash_private);
+  const bankPrivateD = dualValue(data.bank_private);
+  const cashExternalD = dualValue(data.cash_external);
+  const bankExternalD = dualValue(data.bank_external);
+
+  const totalCollectedRaw = round2(
+    cashPrivateD.raw + bankPrivateD.raw + cashExternalD.raw + bankExternalD.raw
+  );
+
+  return {
+    cash_private: cashPrivateD.rounded,
+    bank_private: bankPrivateD.rounded,
+    cash_external: cashExternalD.rounded,
+    bank_external: bankExternalD.rounded,
+    total_collected: roundNearest(totalCollectedRaw),
+    total_collected_raw: totalCollectedRaw,
+    cash_private_raw: cashPrivateD.raw,
+    bank_private_raw: bankPrivateD.raw,
+    cash_external_raw: cashExternalD.raw,
+    bank_external_raw: bankExternalD.raw,
+  };
+}
+
 function calculateInvoiceTotals(data) {
   const items = (data.items || []).map((item) => {
     const calc = calculateItemTotal(item.quantity, item.amount);
@@ -54,15 +99,14 @@ function calculateInvoiceTotals(data) {
   const finalTotalRaw = round2(totalAfterAdminRaw + balanceD.raw);
   const finalTotal = roundNearest(finalTotalRaw);
 
-  const cashPrivateD = dualValue(data.cash_private);
-  const bankPrivateD = dualValue(data.bank_private);
-  const cashExternalD = dualValue(data.cash_external);
-  const bankExternalD = dualValue(data.bank_external);
+  const paymentTotals = resolvePaymentTotals(data);
+  const cashPrivateD = dualValue(paymentTotals.cash_private);
+  const bankPrivateD = dualValue(paymentTotals.bank_private);
+  const cashExternalD = dualValue(paymentTotals.cash_external);
+  const bankExternalD = dualValue(paymentTotals.bank_external);
 
-  const totalCollectedRaw = round2(
-    cashPrivateD.raw + bankPrivateD.raw + cashExternalD.raw + bankExternalD.raw
-  );
-  const totalCollected = roundNearest(totalCollectedRaw);
+  const totalCollectedRaw = paymentTotals.total_collected_raw;
+  const totalCollected = paymentTotals.total_collected;
 
   const remainingRaw = round2(finalTotalRaw - totalCollectedRaw);
   const remaining = roundNearest(remainingRaw);

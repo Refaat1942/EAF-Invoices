@@ -5,6 +5,8 @@ const USERS_API = '/api/users';
 let currentInvoiceId = null;
 let currentUser = null;
 let rowCount = 12;
+let invoiceTypeLabels = {};
+let paymentMethodsCache = [];
 
 const fmt = (n) =>
   (Number(n) || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -31,12 +33,9 @@ async function apiFetch(url, opts = {}) {
   return fetch(url, { credentials: 'include', ...opts });
 }
 
-const TYPE_LABELS = {
-  civil: 'مدني (خاص)',
-  contracted: 'جهات متعاقدة',
-  non_contracted: 'جهات غير متعاقدة',
-  military: 'عسكري',
-};
+function escapeAttr(text) {
+  return String(text || '').replace(/"/g, '&quot;');
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-form').addEventListener('submit', handleLogin);
@@ -67,7 +66,9 @@ function showApp() {
   document.getElementById('nav-user').textContent = `${currentUser.full_name || currentUser.username} (${currentUser.role_label})`;
   applyPermissions();
   bindEvents();
+  loadInvoiceTypes();
   loadStayTypes();
+  loadPaymentMethodsForm();
   resetForm();
 }
 
@@ -191,8 +192,16 @@ function bindEvents() {
 
   document.getElementById('upload-logo-btn').addEventListener('click', uploadLogo);
   document.getElementById('add-stay-type-btn').addEventListener('click', addStayType);
+  document.getElementById('add-invoice-type-btn').addEventListener('click', addInvoiceType);
+  document.getElementById('add-payment-method-btn').addEventListener('click', addPaymentMethod);
   document.getElementById('new-stay-type').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); addStayType(); }
+  });
+  document.getElementById('new-invoice-type-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addInvoiceType(); }
+  });
+  document.getElementById('new-payment-method-name').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addPaymentMethod(); }
   });
 
   bindCalcTriggers();
@@ -252,10 +261,7 @@ function collectFormData() {
     professional_fees: document.getElementById('professional_fees').value,
     balance: document.getElementById('balance').value,
     admin_expenses_percent: document.getElementById('admin_expenses_percent').value,
-    cash_private: document.getElementById('cash_private').value,
-    bank_private: document.getElementById('bank_private').value,
-    cash_external: document.getElementById('cash_external').value,
-    bank_external: document.getElementById('bank_external').value,
+    method_payments: collectMethodPayments(),
     employee_name: document.getElementById('employee_name').value,
     auditor_name: document.getElementById('auditor_name').value,
     captain_name: document.getElementById('captain_name').value,
@@ -263,6 +269,18 @@ function collectFormData() {
     items,
     payments,
   };
+}
+
+function collectMethodPayments() {
+  const entries = [];
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    entries.push({
+      payment_method_id: Number(input.dataset.methodId),
+      code: input.dataset.methodCode,
+      amount: input.value || 0,
+    });
+  });
+  return entries;
 }
 
 async function recalculate() {
@@ -393,15 +411,12 @@ function resetForm() {
   document.getElementById('stamp_duty').value = '0';
   document.getElementById('professional_fees').value = '0';
   document.getElementById('balance').value = '0';
-  document.getElementById('cash_private').value = '0';
-  document.getElementById('bank_private').value = '0';
-  document.getElementById('cash_external').value = '0';
-  document.getElementById('bank_external').value = '0';
   setSelectedStayTypes([]);
   ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
     document.getElementById(id).style.display = 'none';
   });
   document.getElementById('qr-card').style.display = 'none';
+  loadPaymentMethodsForm();
   initRows();
   bindCalcTriggers();
   recalculate();
@@ -435,10 +450,19 @@ async function loadInvoiceForEdit(id) {
     document.getElementById('professional_fees').value = inv.professional_fees;
     document.getElementById('balance').value = inv.balance;
     document.getElementById('admin_expenses_percent').value = inv.admin_expenses_percent;
-    document.getElementById('cash_private').value = inv.cash_private;
-    document.getElementById('bank_private').value = inv.bank_private;
-    document.getElementById('cash_external').value = inv.cash_external;
-    document.getElementById('bank_external').value = inv.bank_external;
+
+    const paymentValues = {};
+    if (inv.method_payments?.length) {
+      inv.method_payments.forEach((m) => {
+        paymentValues[m.payment_method_id] = m.amount;
+      });
+    } else {
+      paymentValues.cash = inv.cash_private;
+      paymentValues.bank_transfer = inv.bank_private;
+      paymentValues.check = inv.cash_external;
+    }
+    await loadPaymentMethodsForm(paymentValues);
+
     document.getElementById('employee_name').value = inv.employee_name;
     document.getElementById('auditor_name').value = inv.auditor_name;
     document.getElementById('captain_name').value = inv.captain_name;
@@ -598,29 +622,182 @@ async function loadStayTypes(selectedIds = null) {
   }
 }
 
+async function loadInvoiceTypes() {
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/invoice-types`);
+    const types = await res.json();
+    invoiceTypeLabels = {};
+    types.forEach((t) => {
+      invoiceTypeLabels[t.code] = t.name;
+    });
+
+    const select = document.getElementById('invoice_type');
+    const current = select.value;
+    select.innerHTML =
+      '<option value="">-- اختر النوع --</option>' +
+      types.map((t) => `<option value="${t.code}">${t.name}</option>`).join('');
+    if (current) select.value = current;
+
+    const filter = document.getElementById('list-type-filter');
+    const filterCurrent = filter.value;
+    filter.innerHTML =
+      '<option value="">كل الأنواع</option>' +
+      types.map((t) => `<option value="${t.code}">${t.name}</option>`).join('');
+    if (filterCurrent) filter.value = filterCurrent;
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function loadPaymentMethodsForm(values = {}) {
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/payment-methods`);
+    const methods = await res.json();
+    paymentMethodsCache = methods;
+
+    const tbody = document.getElementById('payment-methods-tbody');
+    const amountMethods = methods.filter((m) => m.accepts_amount !== false);
+    const infoMethods = methods.filter((m) => m.accepts_amount === false);
+
+    let html = amountMethods
+      .map((m, i) => {
+        const val = values[m.id] ?? values[m.code] ?? 0;
+        return `<tr>
+          <td class="fw-bold">${i + 1} - ${m.name}</td>
+          <td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger payment-method-input"
+            data-method-id="${m.id}" data-method-code="${m.code}" value="${val}"></td>
+        </tr>`;
+      })
+      .join('');
+
+    if (infoMethods.length) {
+      html += infoMethods
+        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="2">ℹ️ ${m.name}</td></tr>`)
+        .join('');
+    }
+
+    tbody.innerHTML = html || '<tr><td colspan="2" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
+    bindCalcTriggers();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function renderAdminLookupList(items, kind) {
+  if (!items.length) return '<li class="list-group-item text-muted">لا توجد عناصر</li>';
+  return items
+    .map(
+      (item) => `
+    <li class="list-group-item admin-lookup-item ${item.is_active ? '' : 'is-inactive'}">
+      <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+        <div class="flex-grow-1">
+          <input type="text" class="form-control form-control-sm fw-bold admin-lookup-name"
+            data-id="${item.id}" data-kind="${kind}" value="${escapeAttr(item.name)}">
+          ${item.code ? `<small class="text-muted d-block">${item.code}</small>` : ''}
+          ${item.accepts_amount === false ? '<small class="text-muted d-block">بدون حقل مبلغ</small>' : ''}
+        </div>
+        <div class="btn-group btn-group-sm">
+          <button type="button" class="btn btn-outline-primary" title="حفظ" onclick="saveLookupItem('${kind}', ${item.id})">💾</button>
+          <button type="button" class="btn btn-outline-${item.is_active ? 'warning' : 'success'}" title="${item.is_active ? 'تعطيل' : 'تفعيل'}" onclick="toggleLookupItem('${kind}', ${item.id}, ${!item.is_active})">${item.is_active ? '⏸️' : '▶️'}</button>
+          <button type="button" class="btn btn-outline-danger" title="حذف" onclick="deleteLookupItem('${kind}', ${item.id})">🗑️</button>
+        </div>
+      </div>
+    </li>`
+    )
+    .join('');
+}
+
+function lookupEndpoint(kind, id = '') {
+  const map = {
+    stay: `${SETTINGS_API}/stay-types${id ? `/${id}` : ''}`,
+    invoice: `${SETTINGS_API}/invoice-types${id ? `/${id}` : ''}`,
+    payment: `${SETTINGS_API}/payment-methods${id ? `/${id}` : ''}`,
+  };
+  return map[kind];
+}
+
+async function saveLookupItem(kind, id) {
+  const input = document.querySelector(`.admin-lookup-name[data-kind="${kind}"][data-id="${id}"]`);
+  if (!input) return;
+  const name = input.value.trim();
+  if (!name) return showToast('الاسم مطلوب', 'warning');
+  try {
+    const res = await apiFetch(lookupEndpoint(kind, id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast('تم الحفظ', 'success');
+    loadSettingsPage();
+    if (kind === 'invoice') loadInvoiceTypes();
+    if (kind === 'payment') loadPaymentMethodsForm();
+    if (kind === 'stay') loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function toggleLookupItem(kind, id, isActive) {
+  try {
+    const res = await apiFetch(lookupEndpoint(kind, id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: isActive }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(isActive ? 'تم التفعيل' : 'تم التعطيل', 'success');
+    loadSettingsPage();
+    if (kind === 'invoice') loadInvoiceTypes();
+    if (kind === 'payment') loadPaymentMethodsForm();
+    if (kind === 'stay') loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function deleteLookupItem(kind, id) {
+  if (!confirm('حذف هذا العنصر؟')) return;
+  try {
+    const res = await apiFetch(lookupEndpoint(kind, id), { method: 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'فشل الحذف');
+    showToast('تم الحذف', 'success');
+    loadSettingsPage();
+    if (kind === 'invoice') loadInvoiceTypes();
+    if (kind === 'payment') loadPaymentMethodsForm();
+    if (kind === 'stay') loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
 async function loadSettingsPage() {
   try {
-    const [settingsRes, typesRes] = await Promise.all([
+    const [settingsRes, stayRes, invoiceRes, paymentRes] = await Promise.all([
       apiFetch(SETTINGS_API),
       apiFetch(`${SETTINGS_API}/stay-types?all=1`),
+      apiFetch(`${SETTINGS_API}/invoice-types?all=1`),
+      apiFetch(`${SETTINGS_API}/payment-methods?all=1`),
     ]);
     const settings = await settingsRes.json();
-    const types = await typesRes.json();
+    const stayTypes = await stayRes.json();
+    const invoiceTypes = await invoiceRes.json();
+    const paymentMethods = await paymentRes.json();
 
     if (settings.logo_url) {
       document.getElementById('logo-preview').src = settings.logo_url;
     }
 
-    const list = document.getElementById('stay-types-list');
-    list.innerHTML = types.length
-      ? types.map((t) => `
-        <li class="list-group-item d-flex justify-content-between align-items-center fw-bold">
-          <span>${t.name}</span>
-          <button class="btn btn-sm btn-outline-danger" onclick="deleteStayType(${t.id})">🗑️</button>
-        </li>`).join('')
-      : '<li class="list-group-item text-muted">لا توجد أنواع</li>';
+    document.getElementById('stay-types-list').innerHTML = renderAdminLookupList(stayTypes, 'stay');
+    document.getElementById('invoice-types-list').innerHTML = renderAdminLookupList(invoiceTypes, 'invoice');
+    document.getElementById('payment-methods-list').innerHTML = renderAdminLookupList(paymentMethods, 'payment');
 
+    await loadInvoiceTypes();
     await loadStayTypes();
+    await loadPaymentMethodsForm();
     loadUsers();
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
@@ -667,12 +844,42 @@ async function addStayType() {
   }
 }
 
-async function deleteStayType(id) {
-  if (!confirm('حذف نوع الإقامة؟')) return;
+async function addInvoiceType() {
+  const input = document.getElementById('new-invoice-type-name');
+  const name = input.value.trim();
+  if (!name) return showToast('اكتب اسم نوع الفاتورة', 'warning');
+
   try {
-    const res = await apiFetch(`${SETTINGS_API}/stay-types/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('فشل الحذف');
-    showToast('تم الحذف', 'success');
+    const res = await apiFetch(`${SETTINGS_API}/invoice-types`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    input.value = '';
+    showToast('تمت الإضافة', 'success');
+    loadSettingsPage();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function addPaymentMethod() {
+  const input = document.getElementById('new-payment-method-name');
+  const name = input.value.trim();
+  if (!name) return showToast('اكتب اسم طريقة الدفع', 'warning');
+
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/payment-methods`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    input.value = '';
+    showToast('تمت الإضافة', 'success');
     loadSettingsPage();
   } catch (err) {
     showToast(err.message, 'danger');
@@ -704,7 +911,7 @@ async function loadInvoicesList() {
           <td class="fw-black text-primary">${inv.serial_number}</td>
           <td class="fw-bold">${inv.file_number || '-'}</td>
           <td>${inv.patient_name || '-'}</td>
-          <td><span class="badge bg-secondary">${TYPE_LABELS[inv.invoice_type] || inv.invoice_type}</span></td>
+          <td><span class="badge bg-secondary">${inv.invoice_type_label || invoiceTypeLabels[inv.invoice_type] || inv.invoice_type}</span></td>
           <td class="fw-bold">${fmtDual(inv.final_total_raw ?? inv.final_total, inv.final_total)}</td>
           <td>${fmtDual(inv.total_collected_raw ?? inv.total_collected, inv.total_collected)}</td>
           <td class="${inv.remaining > 0 ? 'text-danger fw-bold' : ''}">${fmtDual(inv.remaining_raw ?? inv.remaining, inv.remaining)}</td>
@@ -829,4 +1036,6 @@ function debounce(fn, ms) {
 window.loadInvoiceForEdit = loadInvoiceForEdit;
 window.deleteInvoice = deleteInvoice;
 window.removeSystemUser = removeSystemUser;
-window.deleteStayType = deleteStayType;
+window.saveLookupItem = saveLookupItem;
+window.toggleLookupItem = toggleLookupItem;
+window.deleteLookupItem = deleteLookupItem;

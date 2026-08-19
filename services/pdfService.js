@@ -351,10 +351,7 @@ function buildInvoiceHtml(invoice, options = {}) {
             <tr><th>م</th><th>البيان</th><th>المبلغ</th></tr>
           </thead>
           <tbody>
-            <tr><td>1</td><td class="label-cell">دفع نقدي (خاص)</td><td class="num">${fmtPlain(inv.cash_private)}</td></tr>
-            <tr><td>2</td><td class="label-cell">تحويل بنكي (خاص)</td><td class="num">${fmtPlain(inv.bank_private)}</td></tr>
-            <tr><td>3</td><td class="label-cell">دفع نقدي (جهات خارجية)</td><td class="num">${fmtPlain(inv.cash_external)}</td></tr>
-            <tr><td>4</td><td class="label-cell">تحويل بنكي (جهات خارجية)</td><td class="num">${fmtPlain(inv.bank_external)}</td></tr>
+            ${buildPaymentRows(inv)}
             <tr><td colspan="2" class="label-cell" style="font-weight:900">إجمالي المبالغ المحصلة</td><td class="num" style="font-weight:900">${fmtDual(inv.total_collected_raw, inv.total_collected)}</td></tr>
           </tbody>
         </table>
@@ -383,6 +380,25 @@ function buildInvoiceHtml(invoice, options = {}) {
   </div>
 </body>
 </html>`;
+}
+
+function buildPaymentRows(inv) {
+  const methodPayments = (inv.method_payments || []).filter((m) => m.accepts_amount !== false);
+  if (methodPayments.length) {
+    return methodPayments
+      .map(
+        (m, i) =>
+          `<tr><td>${i + 1}</td><td class="label-cell">${escapeHtml(m.name)}</td><td class="num">${fmtPlain(m.amount)}</td></tr>`
+      )
+      .join('');
+  }
+
+  return `
+    <tr><td>1</td><td class="label-cell">دفع نقدي (خاص)</td><td class="num">${fmtPlain(inv.cash_private)}</td></tr>
+    <tr><td>2</td><td class="label-cell">تحويل بنكي (خاص)</td><td class="num">${fmtPlain(inv.bank_private)}</td></tr>
+    <tr><td>3</td><td class="label-cell">دفع نقدي (جهات خارجية)</td><td class="num">${fmtPlain(inv.cash_external)}</td></tr>
+    <tr><td>4</td><td class="label-cell">تحويل بنكي (جهات خارجية)</td><td class="num">${fmtPlain(inv.bank_external)}</td></tr>
+  `;
 }
 
 function buildCombinedRows(items, payments) {

@@ -7,8 +7,8 @@ const {
   saveInvoice,
   deleteInvoice,
   getReportsSummary,
-  INVOICE_TYPES,
 } = require('../services/invoiceService');
+const { listInvoiceTypes } = require('../services/invoiceTypeService');
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
@@ -23,8 +23,17 @@ function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
-router.get('/types', requirePermission('invoices.view'), (req, res) => {
-  res.json(INVOICE_TYPES);
+router.get('/types', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const types = await listInvoiceTypes(true);
+    const map = {};
+    types.forEach((t) => {
+      map[t.code] = t.name;
+    });
+    res.json(map);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post('/calculate', requirePermission('invoices.view'), (req, res) => {

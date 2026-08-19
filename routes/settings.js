@@ -1,6 +1,18 @@
 const express = require('express');
 const multer = require('multer');
 const { listStayTypes, createStayType, updateStayType, deleteStayType } = require('../services/stayTypeService');
+const {
+  listInvoiceTypes,
+  createInvoiceType,
+  updateInvoiceType,
+  deleteInvoiceType,
+} = require('../services/invoiceTypeService');
+const {
+  listPaymentMethods,
+  createPaymentMethod,
+  updatePaymentMethod,
+  deletePaymentMethod,
+} = require('../services/paymentMethodService');
 const { getSettings, saveLogo, getLogoUrl, saveGeneralSettings } = require('../services/settingsService');
 const { canAccess } = require('../services/authService');
 
@@ -18,18 +30,24 @@ function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
-router.get('/stay-types', async (req, res) => {
-  try {
-    const activeOnly = req.query.all !== '1';
-    const perm = activeOnly ? 'invoices.view' : 'settings.*';
-    if (!canAccess(req.session.user.role, perm)) {
-      return res.status(403).json({ error: 'ليس لديك صلاحية' });
+function lookupListHandler(listFn, viewPerm) {
+  return async (req, res) => {
+    try {
+      const activeOnly = req.query.all !== '1';
+      const perm = activeOnly ? viewPerm : 'settings.*';
+      if (!canAccess(req.session.user.role, perm)) {
+        return res.status(403).json({ error: 'ليس لديك صلاحية' });
+      }
+      res.json(await listFn(activeOnly));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
     }
-    res.json(await listStayTypes(activeOnly));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  };
+}
+
+router.get('/stay-types', lookupListHandler(listStayTypes, 'invoices.view'));
+router.get('/invoice-types', lookupListHandler(listInvoiceTypes, 'invoices.view'));
+router.get('/payment-methods', lookupListHandler(listPaymentMethods, 'invoices.view'));
 
 router.post('/stay-types', requirePermission('settings.*'), async (req, res) => {
   try {
@@ -52,6 +70,62 @@ router.put('/stay-types/:id', requirePermission('settings.*'), async (req, res) 
 router.delete('/stay-types/:id', requirePermission('settings.*'), async (req, res) => {
   try {
     const ok = await deleteStayType(Number(req.params.id));
+    if (!ok) return res.status(404).json({ error: 'غير موجود' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/invoice-types', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const row = await createInvoiceType(req.body);
+    res.status(201).json(row);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/invoice-types/:id', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const row = await updateInvoiceType(Number(req.params.id), req.body);
+    res.json(row);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/invoice-types/:id', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const ok = await deleteInvoiceType(Number(req.params.id));
+    if (!ok) return res.status(404).json({ error: 'غير موجود' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/payment-methods', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const row = await createPaymentMethod(req.body);
+    res.status(201).json(row);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/payment-methods/:id', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const row = await updatePaymentMethod(Number(req.params.id), req.body);
+    res.json(row);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/payment-methods/:id', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const ok = await deletePaymentMethod(Number(req.params.id));
     if (!ok) return res.status(404).json({ error: 'غير موجود' });
     res.json({ success: true });
   } catch (err) {

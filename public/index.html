@@ -64,10 +64,6 @@
                       <label class="form-label fw-bold">نوع الفاتورة *</label>
                       <select class="form-select fw-bold" id="invoice_type" required>
                         <option value="">-- اختر النوع --</option>
-                        <option value="civil">مدني (خاص)</option>
-                        <option value="contracted">جهات متعاقدة</option>
-                        <option value="non_contracted">جهات غير متعاقدة</option>
-                        <option value="military">عسكري</option>
                       </select>
                     </div>
                     <div class="col-lg-3 col-md-6">
@@ -170,13 +166,12 @@
                   <div class="col-md-6">
                     <h6 class="fw-black">بيان المدفوعات طبقاً لأذونات الدفع</h6>
                     <table class="table table-bordered table-sm">
-                      <tbody>
-                        <tr><td class="fw-bold">1 - دفع نقدي (خاص)</td><td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger" id="cash_private" value="0"></td></tr>
-                        <tr><td class="fw-bold">2 - تحويل بنكي (خاص)</td><td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger" id="bank_private" value="0"></td></tr>
-                        <tr><td class="fw-bold">3 - دفع نقدي (جهات خارجية)</td><td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger" id="cash_external" value="0"></td></tr>
-                        <tr><td class="fw-bold">4 - تحويل بنكي (جهات خارجية)</td><td><input type="number" step="0.01" class="form-control form-control-sm calc-trigger" id="bank_external" value="0"></td></tr>
-                        <tr class="table-warning"><td class="fw-black">إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected">0.00</td></tr>
+                      <tbody id="payment-methods-tbody">
+                        <tr><td colspan="2" class="text-muted text-center">جاري تحميل طرق الدفع...</td></tr>
                       </tbody>
+                      <tfoot>
+                        <tr class="table-warning"><td class="fw-black">إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected">0.00</td></tr>
+                      </tfoot>
                     </table>
                   </div>
                   <div class="col-md-6">
@@ -246,10 +241,6 @@
             <input type="text" class="form-control form-control-sm" id="list-search" placeholder="بحث..." style="width:150px">
             <select class="form-select form-select-sm" id="list-type-filter" style="width:160px">
               <option value="">كل الأنواع</option>
-              <option value="civil">مدني (خاص)</option>
-              <option value="contracted">جهات متعاقدة</option>
-              <option value="non_contracted">جهات غير متعاقدة</option>
-              <option value="military">عسكري</option>
             </select>
             <input type="date" class="form-control form-control-sm" id="list-from" style="width:140px">
             <input type="date" class="form-control form-control-sm" id="list-to" style="width:140px">
@@ -295,13 +286,37 @@
         </div>
         <div class="col-md-6">
           <div class="card shadow-sm">
+            <div class="card-header bg-info text-white fw-black">📋 أنواع الفواتير</div>
+            <div class="card-body">
+              <div class="input-group mb-3">
+                <input type="text" class="form-control fw-bold" id="new-invoice-type-name" placeholder="نوع فاتورة جديد...">
+                <button class="btn btn-primary fw-bold" id="add-invoice-type-btn">إضافة</button>
+              </div>
+              <ul class="list-group admin-lookup-list" id="invoice-types-list"></ul>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card shadow-sm">
+            <div class="card-header bg-success text-white fw-black">💳 طرق الدفع</div>
+            <div class="card-body">
+              <div class="input-group mb-3">
+                <input type="text" class="form-control fw-bold" id="new-payment-method-name" placeholder="طريقة دفع جديدة...">
+                <button class="btn btn-primary fw-bold" id="add-payment-method-btn">إضافة</button>
+              </div>
+              <ul class="list-group admin-lookup-list" id="payment-methods-list"></ul>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card shadow-sm">
             <div class="card-header bg-secondary text-white fw-black">🏨 أنواع الإقامة</div>
             <div class="card-body">
               <div class="input-group mb-3">
                 <input type="text" class="form-control fw-bold" id="new-stay-type" placeholder="نوع إقامة جديد...">
                 <button class="btn btn-primary fw-bold" id="add-stay-type-btn">إضافة</button>
               </div>
-              <ul class="list-group" id="stay-types-list"></ul>
+              <ul class="list-group admin-lookup-list" id="stay-types-list"></ul>
             </div>
           </div>
         </div>

@@ -2,14 +2,42 @@ const { v4: uuidv4 } = require('uuid');
 const { query, withTransaction } = require('../database/db');
 const { calculateInvoiceTotals, calculateStayDays } = require('./calculations');
 const { nextSerialNumber } = require('./serialService');
+const { getInvoiceTypesMap } = require('./invoiceTypeService');
 
-const INVOICE_TYPES = {
-  civil: 'مدني (خاص)',
-  contracted: 'جهات متعاقدة',
-  non_contracted: 'جهات غير متعاقدة',
-  military: 'عسكري',
-};
+async function attachInvoiceLabels(invoice, typeMap) {
+  const labels = typeMap || (await getInvoiceTypesMap());
+  return {
+    ...invoice,
+    invoice_type_label: labels[invoice.invoice_type] || invoice.invoice_type,
+  };
+}
 
+async function loadMethodPayments(invoiceId, client = null) {
+  const run = client ? client.query.bind(client) : query;
+  const { rows } = await run(
+    `SELECT ipa.amount, pm.id AS payment_method_id, pm.code, pm.name, pm.accepts_amount
+     FROM invoice_payment_amounts ipa
+     JOIN payment_methods pm ON pm.id = ipa.payment_method_id
+     WHERE ipa.invoice_id = $1
+     ORDER BY pm.sort_order, pm.name`,
+    [invoiceId]
+  );
+  return rows;
+}
+
+async function saveMethodPayments(client, invoiceId, methodPayments = []) {
+  await client.query('DELETE FROM invoice_payment_amounts WHERE invoice_id = $1', [invoiceId]);
+  for (const entry of methodPayments) {
+    const amount = Number(entry.amount) || 0;
+    if (!entry.payment_method_id || amount === 0) continue;
+    await client.query(
+      `INSERT INTO invoice_payment_amounts (invoice_id, payment_method_id, amount)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (invoice_id, payment_method_id) DO UPDATE SET amount = EXCLUDED.amount`,
+      [invoiceId, entry.payment_method_id, amount]
+    );
+  }
+}
 async function resolveStayTypes(client, data) {
   let ids = [];
   if (Array.isArray(data.stay_type_ids) && data.stay_type_ids.length) {
@@ -45,12 +73,14 @@ async function getInvoiceById(id, client = null) {
     'SELECT * FROM invoice_payments WHERE invoice_id = $1 ORDER BY sort_order, id',
     [id]
   );
+  const methodPayments = await loadMethodPayments(id, client);
+  const typeMap = await getInvoiceTypesMap();
 
   return {
-    ...invoice,
-    invoice_type_label: INVOICE_TYPES[invoice.invoice_type] || invoice.invoice_type,
+    ...(await attachInvoiceLabels(invoice, typeMap)),
     items: items.rows,
     payments: payments.rows,
+    method_payments: methodPayments,
   };
 }
 
@@ -91,10 +121,8 @@ async function listInvoices(filters = {}) {
   }
 
   const { rows } = await query(sql, params);
-  return rows.map((row) => ({
-    ...row,
-    invoice_type_label: INVOICE_TYPES[row.invoice_type] || row.invoice_type,
-  }));
+  const typeMap = await getInvoiceTypesMap();
+  return Promise.all(rows.map((row) => attachInvoiceLabels(row, typeMap)));
 }
 
 async function saveInvoice(data, existingId = null) {
@@ -280,6 +308,8 @@ async function saveInvoice(data, existingId = null) {
       );
     }
 
+    await saveMethodPayments(client, invoiceId, data.method_payments || []);
+
     return getInvoiceById(invoiceId, client);
   });
 }
@@ -291,10 +321,11 @@ async function deleteInvoice(id) {
 
 async function getReportsSummary(filters = {}) {
   const invoices = await listInvoices(filters);
+  const typeMap = await getInvoiceTypesMap();
 
   const byType = {};
-  Object.keys(INVOICE_TYPES).forEach((key) => {
-    byType[key] = { count: 0, total: 0, collected: 0, remaining: 0, label: INVOICE_TYPES[key] };
+  Object.entries(typeMap).forEach(([key, label]) => {
+    byType[key] = { count: 0, total: 0, collected: 0, remaining: 0, label };
   });
 
   let grandTotal = 0;
@@ -308,7 +339,7 @@ async function getReportsSummary(filters = {}) {
         total: 0,
         collected: 0,
         remaining: 0,
-        label: INVOICE_TYPES[inv.invoice_type] || inv.invoice_type,
+        label: typeMap[inv.invoice_type] || inv.invoice_type,
       };
     }
     byType[inv.invoice_type].count += 1;
@@ -345,7 +376,6 @@ async function getReportsSummary(filters = {}) {
 }
 
 module.exports = {
-  INVOICE_TYPES,
   getInvoiceById,
   getInvoiceByToken,
   listInvoices,

@@ -42,6 +42,25 @@ async function initDatabase() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS invoice_types (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS payment_methods (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      accepts_amount BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS app_settings (
       key VARCHAR(100) PRIMARY KEY,
       value TEXT NOT NULL,
@@ -63,7 +82,7 @@ async function initDatabase() {
       id SERIAL PRIMARY KEY,
       serial_number VARCHAR(50) UNIQUE NOT NULL,
       issue_date DATE DEFAULT CURRENT_DATE,
-      invoice_type VARCHAR(30) NOT NULL CHECK(invoice_type IN ('civil', 'contracted', 'non_contracted', 'military')),
+      invoice_type VARCHAR(30) NOT NULL,
       patient_name TEXT DEFAULT '',
       file_number TEXT DEFAULT '',
       admission_date DATE,
@@ -134,12 +153,54 @@ async function initDatabase() {
 
   const defaults = await query('SELECT COUNT(*)::int AS c FROM stay_types');
   if (defaults.rows[0].c === 0) {
-    const types = ['غرفة مفردة', 'غرفة مزدوجة', 'جناح', 'عناية مركزة', 'رقود يومي', 'خارجي'];
+    const types = [
+      'رعاية مركزة',
+      'رعاية تلطيفية',
+      'جناح VIP',
+      'جناح كبير مميز',
+      'غرفة مميزة',
+      'جناح كبير',
+      'جناح صغير',
+      'غرفة فردية',
+      'غرفة مزدوجة',
+    ];
     for (let i = 0; i < types.length; i++) {
       await query('INSERT INTO stay_types (name, sort_order) VALUES ($1, $2) ON CONFLICT DO NOTHING', [
         types[i],
         i + 1,
       ]);
+    }
+  }
+
+  const invoiceTypeCount = await query('SELECT COUNT(*)::int AS c FROM invoice_types');
+  if (invoiceTypeCount.rows[0].c === 0) {
+    const invoiceTypes = [
+      { code: 'civil', name: 'مدني (خاص)' },
+      { code: 'contracted', name: 'جهات متعاقدة' },
+      { code: 'non_contracted', name: 'جهات غير متعاقدة' },
+      { code: 'military', name: 'عسكري' },
+    ];
+    for (let i = 0; i < invoiceTypes.length; i++) {
+      await query(
+        'INSERT INTO invoice_types (code, name, sort_order) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+        [invoiceTypes[i].code, invoiceTypes[i].name, i + 1]
+      );
+    }
+  }
+
+  const paymentMethodCount = await query('SELECT COUNT(*)::int AS c FROM payment_methods');
+  if (paymentMethodCount.rows[0].c === 0) {
+    const paymentMethods = [
+      { code: 'cash', name: 'نقدي', accepts_amount: true },
+      { code: 'bank_transfer', name: 'تحويل بنكي', accepts_amount: true },
+      { code: 'check', name: 'شيك مقبول الدفع', accepts_amount: true },
+      { code: 'multi', name: 'دفع بأكثر من طريقة', accepts_amount: false },
+    ];
+    for (let i = 0; i < paymentMethods.length; i++) {
+      await query(
+        'INSERT INTO payment_methods (code, name, accepts_amount, sort_order) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+        [paymentMethods[i].code, paymentMethods[i].name, paymentMethods[i].accepts_amount, i + 1]
+      );
     }
   }
 
@@ -186,6 +247,97 @@ async function runMigrations() {
 
   await query(`UPDATE invoices SET file_password = '' WHERE COALESCE(file_password, '') <> ''`);
   await query(`DELETE FROM app_settings WHERE key = 'default_file_password'`);
+
+  await query(`ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_invoice_type_check`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS invoice_types (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS payment_methods (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      accepts_amount BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS invoice_payment_amounts (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      payment_method_id INTEGER NOT NULL REFERENCES payment_methods(id) ON DELETE RESTRICT,
+      amount NUMERIC(14,2) DEFAULT 0,
+      UNIQUE(invoice_id, payment_method_id)
+    )
+  `);
+
+  await seedLookupTables();
+}
+
+async function seedLookupTables() {
+  const stayTypes = [
+    'رعاية مركزة',
+    'رعاية تلطيفية',
+    'جناح VIP',
+    'جناح كبير مميز',
+    'غرفة مميزة',
+    'جناح كبير',
+    'جناح صغير',
+    'غرفة فردية',
+    'غرفة مزدوجة',
+  ];
+  for (let i = 0; i < stayTypes.length; i++) {
+    await query(
+      `INSERT INTO stay_types (name, sort_order, is_active) VALUES ($1, $2, TRUE)
+       ON CONFLICT (name) DO UPDATE SET sort_order = EXCLUDED.sort_order, is_active = TRUE`,
+      [stayTypes[i], i + 1]
+    );
+  }
+
+  const invoiceTypes = [
+    { code: 'civil', name: 'مدني (خاص)' },
+    { code: 'contracted', name: 'جهات متعاقدة' },
+    { code: 'non_contracted', name: 'جهات غير متعاقدة' },
+    { code: 'military', name: 'عسكري' },
+  ];
+  for (let i = 0; i < invoiceTypes.length; i++) {
+    await query(
+      `INSERT INTO invoice_types (code, name, sort_order, is_active) VALUES ($1, $2, $3, TRUE)
+       ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, sort_order = EXCLUDED.sort_order, is_active = TRUE`,
+      [invoiceTypes[i].code, invoiceTypes[i].name, i + 1]
+    );
+  }
+
+  const paymentMethods = [
+    { code: 'cash', name: 'نقدي', accepts_amount: true },
+    { code: 'bank_transfer', name: 'تحويل بنكي', accepts_amount: true },
+    { code: 'check', name: 'شيك مقبول الدفع', accepts_amount: true },
+    { code: 'multi', name: 'دفع بأكثر من طريقة', accepts_amount: false },
+  ];
+  for (let i = 0; i < paymentMethods.length; i++) {
+    await query(
+      `INSERT INTO payment_methods (code, name, accepts_amount, sort_order, is_active)
+       VALUES ($1, $2, $3, $4, TRUE)
+       ON CONFLICT (code) DO UPDATE SET
+         name = EXCLUDED.name,
+         accepts_amount = EXCLUDED.accepts_amount,
+         sort_order = EXCLUDED.sort_order,
+         is_active = TRUE`,
+      [paymentMethods[i].code, paymentMethods[i].name, paymentMethods[i].accepts_amount, i + 1]
+    );
+  }
 }
 
 module.exports = { pool, query, withTransaction, initDatabase };
