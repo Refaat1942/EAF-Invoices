@@ -34,7 +34,7 @@
 │  جهاز السيرفر (IP ثابت)                                  │
 │  ┌──────────────┐    ┌─────────────────────────────┐   │
 │  │ PostgreSQL   │◄───│  Node.js (نظام الفواتير)     │   │
-│  │ port 5432    │    │  port 17159                  │   │
+│  │ port 5432    │    │  Node.js (PORT من .env)      │   │
 │  └──────────────┘    └─────────────────────────────┘   │
 └───────────────────────────────┬─────────────────────────┘
                                 │ شبكة محلية / Static IP
@@ -210,8 +210,9 @@ notepad .env
 ### الخطوة 7.2 — محتوى الملف (انسخ وعدّل)
 
 ```env
-# منفذ البرنامج — لا تغيّره إلا لو 17159 مشغول
-PORT=17159
+# منفذ البرنامج — اختر أي رقم فاضي (80 أو 8080 أو 3000 أو 17159...)
+# الرابط النهائي = http://IP-الثابت:PORT
+PORT=8080
 
 # 0.0.0.0 = يقبل اتصالات من أي جهاز على الشبكة
 # localhost = جهاز السيرفر فقط (لا تستخدمه للشبكة)
@@ -234,7 +235,7 @@ ADMIN_PASSWORD=Admin@2026
 
 | المتغير | الوظيفة |
 |---------|---------|
-| `PORT` | المنفذ الذي يفتح عليه المتصفح (17159) |
+| `PORT` | **رقم المنفذ الذي تختاره** في `.env` — ليس مربوطًا بالـ IP. مثال: `8080` → `http://192.168.1.50:8080` |
 | `HOST` | `0.0.0.0` ضروري للشبكة المحلية |
 | `DATABASE_URL` | رابط PostgreSQL — الصيغة: `postgresql://USER:PASS@HOST:PORT/DBNAME` |
 | `APP_SECRET` | تشفير ملفات الفاتورة |
@@ -266,7 +267,12 @@ npm start
 2. ينشئ **كل الجداول** تلقائيًا (فواتير، مستخدمين، أسعار، إلخ)
 3. ينشئ مستخدم **admin**
 4. يحمّل **41 قسم** + **31 خدمة نموذجية** من اللائحة
-5. يفتح المنفذ 17159
+5. يفتح المنفذ الذي حددته في `PORT` داخل `.env`
+
+> **IP ثابت ≠ منفذ ثابت**  
+> - **Static IP** = عنوان جهاز السيرفر (مثل `192.168.1.50` أو `187.124.15.14`)  
+> - **PORT** = رقم تختاره أنت في `.env` (80، 8080، 3000، …)  
+> - **رابط الدخول:** `http://IP-الثابت:PORT` — إذا `PORT=80` يكفي `http://IP-الثابت`
 
 ### الخطوة 8.4 — رسالة النجاح
 
@@ -274,21 +280,25 @@ npm start
 ╔══════════════════════════════════════════════════════╗
 ║     نظام فواتير A.R.R.C - مركز الطب الطبيعي والتأهيل  ║
 ╠══════════════════════════════════════════════════════╣
-║  🌐 Local:   http://localhost:17159                   ║
-║  🌐 Network: http://0.0.0.0:17159                     ║
+║  🌐 Local:   http://localhost:PORT                    ║
+║  🌐 Network: http://IP-الثابت:PORT                    ║
 ║  🐘 DB:      PostgreSQL                               ║
 ╚══════════════════════════════════════════════════════╝
 ```
 
+(يظهر رقم `PORT` الفعلي من `.env` في رسالة التشغيل)
+
 ### الخطوة 8.5 — اختبار
 
-افتح المتصفح: **http://localhost:17159**
+افتح المتصفح: **http://localhost:PORT** (استبدل PORT بقيمة `.env`)
 
 أو تحقق من API:
 
 ```powershell
-curl http://localhost:17159/api/health
+curl http://localhost:8080/api/health
 ```
+
+(غيّر `8080` لنفس قيمة `PORT` في `.env`)
 
 النتيجة:
 ```json
@@ -332,13 +342,13 @@ Default Gateway . . . . . . . . . : 192.168.1.1
 ### 9.3 — Static IP خارجي (VPS مثل Hostinger)
 
 - IP ثابت جاهز (مثل `187.124.15.14`)
-- البرنامج يعمل على port **17159**
-- الرابط: `http://187.124.15.14:17159`
-- تأكد أن **Firewall** على VPS يسمح port 17159:
+- **اختر المنفذ في `.env`** — مثال: `PORT=8080`
+- **الرابط:** `http://187.124.15.14:8080` (IP ثابت + PORT من `.env`)
+- افتح **نفس رقم PORT** في Firewall على VPS:
 
 ```bash
-# على Linux VPS
-ufw allow 17159/tcp
+# على Linux VPS — استبدل 8080 بقيمة PORT في .env
+ufw allow 8080/tcp
 ```
 
 ### 9.4 — Static IP خارجي خلف راوتر (Port Forwarding)
@@ -347,10 +357,10 @@ ufw allow 17159/tcp
 
 1. ادخل إعدادات الراوتر (مثل `192.168.1.1`)
 2. **Port Forwarding** / **NAT**
-3. أضف قاعدة:
-   - External Port: `17159`
-   - Internal IP: `192.168.1.50` (IP السيرفر)
-   - Internal Port: `17159`
+3. أضف قاعدة (استبدل `8080` بقيمة `PORT` في `.env`):
+   - External Port: `8080`
+   - Internal IP: `192.168.1.50` (IP السيرفر الثابت)
+   - Internal Port: `8080`
    - Protocol: TCP
 4. Save
 
@@ -360,14 +370,17 @@ ufw allow 17159/tcp
 
 ### Windows Firewall (ضروري)
 
+افتح **نفس رقم `PORT`** الموجود في `.env`:
+
 ```powershell
-New-NetFirewallRule -DisplayName "A.R.R.C Invoices" -Direction Inbound -Protocol TCP -LocalPort 17159 -Action Allow
+# استبدل 8080 بقيمة PORT في ملف .env
+New-NetFirewallRule -DisplayName "A.R.R.C Invoices" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
 ```
 
 ### التحقق
 
 ```powershell
-Test-NetConnection -ComputerName localhost -Port 17159
+Test-NetConnection -ComputerName localhost -Port 8080
 ```
 
 `TcpTestSucceeded : True` = المنفذ مفتوح ✅
@@ -376,24 +389,28 @@ Test-NetConnection -ComputerName localhost -Port 17159
 
 ## 11. الدخول من الأجهزة الأخرى
 
+**الصيغة العامة:** `http://IP-الثابت:PORT`  
+(IP من الشبكة + PORT من `.env`)
+
 ### من نفس جهاز السيرفر
 
 ```
-http://localhost:17159
+http://localhost:8080
 ```
 
 ### من أي جهاز على نفس الشبكة (LAN)
 
 ```
-http://192.168.1.50:17159
+http://192.168.1.50:8080
 ```
-(استبدل `192.168.1.50` بـ IP السيرفر الفعلي)
+(استبدل `192.168.1.50` بـ IP السيرفر الثابت، و`8080` بقيمة `PORT`)
 
 ### من خارج الشبكة (Static IP / VPS)
 
 ```
-http://187.124.15.14:17159
+http://187.124.15.14:8080
 ```
+(Static IP للسيرفر + PORT من `.env`)
 
 ### بيانات الدخول الأولى
 
@@ -532,7 +549,7 @@ D:\EAF-Invoices\.env               ← الإعدادات
 |---------|-------|------|
 | `password authentication failed for user "eaf"` | `.env` أو DB غلط | راجع `DATABASE_URL` + أنشئ المستخدم |
 | `ECONNREFUSED 5432` | PostgreSQL متوقف | `services.msc` → شغّل postgresql |
-| الموقع لا يفتح من أجهزة أخرى | Firewall أو HOST | `HOST=0.0.0.0` + افتح port 17159 |
+| الموقع لا يفتح من أجهزة أخرى | Firewall أو HOST | `HOST=0.0.0.0` + افتح نفس رقم `PORT` من `.env` |
 | `File too large` عند استيراد DOCX | الملف > 100 MB | استخدم `npm run import-prices` |
 | PM2 restarts كثيرة | خطأ في الكود/DB | `pm2 logs eaf-invoices --lines 50` |
 | Auto-suggest فارغ في البيان | اللائحة لم تُستورد | استورد DOCX + تأكد العداد > 31 |
@@ -545,11 +562,11 @@ D:\EAF-Invoices\.env               ← الإعدادات
 # هل PostgreSQL شغال؟
 Get-Service postgresql*
 
-# هل البرنامج يرد؟
-curl http://localhost:17159/api/health
+# هل البرنامج يرد؟ (غيّر 8080 لقيمة PORT)
+curl http://localhost:8080/api/health
 
 # هل المنفذ مفتوح؟
-Test-NetConnection localhost -Port 17159
+Test-NetConnection localhost -Port 8080
 
 # سجل الأخطاء (PM2)
 pm2 logs eaf-invoices --lines 30
@@ -572,7 +589,7 @@ chmod +x deploy.sh
 git pull && npm install && pm2 restart eaf-invoices
 ```
 
-**الوصول:** `http://YOUR_STATIC_IP:17159`
+**الوصول:** `http://YOUR_STATIC_IP:PORT` (PORT من ملف `.env`)
 
 ---
 
@@ -586,9 +603,9 @@ git pull && npm install && pm2 restart eaf-invoices
 □ ملف .env معدّل
 □ npm install تم
 □ npm start أو pm2 start يعمل بدون أخطاء
-□ Firewall port 17159 مفتوح
+□ Firewall: منfذ PORT (من .env) مفتوح
 □ Static IP معروف ومثبت
-□ http://IP:17159 يفتح من أجهزة أخرى
+□ http://IP:PORT يفتح من أجهزة أخرى
 □ تم تغيير كلمة admin
 □ تم رفع الشعار
 □ تم استيراد لائحة DOCX

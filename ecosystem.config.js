@@ -10,9 +10,8 @@ module.exports = {
       max_memory_restart: '500M',
       env: {
         NODE_ENV: 'production',
-        PORT: 17159,
+        // PORT و DATABASE_URL يُقرآن من ملف .env — لا تثبّت رقم منfذ هنا
         HOST: '0.0.0.0',
-        DATABASE_URL: 'postgresql://eaf:eaf2026@localhost:5432/eaf_invoices',
       },
     },
   ],

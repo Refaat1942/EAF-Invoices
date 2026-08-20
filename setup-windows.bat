@@ -44,15 +44,16 @@ echo ========================================
 echo   الإعداد اكتمل
 echo ========================================
 echo.
-echo 1. عدّل ملف .env
+echo 1. عدّل ملف .env (PORT = المنfذ الذي تختاره)
 echo 2. أنشئ قاعدة البيانات في PostgreSQL:
 echo    CREATE USER eaf WITH PASSWORD 'eaf2026';
 echo    CREATE DATABASE eaf_invoices OWNER eaf;
-echo 3. افتح المنفذ 17159 في Firewall
+echo 3. افتح نفس رقم PORT في Firewall
 echo 4. شغّل: npm start
 echo.
-echo    من نفس الجهاز:  http://localhost:17159
-echo    من الشبكة:      http://IP-الثابت:17159
+echo    من نفس الجهاز:  http://localhost:PORT
+echo    من الشبكة:      http://IP-الثابت:PORT
+echo    مثال: PORT=8080  --^  http://192.168.1.50:8080
 echo.
 set /p RUN="هل تريد التشغيل الآن؟ (y/n): "
 if /i "%RUN%"=="y" (

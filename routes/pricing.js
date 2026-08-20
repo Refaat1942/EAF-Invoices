@@ -275,7 +275,7 @@ router.post('/import-docx', requirePermission('settings.*'), handleUpload('file'
     const payload = await parseDocxPriceList(tempPath, req.body || {});
     const result = await importPriceListPayload(payload, actor(req), { replaceExisting: req.body?.replace_existing === 'true' });
     cleanupUploadedFile(req);
-    res.json(result);
+    res.json({ ...result, parse_stats: payload.parse_stats || null });
   } catch (err) {
     cleanupUploadedFile(req);
     res.status(400).json({ error: err.message });

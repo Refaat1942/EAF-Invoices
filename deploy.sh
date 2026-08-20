@@ -51,7 +51,7 @@ cd "$(dirname "$0")"
 
 if [ ! -f .env ]; then
   cat > .env <<EOF
-PORT=17159
+PORT=8080
 HOST=0.0.0.0
 DATABASE_URL=postgresql://eaf:eaf2026@localhost:5432/eaf_invoices
 APP_SECRET=eaf-invoices-secret-key
@@ -60,6 +60,7 @@ fi
 
 # Load .env
 set -a; source .env; set +a
+APP_PORT="${PORT:-8080}"
 
 npm install
 
@@ -72,10 +73,10 @@ pm2 start ecosystem.config.js
 pm2 save
 
 if command -v ufw &> /dev/null; then
-    ufw allow 17159/tcp || true
+    ufw allow "${APP_PORT}/tcp" || true
 fi
 
 echo ""
 echo "✅ Deployment complete!"
 echo "🐘 PostgreSQL: eaf_invoices on port 5432"
-echo "🌐 Access: http://$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'):17159"
+echo "🌐 Access: http://$(curl -s ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}'):${APP_PORT}"
