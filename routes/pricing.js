@@ -30,7 +30,50 @@ const { parseDocxPriceList } = require('../services/docxPriceListParser');
 const { requireAuth, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const IMPORT_DIR = path.join(__dirname, '..', 'data', 'imports');
+const MAX_IMPORT_MB = 100;
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination(_req, _file, cb) {
+      fs.mkdirSync(IMPORT_DIR, { recursive: true });
+      cb(null, IMPORT_DIR);
+    },
+    filename(_req, file, cb) {
+      const ext = path.extname(file.originalname || '').toLowerCase() || '.bin';
+      cb(null, `import-${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: MAX_IMPORT_MB * 1024 * 1024 },
+});
+
+function handleUpload(fieldName) {
+  return (req, res, next) => {
+    upload.single(fieldName)(req, res, (err) => {
+      if (err?.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: `حجم الملف كبير جداً — الحد الأقصى ${MAX_IMPORT_MB} MB` });
+      }
+      if (err) return res.status(400).json({ error: err.message || 'فشل رفع الملف' });
+      next();
+    });
+  };
+}
+
+function readUploadedFile(req) {
+  if (req.file?.path) return fs.readFileSync(req.file.path);
+  if (req.file?.buffer) return req.file.buffer;
+  return null;
+}
+
+function cleanupUploadedFile(req) {
+  if (req.file?.path && fs.existsSync(req.file.path)) {
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 router.use(requireAuth);
 
@@ -198,17 +241,20 @@ router.get('/services-export', requirePermission('settings.*'), async (req, res)
   }
 });
 
-router.post('/import-csv', requirePermission('settings.*'), upload.single('file'), async (req, res) => {
+router.post('/import-csv', requirePermission('settings.*'), handleUpload('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'الملف مطلوب' });
     const list = req.body.price_list_id
       ? await getPriceListById(Number(req.body.price_list_id))
       : await getDefaultPriceList();
     if (!list) return res.status(400).json({ error: 'لا توجد لائحة أسعار' });
-    const rows = await parseCsvServices(req.file.buffer.toString('utf8'));
+    const buffer = readUploadedFile(req);
+    const rows = await parseCsvServices(buffer.toString('utf8'));
     const result = await importServicesCsv(list.id, rows, actor(req));
+    cleanupUploadedFile(req);
     res.json(result);
   } catch (err) {
+    cleanupUploadedFile(req);
     res.status(400).json({ error: err.message });
   }
 });
@@ -222,17 +268,16 @@ router.post('/import-json', requirePermission('settings.*'), async (req, res) =>
   }
 });
 
-router.post('/import-docx', requirePermission('settings.*'), upload.single('file'), async (req, res) => {
+router.post('/import-docx', requirePermission('settings.*'), handleUpload('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'الملف مطلوب' });
-    const tempPath = path.join(__dirname, '..', 'data', `import-${Date.now()}.docx`);
-    fs.mkdirSync(path.dirname(tempPath), { recursive: true });
-    fs.writeFileSync(tempPath, req.file.buffer);
+    const tempPath = req.file.path;
     const payload = await parseDocxPriceList(tempPath, req.body || {});
     const result = await importPriceListPayload(payload, actor(req), { replaceExisting: req.body?.replace_existing === 'true' });
-    fs.unlinkSync(tempPath);
+    cleanupUploadedFile(req);
     res.json(result);
   } catch (err) {
+    cleanupUploadedFile(req);
     res.status(400).json({ error: err.message });
   }
 });
