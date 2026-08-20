@@ -186,10 +186,10 @@ async function getPriceListStats(priceListId) {
     [priceListId]
   );
   const services = await query(
-    'SELECT COUNT(*)::int AS total,
+    `SELECT COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE discountable = TRUE)::int AS discountable,
             COUNT(*) FILTER (WHERE discountable = FALSE)::int AS non_discountable
-     FROM services WHERE price_list_id = $1',
+     FROM services WHERE price_list_id = $1`,
     [priceListId]
   );
   return {
