@@ -537,6 +537,18 @@ body {
   background: #e7f1ff;
 }
 
+.service-suggest-empty {
+  background: #fff;
+}
+
+#items-tbody tr.stay-sync-row {
+  background: #f0f8ff;
+}
+
+#items-tbody tr.stay-sync-row input[data-field="description"] {
+  font-weight: 800;
+}
+
 .pricing-stat-box {
   background: #f8f9fa;
   border: 1px solid #dee2e6;

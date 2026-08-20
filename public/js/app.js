@@ -17,6 +17,8 @@ let permissionCatalog = [];
 let roleDefaults = {};
 let currentReportType = 'summary';
 let selectedPatientFileNumber = '';
+let catalogServicesCache = [];
+let catalogListMeta = null;
 let pricingCategoriesCache = [];
 let pricingServicesCache = [];
 let pricingListsCache = [];
@@ -101,6 +103,7 @@ function showApp() {
   loadContractedEntities();
   loadPermissionCatalog();
   ensureDefaultPriceListId();
+  loadCatalogCache();
   resetForm();
 }
 
@@ -187,7 +190,7 @@ function createRow(index) {
     <td><input type="text" class="discount-pct-display" data-field="discount_percent" readonly tabindex="-1" value="0%"></td>
     <td class="service-cell">
       <input type="hidden" data-field="service_id" value="">
-      <input type="text" class="desc-input calc-trigger service-search" data-field="description" autocomplete="off">
+      <input type="text" class="desc-input calc-trigger service-search" data-field="description" autocomplete="off" placeholder="ابحث عن خدمة من اللائحة...">
       <div class="service-suggest d-none"></div>
     </td>
     <td><input type="number" step="0.01" class="pay-amt calc-trigger" data-field="pay_amount" value=""></td>
@@ -427,21 +430,26 @@ function bindServiceSearch() {
     input.addEventListener('input', debounce(async () => {
       const q = input.value.trim();
       const row = input.closest('tr');
-      if (row?.querySelector('[data-field="service_id"]')) {
+      if (row?.querySelector('[data-field="service_id"]') && !row.dataset.staySync) {
         row.querySelector('[data-field="service_id"]').value = '';
-      }
-      if (q.length < 2) {
-        suggest.classList.add('d-none');
-        suggest.innerHTML = '';
-        return;
       }
       try {
         const services = await searchCatalogServices(q);
-        renderServiceSuggestions(suggest, services, input);
+        renderServiceSuggestions(suggest, services, input, q);
       } catch {
         suggest.classList.add('d-none');
       }
-    }, 250));
+    }, 200));
+
+    input.addEventListener('focus', async () => {
+      const q = input.value.trim();
+      try {
+        const services = await searchCatalogServices(q);
+        renderServiceSuggestions(suggest, services, input, q);
+      } catch {
+        /* ignore */
+      }
+    });
 
     input.addEventListener('keydown', (e) => {
       const items = suggest.querySelectorAll('.service-suggest-item');
@@ -471,23 +479,58 @@ function bindServiceSearch() {
     input.addEventListener('blur', () => {
       setTimeout(() => {
         suggest.classList.add('d-none');
-      }, 180);
+        const row = input.closest('tr');
+        if (!row || row.dataset.staySync) return;
+        const serviceIdEl = row.querySelector('[data-field="service_id"]');
+        if (input.value.trim() && !serviceIdEl?.value) {
+          const match = findCatalogServiceByName(input.value.trim());
+          if (match) applyServiceToRow(row, match);
+        }
+      }, 200);
     });
   });
 }
 
 async function searchCatalogServices(q) {
-  const params = new URLSearchParams({ search: q, limit: '15' });
+  const norm = String(q || '').trim().toLowerCase();
+  if (catalogServicesCache.length) {
+    if (!norm) return catalogServicesCache.filter((s) => s.is_active !== false).slice(0, 12);
+    return catalogServicesCache
+      .filter(
+        (s) =>
+          s.is_active !== false &&
+          (String(s.name || '').toLowerCase().includes(norm) ||
+            String(s.code || '').toLowerCase().includes(norm) ||
+            String(s.category_name || '').toLowerCase().includes(norm))
+      )
+      .slice(0, 15);
+  }
+  const params = new URLSearchParams({ limit: '15' });
+  if (norm) params.set('search', norm);
   if (currentPricingListId) params.set('price_list_id', currentPricingListId);
   const res = await apiFetch(`${PRICING_API}/services?${params}`);
   if (!res.ok) throw new Error('search failed');
   return res.json();
 }
 
-function renderServiceSuggestions(container, services, input) {
+function findCatalogServiceByName(name) {
+  const norm = String(name || '').trim().toLowerCase();
+  if (!norm || !catalogServicesCache.length) return null;
+  const exact = catalogServicesCache.find((s) => String(s.name || '').trim().toLowerCase() === norm);
+  if (exact) return exact;
+  const includes = catalogServicesCache.find((s) => {
+    const svcName = String(s.name || '').trim().toLowerCase();
+    return svcName.includes(norm) || norm.includes(svcName);
+  });
+  return includes || null;
+}
+
+function renderServiceSuggestions(container, services, input, query = '') {
   if (!services.length) {
-    container.classList.add('d-none');
-    container.innerHTML = '';
+    container.innerHTML = query
+      ? '<div class="service-suggest-empty p-2 small text-muted">لا توجد خدمات مطابقة — تأكد من رفع ملف اللائحة من الإعدادات</div>'
+      : '<div class="service-suggest-empty p-2 small text-muted">اللائحة فارغة — ارفع ملف DOCX من الإعدادات → إدارة الأسعار</div>';
+    container.classList.remove('d-none');
     return;
   }
   container.innerHTML = services
@@ -519,12 +562,123 @@ function applyServiceToRow(row, service) {
   if (!row || !service) return;
   const descInput = row.querySelector('[data-field="description"]');
   const amountInput = row.querySelector('[data-field="amount"]');
+  const qtyInput = row.querySelector('[data-field="quantity"]');
   const serviceIdInput = row.querySelector('[data-field="service_id"]');
   if (descInput) descInput.value = service.name;
-  if (amountInput) amountInput.value = service.price || '';
+  if (amountInput) amountInput.value = service.price ?? '';
   if (serviceIdInput) serviceIdInput.value = service.id || '';
+  if (qtyInput && !parseFloat(qtyInput.value)) qtyInput.value = 1;
   row.dataset.discountOverride = service.discountable ? 'true' : 'false';
+  row.classList.remove('stay-sync-row');
+  delete row.dataset.staySync;
   recalculate();
+  qtyInput?.focus();
+}
+
+async function loadCatalogCache() {
+  try {
+    await ensureDefaultPriceListId();
+    const [listRes, svcRes] = await Promise.all([
+      apiFetch(`${PRICING_API}/lists/default`),
+      apiFetch(`${PRICING_API}/services?limit=2000`),
+    ]);
+    if (listRes.ok) catalogListMeta = await listRes.json();
+    if (svcRes.ok) catalogServicesCache = await svcRes.json();
+    updateCatalogStatusBadge();
+  } catch {
+    updateCatalogStatusBadge(true);
+  }
+}
+
+function updateCatalogStatusBadge(errored = false) {
+  const badge = document.getElementById('catalog-status-badge');
+  if (!badge) return;
+  if (errored || !catalogListMeta) {
+    badge.className = 'badge bg-danger';
+    badge.textContent = 'اللائحة غير متاحة';
+    return;
+  }
+  const count = catalogListMeta.services_count ?? catalogServicesCache.length ?? 0;
+  if (count <= 0) {
+    badge.className = 'badge bg-warning text-dark';
+    badge.textContent = 'اللائحة فارغة — ارفع ملف DOCX من الإعدادات';
+    return;
+  }
+  badge.className = 'badge bg-success';
+  badge.textContent = `اللائحة: ${catalogListMeta.name || 'افتراضية'} — ${count} خدمة`;
+}
+
+function getStayRowKey(row) {
+  if (!row.dataset.stayKey) row.dataset.stayKey = `stay-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return row.dataset.stayKey;
+}
+
+function findItemRowByStayKey(key) {
+  return document.querySelector(`#items-tbody tr[data-stay-sync="${key}"]`);
+}
+
+function findFirstEmptyItemRow() {
+  for (const row of document.querySelectorAll('#items-tbody tr')) {
+    if (row.dataset.staySync) continue;
+    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+    const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
+    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    if (!desc && !qty && !amt) return row;
+  }
+  return null;
+}
+
+function appendNewItemRow() {
+  const tbody = document.getElementById('items-tbody');
+  const row = createRow(rowCount++);
+  tbody.appendChild(row);
+  bindCalcTriggers();
+  return row;
+}
+
+function syncStayEntriesToItemRows() {
+  const activeStayKeys = new Set();
+  document.querySelectorAll('#stay-entries-tbody tr.stay-entry-row').forEach((stayRow) => {
+    const stayKey = getStayRowKey(stayRow);
+    const stayTypeSelect = stayRow.querySelector('[data-field="stay_type_id"]');
+    const stayTypeId = stayTypeSelect?.value;
+    const stayName =
+      stayTypeSelect?.selectedOptions?.[0]?.textContent?.replace(/\s*\([\d,.]+\/يوم\)\s*$/, '')?.trim() || '';
+    const days = parseFloat(stayRow.querySelector('[data-field="days"]')?.value) || 0;
+    const rate = parseFloat(stayRow.querySelector('[data-field="daily_rate"]')?.value) || 0;
+
+    if (!stayTypeId || (!days && !rate)) {
+      const existing = findItemRowByStayKey(stayKey);
+      if (existing) existing.remove();
+      return;
+    }
+
+    activeStayKeys.add(stayKey);
+    let itemRow = findItemRowByStayKey(stayKey);
+    if (!itemRow) {
+      itemRow = findFirstEmptyItemRow() || appendNewItemRow();
+      itemRow.dataset.staySync = stayKey;
+    }
+    itemRow.classList.add('stay-sync-row');
+
+    const desc = stayName ? `إقامة - ${stayName}` : 'إقامة';
+    itemRow.querySelector('[data-field="description"]').value = desc;
+    itemRow.querySelector('[data-field="quantity"]').value = days || '';
+    itemRow.querySelector('[data-field="amount"]').value = rate || '';
+
+    const matched = findCatalogServiceByName(stayName);
+    const serviceIdEl = itemRow.querySelector('[data-field="service_id"]');
+    if (matched && serviceIdEl) {
+      serviceIdEl.value = matched.id;
+      itemRow.dataset.discountOverride = matched.discountable ? 'true' : 'false';
+    } else if (serviceIdEl) {
+      serviceIdEl.value = '';
+    }
+  });
+
+  document.querySelectorAll('#items-tbody tr[data-stay-sync]').forEach((row) => {
+    if (!activeStayKeys.has(row.dataset.staySync)) row.remove();
+  });
 }
 
 function calcDaysBetween(fromDate, toDate) {
@@ -573,6 +727,7 @@ function initStayEntries(entries = []) {
   list.forEach((entry) => tbody.appendChild(createStayEntryRow(entry)));
   bindStayEntryTriggers();
   updateStayEntryTotalsLocal();
+  syncStayEntriesToItemRows();
 }
 
 function addStayEntryRow(entry = {}) {
@@ -598,18 +753,22 @@ function bindStayEntryTriggers() {
   });
   document.querySelectorAll('.remove-stay-entry-btn').forEach((btn) => {
     btn.onclick = () => {
+      const stayRow = btn.closest('tr');
+      const stayKey = stayRow?.dataset?.stayKey;
       const tbody = document.getElementById('stay-entries-tbody');
+      if (stayKey) findItemRowByStayKey(stayKey)?.remove();
       if (tbody.children.length > 1) {
-        btn.closest('tr').remove();
+        stayRow.remove();
       } else {
-        const row = btn.closest('tr');
-        row.querySelectorAll('input, select').forEach((input) => {
+        stayRow.querySelectorAll('input, select').forEach((input) => {
           if (input.tagName === 'SELECT') input.selectedIndex = 0;
           else input.value = '';
         });
+        delete stayRow.dataset.stayKey;
       }
       syncStayDaysFromEntries();
       updateStayEntryTotalsLocal();
+      syncStayEntriesToItemRows();
       recalculate();
     };
   });
@@ -645,6 +804,7 @@ function onStayEntryRowChange(row) {
   row.querySelector('[data-field="total"]').value = total ? fmt(total) : '';
   syncStayDaysFromEntries();
   updateStayEntryTotalsLocal();
+  syncStayEntriesToItemRows();
   recalculate();
 }
 
@@ -860,6 +1020,7 @@ function collectFormData() {
   const payments = [];
 
   rows.forEach((row) => {
+    if (row.dataset.staySync) return;
     const desc = row.querySelector('[data-field="description"]').value.trim();
     const qty = parseFloat(row.querySelector('[data-field="quantity"]').value) || 0;
     const amt = parseFloat(row.querySelector('[data-field="amount"]').value) || 0;
@@ -2617,9 +2778,26 @@ function renderPricingStats(listMeta) {
     <div class="col-md-4"><div class="pricing-stat-box"><span>اللائحة الافتراضية</span><strong>${escapeHtml(listMeta?.name || '—')}</strong></div></div>`;
   const note = document.getElementById('pricing-footer-note');
   if (note) {
-    note.textContent = listMeta?.services_count
-      ? `إجمالي الخدمات في اللائحة: ${listMeta.services_count} — آخر تحديث: ${listMeta.updated_at ? new Date(listMeta.updated_at).toLocaleString('ar-EG') : '—'}`
-      : 'يمكنك استيراد ملف DOCX الكامل للائحة المالية لملء جميع الخدمات.';
+    const count = listMeta?.services_count ?? services.length;
+    note.textContent = count
+      ? `إجمالي الخدمات في اللائحة: ${count} — ابحث عنها في حقل «البيان» أثناء إنشاء الفاتورة`
+      : 'اللائحة فارغة — ارفع ملف DOCX من الزر أعلاه ثم اضغط تحديث';
+  }
+  renderPricingImportStatus(listMeta);
+}
+
+function renderPricingImportStatus(listMeta) {
+  const statusEl = document.getElementById('pricing-import-status');
+  if (!statusEl) return;
+  const count = listMeta?.services_count ?? pricingServicesCache.length ?? 0;
+  if (count > 0) {
+    statusEl.style.display = '';
+    statusEl.className = 'alert alert-success py-2 mb-3';
+    statusEl.innerHTML = `<strong>✓ اللائحة جاهزة:</strong> ${listMeta?.name || 'لائحة 2026-2027'} — <strong>${count}</strong> خدمة و<strong>${listMeta?.categories_count ?? pricingCategoriesCache.length ?? 0}</strong> قسم`;
+  } else {
+    statusEl.style.display = '';
+    statusEl.className = 'alert alert-warning py-2 mb-3';
+    statusEl.textContent = 'لم يتم استيراد اللائحة بعد — ارفع ملف DOCX من الزر «استيراد DOCX/JSON/CSV»';
   }
 }
 
@@ -2718,37 +2896,58 @@ async function exportPricingCsv() {
 async function importPricingFile(e) {
   const file = e.target.files?.[0];
   if (!file) return;
+  const replaceExisting = document.getElementById('pricing-import-replace')?.checked;
+  const statusEl = document.getElementById('pricing-import-status');
+  if (statusEl) {
+    statusEl.style.display = '';
+    statusEl.className = 'alert alert-info py-2 mb-3';
+    statusEl.textContent = `جاري استيراد ${file.name}...`;
+  }
   const form = new FormData();
   form.append('file', file);
-  form.append('replace_existing', 'false');
+  form.append('replace_existing', replaceExisting ? 'true' : 'false');
   try {
     const lower = file.name.toLowerCase();
-    let endpoint = `${PRICING_API}/import-docx`;
     let res;
     if (lower.endsWith('.json')) {
-      endpoint = `${PRICING_API}/import-json`;
       const text = await file.text();
-      res = await apiFetch(endpoint, {
+      const payload = JSON.parse(text);
+      payload.replace_existing = !!replaceExisting;
+      res = await apiFetch(`${PRICING_API}/import-json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: text,
+        body: JSON.stringify(payload),
       });
     } else if (lower.endsWith('.csv')) {
-      const form = new FormData();
-      form.append('file', file);
-      if (currentPricingListId) form.append('price_list_id', currentPricingListId);
-      res = await apiFetch(`${PRICING_API}/import-csv`, { method: 'POST', body: form });
+      const csvForm = new FormData();
+      csvForm.append('file', file);
+      if (currentPricingListId) csvForm.append('price_list_id', currentPricingListId);
+      res = await apiFetch(`${PRICING_API}/import-csv`, { method: 'POST', body: csvForm });
     } else {
-      res = await apiFetch(endpoint, { method: 'POST', body: form });
+      res = await apiFetch(`${PRICING_API}/import-docx`, { method: 'POST', body: form });
     }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    showToast(`تم الاستيراد: ${data.services_count || data.serviceCount || data.imported || 0} خدمة`, 'success');
+    const servicesCount = data.services_count || data.serviceCount || data.imported || 0;
+    const categoriesCount = data.categories_count || data.categoryCount || 0;
+    const msg = `تم استيراد ${servicesCount} خدمة${categoriesCount ? ` في ${categoriesCount} قسم` : ''} من ملف ${file.name}`;
+    showToast(msg, 'success');
+    if (statusEl) {
+      statusEl.style.display = '';
+      statusEl.className = 'alert alert-success py-2 mb-3';
+      statusEl.innerHTML = `<strong>✓ ${msg}</strong><br><small class="text-muted">الآن يمكنك البحث عن الخدمات في حقل «البيان» أثناء إنشاء الفاتورة</small>`;
+    }
     e.target.value = '';
     await loadPricingSection();
     await loadStayTypes();
+    await loadCatalogCache();
   } catch (err) {
     showToast(err.message, 'danger');
+    if (statusEl) {
+      statusEl.style.display = '';
+      statusEl.className = 'alert alert-danger py-2 mb-3';
+      statusEl.textContent = `فشل الاستيراد: ${err.message}`;
+    }
     e.target.value = '';
   }
 }
