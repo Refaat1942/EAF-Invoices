@@ -13,6 +13,7 @@ let paymentMethodsCache = [];
 let contractedEntitiesCache = [];
 let stayTypesCache = [];
 let lastCalculationTotals = null;
+let patientAccountBalance = null;
 let permissionCatalog = [];
 let roleDefaults = {};
 let currentReportType = 'summary';
@@ -347,8 +348,23 @@ function bindCalcTriggers() {
     el.removeEventListener('input', recalculate);
     el.addEventListener('input', recalculate);
   });
+  bindNumberInputWheelBlock();
   bindServiceSearch();
   bindPaymentMethodHelpers();
+}
+
+function bindNumberInputWheelBlock() {
+  document.querySelectorAll('input[type="number"]').forEach((input) => {
+    if (input.dataset.wheelBlocked === '1') return;
+    input.dataset.wheelBlocked = '1';
+    input.addEventListener(
+      'wheel',
+      (e) => {
+        if (document.activeElement === input) e.preventDefault();
+      },
+      { passive: false }
+    );
+  });
 }
 
 function bindPaymentMethodHelpers() {
@@ -942,6 +958,51 @@ function hasPatientFileNumber() {
   return Boolean(document.getElementById('file_number')?.value?.trim());
 }
 
+function getPatientAccountBalance() {
+  return patientAccountBalance ?? 0;
+}
+
+function sumBillableLineTotals() {
+  let total = 0;
+  document.querySelectorAll('#items-tbody tr').forEach((row) => {
+    if (row.dataset.staySync) return;
+    const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
+    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+    if (desc || qty || amt) total += qty * amt;
+  });
+  document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
+    const days = parseFloat(row.querySelector('[data-field="days"]')?.value) || 0;
+    const rate = parseFloat(row.querySelector('[data-field="daily_rate"]')?.value) || 0;
+    if (days || rate) total += days * rate;
+  });
+  return Math.round(total * 100) / 100;
+}
+
+function getPatientNetBalance() {
+  if (!hasPatientFileNumber()) return 0;
+  return Math.round((getPatientAccountBalance() - sumBillableLineTotals()) * 100) / 100;
+}
+
+function syncPatientBalanceField() {
+  const balanceEl = document.getElementById('balance');
+  const labelEl = document.getElementById('balance-field-label');
+  if (!balanceEl) return;
+
+  if (hasPatientFileNumber()) {
+    const net = getPatientNetBalance();
+    balanceEl.value = net;
+    balanceEl.readOnly = true;
+    balanceEl.classList.add('bg-light');
+    balanceEl.classList.toggle('text-danger', net < 0);
+    if (labelEl) labelEl.textContent = 'رصيد المريض (بعد البنود)';
+  } else {
+    balanceEl.readOnly = false;
+    balanceEl.classList.remove('bg-light', 'text-danger');
+    if (labelEl) labelEl.textContent = 'الرصيد';
+  }
+}
+
 function autoApplyPatientCreditToRows() {
   if (!hasPatientFileNumber()) {
     document.querySelectorAll('#items-tbody tr [data-field="patient_credit_applied"]').forEach((input) => {
@@ -982,28 +1043,38 @@ function autoApplyPatientCreditToRows() {
   return changed;
 }
 
-function autoFillCashForInvoiceRemaining(totals) {
+function syncPaymentMethodsAutomatically(totals) {
   if (!hasPatientFileNumber()) return false;
-  const remaining = Number(totals?.remaining ?? totals?.payment_validation?.difference_raw) || 0;
-  const cashInput = getPaymentInputsByCode('cash')[0];
-  if (!cashInput) return false;
 
-  if (remaining > 0.009) {
-    const target = Math.round(remaining * 100) / 100;
-    const current = parseFloat(cashInput.value) || 0;
-    if (Math.abs(current - target) > 0.009) {
-      cashInput.value = target;
-      return true;
-    }
-  } else if (remaining <= 0.009 && (parseFloat(cashInput.value) || 0) > 0) {
-    const creditTotal = Number(totals?.patient_credit_applied) || sumLinePatientCredits();
-    const finalTotal = Number(totals?.final_total) || 0;
-    if (creditTotal >= finalTotal - 0.009) {
-      cashInput.value = '';
-      return true;
-    }
-  }
-  return false;
+  const finalTotal = Number(totals?.final_total) || 0;
+  const creditTotal = Number(totals?.patient_credit_applied) || sumLinePatientCredits();
+  const cashDue = Math.max(0, Math.round((finalTotal - creditTotal) * 100) / 100);
+
+  const targets = {
+    patient_credit: creditTotal,
+    cash: cashDue,
+    bank_transfer: 0,
+    check: 0,
+  };
+
+  let changed = false;
+  Object.entries(targets).forEach(([code, target]) => {
+    getPaymentInputsByCode(code).forEach((input) => {
+      const current = parseFloat(input.value) || 0;
+      const nextNum = target > 0.009 ? target : 0;
+      if (Math.abs(current - nextNum) > 0.009) {
+        input.value = target > 0.009 ? target : '';
+        changed = true;
+      }
+      if (code === 'patient_credit') {
+        input.readOnly = true;
+        input.classList.add('bg-light');
+        const row = input.closest('tr');
+        if (row) row.classList.toggle('payment-row-active', target > 0.009);
+      }
+    });
+  });
+  return changed;
 }
 
 function sumLinePatientCredits() {
@@ -1020,19 +1091,16 @@ function updatePatientCreditSummary(totals) {
   const display = document.getElementById('patient_credit_total_display');
   if (display) display.value = creditTotal ? fmt(creditTotal) : '0';
 
-  const balanceText = document.getElementById('patient-balance-display')?.textContent || '0';
-  const balance = parseFloat(balanceText.replace(/[^\d.-]/g, '')) || 0;
   const afterHint = document.getElementById('patient-balance-after-hint');
   const afterDisplay = document.getElementById('patient-balance-after-display');
-  if (creditTotal > 0 && afterHint && afterDisplay) {
+  if (hasPatientFileNumber() && afterHint && afterDisplay) {
+    const net = getPatientNetBalance();
     afterHint.style.display = '';
-    afterDisplay.textContent = fmt(balance - creditTotal);
-    afterDisplay.classList.toggle('text-danger', balance - creditTotal < 0);
+    afterDisplay.textContent = fmt(net);
+    afterDisplay.classList.toggle('text-danger', net < 0);
   } else if (afterHint) {
     afterHint.style.display = 'none';
   }
-
-  syncPatientCreditPaymentMethod(creditTotal);
 }
 
 function syncPatientCreditPaymentMethod(amount) {
@@ -1050,14 +1118,20 @@ async function loadPatientBalance() {
   const hint = document.getElementById('patient-balance-hint');
   const creditWrap = document.getElementById('patient-credit-wrap');
   if (!fileNumber) {
+    patientAccountBalance = null;
     hint.style.display = 'none';
     creditWrap.style.display = 'none';
+    document.getElementById('balance').value = '0';
+    syncPatientBalanceField();
+    autoApplyPatientCreditToRows();
+    await recalculate({ skipAutoCredit: true });
     return;
   }
   try {
     const res = await apiFetch(`${PATIENTS_API}/by-file/${encodeURIComponent(fileNumber)}`);
     const patient = await res.json();
     const balance = Number(patient.account_balance) || 0;
+    patientAccountBalance = balance;
     document.getElementById('patient-balance-display').textContent = fmt(balance);
     hint.style.display = '';
     document.getElementById('edit-patient-balance-btn').style.display = can('patients.manage') ? '' : 'none';
@@ -1205,7 +1279,7 @@ function collectFormData() {
     notes: document.getElementById('notes').value,
     stamp_duty: document.getElementById('stamp_duty').value,
     professional_fees: document.getElementById('professional_fees').value,
-    balance: document.getElementById('balance').value,
+    balance: hasPatientFileNumber() ? 0 : document.getElementById('balance').value,
     admin_expenses_percent: document.getElementById('admin_expenses_percent').value,
     method_payments: methodPayments,
     employee_name: document.getElementById('employee_name').value,
@@ -1231,6 +1305,7 @@ function collectMethodPayments() {
 
 async function recalculate(options = {}) {
   if (!options.skipAutoCredit) autoApplyPatientCreditToRows();
+  syncPatientBalanceField();
 
   const data = collectFormData();
 
@@ -1257,8 +1332,8 @@ async function recalculate(options = {}) {
     applyItemDiscountPercents((totals.items || []).filter((item) => !item.is_stay_entry));
     updateStayEntriesFromTotals(totals.stay_entries || []);
 
-    if (!options.skipAutoCash && autoFillCashForInvoiceRemaining(totals)) {
-      return recalculate({ skipAutoCredit: true, skipAutoCash: true });
+    if (!options.skipAutoPayments && syncPaymentMethodsAutomatically(totals)) {
+      return recalculate({ skipAutoCredit: true, skipAutoPayments: true });
     }
 
     return totals;
@@ -1531,7 +1606,7 @@ function updateSummaryTable(t) {
     <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td></td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td></tr>
     <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td></tr>
     ${discountRows}
-    <tr><td>${fmtDual(t.balance_raw, t.balance)}</td><td></td><td></td><td></td><td class="summary-label">الرصيد</td><td></td><td></td><td></td></tr>
+    <tr><td>${hasPatientFileNumber() ? fmt(getPatientNetBalance()) : fmtDual(t.balance_raw, t.balance)}</td><td></td><td></td><td></td><td class="summary-label">${hasPatientFileNumber() ? 'رصيد المريض (بعد البنود)' : 'الرصيد'}</td><td></td><td></td><td></td></tr>
     <tr><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td></td><td></td></tr>
   `;
 }
@@ -1668,7 +1743,9 @@ function resetForm() {
   document.getElementById('admin_expenses_percent').value = '12';
   document.getElementById('stamp_duty').value = '0';
   document.getElementById('professional_fees').value = '0';
+  patientAccountBalance = null;
   document.getElementById('balance').value = '0';
+  syncPatientBalanceField();
   const creditDisplay = document.getElementById('patient_credit_total_display');
   if (creditDisplay) creditDisplay.value = '0';
   document.getElementById('patient-balance-hint').style.display = 'none';
@@ -1731,7 +1808,9 @@ async function loadInvoiceForEdit(id) {
     document.getElementById('notes').value = inv.notes || '';
     document.getElementById('stamp_duty').value = inv.stamp_duty;
     document.getElementById('professional_fees').value = inv.professional_fees;
-    document.getElementById('balance').value = inv.balance;
+    if (!inv.file_number) {
+      document.getElementById('balance').value = inv.balance;
+    }
     document.getElementById('admin_expenses_percent').value = inv.admin_expenses_percent;
 
     const paymentValues = {};
