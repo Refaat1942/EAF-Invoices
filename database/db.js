@@ -428,6 +428,16 @@ async function runMigrations() {
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_credit_applied NUMERIC(14,2) DEFAULT 0`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_credit_deducted BOOLEAN DEFAULT FALSE`);
 
+  await query(
+    `INSERT INTO payment_methods (code, name, accepts_amount, sort_order, is_active)
+     VALUES ('patient_credit', 'خصم من رصيد المريض', TRUE, 4, TRUE)
+     ON CONFLICT (code) DO UPDATE SET
+       name = EXCLUDED.name,
+       accepts_amount = TRUE,
+       is_active = TRUE,
+       sort_order = EXCLUDED.sort_order`
+  );
+
   await query(`
     UPDATE invoices SET status = 'approved'
     WHERE COALESCE(status, '') = '' AND serial_number IS NOT NULL

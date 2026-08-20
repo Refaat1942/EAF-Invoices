@@ -299,6 +299,7 @@ function bindEvents() {
 
   document.getElementById('file_number').addEventListener('blur', loadPatientBalance);
   document.getElementById('edit-patient-balance-btn').addEventListener('click', editPatientBalance);
+  document.getElementById('apply-patient-credit-btn')?.addEventListener('click', applyPatientCreditToAllRows);
   document.getElementById('new-user-role').addEventListener('change', () => {
     renderPermissionCheckboxes('new-user-permissions', getDefaultPermissionsForRole(document.getElementById('new-user-role').value));
   });
@@ -938,6 +939,28 @@ async function loadPermissionCatalog() {
   }
 }
 
+function applyPatientCreditToAllRows() {
+  let applied = 0;
+  document.querySelectorAll('#items-tbody tr').forEach((row) => {
+    if (row.dataset.staySync) return;
+    const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
+    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+    const lineTotal = Math.round(qty * amt * 100) / 100;
+    if (!desc || lineTotal <= 0) return;
+    const creditInput = row.querySelector('[data-field="patient_credit_applied"]');
+    if (!creditInput) return;
+    creditInput.value = lineTotal;
+    applied += 1;
+  });
+  if (!applied) {
+    showToast('أضف خدمة في البيان أولاً (اسم + كمية + سعر)', 'warning');
+    return;
+  }
+  recalculate();
+  showToast(`تم تطبيق خصم الرصيد على ${applied} بند — راجع «خصم من رصيد المريض» في المدفوعات`, 'success');
+}
+
 function sumLinePatientCredits() {
   let total = 0;
   document.querySelectorAll('#items-tbody tr [data-field="patient_credit_applied"]').forEach((input) => {
@@ -1108,14 +1131,15 @@ function collectFormData() {
   const creditSum = items.reduce((sum, item) => sum + (Number(item.patient_credit_applied) || 0), 0);
   const methodPayments = collectMethodPayments().filter((entry) => entry.code !== 'patient_credit');
   if (creditSum > 0) {
-    const creditMethod = (paymentMethodsCache || []).find((m) => m.code === 'patient_credit');
-    if (creditMethod) {
-      methodPayments.push({
-        payment_method_id: creditMethod.id,
-        code: 'patient_credit',
-        amount: creditSum,
-      });
+    let creditMethod = (paymentMethodsCache || []).find((m) => m.code === 'patient_credit');
+    if (!creditMethod?.id) {
+      creditMethod = { id: null, code: 'patient_credit' };
     }
+    methodPayments.push({
+      payment_method_id: creditMethod.id,
+      code: 'patient_credit',
+      amount: creditSum,
+    });
   }
 
   return {

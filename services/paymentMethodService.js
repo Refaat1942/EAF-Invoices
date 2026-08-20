@@ -1,6 +1,25 @@
 const { query } = require('../database/db');
 
+async function ensurePatientCreditMethod() {
+  await query(
+    `INSERT INTO payment_methods (code, name, accepts_amount, sort_order, is_active)
+     VALUES ('patient_credit', 'خصم من رصيد المريض', TRUE, 4, TRUE)
+     ON CONFLICT (code) DO UPDATE SET
+       name = EXCLUDED.name,
+       accepts_amount = TRUE,
+       is_active = TRUE,
+       sort_order = EXCLUDED.sort_order`
+  );
+}
+
+async function getPaymentMethodIdByCode(code, client = null) {
+  const run = client ? client.query.bind(client) : query;
+  const { rows } = await run('SELECT id FROM payment_methods WHERE code = $1 LIMIT 1', [code]);
+  return rows[0]?.id || null;
+}
+
 async function listPaymentMethods(activeOnly = true) {
+  await ensurePatientCreditMethod();
   const sql = activeOnly
     ? 'SELECT * FROM payment_methods WHERE is_active = TRUE ORDER BY sort_order, name'
     : 'SELECT * FROM payment_methods ORDER BY sort_order, name';
@@ -52,6 +71,8 @@ async function deletePaymentMethod(id) {
 
 module.exports = {
   listPaymentMethods,
+  ensurePatientCreditMethod,
+  getPaymentMethodIdByCode,
   createPaymentMethod,
   updatePaymentMethod,
   deletePaymentMethod,

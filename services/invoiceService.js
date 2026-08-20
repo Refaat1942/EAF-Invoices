@@ -39,6 +39,9 @@ async function enrichItemsWithServices(items = []) {
 
 async function prepareCalculationData(data) {
   const calcData = { ...data };
+  const { ensurePatientCreditMethod, getPaymentMethodIdByCode } = require('./paymentMethodService');
+  await ensurePatientCreditMethod();
+  calcData.patient_credit_method_id = await getPaymentMethodIdByCode('patient_credit');
   calcData.discount_exclusions = await listDiscountExclusions(true);
   calcData.administrative_fee_rate = Number(await getSetting('administrative_fee_rate', '12')) || 12;
   if (calcData.admin_expenses_percent === undefined || calcData.admin_expenses_percent === '') {
@@ -145,15 +148,21 @@ async function loadMethodPayments(invoiceId, client = null) {
 }
 
 async function saveMethodPayments(client, invoiceId, methodPayments = []) {
+  const { getPaymentMethodIdByCode } = require('./paymentMethodService');
   await client.query('DELETE FROM invoice_payment_amounts WHERE invoice_id = $1', [invoiceId]);
   for (const entry of methodPayments) {
     const amount = Number(entry.amount) || 0;
-    if (!entry.payment_method_id || amount === 0) continue;
+    if (amount === 0) continue;
+    let methodId = entry.payment_method_id;
+    if (!methodId && entry.code) {
+      methodId = await getPaymentMethodIdByCode(entry.code, client);
+    }
+    if (!methodId) continue;
     await client.query(
       `INSERT INTO invoice_payment_amounts (invoice_id, payment_method_id, amount)
        VALUES ($1, $2, $3)
        ON CONFLICT (invoice_id, payment_method_id) DO UPDATE SET amount = EXCLUDED.amount`,
-      [invoiceId, entry.payment_method_id, amount]
+      [invoiceId, methodId, amount]
     );
   }
 }
