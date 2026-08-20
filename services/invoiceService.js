@@ -9,10 +9,45 @@ const { upsertPatient, applyPatientCredit } = require('./patientService');
 const { getSummaryReport, STATUS_LABELS } = require('./reportService');
 
 const { getStayTypeById } = require('./stayTypeService');
+const { resolveServiceForInvoice } = require('./serviceCatalogService');
+const { getSetting } = require('./settingsService');
+
+async function enrichItemsWithServices(items = []) {
+  const enriched = [];
+  for (const item of items) {
+    if (item.service_id) {
+      try {
+        const resolved = await resolveServiceForInvoice(Number(item.service_id), {
+          tier_key: item.tier_key,
+          unit: item.unit,
+        });
+        enriched.push({
+          ...item,
+          description: item.description || resolved.description,
+          amount: item.amount ?? resolved.amount,
+          ...resolved,
+        });
+        continue;
+      } catch {
+        /* keep original item */
+      }
+    }
+    enriched.push(item);
+  }
+  return enriched;
+}
 
 async function prepareCalculationData(data) {
   const calcData = { ...data };
   calcData.discount_exclusions = await listDiscountExclusions(true);
+  calcData.administrative_fee_rate = Number(await getSetting('administrative_fee_rate', '12')) || 12;
+  if (calcData.admin_expenses_percent === undefined || calcData.admin_expenses_percent === '') {
+    calcData.admin_expenses_percent = calcData.administrative_fee_rate;
+  }
+
+  if (Array.isArray(calcData.items)) {
+    calcData.items = await enrichItemsWithServices(calcData.items);
+  }
 
   if (Array.isArray(calcData.stay_entries)) {
     calcData.stay_entries = await Promise.all(
@@ -476,21 +511,44 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
 
     for (let index = 0; index < manualItems.length; index++) {
       const item = manualItems[index];
+      const adminPercent = totals.admin_expenses_percent || 0;
+      const adminFeeAmount =
+        item.administrative_fee_applicable_snapshot !== false && item.is_stay_entry !== true
+          ? Math.round(((Number(item.total_raw) || 0) * adminPercent) / 100 * 100) / 100
+          : 0;
       await client.query(
         `INSERT INTO invoice_items (
           invoice_id, description, quantity, amount, total,
-          is_discount_eligible, item_discount_percent, discount_exclusion_id, sort_order
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          is_discount_eligible, item_discount_percent, discount_exclusion_id, sort_order,
+          service_id, service_code_snapshot, service_name_snapshot, unit_snapshot, unit_price_snapshot,
+          price_type_snapshot, tier_key_snapshot, discountable_snapshot, administrative_fee_applicable_snapshot,
+          admin_fee_amount_snapshot, admin_fee_percent_snapshot, price_list_id_snapshot, price_list_name_snapshot,
+          composite_components_snapshot
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb)`,
         [
           invoiceId,
-          item.description || '',
+          item.description || item.service_name_snapshot || '',
           item.quantity || 0,
-          item.amount || 0,
+          item.amount || item.unit_price_snapshot || 0,
           item.total || 0,
           item.is_discount_eligible !== false,
           item.item_discount_percent || 0,
           item.discount_exclusion_id || null,
           index,
+          item.service_id || null,
+          item.service_code_snapshot || '',
+          item.service_name_snapshot || item.description || '',
+          item.unit_snapshot || '',
+          item.unit_price_snapshot ?? item.amount ?? 0,
+          item.price_type_snapshot || '',
+          item.tier_key_snapshot || '',
+          item.discountable_snapshot ?? null,
+          item.administrative_fee_applicable_snapshot ?? null,
+          adminFeeAmount,
+          adminPercent,
+          item.price_list_id_snapshot || null,
+          item.price_list_name_snapshot || '',
+          JSON.stringify(item.composite_components_snapshot || []),
         ]
       );
     }
@@ -586,4 +644,5 @@ module.exports = {
   approveInvoice,
   deleteInvoice,
   getReportsSummary,
+  prepareCalculationData,
 };

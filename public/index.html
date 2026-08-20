@@ -229,10 +229,23 @@
                         <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="clear-payments-btn" title="مسح جميع المدفوعات">🗑️ مسح</button>
                       </div>
                     </div>
+                    <div id="payment-split-summary" class="payment-split-summary mb-2">
+                      <div class="split-item"><span>إجمالي الفاتورة</span><strong id="split-final-total">0.00</strong></div>
+                      <div class="split-item"><span>مدفوع حتى الآن</span><strong id="split-paid-total">0.00</strong></div>
+                      <div class="split-item split-remaining"><span>المتبقي للدفع</span><strong id="split-remaining-total">0.00</strong></div>
+                    </div>
+                    <p class="small text-muted mb-2">يمكنك تقسيم الدفع على أكثر من طريقة: أدخل جزءًا في أي طريقة، وسيظهر المتبقي تلقائيًا — ثم اضغط «الباقي» في طريقة أخرى لإكمال المبلغ.</p>
                     <div id="payment-validation-banner" class="payment-validation-banner mb-2" style="display:none"></div>
                     <table class="table table-bordered table-sm payment-methods-table">
+                      <thead class="table-light">
+                        <tr>
+                          <th>طريقة الدفع</th>
+                          <th style="width:38%">المبلغ</th>
+                          <th style="width:18%">إكمال</th>
+                        </tr>
+                      </thead>
                       <tbody id="payment-methods-tbody">
-                        <tr><td colspan="2" class="text-muted text-center">جاري تحميل طرق الدفع...</td></tr>
+                        <tr><td colspan="3" class="text-muted text-center">جاري تحميل طرق الدفع...</td></tr>
                       </tbody>
                       <tfoot>
                         <tr class="table-warning"><td class="fw-black">إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected">0.00</td></tr>
@@ -436,6 +449,89 @@
             </div>
           </div>
         </div>
+        <div class="col-12" id="pricing-settings-card" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <span>💰 إدارة الأسعار واللائحة المالية</span>
+              <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-sm btn-light fw-bold" id="pricing-export-btn">تصدير Excel</button>
+                <button type="button" class="btn btn-sm btn-outline-light fw-bold" id="pricing-export-csv-btn">CSV</button>
+                <label class="btn btn-sm btn-warning fw-bold mb-0">
+                  استيراد DOCX/JSON/CSV
+                  <input type="file" id="pricing-import-file" accept=".docx,.json,.csv" hidden>
+                </label>
+                <button type="button" class="btn btn-sm btn-info fw-bold" id="pricing-clone-btn">نسخ اللائحة</button>
+                <button type="button" class="btn btn-sm btn-success fw-bold" id="pricing-add-service-btn">+ خدمة</button>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="row g-2 mb-3 align-items-end">
+                <div class="col-md-3">
+                  <label class="form-label fw-bold small mb-1">اللائحة</label>
+                  <select class="form-select form-select-sm fw-bold" id="pricing-list-select"></select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold small mb-1">القسم</label>
+                  <select class="form-select form-select-sm fw-bold" id="pricing-category-filter">
+                    <option value="">— كل الأقسام —</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold small mb-1">بحث</label>
+                  <input type="text" class="form-control form-control-sm fw-bold" id="pricing-search" placeholder="اسم الخدمة أو الكود...">
+                </div>
+                <div class="col-md-3">
+                  <button type="button" class="btn btn-sm btn-primary fw-bold w-100" id="pricing-refresh-btn">تحديث</button>
+                </div>
+              </div>
+              <div class="row g-2 mb-3" id="pricing-stats-row"></div>
+              <div class="row g-2 mb-3">
+                <div class="col-md-2">
+                  <label class="form-label fw-bold small mb-1">المصروفات الإدارية %</label>
+                  <input type="number" step="0.01" min="0" max="100" class="form-control form-control-sm fw-bold" id="pricing-admin-fee-rate">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold small mb-1">فتح الملف</label>
+                  <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="pricing-file-opening-fee">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold small mb-1">إسعاف القاهرة</label>
+                  <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="pricing-ambulance-fee">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold small mb-1">أجنبي مقيم %</label>
+                  <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="pricing-foreign-resident">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold small mb-1">أجنبي بدون إقامة %</label>
+                  <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="pricing-foreign-non-resident">
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                  <button type="button" class="btn btn-sm btn-success fw-bold w-100" id="pricing-save-settings-btn">حفظ الإعدادات</button>
+                </div>
+              </div>
+              <div class="table-responsive" style="max-height:420px">
+                <table class="table table-sm table-bordered table-hover mb-0">
+                  <thead class="table-light sticky-top">
+                    <tr>
+                      <th>الكود</th>
+                      <th>القسم</th>
+                      <th>الخدمة</th>
+                      <th>الوحدة</th>
+                      <th>السعر</th>
+                      <th>خصم</th>
+                      <th>إداري</th>
+                      <th>نوع</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="pricing-services-tbody"></tbody>
+                </table>
+              </div>
+              <p class="small text-muted mt-2 mb-0" id="pricing-footer-note"></p>
+            </div>
+          </div>
+        </div>
         <div class="col-12">
           <div class="card shadow-sm">
             <div class="card-header bg-danger text-white fw-black">🚫 البنود المستثناة من الخصم</div>
@@ -522,6 +618,85 @@
       </div>
     </section>
   </main>
+
+  <div class="modal fade" id="service-edit-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-black" id="service-edit-title">تعديل خدمة</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="service-edit-id">
+          <div class="row g-2">
+            <div class="col-md-4">
+              <label class="form-label fw-bold small">القسم</label>
+              <select class="form-select form-select-sm fw-bold" id="service-edit-category"></select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small">الكود</label>
+              <input type="text" class="form-control form-control-sm fw-bold" id="service-edit-code">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-bold small">نوع السعر</label>
+              <select class="form-select form-select-sm fw-bold" id="service-edit-price-type">
+                <option value="fixed">ثابت</option>
+                <option value="variable">متغير</option>
+                <option value="tiered">شرائح</option>
+                <option value="composite">مركب</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-bold small">اسم الخدمة</label>
+              <input type="text" class="form-control form-control-sm fw-bold" id="service-edit-name">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold small">الوحدة</label>
+              <input type="text" class="form-control form-control-sm fw-bold" id="service-edit-unit">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold small">السعر</label>
+              <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="service-edit-price">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold small d-block">يخضع للخصم</label>
+              <div class="form-check form-switch mt-1">
+                <input class="form-check-input" type="checkbox" id="service-edit-discountable">
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold small d-block">مصروفات إدارية</label>
+              <div class="form-check form-switch mt-1">
+                <input class="form-check-input" type="checkbox" id="service-edit-admin-fee">
+              </div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold small d-block">نشط</label>
+              <div class="form-check form-switch mt-1">
+                <input class="form-check-input" type="checkbox" id="service-edit-active" checked>
+              </div>
+            </div>
+            <div class="col-md-9">
+              <label class="form-label fw-bold small">سبب التعديل (للسجل)</label>
+              <input type="text" class="form-control form-control-sm fw-bold" id="service-edit-reason" placeholder="مثال: تحديث اللائحة 2026">
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-bold small">ملاحظات</label>
+              <textarea class="form-control form-control-sm" rows="2" id="service-edit-notes"></textarea>
+            </div>
+            <div class="col-12" id="service-edit-components-wrap" style="display:none">
+              <label class="form-label fw-bold small">مكونات السعر المركب</label>
+              <div id="service-edit-components"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إلغاء</button>
+          <button type="button" class="btn btn-primary fw-bold" id="service-edit-save-btn">حفظ</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="toast-container position-fixed bottom-0 start-0 p-3" id="toast-container"></div>
   </div><!-- app-container -->

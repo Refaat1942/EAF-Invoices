@@ -33,6 +33,14 @@ function matchesExclusion(description, exclusion) {
   return desc.includes(pattern);
 }
 
+function isItemAdminApplicable(item) {
+  if (item.administrative_fee_applicable_snapshot === false) return false;
+  if (item.administrative_fee_applicable_snapshot === true) return true;
+  if (item.administrative_fee_applicable === false) return false;
+  if (item.is_stay_entry) return true;
+  return true;
+}
+
 function resolveItemEligibility(item, exclusions, discountActive) {
   if (!discountActive) {
     return {
@@ -40,6 +48,28 @@ function resolveItemEligibility(item, exclusions, discountActive) {
       item_discount_percent: 0,
       item_discount_amount: 0,
       item_discount_amount_raw: 0,
+      discount_exclusion_id: null,
+    };
+  }
+
+  if (item.discountable_snapshot === false) {
+    return {
+      is_discount_eligible: false,
+      item_discount_percent: 0,
+      item_discount_amount: 0,
+      item_discount_amount_raw: 0,
+      discount_exclusion_id: null,
+    };
+  }
+
+  if (item.discountable_snapshot === true) {
+    const pct = Number(item.entity_discount_percent || 0);
+    const amountRaw = round2((Number(item.total_raw) || 0) * (pct / 100));
+    return {
+      is_discount_eligible: true,
+      item_discount_percent: pct,
+      item_discount_amount: roundNearest(amountRaw),
+      item_discount_amount_raw: amountRaw,
       discount_exclusion_id: null,
     };
   }
@@ -222,15 +252,21 @@ function calculateInvoiceTotals(data) {
 
   const stampDutyD = dualValue(data.stamp_duty);
   const professionalFeesD = dualValue(data.professional_fees);
-  const adminPercent = Number(data.admin_expenses_percent) || 12;
+  const adminPercent = Number(data.admin_expenses_percent);
+  const adminPercentResolved =
+    Number.isFinite(adminPercent) && adminPercent >= 0 ? adminPercent : Number(data.administrative_fee_rate) || 12;
 
-  // Admin expenses on full subtotal (before entity discount)
+  const adminApplicableSubtotalRaw = round2(
+    items.filter((item) => isItemAdminApplicable(item)).reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
+  );
+  const adminApplicableSubtotal = roundNearest(adminApplicableSubtotalRaw);
+
   const subtotalBeforeAdminRaw = round2(
     itemsSubtotalRaw + stampDutyD.raw + professionalFeesD.raw
   );
   const subtotalBeforeAdmin = roundNearest(subtotalBeforeAdminRaw);
 
-  const adminExpensesRaw = round2(subtotalBeforeAdminRaw * (adminPercent / 100));
+  const adminExpensesRaw = round2(adminApplicableSubtotalRaw * (adminPercentResolved / 100));
   const adminExpenses = roundNearest(adminExpensesRaw);
 
   const totalAfterAdminRaw = round2(subtotalBeforeAdminRaw + adminExpensesRaw);
@@ -303,7 +339,9 @@ function calculateInvoiceTotals(data) {
     professional_fees_raw: professionalFeesD.raw,
     subtotal_before_admin: subtotalBeforeAdmin,
     subtotal_before_admin_raw: subtotalBeforeAdminRaw,
-    admin_expenses_percent: adminPercent,
+    admin_applicable_subtotal: adminApplicableSubtotal,
+    admin_applicable_subtotal_raw: adminApplicableSubtotalRaw,
+    admin_expenses_percent: adminPercentResolved,
     admin_expenses: adminExpenses,
     admin_expenses_raw: adminExpensesRaw,
     total_after_admin: totalAfterAdmin,

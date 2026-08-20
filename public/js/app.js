@@ -1,5 +1,6 @@
 const API = '/api/invoices';
 const SETTINGS_API = '/api/settings';
+const PRICING_API = '/api/pricing';
 const AUTH_API = '/api/auth';
 const USERS_API = '/api/users';
 const PATIENTS_API = '/api/patients';
@@ -16,6 +17,11 @@ let permissionCatalog = [];
 let roleDefaults = {};
 let currentReportType = 'summary';
 let selectedPatientFileNumber = '';
+let pricingCategoriesCache = [];
+let pricingServicesCache = [];
+let pricingListsCache = [];
+let currentPricingListId = null;
+let serviceEditModal = null;
 
 const STATUS_BADGES = {
   draft: { text: 'مسودة', class: 'bg-secondary' },
@@ -52,6 +58,14 @@ function escapeAttr(text) {
   return String(text || '').replace(/"/g, '&quot;');
 }
 
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-form').addEventListener('submit', handleLogin);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
@@ -86,6 +100,7 @@ function showApp() {
   loadPaymentMethodsForm();
   loadContractedEntities();
   loadPermissionCatalog();
+  ensureDefaultPriceListId();
   resetForm();
 }
 
@@ -93,6 +108,7 @@ function applyPermissions() {
   const isAdmin = can('settings.*');
   document.getElementById('nav-settings').style.display = isAdmin ? '' : 'none';
   document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
+  document.getElementById('pricing-settings-card').style.display = isAdmin ? '' : 'none';
 
   const createBtn = document.querySelector('[data-view="create"]');
   if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
@@ -169,7 +185,11 @@ function createRow(index) {
     <td><input type="number" step="0.01" class="calc-trigger" data-field="amount" value=""></td>
     <td><input type="number" step="0.01" class="calc-trigger" data-field="quantity" value=""></td>
     <td><input type="text" class="discount-pct-display" data-field="discount_percent" readonly tabindex="-1" value="0%"></td>
-    <td><input type="text" class="desc-input calc-trigger" data-field="description"></td>
+    <td class="service-cell">
+      <input type="hidden" data-field="service_id" value="">
+      <input type="text" class="desc-input calc-trigger service-search" data-field="description" autocomplete="off">
+      <div class="service-suggest d-none"></div>
+    </td>
     <td><input type="number" step="0.01" class="pay-amt calc-trigger" data-field="pay_amount" value=""></td>
     <td><input type="text" class="pay-num calc-trigger" data-field="receipt_number"></td>
     <td><input type="date" class="pay-date calc-trigger" data-field="receipt_date"></td>
@@ -276,6 +296,19 @@ function bindEvents() {
   document.getElementById('add-entity-btn').addEventListener('click', addContractedEntity);
   document.getElementById('add-exclusion-btn').addEventListener('click', addDiscountExclusion);
 
+  document.getElementById('pricing-refresh-btn')?.addEventListener('click', loadPricingSection);
+  document.getElementById('pricing-search')?.addEventListener('input', debounce(loadPricingServices, 300));
+  document.getElementById('pricing-category-filter')?.addEventListener('change', loadPricingServices);
+  document.getElementById('pricing-list-select')?.addEventListener('change', onPricingListChange);
+  document.getElementById('pricing-export-btn')?.addEventListener('click', exportPricingExcel);
+  document.getElementById('pricing-export-csv-btn')?.addEventListener('click', exportPricingCsv);
+  document.getElementById('pricing-import-file')?.addEventListener('change', importPricingFile);
+  document.getElementById('pricing-clone-btn')?.addEventListener('click', cloneCurrentPriceList);
+  document.getElementById('pricing-add-service-btn')?.addEventListener('click', () => openServiceEditor());
+  document.getElementById('pricing-save-settings-btn')?.addEventListener('click', savePricingSettings);
+  document.getElementById('service-edit-save-btn')?.addEventListener('click', saveServiceEditor);
+  document.getElementById('service-edit-price-type')?.addEventListener('change', toggleServiceComponentsEditor);
+
   document.getElementById('pay-full-cash-btn').addEventListener('click', () => fillFullPayment('cash'));
   document.getElementById('pay-full-bank-btn').addEventListener('click', () => fillFullPayment('bank_transfer'));
   document.getElementById('pay-full-check-btn').addEventListener('click', () => fillFullPayment('check'));
@@ -291,6 +324,207 @@ function bindCalcTriggers() {
     el.removeEventListener('input', recalculate);
     el.addEventListener('input', recalculate);
   });
+  bindServiceSearch();
+  bindPaymentMethodHelpers();
+}
+
+function bindPaymentMethodHelpers() {
+  document.querySelectorAll('.pay-remaining-btn').forEach((btn) => {
+    if (btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => fillRemainingPayment(btn.dataset.methodCode));
+  });
+
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    if (input.dataset.helperBound === '1') return;
+    input.dataset.helperBound = '1';
+    input.addEventListener('focus', updatePaymentRowHints);
+    input.addEventListener('input', updatePaymentRowHints);
+  });
+}
+
+function getPaymentRemainingExcluding(excludeInput = null) {
+  const finalTotal = getInvoiceFinalTotalForPayment();
+  let paid = 0;
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    if (input !== excludeInput) paid += parseFloat(input.value) || 0;
+  });
+  return Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
+}
+
+function updatePaymentRowHints() {
+  const finalTotal = getInvoiceFinalTotalForPayment();
+  let paid = 0;
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    paid += parseFloat(input.value) || 0;
+  });
+  const remaining = Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
+
+  document.querySelectorAll('.payment-method-row').forEach((row) => {
+    const hintRow = row.nextElementSibling?.classList?.contains('payment-row-remaining')
+      ? row.nextElementSibling
+      : null;
+    const input = row.querySelector('.payment-method-input');
+    const btn = row.querySelector('.pay-remaining-btn');
+    if (!input || !btn) return;
+
+    const rowRemaining = getPaymentRemainingExcluding(input);
+    btn.disabled = rowRemaining <= 0 || finalTotal <= 0;
+    btn.title = rowRemaining > 0 ? `إضافة المتبقي ${fmt(rowRemaining)}` : 'لا يوجد متبقي';
+
+    if (hintRow) {
+      if (rowRemaining > 0 && finalTotal > 0) {
+        hintRow.style.display = '';
+        hintRow.querySelector('.remaining-hint-text').textContent =
+          `المتبقي بعد هذه الطريقة: ${fmt(rowRemaining)}`;
+      } else {
+        hintRow.style.display = 'none';
+      }
+    }
+  });
+
+  updatePaymentSplitSummary(finalTotal, paid, remaining);
+}
+
+function updatePaymentSplitSummary(finalTotal, paid, remaining) {
+  const finalEl = document.getElementById('split-final-total');
+  const paidEl = document.getElementById('split-paid-total');
+  const remainingEl = document.getElementById('split-remaining-total');
+  const remainingWrap = document.querySelector('.payment-split-summary .split-remaining');
+  if (!finalEl || !paidEl || !remainingEl) return;
+
+  finalEl.textContent = fmt(finalTotal);
+  paidEl.textContent = fmt(paid);
+  remainingEl.textContent = fmt(remaining);
+  if (remainingWrap) {
+    remainingWrap.classList.toggle('is-zero', remaining <= 0.009 && finalTotal > 0);
+    remainingWrap.classList.toggle('has-remaining', remaining > 0.009);
+  }
+}
+
+function fillRemainingPayment(code) {
+  const inputs = getPaymentInputsByCode(code);
+  if (!inputs.length) return;
+  const input = inputs[0];
+  const remaining = getPaymentRemainingExcluding(input);
+  if (remaining <= 0) {
+    showToast('لا يوجد متبقي — تم تغطية إجمالي الفاتورة', 'info');
+    return;
+  }
+  const current = parseFloat(input.value) || 0;
+  input.value = Math.round((current + remaining) * 100) / 100;
+  recalculate();
+}
+
+function bindServiceSearch() {
+  document.querySelectorAll('.service-search').forEach((input) => {
+    if (input.dataset.bound === '1') return;
+    input.dataset.bound = '1';
+    const cell = input.closest('.service-cell');
+    const suggest = cell?.querySelector('.service-suggest');
+    if (!suggest) return;
+
+    input.addEventListener('input', debounce(async () => {
+      const q = input.value.trim();
+      const row = input.closest('tr');
+      if (row?.querySelector('[data-field="service_id"]')) {
+        row.querySelector('[data-field="service_id"]').value = '';
+      }
+      if (q.length < 2) {
+        suggest.classList.add('d-none');
+        suggest.innerHTML = '';
+        return;
+      }
+      try {
+        const services = await searchCatalogServices(q);
+        renderServiceSuggestions(suggest, services, input);
+      } catch {
+        suggest.classList.add('d-none');
+      }
+    }, 250));
+
+    input.addEventListener('keydown', (e) => {
+      const items = suggest.querySelectorAll('.service-suggest-item');
+      if (!items.length || suggest.classList.contains('d-none')) return;
+      let active = suggest.querySelector('.service-suggest-item.active');
+      let index = active ? [...items].indexOf(active) : -1;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        index = Math.min(index + 1, items.length - 1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        index = Math.max(index - 1, 0);
+      } else if (e.key === 'Enter' && active) {
+        e.preventDefault();
+        active.click();
+        return;
+      } else if (e.key === 'Escape') {
+        suggest.classList.add('d-none');
+        return;
+      } else {
+        return;
+      }
+      items.forEach((el) => el.classList.remove('active'));
+      if (items[index]) items[index].classList.add('active');
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => {
+        suggest.classList.add('d-none');
+      }, 180);
+    });
+  });
+}
+
+async function searchCatalogServices(q) {
+  const params = new URLSearchParams({ search: q, limit: '15' });
+  if (currentPricingListId) params.set('price_list_id', currentPricingListId);
+  const res = await apiFetch(`${PRICING_API}/services?${params}`);
+  if (!res.ok) throw new Error('search failed');
+  return res.json();
+}
+
+function renderServiceSuggestions(container, services, input) {
+  if (!services.length) {
+    container.classList.add('d-none');
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = services
+    .map(
+      (svc) =>
+        `<button type="button" class="service-suggest-item w-100 text-start border-0 bg-transparent" data-id="${svc.id}" data-price="${svc.price}" data-unit="${escapeAttr(svc.unit || '')}" data-discountable="${svc.discountable ? '1' : '0'}">
+          <strong>${escapeHtml(svc.name)}</strong>
+          <span class="text-muted"> — ${fmt(Number(svc.price) || 0)} / ${escapeHtml(svc.unit || 'مرة')}</span>
+        </button>`
+    )
+    .join('');
+  container.classList.remove('d-none');
+  container.querySelectorAll('.service-suggest-item').forEach((btn) => {
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      applyServiceToRow(input.closest('tr'), {
+        id: Number(btn.dataset.id),
+        name: btn.querySelector('strong')?.textContent || '',
+        price: Number(btn.dataset.price) || 0,
+        unit: btn.dataset.unit || '',
+        discountable: btn.dataset.discountable === '1',
+      });
+      container.classList.add('d-none');
+    });
+  });
+}
+
+function applyServiceToRow(row, service) {
+  if (!row || !service) return;
+  const descInput = row.querySelector('[data-field="description"]');
+  const amountInput = row.querySelector('[data-field="amount"]');
+  const serviceIdInput = row.querySelector('[data-field="service_id"]');
+  if (descInput) descInput.value = service.name;
+  if (amountInput) amountInput.value = service.price || '';
+  if (serviceIdInput) serviceIdInput.value = service.id || '';
+  row.dataset.discountOverride = service.discountable ? 'true' : 'false';
+  recalculate();
 }
 
 function calcDaysBetween(fromDate, toDate) {
@@ -634,7 +868,9 @@ function collectFormData() {
     const receiptNum = row.querySelector('[data-field="receipt_number"]').value;
 
     if (desc || qty || amt) {
+      const serviceIdEl = row.querySelector('[data-field="service_id"]');
       const item = { description: desc, quantity: qty, amount: amt };
+      if (serviceIdEl?.value) item.service_id = Number(serviceIdEl.value);
       const override = row.dataset.discountOverride;
       if (override === 'true' || override === 'false') {
         item.discount_eligible_override = override === 'true';
@@ -768,6 +1004,7 @@ function updateSummaryDisplay(t) {
   document.getElementById('display_total_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
   document.getElementById('display_total_collected2').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
   document.getElementById('display_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
+  updatePaymentRowHints();
   updatePaymentValidationUI(t);
 }
 
@@ -1206,6 +1443,11 @@ async function loadInvoiceForEdit(id) {
       const row = rows[i];
       if (!row) continue;
       row.querySelector('[data-field="description"]').value = item.description || '';
+      const serviceIdEl = row.querySelector('[data-field="service_id"]');
+      if (serviceIdEl) serviceIdEl.value = item.service_id || '';
+      if (item.discountable_snapshot === false) row.dataset.discountOverride = 'false';
+      else if (item.discountable_snapshot === true) row.dataset.discountOverride = 'true';
+      else delete row.dataset.discountOverride;
       row.querySelector('[data-field="quantity"]').value = item.quantity || '';
       row.querySelector('[data-field="amount"]').value = item.amount || '';
       const pctField = row.querySelector('[data-field="discount_percent"]');
@@ -1539,19 +1781,23 @@ async function loadPaymentMethodsForm(values = {}) {
         return `<tr class="payment-method-row" data-method-code="${m.code}">
           <td class="fw-bold">${i + 1} - ${m.name}</td>
           <td><input type="number" step="0.01" min="0" class="form-control form-control-sm calc-trigger payment-method-input"
-            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${val}"></td>
-        </tr>`;
+            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${val}" placeholder="0.00"></td>
+          <td class="text-center"><button type="button" class="btn btn-outline-success btn-sm fw-bold pay-remaining-btn"
+            data-method-code="${m.code}">الباقي</button></td>
+        </tr>
+        <tr class="payment-row-remaining" style="display:none"><td colspan="3" class="remaining-hint-text py-1"></td></tr>`;
       })
       .join('');
 
     if (infoMethods.length) {
       html += infoMethods
-        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="2">ℹ️ ${m.name}</td></tr>`)
+        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="3">ℹ️ ${m.name}</td></tr>`)
         .join('');
     }
 
-    tbody.innerHTML = html || '<tr><td colspan="2" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
+    tbody.innerHTML = html || '<tr><td colspan="3" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
     bindCalcTriggers();
+    updatePaymentRowHints();
   } catch (err) {
     console.error(err);
   }
@@ -1841,6 +2087,7 @@ async function loadSettingsPage() {
     await loadPaymentMethodsForm();
     await loadContractedEntities();
     loadUsers();
+    if (can('settings.*')) await loadPricingSection();
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
   }
@@ -2309,6 +2556,338 @@ function debounce(fn, ms) {
   };
 }
 
+async function ensureDefaultPriceListId() {
+  if (currentPricingListId) return currentPricingListId;
+  try {
+    const res = await apiFetch(`${PRICING_API}/lists/default`);
+    if (!res.ok) return null;
+    const list = await res.json();
+    currentPricingListId = list.id;
+    return currentPricingListId;
+  } catch {
+    return null;
+  }
+}
+
+async function loadPricingSection() {
+  if (!can('settings.*')) return;
+  try {
+    const [listsRes, settingsRes, defaultRes] = await Promise.all([
+      apiFetch(`${PRICING_API}/lists?all=1`),
+      apiFetch(`${PRICING_API}/settings`),
+      apiFetch(`${PRICING_API}/lists/default`),
+    ]);
+    pricingListsCache = listsRes.ok ? await listsRes.json() : [];
+    const settings = settingsRes.ok ? await settingsRes.json() : {};
+    const defaultList = defaultRes.ok ? await defaultRes.json() : null;
+    currentPricingListId = defaultList?.id || pricingListsCache.find((l) => l.is_default)?.id || pricingListsCache[0]?.id || null;
+
+    const listSelect = document.getElementById('pricing-list-select');
+    if (listSelect) {
+      listSelect.innerHTML = pricingListsCache
+        .map((l) => `<option value="${l.id}" ${l.id === currentPricingListId ? 'selected' : ''}>${escapeHtml(l.name)}</option>`)
+        .join('');
+    }
+
+    document.getElementById('pricing-admin-fee-rate').value = settings.administrative_fee_rate ?? '12';
+    document.getElementById('pricing-file-opening-fee').value = settings.file_opening_fee ?? '50';
+    document.getElementById('pricing-ambulance-fee').value = settings.ambulance_rental_cairo ?? '3000';
+    document.getElementById('pricing-foreign-resident').value = settings.foreign_resident_multiplier ?? '150';
+    document.getElementById('pricing-foreign-non-resident').value = settings.foreign_non_resident_multiplier ?? '200';
+
+    await loadPricingCategories();
+    await loadPricingServices();
+    renderPricingStats(defaultList);
+  } catch (err) {
+    showToast('خطأ في تحميل الأسعار', 'danger');
+  }
+}
+
+function renderPricingStats(listMeta) {
+  const statsRow = document.getElementById('pricing-stats-row');
+  if (!statsRow) return;
+  const services = pricingServicesCache;
+  const discountableCount = services.filter((s) => s.discountable).length;
+  const nonDiscountableCount = services.filter((s) => !s.discountable).length;
+  statsRow.innerHTML = `
+    <div class="col-md-2"><div class="pricing-stat-box"><span>الأقسام</span><strong>${fmtInt(pricingCategoriesCache.length)}</strong></div></div>
+    <div class="col-md-2"><div class="pricing-stat-box"><span>الخدمات</span><strong>${fmtInt(services.length)}</strong></div></div>
+    <div class="col-md-2"><div class="pricing-stat-box"><span>تخضع للخصم</span><strong>${fmtInt(discountableCount)}</strong></div></div>
+    <div class="col-md-2"><div class="pricing-stat-box"><span>غير خاضعة</span><strong>${fmtInt(nonDiscountableCount)}</strong></div></div>
+    <div class="col-md-4"><div class="pricing-stat-box"><span>اللائحة الافتراضية</span><strong>${escapeHtml(listMeta?.name || '—')}</strong></div></div>`;
+  const note = document.getElementById('pricing-footer-note');
+  if (note) {
+    note.textContent = listMeta?.services_count
+      ? `إجمالي الخدمات في اللائحة: ${listMeta.services_count} — آخر تحديث: ${listMeta.updated_at ? new Date(listMeta.updated_at).toLocaleString('ar-EG') : '—'}`
+      : 'يمكنك استيراد ملف DOCX الكامل للائحة المالية لملء جميع الخدمات.';
+  }
+}
+
+async function loadPricingCategories() {
+  if (!currentPricingListId) return;
+  const res = await apiFetch(`${PRICING_API}/categories?price_list_id=${currentPricingListId}&all=1`);
+  pricingCategoriesCache = res.ok ? await res.json() : [];
+  const filter = document.getElementById('pricing-category-filter');
+  const editSelect = document.getElementById('service-edit-category');
+  const options = ['<option value="">— كل الأقسام —</option>']
+    .concat(pricingCategoriesCache.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`))
+    .join('');
+  if (filter) filter.innerHTML = options;
+  if (editSelect) {
+    editSelect.innerHTML = pricingCategoriesCache
+      .map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
+      .join('');
+  }
+}
+
+async function loadPricingServices() {
+  if (!currentPricingListId) return;
+  const search = document.getElementById('pricing-search')?.value?.trim() || '';
+  const categoryId = document.getElementById('pricing-category-filter')?.value || '';
+  const params = new URLSearchParams({ price_list_id: currentPricingListId, all: '1', limit: '500' });
+  if (search) params.set('search', search);
+  if (categoryId) params.set('category_id', categoryId);
+  const res = await apiFetch(`${PRICING_API}/services?${params}`);
+  pricingServicesCache = res.ok ? await res.json() : [];
+  renderPricingServicesTable();
+  renderPricingStats(pricingListsCache.find((l) => l.id === currentPricingListId));
+}
+
+function renderPricingServicesTable() {
+  const tbody = document.getElementById('pricing-services-tbody');
+  if (!tbody) return;
+  if (!pricingServicesCache.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">لا توجد خدمات — استورد ملف DOCX أو أضف خدمة يدوياً</td></tr>';
+    return;
+  }
+  tbody.innerHTML = pricingServicesCache
+    .map(
+      (svc) => `<tr class="${svc.is_active ? '' : 'inactive-row'}">
+        <td>${escapeHtml(svc.code)}</td>
+        <td>${escapeHtml(svc.category_name || '—')}</td>
+        <td>${escapeHtml(svc.name)}</td>
+        <td>${escapeHtml(svc.unit || 'مرة')}</td>
+        <td>${fmt(Number(svc.price) || 0)}</td>
+        <td>${svc.discountable ? 'نعم' : 'لا'}</td>
+        <td>${svc.administrative_fee_applicable ? 'نعم' : 'لا'}</td>
+        <td>${escapeHtml(svc.price_type || 'fixed')}</td>
+        <td><button type="button" class="btn btn-sm btn-outline-primary fw-bold" onclick="openServiceEditor(${svc.id})">تعديل</button></td>
+      </tr>`
+    )
+    .join('');
+}
+
+async function onPricingListChange() {
+  currentPricingListId = Number(document.getElementById('pricing-list-select').value) || null;
+  await loadPricingCategories();
+  await loadPricingServices();
+}
+
+async function savePricingSettings() {
+  try {
+    const body = {
+      administrative_fee_rate: document.getElementById('pricing-admin-fee-rate').value,
+      file_opening_fee: document.getElementById('pricing-file-opening-fee').value,
+      ambulance_rental_cairo: document.getElementById('pricing-ambulance-fee').value,
+      foreign_resident_multiplier: document.getElementById('pricing-foreign-resident').value,
+      foreign_non_resident_multiplier: document.getElementById('pricing-foreign-non-resident').value,
+    };
+    const res = await apiFetch(`${PRICING_API}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast('تم حفظ إعدادات الأسعار', 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function exportPricingExcel() {
+  if (!currentPricingListId) return;
+  window.open(`${PRICING_API}/services-export?price_list_id=${currentPricingListId}`, '_blank');
+}
+
+async function exportPricingCsv() {
+  if (!currentPricingListId) return;
+  window.open(`${PRICING_API}/services-export?price_list_id=${currentPricingListId}&format=csv`, '_blank');
+}
+
+async function importPricingFile(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append('file', file);
+  form.append('replace_existing', 'false');
+  try {
+    const lower = file.name.toLowerCase();
+    let endpoint = `${PRICING_API}/import-docx`;
+    let res;
+    if (lower.endsWith('.json')) {
+      endpoint = `${PRICING_API}/import-json`;
+      const text = await file.text();
+      res = await apiFetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: text,
+      });
+    } else if (lower.endsWith('.csv')) {
+      const form = new FormData();
+      form.append('file', file);
+      if (currentPricingListId) form.append('price_list_id', currentPricingListId);
+      res = await apiFetch(`${PRICING_API}/import-csv`, { method: 'POST', body: form });
+    } else {
+      res = await apiFetch(endpoint, { method: 'POST', body: form });
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(`تم الاستيراد: ${data.services_count || data.serviceCount || data.imported || 0} خدمة`, 'success');
+    e.target.value = '';
+    await loadPricingSection();
+    await loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
+    e.target.value = '';
+  }
+}
+
+async function cloneCurrentPriceList() {
+  if (!currentPricingListId) return;
+  const name = prompt('اسم النسخة الجديدة من اللائحة:', 'لائحة جديدة');
+  if (!name) return;
+  try {
+    const res = await apiFetch(`${PRICING_API}/lists/${currentPricingListId}/clone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, code: `PL-${Date.now()}`, is_default: false }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast('تم إنشاء نسخة جديدة من اللائحة', 'success');
+    await loadPricingSection();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function openServiceEditor(id = null) {
+  if (!serviceEditModal) {
+    serviceEditModal = new bootstrap.Modal(document.getElementById('service-edit-modal'));
+  }
+  document.getElementById('service-edit-id').value = id || '';
+  document.getElementById('service-edit-title').textContent = id ? 'تعديل خدمة' : 'إضافة خدمة';
+  document.getElementById('service-edit-reason').value = '';
+  document.getElementById('service-edit-components').innerHTML = '';
+  document.getElementById('service-edit-components-wrap').style.display = 'none';
+
+  if (id) {
+    const res = await apiFetch(`${PRICING_API}/services/${id}`);
+    const svc = await res.json();
+    if (!res.ok) return showToast(svc.error || 'خطأ', 'danger');
+    document.getElementById('service-edit-category').value = svc.category_id || '';
+    document.getElementById('service-edit-code').value = svc.code || '';
+    document.getElementById('service-edit-name').value = svc.name || '';
+    document.getElementById('service-edit-unit').value = svc.unit || 'مرة';
+    document.getElementById('service-edit-price').value = svc.price ?? 0;
+    document.getElementById('service-edit-price-type').value = svc.price_type || 'fixed';
+    document.getElementById('service-edit-discountable').checked = !!svc.discountable;
+    document.getElementById('service-edit-admin-fee').checked = !!svc.administrative_fee_applicable;
+    document.getElementById('service-edit-active').checked = svc.is_active !== false;
+    document.getElementById('service-edit-notes').value = svc.notes || '';
+    renderServiceComponentsEditor(svc.components || []);
+    toggleServiceComponentsEditor();
+  } else {
+    document.getElementById('service-edit-code').value = '';
+    document.getElementById('service-edit-name').value = '';
+    document.getElementById('service-edit-unit').value = 'مرة';
+    document.getElementById('service-edit-price').value = '';
+    document.getElementById('service-edit-price-type').value = 'fixed';
+    document.getElementById('service-edit-discountable').checked = true;
+    document.getElementById('service-edit-admin-fee').checked = true;
+    document.getElementById('service-edit-active').checked = true;
+    document.getElementById('service-edit-notes').value = '';
+  }
+  serviceEditModal.show();
+}
+
+function toggleServiceComponentsEditor() {
+  const type = document.getElementById('service-edit-price-type').value;
+  const wrap = document.getElementById('service-edit-components-wrap');
+  wrap.style.display = type === 'composite' ? '' : 'none';
+}
+
+function renderServiceComponentsEditor(components = []) {
+  const container = document.getElementById('service-edit-components');
+  if (!components.length) {
+    components = [
+      { code: 'SURGEON', name: 'أجر الجراح', amount: 0, discountable: false, administrative_fee_applicable: false },
+      { code: 'ASSISTANT', name: 'أجر المساعد', amount: 0, discountable: false, administrative_fee_applicable: false },
+      { code: 'ANESTHESIA', name: 'أجر التخدير', amount: 0, discountable: false, administrative_fee_applicable: false },
+      { code: 'TOTAL', name: 'الإجمالي', amount: 0, discountable: true, administrative_fee_applicable: true, is_total: true },
+    ];
+  }
+  container.innerHTML = components
+    .map(
+      (c, i) => `<div class="row g-1 mb-1 component-row" data-index="${i}">
+        <div class="col-md-4"><input class="form-control form-control-sm fw-bold comp-name" value="${escapeAttr(c.name || '')}"></div>
+        <div class="col-md-3"><input type="number" step="0.01" class="form-control form-control-sm fw-bold comp-amount" value="${c.amount ?? 0}"></div>
+        <div class="col-md-2"><label class="small"><input type="checkbox" class="comp-discountable" ${c.discountable !== false ? 'checked' : ''}> خصم</label></div>
+        <div class="col-md-2"><label class="small"><input type="checkbox" class="comp-admin" ${c.administrative_fee_applicable !== false ? 'checked' : ''}> إداري</label></div>
+        <div class="col-md-1"><label class="small"><input type="checkbox" class="comp-total" ${c.is_total ? 'checked' : ''}> ∑</label></div>
+      </div>`
+    )
+    .join('');
+}
+
+function collectServiceComponentsFromEditor() {
+  return [...document.querySelectorAll('#service-edit-components .component-row')].map((row, sort_order) => ({
+    name: row.querySelector('.comp-name')?.value || '',
+    amount: Number(row.querySelector('.comp-amount')?.value) || 0,
+    discountable: row.querySelector('.comp-discountable')?.checked ?? true,
+    administrative_fee_applicable: row.querySelector('.comp-admin')?.checked ?? true,
+    is_total: row.querySelector('.comp-total')?.checked ?? false,
+    sort_order,
+  }));
+}
+
+async function saveServiceEditor() {
+  const id = document.getElementById('service-edit-id').value;
+  const body = {
+    category_id: Number(document.getElementById('service-edit-category').value) || null,
+    code: document.getElementById('service-edit-code').value.trim(),
+    name: document.getElementById('service-edit-name').value.trim(),
+    unit: document.getElementById('service-edit-unit').value.trim() || 'مرة',
+    price: Number(document.getElementById('service-edit-price').value) || 0,
+    price_type: document.getElementById('service-edit-price-type').value,
+    discountable: document.getElementById('service-edit-discountable').checked,
+    administrative_fee_applicable: document.getElementById('service-edit-admin-fee').checked,
+    is_active: document.getElementById('service-edit-active').checked,
+    notes: document.getElementById('service-edit-notes').value,
+    change_reason: document.getElementById('service-edit-reason').value || 'تعديل من لوحة التحكم',
+    price_list_id: currentPricingListId,
+  };
+  if (body.price_type === 'composite') body.components = collectServiceComponentsFromEditor();
+  if (!body.name) return showToast('اسم الخدمة مطلوب', 'warning');
+
+  try {
+    const res = await apiFetch(id ? `${PRICING_API}/services/${id}` : `${PRICING_API}/services`, {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    serviceEditModal?.hide();
+    showToast('تم حفظ الخدمة', 'success');
+    await loadPricingServices();
+    await loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
 window.loadInvoiceForEdit = loadInvoiceForEdit;
 window.deleteInvoice = deleteInvoice;
 window.quickApproveInvoice = quickApproveInvoice;
@@ -2319,3 +2898,4 @@ window.saveLookupItem = saveLookupItem;
 window.toggleLookupItem = toggleLookupItem;
 window.deleteLookupItem = deleteLookupItem;
 window.saveEntityItem = saveEntityItem;
+window.openServiceEditor = openServiceEditor;

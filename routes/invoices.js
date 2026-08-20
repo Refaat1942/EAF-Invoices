@@ -8,11 +8,9 @@ const {
   approveInvoice,
   deleteInvoice,
   getReportsSummary,
+  prepareCalculationData,
 } = require('../services/invoiceService');
 const { listInvoiceTypes } = require('../services/invoiceTypeService');
-const { listDiscountExclusions } = require('../services/discountExclusionService');
-const { getEffectiveDiscountPercent } = require('../services/contractedEntityService');
-const { getStayTypeById } = require('../services/stayTypeService');
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
 const { exportExcelBuffer } = require('../services/reportService');
 const { buildInvoiceHtml } = require('../services/pdfService');
@@ -61,28 +59,8 @@ router.post('/calculate', requirePermission('invoices.view'), async (req, res) =
     if (!data.stay_days && data.admission_date && data.discharge_date) {
       data.stay_days = calculateStayDays(data.admission_date, data.discharge_date);
     }
-    data.discount_exclusions = await listDiscountExclusions(true);
-    if (data.invoice_type === 'contracted' && data.contracted_entity_id && !data.discount_percent) {
-      data.discount_percent = await getEffectiveDiscountPercent(Number(data.contracted_entity_id));
-    }
-    if (Array.isArray(data.stay_entries)) {
-      data.stay_entries = await Promise.all(
-        data.stay_entries.map(async (entry) => {
-          const next = { ...entry };
-          if (next.stay_type_id) {
-            const stayType = await getStayTypeById(Number(next.stay_type_id));
-            if (stayType) {
-              next.stay_type_name = stayType.name;
-              if (next.daily_rate === undefined || next.daily_rate === '' || next.daily_rate === null) {
-                next.daily_rate = stayType.daily_rate;
-              }
-            }
-          }
-          return next;
-        })
-      );
-    }
-    res.json(calculateInvoiceTotals(data));
+    const calcData = await prepareCalculationData(data);
+    res.json(calculateInvoiceTotals(calcData));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

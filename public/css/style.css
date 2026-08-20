@@ -415,6 +415,67 @@ body {
 }
 
 .payment-methods-table {
+  font-size: 0.92rem;
+}
+
+.payment-split-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  background: #fff;
+  border: 2px solid #dee2e6;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+
+.payment-split-summary .split-item {
+  flex: 1 1 140px;
+  text-align: center;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  background: #f8f9fa;
+}
+
+.payment-split-summary .split-item span {
+  display: block;
+  font-size: 0.78rem;
+  color: #6c757d;
+  margin-bottom: 0.15rem;
+}
+
+.payment-split-summary .split-item strong {
+  font-size: 1.05rem;
+}
+
+.payment-split-summary .split-remaining {
+  background: #fff8e1;
+  border: 1px solid #ffc107;
+}
+
+.payment-split-summary .split-remaining.is-zero strong {
+  color: #198754;
+}
+
+.payment-split-summary .split-remaining.has-remaining strong {
+  color: #b58100;
+}
+
+.payment-methods-table .pay-remaining-btn {
+  min-width: 72px;
+}
+
+.payment-methods-table .payment-row-remaining td {
+  font-size: 0.78rem;
+  color: #856404;
+  background: #fffdf5;
+  border-top: none;
+  padding-top: 0;
+}
+
+.payment-methods-table input.payment-method-input:focus {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
+}
   font-size: 0.88rem;
 }
 
@@ -443,6 +504,59 @@ body {
 
 .patient-report-table {
   font-size: 0.82rem;
+}
+
+.service-cell {
+  position: relative;
+  min-width: 180px;
+}
+
+.service-suggest {
+  position: absolute;
+  z-index: 1050;
+  top: 100%;
+  right: 0;
+  left: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #ced4da;
+  border-radius: 0.375rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+.service-suggest-item {
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.service-suggest-item:hover,
+.service-suggest-item.active {
+  background: #e7f1ff;
+}
+
+.pricing-stat-box {
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  text-align: center;
+}
+
+.pricing-stat-box span {
+  display: block;
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+
+.pricing-stat-box strong {
+  font-size: 1.05rem;
+}
+
+#pricing-services-tbody tr.inactive-row {
+  opacity: 0.55;
 }
 
 .patient-report-table th,

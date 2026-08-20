@@ -471,6 +471,156 @@ async function runMigrations() {
   await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
   await query(`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'reviewer', 'user'))`);
 
+  // Phase 9 — service pricing catalog with versioning
+  await query(`
+    CREATE TABLE IF NOT EXISTS price_lists (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      code VARCHAR(100) UNIQUE NOT NULL,
+      fiscal_year_start INTEGER,
+      fiscal_year_end INTEGER,
+      effective_from DATE,
+      effective_to DATE,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      is_default BOOLEAN NOT NULL DEFAULT FALSE,
+      cloned_from_id INTEGER REFERENCES price_lists(id) ON DELETE SET NULL,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_by_name TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS service_categories (
+      id SERIAL PRIMARY KEY,
+      price_list_id INTEGER NOT NULL REFERENCES price_lists(id) ON DELETE CASCADE,
+      parent_id INTEGER REFERENCES service_categories(id) ON DELETE SET NULL,
+      name VARCHAR(255) NOT NULL,
+      code VARCHAR(100) NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(price_list_id, code)
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS services (
+      id SERIAL PRIMARY KEY,
+      price_list_id INTEGER NOT NULL REFERENCES price_lists(id) ON DELETE CASCADE,
+      category_id INTEGER REFERENCES service_categories(id) ON DELETE SET NULL,
+      code VARCHAR(100) NOT NULL,
+      name VARCHAR(500) NOT NULL,
+      description TEXT DEFAULT '',
+      unit VARCHAR(50) DEFAULT 'مرة',
+      price NUMERIC(14,2) DEFAULT 0,
+      price_type VARCHAR(30) NOT NULL DEFAULT 'fixed',
+      variable_price_note TEXT DEFAULT '',
+      discountable BOOLEAN NOT NULL DEFAULT TRUE,
+      administrative_fee_applicable BOOLEAN NOT NULL DEFAULT TRUE,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      notes TEXT DEFAULT '',
+      metadata JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(price_list_id, code)
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS service_price_components (
+      id SERIAL PRIMARY KEY,
+      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      code VARCHAR(100) DEFAULT '',
+      name VARCHAR(255) NOT NULL,
+      amount NUMERIC(14,2) DEFAULT 0,
+      discountable BOOLEAN,
+      administrative_fee_applicable BOOLEAN,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_total BOOLEAN NOT NULL DEFAULT FALSE
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS service_price_tiers (
+      id SERIAL PRIMARY KEY,
+      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      tier_key VARCHAR(100) NOT NULL,
+      tier_label VARCHAR(255) NOT NULL,
+      unit VARCHAR(50) DEFAULT 'مرة',
+      price NUMERIC(14,2) DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(service_id, tier_key)
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS service_price_history (
+      id SERIAL PRIMARY KEY,
+      service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+      price_list_id INTEGER REFERENCES price_lists(id) ON DELETE SET NULL,
+      field_name VARCHAR(100) DEFAULT 'price',
+      old_value TEXT,
+      new_value TEXT,
+      old_price NUMERIC(14,2),
+      new_price NUMERIC(14,2),
+      effective_from DATE,
+      effective_to DATE,
+      changed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      changed_by_name TEXT DEFAULT '',
+      change_reason TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  const invoiceItemPricingColumns = [
+    'service_id INTEGER REFERENCES services(id) ON DELETE SET NULL',
+    'service_code_snapshot TEXT DEFAULT \'\'',
+    'service_name_snapshot TEXT DEFAULT \'\'',
+    'unit_snapshot VARCHAR(50) DEFAULT \'\'',
+    'unit_price_snapshot NUMERIC(14,2) DEFAULT 0',
+    'price_type_snapshot VARCHAR(30) DEFAULT \'\'',
+    'tier_key_snapshot VARCHAR(100) DEFAULT \'\'',
+    'discountable_snapshot BOOLEAN',
+    'administrative_fee_applicable_snapshot BOOLEAN',
+    'admin_fee_amount_snapshot NUMERIC(14,2) DEFAULT 0',
+    'admin_fee_percent_snapshot NUMERIC(6,2) DEFAULT 0',
+    'price_list_id_snapshot INTEGER',
+    'price_list_name_snapshot TEXT DEFAULT \'\'',
+    'composite_components_snapshot JSONB DEFAULT \'[]\'::jsonb',
+  ];
+  for (const col of invoiceItemPricingColumns) {
+    const name = col.split(' ')[0];
+    await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
+  }
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_services_category ON services(category_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_services_price_list ON services(price_list_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_service_categories_list ON service_categories(price_list_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_invoice_items_service ON invoice_items(service_id)`);
+
+  const pricingSettings = [
+    ['administrative_fee_rate', '12'],
+    ['file_opening_fee', '50'],
+    ['ambulance_rental_cairo', '3000'],
+    ['foreign_resident_multiplier', '150'],
+    ['foreign_non_resident_multiplier', '200'],
+    ['foreign_currency_discount_percent', '15'],
+  ];
+  for (const [key, value] of pricingSettings) {
+    await query(
+      `INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+      [key, value]
+    );
+  }
+
+  const { seedDefaultPriceList } = require('../database/seeds/seedPriceList');
+  await seedDefaultPriceList();
+
   await seedLookupTables();
 }
 

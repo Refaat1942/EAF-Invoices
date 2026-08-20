@@ -1,0 +1,115 @@
+{
+  "price_list": {
+    "name": "لائحة 2026-2027",
+    "code": "PL-2026-2027",
+    "fiscal_year_start": 2026,
+    "fiscal_year_end": 2027,
+    "effective_from": "2026-07-01",
+    "effective_to": "2027-06-30",
+    "notes": "اللائحة المالية لمركز تأهيل العجوزة 2026-2027"
+  },
+  "settings": {
+    "administrative_fee_rate": "12",
+    "file_opening_fee": "50",
+    "ambulance_rental_cairo": "3000",
+    "foreign_resident_multiplier": "150",
+    "foreign_non_resident_multiplier": "200",
+    "foreign_currency_discount_percent": "15"
+  },
+  "categories": [
+    { "code": "PROSTHETICS", "name": "مصنع الأجهزة التعويضية", "sort_order": 1 },
+    { "code": "MEDICAL_EXAMS", "name": "الكشوفات الطبية", "sort_order": 2 },
+    { "code": "STAMPS", "name": "الدمغات الطبية", "sort_order": 3 },
+    { "code": "ACCOMMODATION", "name": "الإقامات والرعاية المركزة", "sort_order": 4 },
+    { "code": "COMPANION", "name": "إقامة المرافق", "sort_order": 5 },
+    { "code": "NURSING", "name": "النقطة التمريضية ومساعد التمريض", "sort_order": 6 },
+    { "code": "ICU_SERVICES", "name": "خدمات الرعاية المركزة", "sort_order": 7 },
+    { "code": "PHYSIO", "name": "العلاج الطبيعي والتأهيلي", "sort_order": 8 },
+    { "code": "PHYSIO_VIP", "name": "العلاج الطبيعي VIP", "sort_order": 9 },
+    { "code": "PHYSIO_DEVICES", "name": "أجهزة العلاج الطبيعي", "sort_order": 10 },
+    { "code": "SHOCKWAVE", "name": "الموجات التصادمية", "sort_order": 11 },
+    { "code": "AQUATIC", "name": "العلاج المائي واستعادة اللياقة", "sort_order": 12 },
+    { "code": "NON_PHARMA", "name": "وحدة العلاج اللادوائي والتخسيس", "sort_order": 13 },
+    { "code": "SPECIAL_NEEDS_GROUP", "name": "الأطفال ذوي الاحتياجات الخاصة – مجموعات", "sort_order": 14 },
+    { "code": "SPECIAL_NEEDS_IND", "name": "الأطفال ذوي الاحتياجات الخاصة – جلسات منفردة", "sort_order": 15 },
+    { "code": "SPINE_CENTER", "name": "عمليات العمود الفقري – حالات المركز", "sort_order": 16 },
+    { "code": "OR_DEVICES", "name": "الأجهزة المعاونة داخل غرفة العمليات", "sort_order": 17 },
+    { "code": "SPINE_BUILDING", "name": "الخدمات الطبية بمبنى العمود الفقري", "sort_order": 18 },
+    { "code": "SPINE_SPECIAL", "name": "عمليات العمود الفقري – حالات خاصة", "sort_order": 19 },
+    { "code": "RF_INJECTION", "name": "وحدة التردد الحراري والحقن", "sort_order": 20 },
+    { "code": "OUTPATIENT", "name": "العيادات الخارجية المجمعة", "sort_order": 21 },
+    { "code": "PROCTOLOGY", "name": "عيادة التأهيل الشرجي / الأوزون", "sort_order": 22 },
+    { "code": "SPINAL_STIM", "name": "عيادة تحفيز الحبل الشوكي", "sort_order": 23 },
+    { "code": "DENTAL", "name": "الأسنان", "sort_order": 24 },
+    { "code": "OPHTHALMOLOGY", "name": "العيون", "sort_order": 25 },
+    { "code": "ENT", "name": "الأنف والأذن", "sort_order": 26 },
+    { "code": "AUDIOLOGY", "name": "السمعيات والاتزان", "sort_order": 27 },
+    { "code": "SPEECH", "name": "التخاطب", "sort_order": 28 },
+    { "code": "SPEECH_ORAL", "name": "العلاج الفمي والكلامي للتخاطب", "sort_order": 29 },
+    { "code": "PLASTIC", "name": "جراحة التجميل", "sort_order": 30 },
+    { "code": "DERMA", "name": "Derma Center", "sort_order": 31 },
+    { "code": "ORTHOPEDICS", "name": "العظام والجبس والجبائر", "sort_order": 32 },
+    { "code": "EMG", "name": "رسم العصب والعضلات وبصمة القدم والحجامة", "sort_order": 33 },
+    { "code": "UROLOGY", "name": "المسالك البولية", "sort_order": 34 },
+    { "code": "OBGYN", "name": "النساء والتوليد", "sort_order": 35 },
+    { "code": "DIABETIC_FOOT", "name": "القدم السكري والجروح", "sort_order": 36 },
+    { "code": "VASCULAR", "name": "جراحة الأوعية الدموية", "sort_order": 37 },
+    { "code": "RADIOLOGY", "name": "الأشعة والتصوير الطبي", "sort_order": 38 },
+    { "code": "LAB", "name": "المعمل والتحاليل الطبية", "sort_order": 39 },
+    { "code": "BLOOD_BANK", "name": "خدمات بنك الدم", "sort_order": 40 },
+    { "code": "GENERAL", "name": "رسوم عامة وخدمات إدارية", "sort_order": 41 }
+  ],
+  "services": [
+    { "category_code": "MEDICAL_EXAMS", "code": "EXAM-SPECIALIST", "name": "كشف أخصائي", "unit": "كشف", "price": 350, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "MEDICAL_EXAMS", "code": "EXAM-CONSULTANT", "name": "كشف استشاري", "unit": "كشف", "price": 500, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "MEDICAL_EXAMS", "code": "EXAM-FOREIGN-EXPERT", "name": "خبير أجنبي", "unit": "كشف", "price": 4000, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+
+    { "category_code": "ACCOMMODATION", "code": "STAY-ICU-SUITE", "name": "رعاية مركزة جناح", "unit": "يوم", "price": 7000, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-ICU-ROOM", "name": "رعاية مركزة غرفة", "unit": "يوم", "price": 6000, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-PALLIATIVE-SUITE", "name": "رعاية تلطيفية جناح", "unit": "يوم", "price": 4500, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-PALLIATIVE-ROOM", "name": "رعاية تلطيفية غرفة", "unit": "يوم", "price": 3500, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-VIP", "name": "VIP", "unit": "يوم", "price": 5500, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-LARGE-SUITE-PREMIUM", "name": "جناح كبير مميز", "unit": "يوم", "price": 4500, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-PREMIUM-ROOM", "name": "غرفة مميزة", "unit": "يوم", "price": 3500, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-LARGE-SUITE", "name": "جناح كبير", "unit": "يوم", "price": 2000, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-SMALL-SUITE", "name": "جناح صغير", "unit": "يوم", "price": 1700, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-SINGLE-ROOM", "name": "غرفة فردية", "unit": "يوم", "price": 1200, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ACCOMMODATION", "code": "STAY-DOUBLE-ROOM", "name": "غرفة مزدوجة", "unit": "يوم", "price": 1000, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+
+    { "category_code": "COMPANION", "code": "COMPANION-ROOM", "name": "مرافق غرفة", "unit": "يوم", "price": 600, "price_type": "fixed", "discountable": false, "administrative_fee_applicable": true, "notes": "فرق الدرجة لا يخضع للخصم" },
+    { "category_code": "COMPANION", "code": "COMPANION-SUITE", "name": "مرافق جناح", "unit": "يوم", "price": 900, "price_type": "fixed", "discountable": false, "administrative_fee_applicable": true, "notes": "فرق الدرجة لا يخضع للخصم" },
+
+    { "category_code": "NURSING", "code": "NURSING-POINT", "name": "نقطة تمريض", "unit": "يوم", "price": 950, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "NURSING", "code": "NURSE-AIDE-24H", "name": "مساعد تمريض 24 ساعة", "unit": "24 ساعة", "price": 750, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "NURSING", "code": "NURSE-AIDE-18H", "name": "مساعد تمريض 18 ساعة", "unit": "18 ساعة", "price": 560, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "NURSING", "code": "NURSE-AIDE-12H", "name": "مساعد تمريض 12 ساعة", "unit": "12 ساعة", "price": 375, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "NURSING", "code": "NURSE-AIDE-6H", "name": "مساعد تمريض 6 ساعات", "unit": "6 ساعات", "price": 200, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+
+    { "category_code": "ICU_SERVICES", "code": "ICU-OXYGEN", "name": "أكسجين", "unit": "ساعة", "price": 100, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ICU_SERVICES", "code": "ICU-VENT", "name": "Vent", "unit": "يوم", "price": 1500, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ICU_SERVICES", "code": "ICU-CVC", "name": "قسطرة وريد مركزية", "unit": "مرة", "price": 5000, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "ICU_SERVICES", "code": "ICU-BLOOD-TRANSFER", "name": "نقل دم ومشتقاته", "unit": "مرة", "price": 1500, "price_type": "fixed", "discountable": false, "administrative_fee_applicable": false },
+
+    { "category_code": "SHOCKWAVE", "code": "SW-1-PART", "name": "Shock Wave جزء واحد", "unit": "جزء", "price": 750, "price_type": "tiered", "discountable": true, "administrative_fee_applicable": true,
+      "tiers": [{ "tier_key": "parts_1", "tier_label": "جزء واحد", "unit": "جزء", "price": 750 }] },
+    { "category_code": "SHOCKWAVE", "code": "SW-2-PARTS", "name": "Shock Wave جزئين", "unit": "جزئين", "price": 1200, "price_type": "tiered", "discountable": true, "administrative_fee_applicable": true,
+      "tiers": [{ "tier_key": "parts_2", "tier_label": "جزئين", "unit": "جزئين", "price": 1200 }] },
+
+    { "category_code": "GENERAL", "code": "FILE-OPENING", "name": "رسوم فتح الملف أول زيارة", "unit": "مرة", "price": 50, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+    { "category_code": "GENERAL", "code": "AMBULANCE-CAIRO", "name": "إيجار سيارة الإسعاف داخل القاهرة", "unit": "مرة", "price": 3000, "price_type": "fixed", "discountable": true, "administrative_fee_applicable": true },
+
+    { "category_code": "BLOOD_BANK", "code": "BLOOD-BANK-SERVICE", "name": "خدمات بنك الدم", "unit": "مرة", "price": 0, "price_type": "variable", "discountable": false, "administrative_fee_applicable": false, "variable_price_note": "متغير السعر حسب اللائحة" },
+
+    { "category_code": "SPINE_CENTER", "code": "SPINE-OP-COMPOSITE", "name": "عملية عمود فقري – حالة المركز", "unit": "عملية", "price": 0, "price_type": "composite", "discountable": true, "administrative_fee_applicable": true,
+      "components": [
+        { "code": "SURGEON", "name": "أجر الجراح", "amount": 0, "discountable": false, "administrative_fee_applicable": false },
+        { "code": "ASSISTANT", "name": "أجر المساعد", "amount": 0, "discountable": false, "administrative_fee_applicable": false },
+        { "code": "ANESTHESIA", "name": "أجر التخدير", "amount": 0, "discountable": false, "administrative_fee_applicable": false },
+        { "code": "OR-OPEN", "name": "فتح العمليات", "amount": 0, "discountable": true, "administrative_fee_applicable": true },
+        { "code": "STAY-SUP", "name": "الإقامة والإشراف", "amount": 0, "discountable": true, "administrative_fee_applicable": true },
+        { "code": "SUPPLIES", "name": "الأدوية والمستهلكات", "amount": 0, "discountable": false, "administrative_fee_applicable": false },
+        { "code": "TOTAL", "name": "الإجمالي", "amount": 0, "discountable": true, "administrative_fee_applicable": true }
+      ]
+    }
+  ]
+}
