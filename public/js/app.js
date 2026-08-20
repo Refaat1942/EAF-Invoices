@@ -299,7 +299,6 @@ function bindEvents() {
 
   document.getElementById('file_number').addEventListener('blur', loadPatientBalance);
   document.getElementById('edit-patient-balance-btn').addEventListener('click', editPatientBalance);
-  document.getElementById('apply-patient-credit-btn')?.addEventListener('click', applyPatientCreditToAllRows);
   document.getElementById('new-user-role').addEventListener('change', () => {
     renderPermissionCheckboxes('new-user-permissions', getDefaultPermissionsForRole(document.getElementById('new-user-role').value));
   });
@@ -939,26 +938,72 @@ async function loadPermissionCatalog() {
   }
 }
 
-function applyPatientCreditToAllRows() {
-  let applied = 0;
+function hasPatientFileNumber() {
+  return Boolean(document.getElementById('file_number')?.value?.trim());
+}
+
+function autoApplyPatientCreditToRows() {
+  if (!hasPatientFileNumber()) {
+    document.querySelectorAll('#items-tbody tr [data-field="patient_credit_applied"]').forEach((input) => {
+      input.value = '';
+      input.readOnly = false;
+      input.classList.remove('bg-light');
+    });
+    return false;
+  }
+
+  let changed = false;
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
     if (row.dataset.staySync) return;
     const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
     const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
     const lineTotal = Math.round(qty * amt * 100) / 100;
-    if (!desc || lineTotal <= 0) return;
     const creditInput = row.querySelector('[data-field="patient_credit_applied"]');
     if (!creditInput) return;
-    creditInput.value = lineTotal;
-    applied += 1;
+
+    creditInput.readOnly = true;
+    creditInput.classList.add('bg-light');
+
+    if (!desc || lineTotal <= 0) {
+      if (creditInput.value !== '') {
+        creditInput.value = '';
+        changed = true;
+      }
+      return;
+    }
+
+    const nextValue = String(lineTotal);
+    if (creditInput.value !== nextValue) {
+      creditInput.value = nextValue;
+      changed = true;
+    }
   });
-  if (!applied) {
-    showToast('أضف خدمة في البيان أولاً (اسم + كمية + سعر)', 'warning');
-    return;
+  return changed;
+}
+
+function autoFillCashForInvoiceRemaining(totals) {
+  if (!hasPatientFileNumber()) return false;
+  const remaining = Number(totals?.remaining ?? totals?.payment_validation?.difference_raw) || 0;
+  const cashInput = getPaymentInputsByCode('cash')[0];
+  if (!cashInput) return false;
+
+  if (remaining > 0.009) {
+    const target = Math.round(remaining * 100) / 100;
+    const current = parseFloat(cashInput.value) || 0;
+    if (Math.abs(current - target) > 0.009) {
+      cashInput.value = target;
+      return true;
+    }
+  } else if (remaining <= 0.009 && (parseFloat(cashInput.value) || 0) > 0) {
+    const creditTotal = Number(totals?.patient_credit_applied) || sumLinePatientCredits();
+    const finalTotal = Number(totals?.final_total) || 0;
+    if (creditTotal >= finalTotal - 0.009) {
+      cashInput.value = '';
+      return true;
+    }
   }
-  recalculate();
-  showToast(`تم تطبيق خصم الرصيد على ${applied} بند — راجع «خصم من رصيد المريض» في المدفوعات`, 'success');
+  return false;
 }
 
 function sumLinePatientCredits() {
@@ -1017,7 +1062,8 @@ async function loadPatientBalance() {
     hint.style.display = '';
     document.getElementById('edit-patient-balance-btn').style.display = can('patients.manage') ? '' : 'none';
     creditWrap.style.display = fileNumber ? '' : 'none';
-    updatePatientCreditSummary();
+    autoApplyPatientCreditToRows();
+    await recalculate({ skipAutoCredit: true });
   } catch {
     hint.style.display = 'none';
   }
@@ -1183,7 +1229,9 @@ function collectMethodPayments() {
   return entries;
 }
 
-async function recalculate() {
+async function recalculate(options = {}) {
+  if (!options.skipAutoCredit) autoApplyPatientCreditToRows();
+
   const data = collectFormData();
 
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
@@ -1208,6 +1256,11 @@ async function recalculate() {
     updateCalculationValidationUI(totals);
     applyItemDiscountPercents((totals.items || []).filter((item) => !item.is_stay_entry));
     updateStayEntriesFromTotals(totals.stay_entries || []);
+
+    if (!options.skipAutoCash && autoFillCashForInvoiceRemaining(totals)) {
+      return recalculate({ skipAutoCredit: true, skipAutoCash: true });
+    }
+
     return totals;
   } catch (err) {
     console.error(err);
