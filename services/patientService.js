@@ -59,11 +59,6 @@ async function applyPatientCredit(client, invoice) {
   }
 
   const currentBalance = Number(patient.account_balance) || 0;
-  if (credit > currentBalance) {
-    throw new Error(
-      `رصيد المريض (${currentBalance.toLocaleString('ar-EG')}) أقل من المبلغ المطلوب خصمه (${credit.toLocaleString('ar-EG')})`
-    );
-  }
 
   const newBalance = Math.round((currentBalance - credit) * 100) / 100;
   await client.query(

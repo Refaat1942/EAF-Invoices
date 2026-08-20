@@ -212,6 +212,7 @@ function createRow(index) {
       <input type="text" class="desc-input calc-trigger service-search" data-field="description" autocomplete="off" placeholder="ابحث عن خدمة من اللائحة...">
       <div class="service-suggest d-none"></div>
     </td>
+    <td><input type="number" step="0.01" min="0" class="calc-trigger patient-credit-input" data-field="patient_credit_applied" value="" placeholder="0" title="خصم من رصيد المريض"></td>
     <td><input type="number" step="0.01" class="pay-amt calc-trigger" data-field="pay_amount" value=""></td>
     <td><input type="text" class="pay-num calc-trigger" data-field="receipt_number"></td>
     <td><input type="date" class="pay-date calc-trigger" data-field="receipt_date"></td>
@@ -937,6 +938,45 @@ async function loadPermissionCatalog() {
   }
 }
 
+function sumLinePatientCredits() {
+  let total = 0;
+  document.querySelectorAll('#items-tbody tr [data-field="patient_credit_applied"]').forEach((input) => {
+    if (input.closest('tr')?.dataset.staySync) return;
+    total += parseFloat(input.value) || 0;
+  });
+  return Math.round(total * 100) / 100;
+}
+
+function updatePatientCreditSummary(totals) {
+  const creditTotal = Number(totals?.patient_credit_applied ?? sumLinePatientCredits()) || 0;
+  const display = document.getElementById('patient_credit_total_display');
+  if (display) display.value = creditTotal ? fmt(creditTotal) : '0';
+
+  const balanceText = document.getElementById('patient-balance-display')?.textContent || '0';
+  const balance = parseFloat(balanceText.replace(/[^\d.-]/g, '')) || 0;
+  const afterHint = document.getElementById('patient-balance-after-hint');
+  const afterDisplay = document.getElementById('patient-balance-after-display');
+  if (creditTotal > 0 && afterHint && afterDisplay) {
+    afterHint.style.display = '';
+    afterDisplay.textContent = fmt(balance - creditTotal);
+    afterDisplay.classList.toggle('text-danger', balance - creditTotal < 0);
+  } else if (afterHint) {
+    afterHint.style.display = 'none';
+  }
+
+  syncPatientCreditPaymentMethod(creditTotal);
+}
+
+function syncPatientCreditPaymentMethod(amount) {
+  getPaymentInputsByCode('patient_credit').forEach((input) => {
+    input.value = amount > 0 ? amount : '';
+    input.readOnly = true;
+    input.classList.add('bg-light');
+    const row = input.closest('tr');
+    if (row) row.classList.toggle('payment-row-active', amount > 0);
+  });
+}
+
 async function loadPatientBalance() {
   const fileNumber = document.getElementById('file_number').value.trim();
   const hint = document.getElementById('patient-balance-hint');
@@ -953,7 +993,8 @@ async function loadPatientBalance() {
     document.getElementById('patient-balance-display').textContent = fmt(balance);
     hint.style.display = '';
     document.getElementById('edit-patient-balance-btn').style.display = can('patients.manage') ? '' : 'none';
-    creditWrap.style.display = balance > 0 || can('patients.view') ? '' : 'none';
+    creditWrap.style.display = fileNumber ? '' : 'none';
+    updatePatientCreditSummary();
   } catch {
     hint.style.display = 'none';
   }
@@ -1044,12 +1085,14 @@ function collectFormData() {
     const qty = parseFloat(row.querySelector('[data-field="quantity"]').value) || 0;
     const amt = parseFloat(row.querySelector('[data-field="amount"]').value) || 0;
     const payAmt = parseFloat(row.querySelector('[data-field="pay_amount"]').value) || 0;
+    const creditAmt = parseFloat(row.querySelector('[data-field="patient_credit_applied"]')?.value) || 0;
     const receiptDate = row.querySelector('[data-field="receipt_date"]').value;
     const receiptNum = row.querySelector('[data-field="receipt_number"]').value;
 
     if (desc || qty || amt) {
       const serviceIdEl = row.querySelector('[data-field="service_id"]');
       const item = { description: desc, quantity: qty, amount: amt };
+      if (creditAmt > 0) item.patient_credit_applied = creditAmt;
       if (serviceIdEl?.value) item.service_id = Number(serviceIdEl.value);
       const override = row.dataset.discountOverride;
       if (override === 'true' || override === 'false') {
@@ -1061,6 +1104,19 @@ function collectFormData() {
       payments.push({ receipt_date: receiptDate, receipt_number: receiptNum, amount: payAmt });
     }
   });
+
+  const creditSum = items.reduce((sum, item) => sum + (Number(item.patient_credit_applied) || 0), 0);
+  const methodPayments = collectMethodPayments().filter((entry) => entry.code !== 'patient_credit');
+  if (creditSum > 0) {
+    const creditMethod = (paymentMethodsCache || []).find((m) => m.code === 'patient_credit');
+    if (creditMethod) {
+      methodPayments.push({
+        payment_method_id: creditMethod.id,
+        code: 'patient_credit',
+        amount: creditSum,
+      });
+    }
+  }
 
   return {
     invoice_type: document.getElementById('invoice_type').value,
@@ -1081,12 +1137,11 @@ function collectFormData() {
     professional_fees: document.getElementById('professional_fees').value,
     balance: document.getElementById('balance').value,
     admin_expenses_percent: document.getElementById('admin_expenses_percent').value,
-    method_payments: collectMethodPayments(),
+    method_payments: methodPayments,
     employee_name: document.getElementById('employee_name').value,
     auditor_name: document.getElementById('auditor_name').value,
     captain_name: document.getElementById('captain_name').value,
     manager_name: document.getElementById('manager_name').value,
-    patient_credit_applied: document.getElementById('patient_credit_applied').value,
     items,
     payments,
   };
@@ -1184,6 +1239,7 @@ function updateSummaryDisplay(t) {
   document.getElementById('display_total_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
   document.getElementById('display_total_collected2').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
   document.getElementById('display_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
+  updatePatientCreditSummary(t);
   updatePaymentRowHints();
   updatePaymentValidationUI(t);
 }
@@ -1324,9 +1380,13 @@ function fillFullPayment(code) {
     showToast('أدخل بنود الفاتورة أولاً لحساب الإجمالي', 'warning');
     return;
   }
+  const creditSum = sumLinePatientCredits();
+  const remainingForCash = Math.max(total - creditSum, 0);
   document.querySelectorAll('.payment-method-input').forEach((input) => {
-    input.value = input.dataset.methodCode === code ? total : 0;
+    if (input.dataset.methodCode === 'patient_credit') return;
+    input.value = input.dataset.methodCode === code ? remainingForCash : 0;
   });
+  syncPatientCreditPaymentMethod(creditSum);
   recalculate();
 }
 
@@ -1532,8 +1592,10 @@ function resetForm() {
   document.getElementById('stamp_duty').value = '0';
   document.getElementById('professional_fees').value = '0';
   document.getElementById('balance').value = '0';
-  document.getElementById('patient_credit_applied').value = '0';
+  const creditDisplay = document.getElementById('patient_credit_total_display');
+  if (creditDisplay) creditDisplay.value = '0';
   document.getElementById('patient-balance-hint').style.display = 'none';
+  document.getElementById('patient-balance-after-hint')?.style && (document.getElementById('patient-balance-after-hint').style.display = 'none');
   document.getElementById('patient-credit-wrap').style.display = 'none';
   loadStayTypes().then(() => initStayEntries());
   ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
@@ -1581,7 +1643,6 @@ async function loadInvoiceForEdit(id) {
     }
     document.getElementById('patient_name').value = inv.patient_name;
     document.getElementById('file_number').value = inv.file_number || '';
-    document.getElementById('patient_credit_applied').value = inv.patient_credit_applied || 0;
     await loadPatientBalance();
     document.getElementById('issue_date').value = fmtDate(inv.issue_date || inv.created_at);
     document.getElementById('admission_date').value = fmtDate(inv.admission_date);
@@ -1630,6 +1691,8 @@ async function loadInvoiceForEdit(id) {
       else delete row.dataset.discountOverride;
       row.querySelector('[data-field="quantity"]').value = item.quantity || '';
       row.querySelector('[data-field="amount"]').value = item.amount || '';
+      const creditField = row.querySelector('[data-field="patient_credit_applied"]');
+      if (creditField) creditField.value = item.patient_credit_applied || '';
       const pctField = row.querySelector('[data-field="discount_percent"]');
       if (pctField) pctField.value = `${item.item_discount_percent || 0}%`;
       row.querySelector('[data-field="receipt_date"]').value = pay.receipt_date || '';
@@ -1958,12 +2021,18 @@ async function loadPaymentMethodsForm(values = {}) {
     let html = amountMethods
       .map((m, i) => {
         const val = values[m.id] ?? values[m.code] ?? 0;
+        const isPatientCredit = m.code === 'patient_credit';
+        const readonlyAttr = isPatientCredit ? 'readonly' : '';
+        const extraClass = isPatientCredit ? ' bg-light' : '';
+        const actionCell = isPatientCredit
+          ? '<span class="text-muted small">—</span>'
+          : `<button type="button" class="btn btn-outline-success btn-sm fw-bold pay-remaining-btn" data-method-code="${m.code}">الباقي</button>`;
+        const labelSuffix = isPatientCredit ? ' <small class="text-muted">(تلقائي من البيان)</small>' : '';
         return `<tr class="payment-method-row" data-method-code="${m.code}">
-          <td class="fw-bold">${i + 1} - ${m.name}</td>
-          <td><input type="number" step="0.01" min="0" class="form-control form-control-sm calc-trigger payment-method-input"
-            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${val}" placeholder="0.00"></td>
-          <td class="text-center"><button type="button" class="btn btn-outline-success btn-sm fw-bold pay-remaining-btn"
-            data-method-code="${m.code}">الباقي</button></td>
+          <td class="fw-bold">${i + 1} - ${m.name}${labelSuffix}</td>
+          <td><input type="number" step="0.01" min="0" class="form-control form-control-sm calc-trigger payment-method-input${extraClass}"
+            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${val}" placeholder="0.00" ${readonlyAttr}></td>
+          <td class="text-center">${actionCell}</td>
         </tr>
         <tr class="payment-row-remaining" style="display:none"><td colspan="3" class="remaining-hint-text py-1"></td></tr>`;
       })

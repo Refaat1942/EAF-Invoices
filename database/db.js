@@ -592,6 +592,7 @@ async function runMigrations() {
     'price_list_id_snapshot INTEGER',
     'price_list_name_snapshot TEXT DEFAULT \'\'',
     'composite_components_snapshot JSONB DEFAULT \'[]\'::jsonb',
+    'patient_credit_applied NUMERIC(14,2) DEFAULT 0',
   ];
   for (const col of invoiceItemPricingColumns) {
     const name = col.split(' ')[0];
@@ -662,6 +663,7 @@ async function seedLookupTables() {
     { code: 'cash', name: 'دفع نقدي', accepts_amount: true },
     { code: 'bank_transfer', name: 'تحويل بنكي', accepts_amount: true },
     { code: 'check', name: 'شيك مقبول الدفع', accepts_amount: true },
+    { code: 'patient_credit', name: 'خصم من رصيد المريض', accepts_amount: true },
     { code: 'multi', name: 'دفع بأكثر من طريقة', accepts_amount: false },
   ];
   for (let i = 0; i < paymentMethods.length; i++) {

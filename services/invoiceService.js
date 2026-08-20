@@ -311,7 +311,9 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
     }
   }
 
-  const patientCreditApplied = Math.round((Number(data.patient_credit_applied) || 0) * 100) / 100;
+  const patientCreditApplied =
+    Math.round((Number(totals.patient_credit_applied ?? data.patient_credit_applied) || 0) * 100) / 100;
+  data.method_payments = totals.method_payments || data.method_payments || [];
   const nextStatus = saveMode === 'submit' ? 'pending_review' : 'draft';
 
   let stayDays =
@@ -523,8 +525,8 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           service_id, service_code_snapshot, service_name_snapshot, unit_snapshot, unit_price_snapshot,
           price_type_snapshot, tier_key_snapshot, discountable_snapshot, administrative_fee_applicable_snapshot,
           admin_fee_amount_snapshot, admin_fee_percent_snapshot, price_list_id_snapshot, price_list_name_snapshot,
-          composite_components_snapshot
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb)`,
+          composite_components_snapshot, patient_credit_applied
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24)`,
         [
           invoiceId,
           item.description || item.service_name_snapshot || '',
@@ -549,6 +551,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           item.price_list_id_snapshot || null,
           item.price_list_name_snapshot || '',
           JSON.stringify(item.composite_components_snapshot || []),
+          item.patient_credit_applied || 0,
         ]
       );
     }
@@ -616,7 +619,12 @@ async function approveInvoice(id, reviewer) {
       [id, serialInfo.serial_number, serialInfo.fiscal_year, serialInfo.serial_sequence, qrToken, reviewer?.id || null, reviewerName]
     );
 
-    const updated = { ...invoice, id, patient_credit_applied: invoice.patient_credit_applied, patient_credit_deducted: invoice.patient_credit_deducted };
+    const updated = {
+      ...invoice,
+      id,
+      patient_credit_applied: totals.patient_credit_applied ?? invoice.patient_credit_applied,
+      patient_credit_deducted: invoice.patient_credit_deducted,
+    };
     await applyPatientCredit(client, updated);
 
     return getInvoiceById(id, client);

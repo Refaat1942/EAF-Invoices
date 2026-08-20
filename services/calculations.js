@@ -128,6 +128,7 @@ function resolvePaymentTotals(data) {
       bank_private: byCode.bank_transfer || 0,
       cash_external: byCode.check || 0,
       bank_external: 0,
+      patient_credit_applied: byCode.patient_credit || 0,
       total_collected: totalCollected,
       total_collected_raw: totalCollectedRaw,
       method_payments: data.method_payments.map((entry) => ({
@@ -181,6 +182,28 @@ function calculateStayEntries(entries) {
     });
 }
 
+function sumItemPatientCredit(data) {
+  return round2(
+    (data.items || []).reduce((sum, item) => sum + round2(item.patient_credit_applied || 0), 0)
+  );
+}
+
+function mergePatientCreditIntoMethodPayments(data, creditRaw) {
+  const credit = roundNearest(creditRaw);
+  const base = Array.isArray(data.method_payments) ? data.method_payments.map((entry) => ({ ...entry })) : [];
+  const withoutCredit = base.filter((entry) => entry.code !== 'patient_credit');
+  if (credit > 0) {
+    const existing = base.find((entry) => entry.code === 'patient_credit');
+    withoutCredit.push({
+      ...existing,
+      code: 'patient_credit',
+      amount: credit,
+      payment_method_id: existing?.payment_method_id || data.patient_credit_method_id || null,
+    });
+  }
+  return withoutCredit;
+}
+
 function calculateInvoiceTotals(data) {
   const discountPercent = Number(data.discount_percent) || 0;
   const discountActive =
@@ -200,6 +223,7 @@ function calculateInvoiceTotals(data) {
 
   const manualItems = (data.items || []).map((item) => {
     const calc = calculateItemTotal(item.quantity, item.amount);
+    const creditRaw = round2(item.patient_credit_applied || 0);
     const eligibility = resolveItemEligibility(
       { ...item, total_raw: calc.raw, entity_discount_percent: discountPercent },
       exclusions,
@@ -210,6 +234,8 @@ function calculateInvoiceTotals(data) {
       total: calc.rounded,
       total_raw: calc.raw,
       total_rounded: calc.rounded,
+      patient_credit_applied: roundNearest(creditRaw),
+      patient_credit_applied_raw: creditRaw,
       ...eligibility,
     };
   });
@@ -285,7 +311,10 @@ function calculateInvoiceTotals(data) {
   const finalTotalRaw = round2(netAfterDiscountRaw + balanceD.raw);
   const finalTotal = roundNearest(finalTotalRaw);
 
-  const paymentTotals = resolvePaymentTotals(data);
+  const patientCreditFromItemsRaw = sumItemPatientCredit(data);
+  const patientCreditFromItems = roundNearest(patientCreditFromItemsRaw);
+  const methodPaymentsMerged = mergePatientCreditIntoMethodPayments(data, patientCreditFromItemsRaw);
+  const paymentTotals = resolvePaymentTotals({ ...data, method_payments: methodPaymentsMerged });
   const cashPrivateD = dualValue(paymentTotals.cash_private);
   const bankPrivateD = dualValue(paymentTotals.bank_private);
   const cashExternalD = dualValue(paymentTotals.cash_external);
@@ -365,6 +394,9 @@ function calculateInvoiceTotals(data) {
     payment_validation: paymentValidation,
     payments_total: paymentsTotal,
     payments_total_raw: paymentsTotalRaw,
+    patient_credit_applied: patientCreditFromItems,
+    patient_credit_applied_raw: patientCreditFromItemsRaw,
+    method_payments: paymentTotals.method_payments || methodPaymentsMerged,
   };
 
   totalsPayload.calculation_steps = buildCalculationSteps(totalsPayload);
