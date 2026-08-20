@@ -72,8 +72,27 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-form').addEventListener('submit', handleLogin);
   document.getElementById('logout-btn').addEventListener('click', handleLogout);
   document.getElementById('add-user-btn').addEventListener('click', addUser);
+  loadAppBranding();
   checkAuth();
 });
+
+async function loadAppBranding() {
+  try {
+    const res = await fetch('/api/public/branding');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.logo_url) {
+      document.getElementById('login-logo').src = data.logo_url;
+      const navbarLogo = document.getElementById('navbar-logo');
+      if (navbarLogo) navbarLogo.src = data.logo_url;
+    }
+    if (data.app_name) {
+      document.title = `${data.app_name} - مركز الطب الطبيعي والتأهيل`;
+    }
+  } catch {
+    /* keep defaults */
+  }
+}
 
 async function checkAuth() {
   try {
@@ -2235,6 +2254,10 @@ async function loadSettingsPage() {
 
     if (settings.logo_url) {
       document.getElementById('logo-preview').src = settings.logo_url;
+      const navbarLogo = document.getElementById('navbar-logo');
+      const loginLogo = document.getElementById('login-logo');
+      if (navbarLogo) navbarLogo.src = settings.logo_url;
+      if (loginLogo) loginLogo.src = settings.logo_url;
     }
 
     document.getElementById('stay-types-list').innerHTML = renderStayTypesList(stayTypes);
@@ -2266,6 +2289,10 @@ async function uploadLogo() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     document.getElementById('logo-preview').src = data.logo_url;
+    const navbarLogo = document.getElementById('navbar-logo');
+    const loginLogo = document.getElementById('login-logo');
+    if (navbarLogo) navbarLogo.src = data.logo_url;
+    if (loginLogo) loginLogo.src = data.logo_url;
     showToast('تم رفع الشعار بنجاح', 'success');
     fileInput.value = '';
   } catch (err) {

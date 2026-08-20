@@ -43,6 +43,19 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use(express.static(path.join(__dirname, 'public')));
 
+app.get('/api/public/branding', async (req, res) => {
+  try {
+    const { getLogoUrl } = require('./services/settingsService');
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    res.json({
+      app_name: 'نظام فواتير A.R.R.C',
+      logo_url: await getLogoUrl(baseUrl),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     const { query } = require('./database/db');
@@ -52,7 +65,7 @@ app.get('/api/health', async (req, res) => {
       port: PORT,
       db: 'postgresql',
       time: new Date().toISOString(),
-      message: 'نظام فواتير EAF يعمل بنجاح',
+      message: 'نظام فواتير A.R.R.C يعمل بنجاح',
     });
   } catch (err) {
     res.status(500).json({ status: 'error', error: err.message });
@@ -82,7 +95,7 @@ async function start() {
     app.listen(PORT, HOST, () => {
       console.log(`
 ╔══════════════════════════════════════════════════════╗
-║     نظام فواتير EAF - مركز الطب الطبيعي والتأهيل     ║
+║     نظام فواتير A.R.R.C - مركز الطب الطبيعي والتأهيل  ║
 ╠══════════════════════════════════════════════════════╣
 ║  🌐 Local:   http://localhost:${PORT}                   ║
 ║  🌐 Network: http://0.0.0.0:${PORT}                     ║

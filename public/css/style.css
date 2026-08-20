@@ -10,8 +10,21 @@
   background: #fff;
   padding: 2rem;
   border-radius: 16px;
-  width: min(400px, 92vw);
+  width: min(420px, 92vw);
   box-shadow: 0 8px 32px rgba(0,0,0,.3);
+}
+
+.login-logo {
+  max-height: 110px;
+  max-width: 220px;
+  object-fit: contain;
+}
+
+.navbar-logo {
+  height: 36px;
+  width: auto;
+  max-width: 48px;
+  object-fit: contain;
 }
 .dual-value { font-size: 0.85rem; }
 .dual-value .raw-part { color: #888; text-decoration: line-through; font-size: 0.8rem; }
