@@ -994,6 +994,15 @@ function sumBillableLineTotals() {
   return Math.round(total * 100) / 100;
 }
 
+function sumManualPaymentMethods() {
+  let total = 0;
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    if (input.dataset.methodCode === 'patient_credit') return;
+    total += parseFloat(input.value) || 0;
+  });
+  return Math.round(total * 100) / 100;
+}
+
 function getPatientNetBalance() {
   if (!hasPatientFileNumber()) return 0;
   const creditUsed = computeInvoicePatientCredit(
@@ -1002,12 +1011,15 @@ function getPatientNetBalance() {
   return Math.round((getPatientAccountBalance() - creditUsed) * 100) / 100;
 }
 
-function computeInvoicePatientCredit(finalTotal) {
+function computeInvoicePatientCredit(finalTotal, otherPaid = null) {
   const balance = getPatientAccountBalance();
   if (balance <= 0) return 0;
   const total = Number(finalTotal) || 0;
   if (total <= 0) return 0;
-  return Math.round(Math.min(balance, total) * 100) / 100;
+  const paidElsewhere =
+    otherPaid === null ? sumManualPaymentMethods() : Math.max(0, Number(otherPaid) || 0);
+  const remainingDue = Math.max(0, Math.round((total - paidElsewhere) * 100) / 100);
+  return Math.round(Math.min(balance, remainingDue) * 100) / 100;
 }
 
 function distributePatientCreditAcrossRows(creditPool) {
@@ -1077,7 +1089,7 @@ function autoApplyPatientCreditToRows() {
   return Math.abs(before - sumLinePatientCredits()) > 0.009;
 }
 
-function syncPaymentMethodsAutomatically(totals) {
+function syncPatientCreditPaymentOnly(totals) {
   if (!hasPatientFileNumber()) return false;
 
   const creditTotal = computeInvoicePatientCredit(Number(totals?.final_total) || 0);
@@ -1272,10 +1284,14 @@ function collectFormData() {
     }
   });
 
-  const creditSum = hasPatientFileNumber()
-    ? computeInvoicePatientCredit(Number(lastCalculationTotals?.final_total) || sumBillableLineTotals())
-    : items.reduce((sum, item) => sum + (Number(item.patient_credit_applied) || 0), 0);
   const methodPayments = collectMethodPayments().filter((entry) => entry.code !== 'patient_credit');
+  const otherPaid = methodPayments.reduce((sum, entry) => sum + (parseFloat(entry.amount) || 0), 0);
+  const creditSum = hasPatientFileNumber()
+    ? computeInvoicePatientCredit(
+        Number(lastCalculationTotals?.final_total) || sumBillableLineTotals(),
+        otherPaid
+      )
+    : items.reduce((sum, item) => sum + (Number(item.patient_credit_applied) || 0), 0);
   if (creditSum > 0) {
     let creditMethod = (paymentMethodsCache || []).find((m) => m.code === 'patient_credit');
     if (!creditMethod?.id) {
@@ -1350,10 +1366,6 @@ async function recalculate(options = {}) {
     });
     const totals = await res.json();
     lastCalculationTotals = totals;
-    if (hasPatientFileNumber()) {
-      autoApplyPatientCreditToRows();
-      syncPatientBalanceField();
-    }
     updateSummaryDisplay(totals);
     updateSummaryTable(totals);
     updatePaymentValidationUI(totals);
@@ -1362,8 +1374,13 @@ async function recalculate(options = {}) {
     applyItemDiscountPercents((totals.items || []).filter((item) => !item.is_stay_entry));
     updateStayEntriesFromTotals(totals.stay_entries || []);
 
-    if (!options.skipAutoPayments && syncPaymentMethodsAutomatically(totals)) {
-      return recalculate({ skipAutoCredit: true, skipAutoPayments: true });
+    if (hasPatientFileNumber()) {
+      const creditChanged = syncPatientCreditPaymentOnly(totals);
+      autoApplyPatientCreditToRows();
+      syncPatientBalanceField();
+      if (creditChanged) {
+        return recalculate({ skipAutoCredit: true, skipAutoPayments: true });
+      }
     }
 
     return totals;
