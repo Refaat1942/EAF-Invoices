@@ -32,10 +32,16 @@ const STATUS_BADGES = {
   approved: { text: 'معتمدة', class: 'bg-success' },
 };
 
-const fmt = (n) =>
-  (Number(n) || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function formatPlainNumber(n, maxDecimals = 2) {
+  const num = Number(n) || 0;
+  if (maxDecimals === 0 || Math.abs(num - Math.round(num)) < 0.001) {
+    return String(Math.round(num));
+  }
+  return num.toFixed(maxDecimals).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
 
-const fmtInt = (n) => (Number(n) || 0).toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+const fmt = (n) => formatPlainNumber(n, 2);
+const fmtInt = (n) => formatPlainNumber(n, 0);
 
 function fmtDual(raw, rounded) {
   const r = Number(raw) || 0;
@@ -378,7 +384,12 @@ function bindPaymentMethodHelpers() {
     if (input.dataset.helperBound === '1') return;
     input.dataset.helperBound = '1';
     input.addEventListener('focus', updatePaymentRowHints);
-    input.addEventListener('input', updatePaymentRowHints);
+    input.addEventListener('input', () => {
+      updatePaymentRowHints();
+      if (input.dataset.methodCode !== 'patient_credit') {
+        recalculate({ skipAutoCredit: true, skipAutoPayments: true });
+      }
+    });
   });
 }
 
@@ -1046,34 +1057,22 @@ function autoApplyPatientCreditToRows() {
 function syncPaymentMethodsAutomatically(totals) {
   if (!hasPatientFileNumber()) return false;
 
-  const finalTotal = Number(totals?.final_total) || 0;
   const creditTotal = Number(totals?.patient_credit_applied) || sumLinePatientCredits();
-  const cashDue = Math.max(0, Math.round((finalTotal - creditTotal) * 100) / 100);
-
-  const targets = {
-    patient_credit: creditTotal,
-    cash: cashDue,
-    bank_transfer: 0,
-    check: 0,
-  };
-
   let changed = false;
-  Object.entries(targets).forEach(([code, target]) => {
-    getPaymentInputsByCode(code).forEach((input) => {
-      const current = parseFloat(input.value) || 0;
-      const nextNum = target > 0.009 ? target : 0;
-      if (Math.abs(current - nextNum) > 0.009) {
-        input.value = target > 0.009 ? target : '';
-        changed = true;
-      }
-      if (code === 'patient_credit') {
-        input.readOnly = true;
-        input.classList.add('bg-light');
-        const row = input.closest('tr');
-        if (row) row.classList.toggle('payment-row-active', target > 0.009);
-      }
-    });
+
+  getPaymentInputsByCode('patient_credit').forEach((input) => {
+    const current = parseFloat(input.value) || 0;
+    const nextNum = creditTotal > 0.009 ? creditTotal : 0;
+    if (Math.abs(current - nextNum) > 0.009) {
+      input.value = creditTotal > 0.009 ? creditTotal : '';
+      changed = true;
+    }
+    input.readOnly = true;
+    input.classList.add('bg-light');
+    const row = input.closest('tr');
+    if (row) row.classList.toggle('payment-row-active', creditTotal > 0.009);
   });
+
   return changed;
 }
 
@@ -1313,7 +1312,7 @@ async function recalculate(options = {}) {
     const qty = parseFloat(row.querySelector('[data-field="quantity"]').value) || 0;
     const amt = parseFloat(row.querySelector('[data-field="amount"]').value) || 0;
     const total = Math.round(qty * amt * 100) / 100;
-    row.querySelector('[data-field="total"]').value = total ? fmt(total) : '';
+    row.querySelector('[data-field="total"]').value = total ? fmtInt(total) : '';
   });
 
   try {
@@ -2186,7 +2185,7 @@ async function loadPaymentMethodsForm(values = {}) {
         const labelSuffix = isPatientCredit ? ' <small class="text-muted">(تلقائي من البيان)</small>' : '';
         return `<tr class="payment-method-row" data-method-code="${m.code}">
           <td class="fw-bold">${i + 1} - ${m.name}${labelSuffix}</td>
-          <td><input type="number" step="0.01" min="0" class="form-control form-control-sm calc-trigger payment-method-input${extraClass}"
+          <td><input type="number" step="0.01" min="0" class="form-control form-control-sm payment-method-input${extraClass}"
             data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${val}" placeholder="0.00" ${readonlyAttr}></td>
           <td class="text-center">${actionCell}</td>
         </tr>

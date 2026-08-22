@@ -2,6 +2,11 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function resolveAdminPercent(value, fallback = 12) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 function roundNearest(n) {
   return Math.round(round2(n));
 }
@@ -278,9 +283,10 @@ function calculateInvoiceTotals(data) {
 
   const stampDutyD = dualValue(data.stamp_duty);
   const professionalFeesD = dualValue(data.professional_fees);
-  const adminPercent = Number(data.admin_expenses_percent);
-  const adminPercentResolved =
-    Number.isFinite(adminPercent) && adminPercent >= 0 ? adminPercent : Number(data.administrative_fee_rate) || 12;
+  const adminPercentResolved = resolveAdminPercent(
+    data.admin_expenses_percent,
+    resolveAdminPercent(data.administrative_fee_rate, 12)
+  );
 
   const adminApplicableSubtotalRaw = round2(
     items.filter((item) => isItemAdminApplicable(item)).reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
@@ -292,7 +298,7 @@ function calculateInvoiceTotals(data) {
   );
   const subtotalBeforeAdmin = roundNearest(subtotalBeforeAdminRaw);
 
-  const adminExpensesRaw = round2(adminApplicableSubtotalRaw * (adminPercentResolved / 100));
+  const adminExpensesRaw = round2(subtotalBeforeAdminRaw * (adminPercentResolved / 100));
   const adminExpenses = roundNearest(adminExpensesRaw);
 
   const totalAfterAdminRaw = round2(subtotalBeforeAdminRaw + adminExpensesRaw);
@@ -588,7 +594,7 @@ function validateInvoiceCalculations(data, totals) {
   }
 
   const expectedAdmin = round2(
-    (totals.subtotal_before_admin_raw || 0) * ((Number(totals.admin_expenses_percent) || 12) / 100)
+    (totals.subtotal_before_admin_raw || 0) * (resolveAdminPercent(totals.admin_expenses_percent, 12) / 100)
   );
   if (!approxEqual(expectedAdmin, totals.admin_expenses_raw)) {
     errors.push('خطأ: المصروفات الإدارية غير صحيحة');
