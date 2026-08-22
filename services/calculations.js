@@ -193,6 +193,13 @@ function sumItemPatientCredit(data) {
   );
 }
 
+function resolvePatientCreditAmount(data) {
+  const fromItems = sumItemPatientCredit(data);
+  const methodEntry = (data.method_payments || []).find((entry) => entry.code === 'patient_credit');
+  const fromMethod = round2(methodEntry?.amount || 0);
+  return round2(Math.max(fromItems, fromMethod));
+}
+
 function mergePatientCreditIntoMethodPayments(data, creditRaw) {
   const credit = roundNearest(creditRaw);
   const base = Array.isArray(data.method_payments) ? data.method_payments.map((entry) => ({ ...entry })) : [];
@@ -317,7 +324,7 @@ function calculateInvoiceTotals(data) {
   const finalTotalRaw = round2(netAfterDiscountRaw + balanceD.raw);
   const finalTotal = roundNearest(finalTotalRaw);
 
-  const patientCreditFromItemsRaw = sumItemPatientCredit(data);
+  const patientCreditFromItemsRaw = resolvePatientCreditAmount(data);
   const patientCreditFromItems = roundNearest(patientCreditFromItemsRaw);
   const methodPaymentsMerged = mergePatientCreditIntoMethodPayments(data, patientCreditFromItemsRaw);
   const paymentTotals = resolvePaymentTotals({ ...data, method_payments: methodPaymentsMerged });

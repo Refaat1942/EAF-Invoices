@@ -34,14 +34,18 @@ const STATUS_BADGES = {
 
 function formatPlainNumber(n, maxDecimals = 2) {
   const num = Number(n) || 0;
-  if (maxDecimals === 0 || Math.abs(num - Math.round(num)) < 0.001) {
-    return String(Math.round(num));
-  }
-  return num.toFixed(maxDecimals).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  return num.toLocaleString('en-US', {
+    minimumFractionDigits: maxDecimals === 0 ? 0 : 0,
+    maximumFractionDigits: maxDecimals,
+  });
 }
 
 const fmt = (n) => formatPlainNumber(n, 2);
 const fmtInt = (n) => formatPlainNumber(n, 0);
+
+function parseDisplayAmount(text) {
+  return parseFloat(String(text || '').replace(/,/g, '').replace(/[^\d.-]/g, '')) || 0;
+}
 
 function fmtDual(raw, rounded) {
   const r = Number(raw) || 0;
@@ -992,7 +996,41 @@ function sumBillableLineTotals() {
 
 function getPatientNetBalance() {
   if (!hasPatientFileNumber()) return 0;
-  return Math.round((getPatientAccountBalance() - sumBillableLineTotals()) * 100) / 100;
+  const creditUsed = computeInvoicePatientCredit(
+    Number(lastCalculationTotals?.final_total) || sumBillableLineTotals()
+  );
+  return Math.round((getPatientAccountBalance() - creditUsed) * 100) / 100;
+}
+
+function computeInvoicePatientCredit(finalTotal) {
+  const balance = getPatientAccountBalance();
+  if (balance <= 0) return 0;
+  const total = Number(finalTotal) || 0;
+  if (total <= 0) return 0;
+  return Math.round(Math.min(balance, total) * 100) / 100;
+}
+
+function distributePatientCreditAcrossRows(creditPool) {
+  let remaining = creditPool;
+  document.querySelectorAll('#items-tbody tr').forEach((row) => {
+    if (row.dataset.staySync) return;
+    const creditInput = row.querySelector('[data-field="patient_credit_applied"]');
+    if (!creditInput) return;
+
+    const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
+    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+    const lineTotal = Math.round(qty * amt * 100) / 100;
+
+    if (!desc || lineTotal <= 0 || remaining <= 0) {
+      if (creditInput.value !== '') creditInput.value = '';
+      return;
+    }
+
+    const apply = Math.min(lineTotal, remaining);
+    remaining = Math.round((remaining - apply) * 100) / 100;
+    creditInput.value = apply > 0 ? String(apply) : '';
+  });
 }
 
 function syncPatientBalanceField() {
@@ -1024,40 +1062,25 @@ function autoApplyPatientCreditToRows() {
     return false;
   }
 
-  let changed = false;
+  const finalTotal = Number(lastCalculationTotals?.final_total) || sumBillableLineTotals();
+  const creditPool = computeInvoicePatientCredit(finalTotal);
+  const before = sumLinePatientCredits();
+
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.staySync) return;
-    const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
-    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
-    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
-    const lineTotal = Math.round(qty * amt * 100) / 100;
     const creditInput = row.querySelector('[data-field="patient_credit_applied"]');
     if (!creditInput) return;
-
     creditInput.readOnly = true;
     creditInput.classList.add('bg-light');
-
-    if (!desc || lineTotal <= 0) {
-      if (creditInput.value !== '') {
-        creditInput.value = '';
-        changed = true;
-      }
-      return;
-    }
-
-    const nextValue = String(lineTotal);
-    if (creditInput.value !== nextValue) {
-      creditInput.value = nextValue;
-      changed = true;
-    }
   });
-  return changed;
+
+  distributePatientCreditAcrossRows(creditPool);
+  return Math.abs(before - sumLinePatientCredits()) > 0.009;
 }
 
 function syncPaymentMethodsAutomatically(totals) {
   if (!hasPatientFileNumber()) return false;
 
-  const creditTotal = Number(totals?.patient_credit_applied) || sumLinePatientCredits();
+  const creditTotal = computeInvoicePatientCredit(Number(totals?.final_total) || 0);
   let changed = false;
 
   getPaymentInputsByCode('patient_credit').forEach((input) => {
@@ -1086,7 +1109,9 @@ function sumLinePatientCredits() {
 }
 
 function updatePatientCreditSummary(totals) {
-  const creditTotal = Number(totals?.patient_credit_applied ?? sumLinePatientCredits()) || 0;
+  const creditTotal = hasPatientFileNumber()
+    ? computeInvoicePatientCredit(Number(totals?.final_total) || 0)
+    : Number(totals?.patient_credit_applied ?? sumLinePatientCredits()) || 0;
   const display = document.getElementById('patient_credit_total_display');
   if (display) display.value = creditTotal ? fmt(creditTotal) : '0';
 
@@ -1146,7 +1171,7 @@ async function editPatientBalance() {
   const fileNumber = document.getElementById('file_number').value.trim();
   const patientName = document.getElementById('patient_name').value.trim();
   if (!fileNumber) return showToast('أدخل رقم الملف أولًا', 'warning');
-  const current = document.getElementById('patient-balance-display').textContent.replace(/[^\d.,]/g, '');
+  const current = parseDisplayAmount(document.getElementById('patient-balance-display').textContent);
   const input = prompt('رصيد حساب المريض:', current || '0');
   if (input === null) return;
   try {
@@ -1247,7 +1272,9 @@ function collectFormData() {
     }
   });
 
-  const creditSum = items.reduce((sum, item) => sum + (Number(item.patient_credit_applied) || 0), 0);
+  const creditSum = hasPatientFileNumber()
+    ? computeInvoicePatientCredit(Number(lastCalculationTotals?.final_total) || sumBillableLineTotals())
+    : items.reduce((sum, item) => sum + (Number(item.patient_credit_applied) || 0), 0);
   const methodPayments = collectMethodPayments().filter((entry) => entry.code !== 'patient_credit');
   if (creditSum > 0) {
     let creditMethod = (paymentMethodsCache || []).find((m) => m.code === 'patient_credit');
@@ -1323,6 +1350,10 @@ async function recalculate(options = {}) {
     });
     const totals = await res.json();
     lastCalculationTotals = totals;
+    if (hasPatientFileNumber()) {
+      autoApplyPatientCreditToRows();
+      syncPatientBalanceField();
+    }
     updateSummaryDisplay(totals);
     updateSummaryTable(totals);
     updatePaymentValidationUI(totals);
@@ -1522,7 +1553,7 @@ function getInvoiceFinalTotalForPayment() {
   if (lastCalculationTotals) {
     return Number(lastCalculationTotals.final_total_raw ?? lastCalculationTotals.final_total) || 0;
   }
-  return parseFloat(document.getElementById('display_final_total').textContent.replace(/[^\d.-]/g, '')) || 0;
+  return parseDisplayAmount(document.getElementById('display_final_total').textContent);
 }
 
 function fillFullPayment(code) {
@@ -1531,7 +1562,7 @@ function fillFullPayment(code) {
     showToast('أدخل بنود الفاتورة أولاً لحساب الإجمالي', 'warning');
     return;
   }
-  const creditSum = sumLinePatientCredits();
+  const creditSum = hasPatientFileNumber() ? computeInvoicePatientCredit(total) : sumLinePatientCredits();
   const remainingForCash = Math.max(total - creditSum, 0);
   document.querySelectorAll('.payment-method-input').forEach((input) => {
     if (input.dataset.methodCode === 'patient_credit') return;
