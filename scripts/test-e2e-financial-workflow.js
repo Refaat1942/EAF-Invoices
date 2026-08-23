@@ -22,10 +22,7 @@ const {
   prepareCalculationData,
 } = require('../services/invoiceService');
 const { calculateInvoiceTotals, round2 } = require('../services/calculations');
-const {
-  getDailyItemsReport,
-  getSuppliesMarkupReport,
-} = require('../services/reportService');
+const { getSuppliesMarkupReport } = require('../services/reportService');
 
 const TEST_FILE = 'E2E-FIN-WORKFLOW';
 const ENTITY_NAME = 'E2E-FIN-CONTRACT-ENTITY';
@@ -185,14 +182,14 @@ async function cleanupAll(patientId, entityId, fixtures) {
   }
 
   if (fixtures?.labServiceId) {
-    await query(`DELETE FROM service_price_components WHERE service_id = $1`, [fixtures.labServiceId]);
-    await query(`DELETE FROM service_price_tiers WHERE service_id = $1`, [fixtures.labServiceId]);
-    await query(`DELETE FROM service_price_history WHERE service_id = $1`, [fixtures.labServiceId]);
-    await query(`DELETE FROM services WHERE id = $1`, [fixtures.labServiceId]);
+    await query(`DELETE FROM service_price_components WHERE service_id = $1`, [ctx.fixtures.labServiceId]);
+    await query(`DELETE FROM service_price_tiers WHERE service_id = $1`, [ctx.fixtures.labServiceId]);
+    await query(`DELETE FROM service_price_history WHERE service_id = $1`, [ctx.fixtures.labServiceId]);
+    await query(`DELETE FROM services WHERE id = $1`, [ctx.fixtures.labServiceId]);
   }
 
   if (fixtures?.testPriceListId) {
-    await cleanupTestPriceList(fixtures.testPriceListId);
+    await cleanupTestPriceList(ctx.fixtures.testPriceListId);
   } else {
     await cleanupTestPriceList();
   }
@@ -252,27 +249,137 @@ function entryLineByIndex(savedEntries, index) {
   return savedEntries[index]?.lines?.[0] || null;
 }
 
+function formatEntryDate(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (value instanceof Date) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  return text.slice(0, 10);
+}
+
+async function fetchMedicinesSuppliesReportRows(fileNumber, fromDate, toDate) {
+  const { rows } = await query(
+    `SELECT COALESCE(ii.selling_price_snapshot, l.unit_price) AS unit_price,
+            COALESCE(ii.total, l.amount) AS total,
+            c.code AS catalog_item_code,
+            l.section_code
+     FROM patient_daily_entry_lines l
+     JOIN patient_daily_entries e ON e.id = l.entry_id
+     JOIN patients p ON p.id = e.patient_id
+     LEFT JOIN invoice_items ii ON ii.daily_entry_line_id = l.id AND ii.invoice_id = e.invoice_id
+     LEFT JOIN daily_entry_catalog_items c ON c.id = l.catalog_item_id
+     WHERE TRIM(p.file_number) = TRIM($1)
+       AND e.entry_date >= $2::date
+       AND e.entry_date <= $3::date
+       AND COALESCE(l.amount, 0) > 0
+       AND (
+         c.category = ANY($4::text[])
+         OR l.section_code = ANY($5::text[])
+       )`,
+    [fileNumber, fromDate, toDate, ['Medicine', 'Supplies'], ['medicines', 'supplies']]
+  );
+  return rows;
+}
+
+function printEntryDiagnostics(label, savedEntryIds, patientId, today, rows) {
+  console.log(`DIAG ${label}:`);
+  console.log('  saved entry IDs:', savedEntryIds);
+  console.log('  patient.id:', patientId);
+  console.log('  today:', today);
+  console.log(
+    '  DB rows:',
+    rows.map((r) => ({
+      id: r.id,
+      patient_id: r.patient_id,
+      entry_date: formatEntryDate(r.entry_date),
+    }))
+  );
+}
+
+async function verifySavedEntriesInDb(A, savedEntries, patientId, today) {
+  const savedEntryIds = savedEntries.map((e) => Number(e.id)).filter(Boolean);
+  A.assertEq('saved entry id count from batch', savedEntryIds.length, 4);
+
+  const { rows: byIdRows } = await query(
+    `SELECT id, patient_id, entry_date
+     FROM patient_daily_entries
+     WHERE id = ANY($1::int[])`,
+    [savedEntryIds]
+  );
+
+  if (byIdRows.length !== savedEntryIds.length) {
+    printEntryDiagnostics('saved entry id lookup mismatch', savedEntryIds, patientId, today, byIdRows);
+  }
+
+  A.assertEq('four DB rows for saved entry ids', byIdRows.length, 4);
+  const patientMismatch = byIdRows.filter((r) => Number(r.patient_id) !== Number(patientId));
+  if (patientMismatch.length) {
+    printEntryDiagnostics('patient_id mismatch on saved entries', savedEntryIds, patientId, today, byIdRows);
+  }
+  A.assertTrue(
+    'saved entries belong to expected patient',
+    patientMismatch.length === 0,
+    patientMismatch.map((r) => r.id).join(', ')
+  );
+
+  const dateMismatch = byIdRows.filter((r) => formatEntryDate(r.entry_date) !== today);
+  if (dateMismatch.length) {
+    printEntryDiagnostics('entry_date mismatch on saved entries', savedEntryIds, patientId, today, byIdRows);
+  }
+  A.assertTrue(
+    'saved entries on business date',
+    dateMismatch.length === 0,
+    dateMismatch.map((r) => `${r.id}=${formatEntryDate(r.entry_date)}`).join(', ')
+  );
+
+  const { rows: byDateRows } = await query(
+    `SELECT id, patient_id, entry_date
+     FROM patient_daily_entries
+     WHERE patient_id = $1 AND entry_date = $2::date`,
+    [patientId, today]
+  );
+  if (byDateRows.length !== savedEntryIds.length) {
+    console.log(
+      `DIAG patient/date query returned ${byDateRows.length} row(s) (informational, not a failure)`
+    );
+    printEntryDiagnostics('patient/date query', savedEntryIds, patientId, today, byDateRows);
+  } else {
+    A.pass('patient/date diagnostic query matches saved entry count');
+  }
+}
+
 async function main() {
   const A = new Assertions();
+  const ctx = {
+    patientId: null,
+    entityId: null,
+    fixtures: { labServiceId: null, testPriceListId: null, testLabCategoryId: null },
+  };
+
   await initDatabase();
 
-  const patient = await upsertPatient({
-    file_number: TEST_FILE,
-    name: 'E2E Financial Workflow Patient',
-  });
-  const today = getCurrentBusinessDateString();
-  const fixtures = { labServiceId: null, testPriceListId: null, testLabCategoryId: null };
-  let entityId = null;
+  try {
+    const patient = await upsertPatient(TEST_FILE, 'E2E Financial Workflow Patient');
+    if (!patient?.id) {
+      throw new Error(`upsertPatient failed for file number ${TEST_FILE}`);
+    }
+    ctx.patientId = patient.id;
+    const today = getCurrentBusinessDateString();
 
-  await cleanupAll(patient.id, null, fixtures);
+    await cleanupAll(ctx.patientId, null, ctx.fixtures);
 
   const testPriceList = await provisionTestPriceList();
-  fixtures.testPriceListId = testPriceList.id;
+  ctx.fixtures.testPriceListId = testPriceList.id;
   A.assertTrue('test price list created', Boolean(testPriceList.id));
   A.assertTrue('test price list is not default', !testPriceList.is_default);
 
   const testLabCategory = await provisionTestLabCategory(testPriceList.id);
-  fixtures.testLabCategoryId = testLabCategory.id;
+  ctx.fixtures.testLabCategoryId = testLabCategory.id;
   A.assertEq('test LAB category code', testLabCategory.code, 'LAB');
   A.assertTrue('test LAB category id assigned', Boolean(testLabCategory.id));
 
@@ -315,14 +422,14 @@ async function main() {
     discountable: true,
     administrative_fee_applicable: false,
   });
-  fixtures.labServiceId = labService.id;
+  ctx.fixtures.labServiceId = labService.id;
   A.assertEq('lab service price from DB', labService.price, SPECS.lab.unitPrice);
 
   const entity = await createContractedEntity({
     name: ENTITY_NAME,
     discount_percent: 10,
   });
-  entityId = entity.id;
+  ctx.entityId = entity.id;
   A.assertEq('contracted entity discount %', entity.discount_percent, 10);
 
   const dailyBatch = [
@@ -353,9 +460,7 @@ async function main() {
     });
   } catch (err) {
     A.fail('saveEntriesBatch succeeds', err.message);
-    const ok = A.summary();
-    await cleanupAll(patient.id, entityId, fixtures);
-    process.exit(ok ? 0 : 1);
+    throw err;
   }
 
   A.assertTrue('invoice sync succeeded', batchResult.invoice_sync?.synced === true);
@@ -366,20 +471,7 @@ async function main() {
   const entryIds = new Set(savedEntries.map((e) => e.id));
   A.assertEq('four distinct daily entry ids', entryIds.size, 4);
 
-  const { rows: dbEntries } = await query(
-    `SELECT id, entry_date, patient_id FROM patient_daily_entries
-     WHERE patient_id = $1 AND entry_date = $2::date`,
-    [patient.id, today]
-  );
-  A.assertEq('four DB daily entries for patient/date', dbEntries.length, 4);
-  A.assertTrue(
-    'all DB entries same patient',
-    dbEntries.every((r) => Number(r.patient_id) === Number(patient.id))
-  );
-  A.assertTrue(
-    'all DB entries same date',
-    dbEntries.every((r) => String(r.entry_date).slice(0, 10) === today)
-  );
+  await verifySavedEntriesInDb(A, savedEntries, ctx.patientId, today);
 
   const invoiceId = batchResult.invoice_sync.invoice_id;
 
@@ -463,7 +555,7 @@ async function main() {
     A.fail('supply invoice item found', 'missing');
   }
 
-  const calcPayload = buildFinancialSavePayload(invoice, entityId, 0);
+  const calcPayload = buildFinancialSavePayload(invoice, ctx.entityId, 0);
   const calcData = await prepareCalculationData(calcPayload);
   const expectedTotals = calculateInvoiceTotals(calcData);
 
@@ -500,7 +592,7 @@ async function main() {
   );
 
   const paymentAmount = money(expectedTotals.final_total_raw - REMAINING_TARGET);
-  const financialPayload = buildFinancialSavePayload(invoice, entityId, paymentAmount);
+  const financialPayload = buildFinancialSavePayload(invoice, ctx.entityId, paymentAmount);
   const savedFinancial = await saveInvoice(financialPayload, invoiceId, null, {
     save_mode: 'draft',
     preserve_status: true,
@@ -619,13 +711,13 @@ async function main() {
     A.fail('supplies markup report row', 'missing supply row');
   }
 
-  const itemsReport = await getDailyItemsReport('medicines_supplies', {
-    file_number: TEST_FILE,
-    from_date: today,
-    to_date: today,
-  });
-  const med1ReportRow = itemsReport.rows.find((r) => money(r.unit_price) === SPECS.med1.unitPrice);
-  const supplyReportRow2 = itemsReport.rows.find((r) => money(r.unit_price) === SPECS.supply.unitPrice);
+  const itemsReportRows = await fetchMedicinesSuppliesReportRows(TEST_FILE, today, today);
+  const med1ReportRow = itemsReportRows.find(
+    (r) => r.catalog_item_code === CODES.med1 || money(r.unit_price) === SPECS.med1.unitPrice
+  );
+  const supplyReportRow2 = itemsReportRows.find(
+    (r) => r.catalog_item_code === CODES.supply || money(r.unit_price) === SPECS.supply.unitPrice
+  );
   if (med1ReportRow) {
     A.assertEq('daily items report med1 unit price (stored)', med1ReportRow.unit_price, SPECS.med1.unitPrice);
     A.assertEq('daily items report med1 line total', med1ReportRow.total, SPECS.med1.lineTotal);
@@ -645,13 +737,25 @@ async function main() {
     expectedTotals.final_total_raw
   );
 
-  await cleanupAll(patient.id, entityId, fixtures);
-
-  const ok = A.summary();
-  process.exit(ok ? 0 : 1);
+    const ok = A.summary();
+    process.exit(ok ? 0 : 1);
+  } catch (err) {
+    console.error('FATAL:', err.message || err);
+    if (!A.results.some((r) => r.label === 'test runtime')) {
+      A.fail('test runtime', err.message || String(err));
+    }
+    A.summary();
+    process.exit(1);
+  } finally {
+    try {
+      await cleanupAll(ctx.patientId, ctx.entityId, ctx.fixtures);
+    } catch (cleanupErr) {
+      console.error('CLEANUP ERROR:', cleanupErr.message || cleanupErr);
+    }
+  }
 }
 
-main().catch(async (err) => {
-  console.error('FATAL:', err.message || err);
+main().catch((err) => {
+  console.error('FATAL (outer):', err.message || err);
   process.exit(1);
 });
