@@ -1,0 +1,124 @@
+/**
+ * Invoice calculation tests (no DB).
+ * Run: node scripts/test-calculations.js
+ */
+
+const {
+  calculateInvoiceTotals,
+  validateInvoiceCalculations,
+  isItemAdminApplicable,
+  computeItemAdminFeeRaw,
+} = require('../services/calculations');
+
+function assert(cond, msg) {
+  if (!cond) {
+    console.error('FAIL:', msg);
+    process.exit(1);
+  }
+}
+
+const base = {
+  invoice_type: 'private',
+  discount_percent: 0,
+  stamp_duty: 0,
+  professional_fees: 0,
+  balance: 0,
+  admin_expenses_percent: 12,
+  stay_entries: [],
+  payments: [],
+  method_payments: [],
+};
+
+// Admin fee only on applicable items
+const adminTotals = calculateInvoiceTotals({
+  ...base,
+  items: [
+    {
+      description: 'خدمة خاضعة',
+      quantity: 1,
+      amount: 1000,
+      administrative_fee_applicable_snapshot: true,
+    },
+    {
+      description: 'خدمة غير خاضعة',
+      quantity: 1,
+      amount: 500,
+      administrative_fee_applicable_snapshot: false,
+    },
+  ],
+});
+assert(adminTotals.admin_expenses_raw === 120, `admin fee expected 120 got ${adminTotals.admin_expenses_raw}`);
+assert(
+  adminTotals.manual_items_subtotal_raw === 1500,
+  `manual subtotal expected 1500 got ${adminTotals.manual_items_subtotal_raw}`
+);
+const manualSum = adminTotals.items
+  .filter((i) => !i.is_stay_entry)
+  .reduce((s, i) => s + i.total_raw, 0);
+assert(manualSum === 1500, `line sum expected 1500 got ${manualSum}`);
+
+const adminValidation = validateInvoiceCalculations(base, adminTotals);
+assert(adminValidation.is_valid, `validation failed: ${adminValidation.errors.join('; ')}`);
+
+// Supplies markup totals
+const suppliesTotals = calculateInvoiceTotals({
+  ...base,
+  items: [
+    {
+      description: 'مستلزمات',
+      quantity: 2,
+      amount: 150,
+      section_code: 'supplies',
+      daily_entry_line_id: 99,
+      supplies_cost_raw: 200,
+      supplies_margin_raw: 100,
+      supplies_selling_raw: 300,
+    },
+  ],
+});
+assert(suppliesTotals.supplies_cost_total_raw === 200, 'supplies cost');
+assert(suppliesTotals.supplies_margin_total_raw === 100, 'supplies margin');
+assert(suppliesTotals.supplies_selling_total_raw === 300, 'supplies selling');
+assert(suppliesTotals.daily_items_subtotal_raw === 300, 'daily subtotal');
+
+// Final total with discount and payments
+const fullTotals = calculateInvoiceTotals({
+  ...base,
+  invoice_type: 'contracted',
+  contracted_entity_id: 1,
+  discount_percent: 10,
+  stamp_duty: 50,
+  professional_fees: 100,
+  balance: 25,
+  items: [
+    {
+      description: 'بند',
+      quantity: 1,
+      amount: 1000,
+      discountable_snapshot: true,
+      administrative_fee_applicable_snapshot: true,
+    },
+  ],
+  payments: [{ amount: 500 }],
+  method_payments: [{ code: 'cash_private', amount: 500 }],
+});
+assert(fullTotals.items_subtotal_raw === 1000, 'items subtotal');
+assert(fullTotals.subtotal_before_admin_raw === 1150, 'before admin');
+assert(fullTotals.admin_expenses_raw === 120, 'admin on items only');
+assert(fullTotals.total_after_admin_raw === 1270, 'after admin');
+assert(fullTotals.discount_amount_raw === 100, 'discount on eligible');
+assert(fullTotals.net_after_discount_raw === 1170, 'net after discount');
+assert(fullTotals.final_total_raw === 1195, 'final with balance');
+assert(fullTotals.remaining_raw === 695, 'remaining');
+
+const fullValidation = validateInvoiceCalculations(
+  { invoice_type: 'contracted', contracted_entity_id: 1, discount_percent: 10 },
+  fullTotals
+);
+assert(fullValidation.is_valid, `full validation: ${fullValidation.errors.join('; ')}`);
+
+assert(isItemAdminApplicable({ administrative_fee_applicable_snapshot: false }) === false, 'admin flag');
+assert(computeItemAdminFeeRaw({ total_raw: 1000, administrative_fee_applicable_snapshot: false }, 12) === 0, 'no admin');
+
+console.log('OK invoice calculation tests passed');
+process.exit(0);

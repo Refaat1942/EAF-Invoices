@@ -10,13 +10,21 @@ async function listPriceLists(activeOnly = false) {
 }
 
 async function getDefaultPriceList() {
+  const settingId = await getSetting('active_price_list_id', '');
+  if (settingId) {
+    const fromSetting = await getPriceListById(Number(settingId));
+    if (fromSetting?.is_active) return fromSetting;
+  }
+
   const { rows } = await query(
-    `SELECT * FROM price_lists WHERE is_default = TRUE AND is_active = TRUE
-     ORDER BY id DESC LIMIT 1`
+    `SELECT pl.*, COUNT(s.id)::int AS services_count
+     FROM price_lists pl
+     LEFT JOIN services s ON s.price_list_id = pl.id AND s.is_active = TRUE
+     WHERE pl.is_active = TRUE
+     GROUP BY pl.id
+     ORDER BY services_count DESC, pl.is_default DESC, pl.effective_from DESC NULLS LAST, pl.id DESC`
   );
-  if (rows.length) return rows[0];
-  const fallback = await query('SELECT * FROM price_lists WHERE is_active = TRUE ORDER BY id DESC LIMIT 1');
-  return fallback.rows[0] || null;
+  return rows[0] || null;
 }
 
 async function getPriceListById(id) {
@@ -123,6 +131,7 @@ async function setDefaultPriceList(id) {
     [id]
   );
   if (!rows.length) throw new Error('اللائحة غير موجودة');
+  await setSetting('active_price_list_id', String(id));
   return rows[0];
 }
 

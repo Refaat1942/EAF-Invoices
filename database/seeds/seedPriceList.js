@@ -5,7 +5,7 @@ const { query } = require('../db');
 const SEED_PATH = path.join(__dirname, 'price-list-2026-2027.json');
 
 async function seedDefaultPriceList(force = false) {
-  const { rows } = await query('SELECT COUNT(*)::int AS c FROM price_lists');
+  const { rows } = await query('SELECT COUNT(*)::int AS c FROM services');
   if (!force && rows[0].c > 0) return { skipped: true };
 
   const payload = JSON.parse(fs.readFileSync(SEED_PATH, 'utf8'));
@@ -153,6 +153,14 @@ async function importPriceListPayload(payload, actor = null, options = {}) {
       [key, String(value)]
     );
   }
+
+  await query('UPDATE price_lists SET is_default = FALSE');
+  await query('UPDATE price_lists SET is_default = TRUE, updated_at = NOW() WHERE id = $1', [priceListId]);
+  await query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ('active_price_list_id', $1, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+    [String(priceListId)]
+  );
 
   const stats = await getPriceListStats(priceListId);
   return { price_list_id: priceListId, ...stats };

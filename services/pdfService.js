@@ -575,4 +575,390 @@ function buildSummaryRows(inv) {
     .join('');
 }
 
-module.exports = { buildInvoiceHtml, formatNumber, formatDate, enrichInvoice };
+function buildDailyItemsRows(report) {
+  const showSupplies = report.show_supplies_columns;
+  return (report.rows || [])
+    .map((row) => {
+      const suppliesCells = showSupplies
+        ? `<td class="num">${row.cost_price != null ? fmtPlain(row.cost_price) : '—'}</td>
+           <td class="num">${row.markup_percent != null ? fmtPlain(row.markup_percent) : '—'}</td>
+           <td class="num">${row.selling_price != null ? fmtPlain(row.selling_price) : '—'}</td>`
+        : '';
+      return `<tr>
+        <td>${escapeHtml(row.patient_name || '')}</td>
+        <td>${escapeHtml(row.file_number || '')}</td>
+        <td>${formatDate(row.entry_date)}</td>
+        <td class="desc">${escapeHtml(row.item_name || '')}</td>
+        <td>${escapeHtml(row.category || '')}</td>
+        <td class="num">${row.quantity ?? ''}</td>
+        <td>${escapeHtml(row.unit || '')}</td>
+        <td class="num">${fmtPlain(row.unit_price)}</td>
+        ${suppliesCells}
+        <td class="num">${fmtPlain(row.total)}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+function buildDailyItemsFooter(report) {
+  const showSupplies = report.show_supplies_columns;
+  const totals = report.totals || {};
+  const suppliesCells = showSupplies
+    ? `<td class="num">${fmtPlain(totals.total_cost)}</td>
+       <td></td>
+       <td class="num">${fmtPlain(totals.total_selling)}</td>`
+    : '';
+  return `<tr class="summary-row">
+    <td colspan="8" style="text-align:right;font-weight:900">الإجمالي (${totals.row_count || 0} بند)</td>
+    ${suppliesCells}
+    <td class="num">${fmtPlain(totals.total_amount)}</td>
+  </tr>`;
+}
+
+function buildDailyItemsHtml(report, options = {}) {
+  const { logoUrl = '' } = options;
+  const showSupplies = report.show_supplies_columns;
+  const suppliesHeaders = showSupplies
+    ? '<th>سعر التكلفة</th><th>نسبة الربح %</th><th>سعر البيع</th>'
+    : '';
+  const periodLabel =
+    report.filters?.from_date || report.filters?.to_date
+      ? `${formatDate(report.filters.from_date) || '—'} → ${formatDate(report.filters.to_date) || '—'}`
+      : 'كل الفترة';
+
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Cairo', 'Arial', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      color: #000;
+      background: #fff;
+      direction: rtl;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      padding: 8mm 10mm;
+      margin: 0 auto;
+    }
+    .title-bar {
+      text-align: center;
+      font-size: 14px;
+      font-weight: 900;
+      border: 2px solid #000;
+      padding: 8px;
+      margin-bottom: 8px;
+      background: #f0f0f0;
+    }
+    .header {
+      display: flex;
+      direction: ltr;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+      border-bottom: 2px solid #000;
+      padding-bottom: 8px;
+      gap: 10px;
+    }
+    .header-text {
+      direction: rtl;
+      text-align: center;
+      flex: 1;
+      line-height: 1.65;
+      font-weight: 900;
+      font-size: 12px;
+    }
+    .logo-area {
+      width: 72px;
+      height: 72px;
+      border: 2px solid #000;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 8px;
+      text-align: center;
+      font-weight: 900;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+    .logo-area img { width: 100%; height: 100%; object-fit: cover; }
+    .header-spacer { width: 72px; flex-shrink: 0; }
+    .meta-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid #000;
+      margin-bottom: 8px;
+    }
+    .meta-table th, .meta-table td {
+      border: 1px solid #000;
+      text-align: center;
+      font-weight: 800;
+      padding: 5px 4px;
+    }
+    .meta-table th {
+      background: #e8e8e8;
+      font-weight: 900;
+      font-size: 9px;
+    }
+    table.items-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid #000;
+      table-layout: fixed;
+    }
+    table.items-table th, table.items-table td {
+      border: 1px solid #000;
+      padding: 4px 3px;
+      text-align: center;
+      vertical-align: middle;
+      font-weight: 800;
+      font-size: 9px;
+    }
+    table.items-table th {
+      background: #d9d9d9;
+      font-weight: 900;
+    }
+    table.items-table .desc { text-align: right; }
+    table.items-table .num { font-variant-numeric: tabular-nums; }
+    .summary-row td { background: #fff3cd; font-weight: 900; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="logo-area">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="">` : 'شعار'}</div>
+      <div class="header-text">
+        <span class="line">مستشفى القوات المسلحة بالإسماعيلية</span>
+        <span class="line">الإدارة المالية</span>
+      </div>
+      <div class="header-spacer"></div>
+    </div>
+    <div class="title-bar">${escapeHtml(report.title || 'تقرير الأصناف')}</div>
+    <table class="meta-table">
+      <tr>
+        <th>المريض</th>
+        <td>${escapeHtml(report.patient?.name || '')}</td>
+        <th>رقم الملف</th>
+        <td>${escapeHtml(report.patient?.file_number || '')}</td>
+        <th>الفترة</th>
+        <td>${periodLabel}</td>
+      </tr>
+    </table>
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th>المريض</th>
+          <th>رقم الملف</th>
+          <th>التاريخ</th>
+          <th>اسم الصنف</th>
+          <th>الفئة</th>
+          <th>الكمية</th>
+          <th>الوحدة</th>
+          <th>سعر الوحدة</th>
+          ${suppliesHeaders}
+          <th>الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${buildDailyItemsRows(report) || '<tr><td colspan="20">لا توجد بنود في الفترة المحددة</td></tr>'}
+        ${report.rows?.length ? buildDailyItemsFooter(report) : ''}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>`;
+}
+
+function buildDailyServiceRows(report) {
+  return (report.rows || [])
+    .map(
+      (row) =>
+        `<tr>
+        <td>${escapeHtml(row.patient_name || '')}</td>
+        <td>${escapeHtml(row.file_number || '')}</td>
+        <td>${formatDate(row.entry_date)}</td>
+        <td class="desc">${escapeHtml(row.service_name || '')}</td>
+        <td class="num">${row.quantity ?? ''}</td>
+        <td class="num">${fmtPlain(row.unit_price)}</td>
+        <td class="num">${fmtPlain(row.total)}</td>
+      </tr>`
+    )
+    .join('');
+}
+
+function buildDailyServiceFooter(report) {
+  const totals = report.totals || {};
+  return `<tr class="summary-row">
+    <td colspan="6" style="text-align:right;font-weight:900">الإجمالي (${totals.row_count || 0} بند)</td>
+    <td class="num">${fmtPlain(totals.total_amount)}</td>
+  </tr>`;
+}
+
+function buildDailyServiceReportHtml(report, options = {}) {
+  const { logoUrl = '' } = options;
+  const periodLabel =
+    report.filters?.from_date || report.filters?.to_date
+      ? `${formatDate(report.filters.from_date) || '—'} → ${formatDate(report.filters.to_date) || '—'}`
+      : 'كل الفترة';
+  const priceListRow = report.price_list_name
+    ? `<tr><th>لائحة الأسعار</th><td colspan="5">${escapeHtml(report.price_list_name)}</td></tr>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Cairo', 'Arial', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      color: #000;
+      background: #fff;
+      direction: rtl;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page { width: 210mm; min-height: 297mm; padding: 8mm 10mm; margin: 0 auto; }
+    .title-bar {
+      text-align: center; font-size: 14px; font-weight: 900;
+      border: 2px solid #000; padding: 8px; margin-bottom: 8px; background: #f0f0f0;
+    }
+    .header {
+      display: flex; direction: ltr; justify-content: space-between; align-items: flex-start;
+      margin-bottom: 10px; border-bottom: 2px solid #000; padding-bottom: 8px; gap: 10px;
+    }
+    .header-text { direction: rtl; text-align: center; flex: 1; line-height: 1.65; font-weight: 900; font-size: 12px; }
+    .logo-area {
+      width: 72px; height: 72px; border: 2px solid #000; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 8px;
+      text-align: center; font-weight: 900; flex-shrink: 0; overflow: hidden;
+    }
+    .logo-area img { width: 100%; height: 100%; object-fit: cover; }
+    .header-spacer { width: 72px; flex-shrink: 0; }
+    .meta-table { width: 100%; border-collapse: collapse; border: 2px solid #000; margin-bottom: 8px; }
+    .meta-table th, .meta-table td {
+      border: 1px solid #000; text-align: center; font-weight: 800; padding: 5px 4px;
+    }
+    .meta-table th { background: #e8e8e8; font-weight: 900; font-size: 9px; }
+    table.items-table {
+      width: 100%; border-collapse: collapse; border: 2px solid #000; table-layout: fixed;
+    }
+    table.items-table th, table.items-table td {
+      border: 1px solid #000; padding: 4px 3px; text-align: center;
+      vertical-align: middle; font-weight: 800; font-size: 9px;
+    }
+    table.items-table th { background: #d9d9d9; font-weight: 900; }
+    table.items-table .desc { text-align: right; }
+    table.items-table .num { font-variant-numeric: tabular-nums; }
+    .summary-row td { background: #fff3cd; font-weight: 900; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <div class="logo-area">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="">` : 'شعار'}</div>
+      <div class="header-text">
+        <span class="line">مستشفى القوات المسلحة بالإسماعيلية</span>
+        <span class="line">الإدارة المالية</span>
+      </div>
+      <div class="header-spacer"></div>
+    </div>
+    <div class="title-bar">${escapeHtml(report.title || 'تقرير الخدمات')}</div>
+    <table class="meta-table">
+      <tr>
+        <th>المريض</th>
+        <td>${escapeHtml(report.patient?.name || '')}</td>
+        <th>رقم الملف</th>
+        <td>${escapeHtml(report.patient?.file_number || '')}</td>
+        <th>الفترة</th>
+        <td>${periodLabel}</td>
+      </tr>
+      ${priceListRow}
+    </table>
+    <table class="items-table">
+      <thead>
+        <tr>
+          <th>المريض</th>
+          <th>رقم الملف</th>
+          <th>التاريخ</th>
+          <th>اسم الخدمة</th>
+          <th>الكمية</th>
+          <th>سعر الوحدة</th>
+          <th>الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${buildDailyServiceRows(report) || '<tr><td colspan="7">لا توجد بنود في الفترة المحددة</td></tr>'}
+        ${report.rows?.length ? buildDailyServiceFooter(report) : ''}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>`;
+}
+
+function buildDailyReportHtml(report, options = {}) {
+  if (report.report_type === 'service') return buildDailyServiceReportHtml(report, options);
+  return buildDailyItemsHtml(report, options);
+}
+
+function wrapDailyItemsPrintPage(reportHtml, report, baseUrl, kind) {
+  const title = report.title || 'تقرير الأصناف';
+  const params = new URLSearchParams({
+    kind,
+    file_number: report.filters?.file_number || '',
+    from_date: report.filters?.from_date || '',
+    to_date: report.filters?.to_date || '',
+  });
+  const pdfUrl = `${baseUrl}/api/daily-charges/daily-items/print?${params}&format=pdf`;
+  const bodyContent = reportHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] || reportHtml;
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Cairo', sans-serif; background: #f0f2f5; margin: 0; padding: 16px; direction: rtl; }
+    .toolbar { max-width: 210mm; margin: 0 auto 12px; display: flex; gap: 8px; flex-wrap: wrap; background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); align-items: center; }
+    .toolbar a, .toolbar button { font-family: inherit; font-weight: 800; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 14px; }
+    .btn-pdf { background: #c0392b; color: #fff; }
+    .btn-print { background: #27ae60; color: #fff; }
+    .serial { flex: 1; text-align: center; font-weight: 900; font-size: 15px; }
+    @media print { .toolbar { display: none; } body { background: #fff; padding: 0; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <span class="serial">${escapeHtml(title)}</span>
+    <a class="btn-pdf" href="${pdfUrl}">تحميل PDF</a>
+    <button class="btn-print" onclick="window.print()">طباعة</button>
+  </div>
+  ${bodyContent}
+</body>
+</html>`;
+}
+
+module.exports = {
+  buildInvoiceHtml,
+  buildDailyItemsHtml,
+  buildDailyServiceReportHtml,
+  buildDailyReportHtml,
+  wrapDailyItemsPrintPage,
+  formatNumber,
+  formatDate,
+  enrichInvoice,
+};

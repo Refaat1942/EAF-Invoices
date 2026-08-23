@@ -1507,10 +1507,7 @@ async function recalculate(options = {}) {
   const data = collectFormData();
 
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]').value);
-    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]').value);
-    const total = Math.round(qty * amt * 100) / 100;
-    row.querySelector('[data-field="total"]').value = total ? fmtInt(total) : '';
+    updateInvoiceRowLineTotal(row);
   });
 
   try {
@@ -1520,7 +1517,11 @@ async function recalculate(options = {}) {
       body: JSON.stringify(data),
     });
     const totals = await res.json();
+    if (!res.ok || totals.error) {
+      throw new Error(totals.error || 'فشل حساب الفاتورة');
+    }
     lastCalculationTotals = totals;
+    syncInvoiceRowsFromCalculatedItems(totals.items || []);
     updateSummaryDisplay(totals);
     updateSummaryTable(totals);
     updatePaymentValidationUI(totals);
@@ -1545,8 +1546,76 @@ async function recalculate(options = {}) {
     return totals;
   } catch (err) {
     console.error(err);
+    showToast(err.message || 'فشل حساب الفاتورة', 'danger');
     return null;
   }
+}
+
+function updateInvoiceRowLineTotal(row) {
+  if (!row || row.dataset.staySync) return;
+  const qtyEl = row.querySelector('[data-field="quantity"]');
+  const amtEl = row.querySelector('[data-field="amount"]');
+  const totalEl = row.querySelector('[data-field="total"]');
+  if (!qtyEl || !amtEl || !totalEl) return;
+  const qty = parseDisplayAmount(qtyEl.value);
+  const amt = parseDisplayAmount(amtEl.value);
+  const total = Math.round(qty * amt * 100) / 100;
+  totalEl.value = total ? fmtInt(total) : '';
+}
+
+function syncInvoiceRowsFromCalculatedItems(items = []) {
+  const billable = (items || []).filter((item) => !item.is_stay_entry);
+  const byLineId = new Map(
+    billable.filter((item) => item.daily_entry_line_id).map((item) => [String(item.daily_entry_line_id), item])
+  );
+  let manualIdx = 0;
+  const manualItems = billable.filter((item) => !item.daily_entry_line_id);
+
+  document.querySelectorAll('#items-tbody tr').forEach((row) => {
+    if (row.dataset.staySync) return;
+    const lineId = row.dataset.dailyLineId;
+    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
+    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
+    const hasContent = Boolean(lineId || desc || qty || amt);
+    if (!hasContent) return;
+
+    let item = lineId ? byLineId.get(String(lineId)) : null;
+    if (!item && !lineId) {
+      item = manualItems[manualIdx];
+      manualIdx += 1;
+    }
+    if (!item) return;
+
+    const descEl = row.querySelector('[data-field="description"]');
+    if (descEl && item.description) {
+      const current = descEl.value.trim();
+      if (lineId || !current || /GMT|Coordinated Universal Time/i.test(current)) {
+        descEl.value = item.description;
+      }
+    }
+
+    if (item.daily_entry_line_id) row.dataset.dailyLineId = String(item.daily_entry_line_id);
+    if (item.daily_entry_id) row.dataset.dailyEntryId = String(item.daily_entry_id);
+
+    const serviceIdEl = row.querySelector('[data-field="service_id"]');
+    if (serviceIdEl && item.service_id) serviceIdEl.value = item.service_id;
+
+    const qtyEl = row.querySelector('[data-field="quantity"]');
+    const amtEl = row.querySelector('[data-field="amount"]');
+    if (qtyEl && item.quantity != null && item.quantity !== '') {
+      qtyEl.value = formatAmountInput(item.quantity, 0);
+    }
+    if (amtEl && item.amount != null && item.amount !== '') {
+      amtEl.value = formatAmountInput(item.amount);
+    }
+    const totalEl = row.querySelector('[data-field="total"]');
+    if (totalEl && item.total != null && item.total !== '') {
+      totalEl.value = fmtInt(item.total);
+    } else {
+      updateInvoiceRowLineTotal(row);
+    }
+  });
 }
 
 function updateStayEntriesFromTotals(entries) {
@@ -1768,9 +1837,16 @@ function validatePaymentsBeforeSave(totals) {
 }
 
 function applyItemDiscountPercents(items) {
+  const byLineId = Object.fromEntries(
+    (items || []).filter((item) => item.daily_entry_line_id).map((item) => [String(item.daily_entry_line_id), item])
+  );
+  const manualItems = (items || []).filter((item) => !item.daily_entry_line_id);
+  let manualIdx = 0;
   const rows = document.querySelectorAll('#items-tbody tr');
-  rows.forEach((row, i) => {
-    const item = items[i];
+  rows.forEach((row) => {
+    if (row.dataset.staySync) return;
+    const lineId = row.dataset.dailyLineId;
+    const item = lineId ? byLineId[String(lineId)] : manualItems[manualIdx++];
     const pctField = row.querySelector('[data-field="discount_percent"]');
     if (!pctField) return;
     if (item) {
@@ -1789,7 +1865,11 @@ function applyItemDiscountPercents(items) {
 }
 
 function updateSummaryTable(t) {
-  const adminLabel = `مصروفات إدارية ${t.admin_expenses_percent}%`;
+  const adminPct =
+    t.admin_expenses_percent ??
+    parseDisplayAmount(document.getElementById('admin_expenses_percent')?.value) ??
+    12;
+  const adminLabel = `مصروفات إدارية ${adminPct}%`;
   const hasDiscount = Number(t.discount_amount) > 0 || Number(t.discount_percent) > 0;
 
   const discountRows = hasDiscount
@@ -2986,6 +3066,7 @@ async function loadReports() {
     if (currentReportType === 'payments') endpoint = `${API}/reports/payments?${params}`;
     if (currentReportType === 'remaining') endpoint = `${API}/reports/remaining?${params}`;
     if (currentReportType === 'patient_status') endpoint = `${API}/reports/patient-status?${params}`;
+    if (currentReportType === 'supplies_markup') endpoint = `${API}/reports/supplies-markup?${params}`;
     if (currentReportType === 'invoices') {
       params.set('approved_only', 'false');
       endpoint = `${API}?${params}`;
@@ -3072,6 +3153,47 @@ async function loadReports() {
           <div class="card-body p-0"><table class="table table-striped mb-0">
             <thead class="table-dark"><tr><th>الشهر</th><th>عدد</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th></tr></thead>
             <tbody>${monthlyRows || '<tr><td colspan="5" class="text-center">لا توجد بيانات</td></tr>'}</tbody>
+          </table></div></div></div>`;
+      return;
+    }
+
+    if (currentReportType === 'supplies_markup') {
+      const rows = (data.rows || [])
+        .map(
+          (row) => `<tr>
+          <td>${row.entry_date ? new Date(row.entry_date).toLocaleDateString('ar-EG') : '—'}</td>
+          <td class="fw-bold">${escapeHtml(row.file_number || '')}</td>
+          <td>${escapeHtml(row.patient_name || '')}</td>
+          <td>${escapeHtml(row.serial_number || '—')}</td>
+          <td>${escapeHtml(row.item_code || '')}</td>
+          <td>${escapeHtml(row.item_name || '')}</td>
+          <td>${fmt(row.quantity, 0)}</td>
+          <td>${row.cost_price != null ? fmt(row.cost_price) : '—'}</td>
+          <td>${row.markup_percent != null ? fmt(row.markup_percent) + '%' : '—'}</td>
+          <td>${fmt(row.selling_price)}</td>
+          <td>${fmt(row.unit_margin)}</td>
+          <td class="text-success fw-bold">${fmt(row.margin_amount)}</td>
+          <td>${fmt(row.line_total)}</td>
+        </tr>`
+        )
+        .join('');
+      container.innerHTML = `
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">عدد البنود</div><div class="report-stat">${data.totals?.row_count || 0}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">إجمالي التكلفة</div><div class="report-stat">${fmt(data.totals?.total_cost || 0)}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">إجمالي البيع</div><div class="report-stat text-primary">${fmt(data.totals?.total_selling || 0)}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">إجمالي الهامش</div><div class="report-stat text-success">${fmt(data.totals?.total_margin || 0)}</div></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">تقرير هامش المستلزمات</div>
+          <div class="card-body p-0"><table class="table table-striped table-sm mb-0">
+            <thead class="table-dark"><tr>
+              <th>التاريخ</th><th>الملف</th><th>المريض</th><th>الفاتورة</th><th>كود</th><th>الصنف</th>
+              <th>الكمية</th><th>سعر التكلفة</th><th>نسبة الربح %</th><th>سعر البيع</th>
+              <th>هامش الوحدة</th><th>مبلغ الهامش</th><th>إجمالي البند</th>
+            </tr></thead>
+            <tbody>${rows || '<tr><td colspan="13" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
           </table></div></div></div>`;
       return;
     }

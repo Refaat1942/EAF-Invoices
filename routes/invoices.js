@@ -101,10 +101,19 @@ router.get('/reports/patient-status', requirePermission('reports.view'), async (
   }
 });
 
+router.get('/reports/supplies-markup', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const { getSuppliesMarkupReport } = require('../services/reportService');
+    res.json(await getSuppliesMarkupReport(reportFilters(req)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/reports/export', requirePermission('reports.export'), async (req, res) => {
   try {
     const reportType = req.query.report || 'summary';
-    const allowed = ['summary', 'invoices', 'payments', 'remaining', 'patient_status'];
+    const allowed = ['summary', 'invoices', 'payments', 'remaining', 'patient_status', 'supplies_markup'];
     if (!allowed.includes(reportType)) {
       return res.status(400).json({ error: 'نوع التقرير غير صالح' });
     }

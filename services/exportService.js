@@ -1,6 +1,6 @@
 const QRCode = require('qrcode');
 const puppeteer = require('puppeteer');
-const { buildInvoiceHtml } = require('./pdfService');
+const { buildInvoiceHtml, buildDailyReportHtml } = require('./pdfService');
 const { buildWordDocument } = require('./wordService');
 
 let browserInstance = null;
@@ -40,4 +40,22 @@ async function generateDocxBuffer(invoice) {
   return Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
 }
 
-module.exports = { generatePdfBuffer, generateDocxBuffer };
+async function generateDailyItemsPdfBuffer(report, baseUrl, { logoUrl } = {}) {
+  const { getLogoUrl } = require('./settingsService');
+  const resolvedLogo = logoUrl || (await getLogoUrl(baseUrl));
+  const html = buildDailyReportHtml(report, { logoUrl: resolvedLogo });
+
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  await page.setContent(html, { waitUntil: 'networkidle0' });
+  const pdfBytes = await page.pdf({
+    format: 'A4',
+    printBackground: true,
+    margin: { top: '0', right: '0', bottom: '0', left: '0' },
+  });
+  await page.close();
+
+  return Buffer.from(pdfBytes);
+}
+
+module.exports = { generatePdfBuffer, generateDocxBuffer, generateDailyItemsPdfBuffer };

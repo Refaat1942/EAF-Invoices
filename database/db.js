@@ -697,6 +697,40 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_invoice ON patient_daily_entries(invoice_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entry_lines_entry ON patient_daily_entry_lines(entry_id)`);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS daily_entry_catalog_items (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(100) UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      category VARCHAR(50) NOT NULL,
+      unit VARCHAR(50) NOT NULL DEFAULT 'مرة',
+      price NUMERIC(14,2) NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_daily_catalog_category ON daily_entry_catalog_items(category)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_daily_catalog_active ON daily_entry_catalog_items(is_active)`);
+
+  await query(`ALTER TABLE daily_charge_sections ADD COLUMN IF NOT EXISTS catalog_category VARCHAR(50)`);
+  await query(
+    `ALTER TABLE patient_daily_entry_lines ADD COLUMN IF NOT EXISTS catalog_item_id INTEGER REFERENCES daily_entry_catalog_items(id) ON DELETE SET NULL`
+  );
+  await query(`CREATE INDEX IF NOT EXISTS idx_daily_entry_lines_catalog ON patient_daily_entry_lines(catalog_item_id)`);
+
+  await query(`ALTER TABLE daily_entry_catalog_items ADD COLUMN IF NOT EXISTS cost_price NUMERIC(14,2)`);
+  await query(`ALTER TABLE daily_entry_catalog_items ADD COLUMN IF NOT EXISTS markup_percent NUMERIC(8,2)`);
+  await query(`ALTER TABLE patient_daily_entry_lines ADD COLUMN IF NOT EXISTS cost_price NUMERIC(14,2)`);
+  await query(`ALTER TABLE patient_daily_entry_lines ADD COLUMN IF NOT EXISTS markup_percent NUMERIC(8,2)`);
+
+  await query(
+    `UPDATE daily_entry_catalog_items
+     SET cost_price = price, markup_percent = 0
+     WHERE category = 'Supplies' AND cost_price IS NULL AND COALESCE(price, 0) > 0`
+  );
+
   const dailyInvoiceItemColumns = [
     'daily_entry_id INTEGER REFERENCES patient_daily_entries(id) ON DELETE SET NULL',
     'daily_entry_line_id INTEGER REFERENCES patient_daily_entry_lines(id) ON DELETE SET NULL',
@@ -729,8 +763,8 @@ async function seedDailyChargeSections() {
     { code: 'sessions_date', name: 'تاريخ الجلسات', input_type: 'date', sort_order: 4 },
     { code: 'sessions_detail', name: 'جلسات', input_type: 'text', sort_order: 5 },
     { code: 'sessions', name: 'إجمالي جلسات', category_code: 'PHYSIO', input_type: 'amount', sort_order: 6 },
-    { code: 'supplies', name: 'مستلزمات', input_type: 'amount', sort_order: 7 },
-    { code: 'medicines', name: 'أدوية', input_type: 'amount', sort_order: 8 },
+    { code: 'supplies', name: 'مستلزمات', catalog_category: 'Supplies', input_type: 'amount', sort_order: 7 },
+    { code: 'medicines', name: 'أدوية', catalog_category: 'Medicine', input_type: 'amount', sort_order: 8 },
     {
       code: 'consultant_exam',
       name: 'كشف استشاري',
@@ -755,15 +789,23 @@ async function seedDailyChargeSections() {
     { code: 'xray_stamp', name: 'دمغة أشعة', category_code: 'STAMPS', input_type: 'amount', sort_order: 16 },
     { code: 'other', name: 'أخرى', category_code: 'GENERAL', input_type: 'amount', sort_order: 17 },
     { code: 'prosthetics', name: 'مصنع', category_code: 'PROSTHETICS', input_type: 'amount', sort_order: 18 },
+    {
+      code: 'cosmetics',
+      name: 'مستحضرات تجميل',
+      catalog_category: 'Cosmetics',
+      input_type: 'amount',
+      sort_order: 19,
+    },
   ];
 
   for (const section of sections) {
     await query(
-      `INSERT INTO daily_charge_sections (code, name, category_code, default_service_code, input_type, sort_order, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+      `INSERT INTO daily_charge_sections (code, name, category_code, catalog_category, default_service_code, input_type, sort_order, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
        ON CONFLICT (code) DO UPDATE SET
          name = EXCLUDED.name,
          category_code = EXCLUDED.category_code,
+         catalog_category = EXCLUDED.catalog_category,
          default_service_code = EXCLUDED.default_service_code,
          input_type = EXCLUDED.input_type,
          sort_order = EXCLUDED.sort_order,
@@ -772,6 +814,7 @@ async function seedDailyChargeSections() {
         section.code,
         section.name,
         section.category_code || null,
+        section.catalog_category || null,
         section.default_service_code || null,
         section.input_type,
         section.sort_order,

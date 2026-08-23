@@ -89,6 +89,31 @@ async function listServices(filters = {}) {
   return rows;
 }
 
+async function enrichServicesWithResolvedPrices(services = []) {
+  const enriched = [];
+  for (const svc of services) {
+    const basePrice = Number(svc.price) || 0;
+    const needsResolve = (svc.price_type && svc.price_type !== 'fixed') || basePrice <= 0;
+    if (!needsResolve && basePrice > 0) {
+      enriched.push({ ...svc, list_price: basePrice, price: basePrice });
+      continue;
+    }
+    try {
+      const resolved = await resolveServiceForInvoice(svc.id);
+      const listPrice = Number(resolved.amount) || 0;
+      enriched.push({
+        ...svc,
+        price: listPrice,
+        list_price: listPrice,
+        category_name: svc.category_name || resolved.category_name_snapshot || '',
+      });
+    } catch {
+      enriched.push({ ...svc, list_price: basePrice, price: basePrice });
+    }
+  }
+  return enriched;
+}
+
 async function getServiceById(id, client = null) {
   const run = client ? client.query.bind(client) : query;
   const { rows } = await run(
@@ -316,6 +341,8 @@ async function resolveServiceForInvoice(serviceId, options = {}) {
     administrative_fee_applicable_snapshot: service.administrative_fee_applicable,
     price_list_id_snapshot: service.price_list_id,
     price_list_name_snapshot: service.price_list_name || '',
+    category_name_snapshot: service.category_name || '',
+    category_code_snapshot: service.category_code || '',
     composite_components_snapshot: service.components || [],
     discount_eligible_override: service.discountable,
   };
@@ -448,6 +475,7 @@ module.exports = {
   updateCategory,
   listServices,
   getServiceById,
+  enrichServicesWithResolvedPrices,
   createService,
   updateService,
   bulkUpdatePrices,

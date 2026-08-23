@@ -1,6 +1,13 @@
 const { v4: uuidv4 } = require('uuid');
 const { query, withTransaction } = require('../database/db');
-const { calculateInvoiceTotals, calculateStayDays, validatePaymentBalance, validateInvoiceCalculations } = require('./calculations');
+const {
+  calculateInvoiceTotals,
+  calculateStayDays,
+  validatePaymentBalance,
+  validateInvoiceCalculations,
+  computeItemAdminFeeRaw,
+  round2,
+} = require('./calculations');
 const { nextSerialNumber, formatFiscalYearLabel } = require('./serialService');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
 const { getContractedEntityById, getEffectiveDiscountPercent } = require('./contractedEntityService');
@@ -13,31 +20,49 @@ const { resolveServiceForInvoice } = require('./serviceCatalogService');
 const { getSetting } = require('./settingsService');
 
 async function enrichItemsWithServices(items = []) {
-  const { enrichDailyInvoiceItems } = require('./dailyChargeService');
-  const dailyItems = items.filter((item) => item.daily_entry_line_id);
-  const otherItems = items.filter((item) => !item.daily_entry_line_id);
+  const {
+    enrichDailyInvoiceItems,
+    buildDailyItemDescription,
+    formatDailyEntryDateLabel,
+    isGmtDescription,
+    resolveDailyItemName,
+    sortDailyInvoiceItems,
+  } = require('./dailyChargeService');
+  const dailyItems = items.filter((item) => item.daily_entry_line_id || item.daily_entry_id);
+  const otherItems = items.filter((item) => !item.daily_entry_line_id && !item.daily_entry_id);
   const enrichedDaily = dailyItems.length ? await enrichDailyInvoiceItems(dailyItems) : [];
 
   const enriched = [];
   for (const item of otherItems) {
+    let next = { ...item };
     if (item.service_id) {
       try {
         const resolved = await resolveServiceForInvoice(Number(item.service_id), {
           tier_key: item.tier_key,
           unit: item.unit,
         });
-        enriched.push({
-          ...item,
-          description: item.description || resolved.description,
-          amount: item.amount ?? resolved.amount,
+        const name = resolveDailyItemName(next, null, null, resolved);
+        next = {
+          ...next,
+          description: isGmtDescription(next.description)
+            ? buildDailyItemDescription(formatDailyEntryDateLabel(next.description), name, next.daily_extra_text)
+            : next.description || resolved.description,
+          amount: next.amount ?? resolved.amount,
           ...resolved,
-        });
+        };
+        enriched.push(next);
         continue;
       } catch {
         /* keep original item */
       }
     }
-    enriched.push(item);
+    if (isGmtDescription(next.description)) {
+      const parsedDate = formatDailyEntryDateLabel(next.description);
+      const name = resolveDailyItemName(next, null, null, null);
+      next.description = buildDailyItemDescription(parsedDate, name, next.daily_extra_text);
+      next.entry_date = parsedDate;
+    }
+    enriched.push(next);
   }
 
   return sortDailyInvoiceItems([...enrichedDaily, ...enriched]);
@@ -93,32 +118,37 @@ async function prepareCalculationData(data) {
   if (
     calcData.file_number &&
     calcData.admission_date &&
-    calcData.discharge_date &&
     calcData.include_daily_charges !== false
   ) {
+    const fromDate = fmtDateOnly(calcData.admission_date);
+    let toDate = fmtDateOnly(calcData.discharge_date);
+    if (!toDate && fromDate) toDate = fromDate;
     const { getInvoiceItemsFromDailyCharges } = require('./dailyChargeService');
     const dailyItems = await getInvoiceItemsFromDailyCharges(
       calcData.file_number,
-      calcData.admission_date,
-      calcData.discharge_date,
+      fromDate,
+      toDate,
       calcData.invoice_id || calcData.id || null
     );
+    const manualOnly = (Array.isArray(calcData.items) ? calcData.items : []).filter(
+      (item) => !item.daily_entry_line_id && !item.daily_entry_id && !isStaleDailyInvoiceItem(item)
+    );
     if (dailyItems.length) {
-      const existing = Array.isArray(calcData.items) ? calcData.items : [];
-      const linkedLineIds = new Set(
-        existing.filter((item) => item.daily_entry_line_id).map((item) => Number(item.daily_entry_line_id))
-      );
-      const merged = dailyItems.filter((item) => !linkedLineIds.has(Number(item.daily_entry_line_id)));
-      if (merged.length) {
-        calcData.items = [...existing, ...merged];
-        calcData.items = await enrichItemsWithServices(calcData.items);
-        const { sortDailyInvoiceItems } = require('./dailyChargeService');
-        calcData.items = sortDailyInvoiceItems(calcData.items);
-      }
+      calcData.items = [...manualOnly, ...dailyItems];
+      calcData.items = await enrichItemsWithServices(calcData.items);
+      const { sortDailyInvoiceItems } = require('./dailyChargeService');
+      calcData.items = sortDailyInvoiceItems(calcData.items);
+    } else if (manualOnly.length !== (calcData.items || []).length) {
+      calcData.items = manualOnly;
     }
   }
 
   return calcData;
+}
+
+function isStaleDailyInvoiceItem(item) {
+  const desc = String(item?.description || '');
+  return /^\[\d{2}-\d{2}-\d{4}\]/.test(desc) || /GMT|Coordinated Universal Time/i.test(desc);
 }
 
 async function saveDiscountFields(client, invoiceId, data, totals, createdBy = null) {
@@ -578,10 +608,11 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
     for (let index = 0; index < manualItems.length; index++) {
       const item = manualItems[index];
       const adminPercent = totals.admin_expenses_percent || 0;
-      const adminFeeAmount =
-        item.administrative_fee_applicable_snapshot !== false && item.is_stay_entry !== true
-          ? Math.round(((Number(item.total_raw) || 0) * adminPercent) / 100 * 100) / 100
-          : 0;
+      const adminFeeAmount = round2(
+        item.admin_fee_amount_raw != null
+          ? item.admin_fee_amount_raw
+          : computeItemAdminFeeRaw(item, adminPercent)
+      );
       await client.query(
         `INSERT INTO invoice_items (
           invoice_id, description, quantity, amount, total,
@@ -640,13 +671,13 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
     await saveStayEntries(client, invoiceId, totals.stay_entries || []);
     await saveMethodPayments(client, invoiceId, data.method_payments || []);
 
-    if (data.file_number && data.admission_date && data.discharge_date) {
+    if (data.file_number && data.admission_date) {
       const { linkEntriesToInvoice } = require('./dailyChargeService');
       await linkEntriesToInvoice(
         invoiceId,
         data.file_number,
         data.admission_date,
-        data.discharge_date,
+        data.discharge_date || data.admission_date,
         client
       );
     }
@@ -749,7 +780,7 @@ function expandStayDates(admissionDate, dischargeDate, entryDate) {
 
 function invoiceManualItems(invoice) {
   return (invoice.items || [])
-    .filter((item) => !item.daily_entry_line_id)
+    .filter((item) => !item.daily_entry_line_id && !item.daily_entry_id && !isStaleDailyInvoiceItem(item))
     .map((item) => ({
       description: item.description,
       quantity: item.quantity,
@@ -813,9 +844,43 @@ async function resolveOpenInvoiceForDailyEntry(fileNumber) {
   return rows[0]?.id || null;
 }
 
+async function syncInvoiceAfterDailyChange(invoiceId, fileNumber) {
+  const invoice = await getInvoiceById(invoiceId);
+  if (!invoice || invoice.status === 'approved') return null;
+
+  const { cleanOrphanDailyInvoiceItems } = require('./dailyChargeService');
+  await cleanOrphanDailyInvoiceItems(invoiceId);
+
+  const { rows: rangeRows } = await query(
+    `SELECT MIN(e.entry_date) AS min_date, MAX(e.entry_date) AS max_date
+     FROM patient_daily_entries e
+     JOIN patients p ON p.id = e.patient_id
+     WHERE TRIM(p.file_number) = TRIM($1)`,
+    [fileNumber.trim()]
+  );
+  const minDate = fmtDateOnly(rangeRows[0]?.min_date);
+  const maxDate = fmtDateOnly(rangeRows[0]?.max_date);
+
+  const manualItems = invoiceManualItems(invoice);
+  const payload = invoiceToSavePayload(invoice, manualItems, {
+    admission_date: minDate || fmtDateOnly(invoice.admission_date),
+    discharge_date: maxDate || null,
+  });
+  payload.include_daily_charges = true;
+
+  return saveInvoice(payload, invoiceId, null, {
+    save_mode: 'draft',
+    preserve_status: true,
+  });
+}
+
 async function syncInvoiceDailyCharges(invoiceId, options = {}) {
   const invoice = await getInvoiceById(invoiceId);
   if (!invoice || invoice.status === 'approved') return null;
+
+  if (options.rebuild_from_daily && invoice.file_number) {
+    return syncInvoiceAfterDailyChange(invoiceId, invoice.file_number);
+  }
 
   const entryDate = options.entry_date ? fmtDateOnly(options.entry_date) : null;
   const dates = entryDate
@@ -874,22 +939,93 @@ async function syncDailyEntryToInvoices(entry, meta = {}) {
     created = true;
   }
 
-  const updated = await syncInvoiceDailyCharges(invoiceId, {
-    entry_date: entryDate,
-    preserve_status: true,
-  });
+  const updated = await syncInvoiceAfterDailyChange(invoiceId, fileNumber);
+  if (!updated) {
+    return {
+      synced: false,
+      invoice_id: invoiceId,
+      error: 'تعذّر تحديث الفاتورة (معتمدة أو غير موجودة)',
+    };
+  }
+
+  const { linkEntryToInvoice, linkEntriesToInvoice, getDailySummaryForPatient } = require('./dailyChargeService');
+  if (entry?.id) {
+    await linkEntryToInvoice(entry.id, invoiceId);
+  }
+  const linkFrom = fmtDateOnly(updated.admission_date) || entryDate;
+  const linkTo = fmtDateOnly(updated.discharge_date) || entryDate;
+  await linkEntriesToInvoice(invoiceId, fileNumber, linkFrom, linkTo);
+
+  const daily_summary = await getDailySummaryForPatient(fileNumber);
 
   return {
     synced: true,
     created,
     invoice_id: invoiceId,
-    final_total: updated?.final_total,
-    admission_date: updated?.admission_date,
-    discharge_date: updated?.discharge_date,
+    final_total: updated.final_total,
+    items_subtotal: updated.items_subtotal,
+    admission_date: updated.admission_date,
+    discharge_date: updated.discharge_date,
+    daily_summary,
+  };
+}
+
+async function syncPatientDailyChargesToInvoice(fileNumber, patientName = '') {
+  const fn = fileNumber?.trim();
+  if (!fn) return { synced: false, reason: 'missing_file_number' };
+
+  let invoiceId = await resolveOpenInvoiceForDailyEntry(fn);
+  let created = false;
+
+  if (!invoiceId) {
+    const { rows } = await query(
+      `SELECT MIN(e.entry_date) AS min_date
+       FROM patient_daily_entries e
+       JOIN patients p ON p.id = e.patient_id
+       WHERE TRIM(p.file_number) = TRIM($1)`,
+      [fn]
+    );
+    const firstDate = fmtDateOnly(rows[0]?.min_date) || fmtDateOnly(new Date());
+    const createdInvoice = await createDraftInvoiceForDailyEntry(fn, patientName, firstDate);
+    invoiceId = createdInvoice.id;
+    created = true;
+  }
+
+  const updated = await syncInvoiceAfterDailyChange(invoiceId, fn);
+  if (!updated) {
+    return {
+      synced: false,
+      invoice_id: invoiceId,
+      error: 'تعذّر تحديث الفاتورة (معتمدة أو غير موجودة)',
+    };
+  }
+
+  const { linkEntriesToInvoice, getDailySummaryForPatient } = require('./dailyChargeService');
+  const linkFrom = fmtDateOnly(updated.admission_date);
+  const linkTo = fmtDateOnly(updated.discharge_date) || linkFrom;
+  if (linkFrom) {
+    await linkEntriesToInvoice(invoiceId, fn, linkFrom, linkTo);
+  }
+
+  const daily_summary = await getDailySummaryForPatient(fn);
+
+  return {
+    synced: true,
+    created,
+    invoice_id: invoiceId,
+    final_total: updated.final_total,
+    items_subtotal: updated.items_subtotal,
+    admission_date: updated.admission_date,
+    discharge_date: updated.discharge_date,
+    daily_summary,
   };
 }
 
 async function getDailySummaryForStay(fileNumber, admissionDate, dischargeDate) {
+  const { getDailySummaryForPatient } = require('./dailyChargeService');
+  if (!admissionDate && !dischargeDate) {
+    return getDailySummaryForPatient(fileNumber);
+  }
   const params = [fileNumber.trim()];
   let sql = `
     SELECT COUNT(*)::int AS entry_count, COALESCE(SUM(e.daily_total), 0) AS daily_total_sum
@@ -920,11 +1056,29 @@ async function getOpenPatientStay(fileNumber) {
   }
   if (!patient && !invoice) return null;
 
-  const dailySummary = await getDailySummaryForStay(
-    fn,
-    invoice?.admission_date,
-    invoice?.discharge_date
-  );
+  if (invoice?.id) {
+    const { linkEntriesToInvoice } = require('./dailyChargeService');
+    let linkTo = fmtDateOnly(invoice.discharge_date) || fmtDateOnly(invoice.admission_date);
+    const { rows: maxRows } = await query(
+      `SELECT MAX(e.entry_date) AS max_date
+       FROM patient_daily_entries e
+       JOIN patients p ON p.id = e.patient_id
+       WHERE TRIM(p.file_number) = TRIM($1)`,
+      [fn]
+    );
+    const maxEntryDate = fmtDateOnly(maxRows[0]?.max_date);
+    if (maxEntryDate && (!linkTo || maxEntryDate > linkTo)) linkTo = maxEntryDate;
+    await linkEntriesToInvoice(
+      invoice.id,
+      fn,
+      fmtDateOnly(invoice.admission_date),
+      linkTo
+    );
+    invoice = await getInvoiceById(invoice.id);
+  }
+
+  const { getDailySummaryForPatient } = require('./dailyChargeService');
+  const dailySummary = await getDailySummaryForPatient(fn);
 
   return {
     patient: patient || { file_number: fn, name: invoice?.patient_name || '', account_balance: 0 },
@@ -997,7 +1151,9 @@ module.exports = {
   getReportsSummary,
   prepareCalculationData,
   syncInvoiceDailyCharges,
+  syncInvoiceAfterDailyChange,
   syncDailyEntryToInvoices,
+  syncPatientDailyChargesToInvoice,
   getOpenPatientStay,
   openPatientStay,
 };

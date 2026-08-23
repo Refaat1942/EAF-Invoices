@@ -1,4 +1,5 @@
 const express = require('express');
+const multer = require('multer');
 const {
   listSections,
   getSectionsWithServices,
@@ -13,9 +14,36 @@ const {
 } = require('../services/dailyChargeService');
 const { upsertPatient, getPatientByFileNumber } = require('../services/patientService');
 const { getOpenPatientStay, openPatientStay } = require('../services/invoiceService');
+const { getDailyPrintReport, resolveDailyPrintKind } = require('../services/reportService');
+const { buildDailyReportHtml, wrapDailyItemsPrintPage } = require('../services/pdfService');
+const { generateDailyItemsPdfBuffer } = require('../services/exportService');
+const { getLogoUrl } = require('../services/settingsService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
+const {
+  CATALOG_CATEGORIES,
+  listCatalogItems,
+  getCatalogItemById,
+  getCatalogStats,
+  createCatalogItem,
+  updateCatalogItem,
+  setCatalogItemActive,
+  importCatalogRows,
+  analyzeCatalogImportFile,
+  confirmCatalogImportFile,
+  parseCsvCatalog,
+  parseExcelCatalog,
+  exportCatalogCsv,
+} = require('../services/dailyEntryCatalogService');
 
 const router = express.Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
+function getBaseUrl(req) {
+  return `${req.protocol}://${req.get('host')}`;
+}
 
 router.use(requireAuth);
 
@@ -25,6 +53,154 @@ router.get('/sections', requirePermission('daily_charges.view'), async (req, res
     res.json(withServices ? await getSectionsWithServices() : await listSections());
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/catalog', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const category = req.query.category || null;
+    if (category && !CATALOG_CATEGORIES.includes(category)) {
+      return res.status(400).json({ error: 'الفئة غير صالحة (Medicine / Supplies / Cosmetics)' });
+    }
+    const items = await listCatalogItems({
+      category,
+      search: req.query.search || null,
+      active_only: req.query.active_only !== '0',
+      limit: req.query.limit || null,
+    });
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/catalog/stats', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    res.json(await getCatalogStats());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/catalog/export', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const csv = await exportCatalogCsv();
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="daily-entry-catalog.csv"');
+    res.send('\uFEFF' + csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/catalog/import/analyze', requirePermission('daily_charges.manage'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: 'الملف مطلوب (CSV أو Excel)' });
+    }
+
+    let mappingOverride = null;
+    if (req.body.mapping) {
+      try {
+        mappingOverride = JSON.parse(req.body.mapping);
+      } catch {
+        return res.status(400).json({ error: 'تعيين الأعمدة غير صالح' });
+      }
+    }
+
+    const analysis = await analyzeCatalogImportFile(
+      req.file.buffer,
+      req.file.originalname,
+      mappingOverride
+    );
+    res.json(analysis);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/catalog/import/confirm', requirePermission('daily_charges.manage'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: 'الملف مطلوب (CSV أو Excel)' });
+    }
+
+    let mapping = null;
+    try {
+      mapping = JSON.parse(req.body.mapping || '{}');
+    } catch {
+      return res.status(400).json({ error: 'تعيين الأعمدة غير صالح' });
+    }
+
+    const result = await confirmCatalogImportFile(req.file.buffer, req.file.originalname, mapping);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/catalog/import', requirePermission('daily_charges.manage'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: 'الملف مطلوب (CSV أو Excel)' });
+    }
+
+    const name = String(req.file.originalname || '').toLowerCase();
+    let rows;
+    if (name.endsWith('.csv') || name.endsWith('.txt')) {
+      rows = await parseCsvCatalog(req.file.buffer.toString('utf8'));
+    } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+      rows = await parseExcelCatalog(req.file.buffer);
+    } else {
+      return res.status(400).json({ error: 'صيغة غير مدعومة — استخدم CSV أو Excel (.xlsx)' });
+    }
+
+    if (!rows.length) {
+      return res.status(400).json({ error: 'لم يُعثر على أصناف في الملف — تأكد من الأعمدة: Code, Name, Category, Unit, Price' });
+    }
+
+    const result = await importCatalogRows(rows);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/catalog/:id', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const item = await getCatalogItemById(Number(req.params.id));
+    if (!item) return res.status(404).json({ error: 'الصنف غير موجود' });
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/catalog', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const item = await createCatalogItem(req.body);
+    res.json({ item, stats: await getCatalogStats() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/catalog/:id', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const item = await updateCatalogItem(Number(req.params.id), req.body);
+    res.json({ item, stats: await getCatalogStats() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch('/catalog/:id/active', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const isActive = req.body.is_active === true || req.body.is_active === 'true' || req.body.is_active === 1;
+    const item = await setCatalogItemActive(Number(req.params.id), isActive);
+    res.json({ item, stats: await getCatalogStats() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -134,6 +310,53 @@ router.get('/for-invoice', requirePermission('invoices.view'), async (req, res) 
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/daily-items/print', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const kind = String(req.query.kind || '').trim();
+    if (!resolveDailyPrintKind(kind)) {
+      return res.status(400).json({
+        error:
+          'نوع التقرير غير صالح (medicines / supplies / medicines_supplies / radiology / laboratory)',
+      });
+    }
+
+    const file_number = req.query.file_number?.trim();
+    if (!file_number) {
+      return res.status(400).json({ error: 'file_number مطلوب' });
+    }
+
+    const report = await getDailyPrintReport(kind, {
+      file_number,
+      from_date: req.query.from_date || null,
+      to_date: req.query.to_date || null,
+    });
+
+    const baseUrl = getBaseUrl(req);
+    const logoUrl = await getLogoUrl(baseUrl);
+    const format = String(req.query.format || 'page').toLowerCase();
+
+    if (format === 'pdf') {
+      const pdf = await generateDailyItemsPdfBuffer(report, baseUrl, { logoUrl });
+      const safeFile = file_number.replace(/[^\w\-]+/g, '_');
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="daily-report-${kind}-${safeFile}.pdf"`
+      );
+      return res.send(pdf);
+    }
+
+    const html = buildDailyReportHtml(report, { logoUrl });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(wrapDailyItemsPrintPage(html, report, baseUrl, kind));
+  } catch (err) {
+    if (req.query.format === 'pdf') {
+      return res.status(400).json({ error: err.message });
+    }
+    res.status(400).send(err.message || 'فشل إنشاء التقرير');
   }
 });
 

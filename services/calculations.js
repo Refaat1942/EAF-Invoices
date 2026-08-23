@@ -39,11 +39,43 @@ function matchesExclusion(description, exclusion) {
 }
 
 function isItemAdminApplicable(item) {
+  if (item.is_stay_entry) return true;
   if (item.administrative_fee_applicable_snapshot === false) return false;
   if (item.administrative_fee_applicable_snapshot === true) return true;
   if (item.administrative_fee_applicable === false) return false;
-  if (item.is_stay_entry) return true;
   return true;
+}
+
+function computeItemAdminFeeRaw(item, adminPercent) {
+  if (!isItemAdminApplicable(item)) return 0;
+  return round2((Number(item.total_raw) || 0) * (Number(adminPercent) || 0) / 100);
+}
+
+function sumSuppliesMarkup(items = []) {
+  let costRaw = 0;
+  let marginRaw = 0;
+  let sellingRaw = 0;
+  for (const item of items) {
+    if (!item.daily_entry_line_id && !item.supplies_cost_raw) continue;
+    const lineCost = Number(item.supplies_cost_raw);
+    const lineMargin = Number(item.supplies_margin_raw);
+    const lineSelling = Number(item.supplies_selling_raw ?? item.total_raw);
+    if (lineCost > 0 || lineMargin > 0) {
+      costRaw += lineCost > 0 ? lineCost : 0;
+      marginRaw += lineMargin > 0 ? lineMargin : 0;
+      sellingRaw += lineSelling > 0 ? lineSelling : 0;
+    } else if (item.section_code === 'supplies' && item.daily_entry_line_id) {
+      sellingRaw += Number(item.total_raw) || 0;
+    }
+  }
+  return {
+    supplies_cost_total_raw: round2(costRaw),
+    supplies_margin_total_raw: round2(marginRaw),
+    supplies_selling_total_raw: round2(sellingRaw),
+    supplies_cost_total: roundNearest(costRaw),
+    supplies_margin_total: roundNearest(marginRaw),
+    supplies_selling_total: roundNearest(sellingRaw),
+  };
 }
 
 function resolveItemEligibility(item, exclusions, discountActive) {
@@ -222,6 +254,13 @@ function calculateInvoiceTotals(data) {
     data.invoice_type === 'contracted' && discountPercent > 0 && Number(data.contracted_entity_id);
   const exclusions = data.discount_exclusions || [];
 
+  const stampDutyD = dualValue(data.stamp_duty);
+  const professionalFeesD = dualValue(data.professional_fees);
+  const adminPercentResolved = resolveAdminPercent(
+    data.admin_expenses_percent,
+    resolveAdminPercent(data.administrative_fee_rate, 12)
+  );
+
   const stayEntries = calculateStayEntries(data.stay_entries);
   const staySubtotalRaw = round2(stayEntries.reduce((sum, entry) => sum + entry.total_raw, 0));
   const staySubtotal = roundNearest(staySubtotalRaw);
@@ -241,6 +280,7 @@ function calculateInvoiceTotals(data) {
       exclusions,
       discountActive
     );
+    const adminFeeRaw = computeItemAdminFeeRaw({ ...item, total_raw: calc.raw }, adminPercentResolved);
     return {
       ...item,
       total: calc.rounded,
@@ -248,6 +288,8 @@ function calculateInvoiceTotals(data) {
       total_rounded: calc.rounded,
       patient_credit_applied: roundNearest(creditRaw),
       patient_credit_applied_raw: creditRaw,
+      admin_fee_amount_raw: adminFeeRaw,
+      admin_fee_amount: roundNearest(adminFeeRaw),
       ...eligibility,
     };
   });
@@ -288,25 +330,20 @@ function calculateInvoiceTotals(data) {
   const paymentsTotalRaw = round2(payments.reduce((sum, p) => sum + p.amount_raw, 0));
   const paymentsTotal = roundNearest(paymentsTotalRaw);
 
-  const stampDutyD = dualValue(data.stamp_duty);
-  const professionalFeesD = dualValue(data.professional_fees);
-  const adminPercentResolved = resolveAdminPercent(
-    data.admin_expenses_percent,
-    resolveAdminPercent(data.administrative_fee_rate, 12)
-  );
-
   const adminApplicableSubtotalRaw = round2(
     items.filter((item) => isItemAdminApplicable(item)).reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
   );
   const adminApplicableSubtotal = roundNearest(adminApplicableSubtotalRaw);
 
-  const subtotalBeforeAdminRaw = round2(
-    itemsSubtotalRaw + stampDutyD.raw + professionalFeesD.raw
+  const adminExpensesRaw = round2(
+    items
+      .filter((item) => isItemAdminApplicable(item))
+      .reduce((sum, item) => sum + computeItemAdminFeeRaw(item, adminPercentResolved), 0)
   );
-  const subtotalBeforeAdmin = roundNearest(subtotalBeforeAdminRaw);
-
-  const adminExpensesRaw = round2(subtotalBeforeAdminRaw * (adminPercentResolved / 100));
   const adminExpenses = roundNearest(adminExpensesRaw);
+
+  const subtotalBeforeAdminRaw = round2(itemsSubtotalRaw + stampDutyD.raw + professionalFeesD.raw);
+  const subtotalBeforeAdmin = roundNearest(subtotalBeforeAdminRaw);
 
   const totalAfterAdminRaw = round2(subtotalBeforeAdminRaw + adminExpensesRaw);
   const totalAfterAdmin = roundNearest(totalAfterAdminRaw);
@@ -353,6 +390,15 @@ function calculateInvoiceTotals(data) {
       .reduce((sum, item) => sum + (item.item_discount_amount_raw || 0), 0)
   );
   const itemDiscountTotal = roundNearest(itemDiscountTotalRaw);
+
+  const suppliesMarkup = sumSuppliesMarkup(manualItems);
+
+  const dailyItemsSubtotalRaw = round2(
+    manualItems
+      .filter((item) => item.daily_entry_line_id)
+      .reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
+  );
+  const dailyItemsSubtotal = roundNearest(dailyItemsSubtotalRaw);
 
   const totalsPayload = {
     items,
@@ -410,6 +456,9 @@ function calculateInvoiceTotals(data) {
     patient_credit_applied: patientCreditFromItems,
     patient_credit_applied_raw: patientCreditFromItemsRaw,
     method_payments: paymentTotals.method_payments || methodPaymentsMerged,
+    daily_items_subtotal: dailyItemsSubtotal,
+    daily_items_subtotal_raw: dailyItemsSubtotalRaw,
+    ...suppliesMarkup,
   };
 
   totalsPayload.calculation_steps = buildCalculationSteps(totalsPayload);
@@ -477,6 +526,29 @@ function buildCalculationSteps(totals) {
         label: 'مهن',
         raw: totals.professional_fees_raw,
         rounded: totals.professional_fees,
+      }
+    );
+  }
+
+  if (Number(totals.supplies_margin_total_raw) > 0) {
+    steps.push(
+      {
+        key: 'supplies_cost',
+        label: 'تكلفة المستلزمات',
+        raw: totals.supplies_cost_total_raw,
+        rounded: totals.supplies_cost_total,
+      },
+      {
+        key: 'supplies_margin',
+        label: 'هامش المستلزمات',
+        raw: totals.supplies_margin_total_raw,
+        rounded: totals.supplies_margin_total,
+      },
+      {
+        key: 'supplies_selling',
+        label: 'بيع المستلزمات',
+        raw: totals.supplies_selling_total_raw,
+        rounded: totals.supplies_selling_total,
       }
     );
   }
@@ -601,7 +673,9 @@ function validateInvoiceCalculations(data, totals) {
   }
 
   const expectedAdmin = round2(
-    (totals.subtotal_before_admin_raw || 0) * (resolveAdminPercent(totals.admin_expenses_percent, 12) / 100)
+    (totals.items || [])
+      .filter((item) => isItemAdminApplicable(item))
+      .reduce((sum, item) => sum + computeItemAdminFeeRaw(item, totals.admin_expenses_percent), 0)
   );
   if (!approxEqual(expectedAdmin, totals.admin_expenses_raw)) {
     errors.push('خطأ: المصروفات الإدارية غير صحيحة');
@@ -631,6 +705,26 @@ function validateInvoiceCalculations(data, totals) {
   const expectedFinal = round2((totals.net_after_discount_raw || 0) + (totals.balance_raw || 0));
   if (!approxEqual(expectedFinal, totals.final_total_raw)) {
     errors.push('خطأ: إجمالي الفاتورة النهائي غير صحيح');
+  }
+
+  const manualSumRaw = round2(
+    (totals.items || [])
+      .filter((item) => !item.is_stay_entry)
+      .reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
+  );
+  if (!approxEqual(manualSumRaw, totals.manual_items_subtotal_raw)) {
+    errors.push('خطأ: مجموع بنود الفاتورة لا يطابق إجمالي البنود');
+  }
+
+  if (totals.daily_items_subtotal_raw != null) {
+    const expectedDailySubtotal = round2(
+      (totals.items || [])
+        .filter((item) => item.daily_entry_line_id && !item.is_stay_entry)
+        .reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
+    );
+    if (!approxEqual(expectedDailySubtotal, totals.daily_items_subtotal_raw)) {
+      errors.push('خطأ: إجمالي بنود الحركة اليومية لا يطابق بنود الفاتورة');
+    }
   }
 
   const expectedRemaining = round2((totals.final_total_raw || 0) - (totals.total_collected_raw || 0));
@@ -712,4 +806,6 @@ module.exports = {
   buildCalculationSteps,
   formatDual,
   matchesExclusion,
+  isItemAdminApplicable,
+  computeItemAdminFeeRaw,
 };
