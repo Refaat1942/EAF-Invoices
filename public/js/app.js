@@ -36,7 +36,7 @@ const STATUS_BADGES = {
 function formatPlainNumber(n, maxDecimals = 2) {
   const num = Number(n) || 0;
   return num.toLocaleString('en-US', {
-    minimumFractionDigits: maxDecimals === 0 ? 0 : 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: maxDecimals,
   });
 }
@@ -2433,7 +2433,7 @@ async function loadPaymentMethodsForm(values = {}) {
         return `<tr class="payment-method-row" data-method-code="${m.code}">
           <td class="fw-bold">${i + 1} - ${m.name}${labelSuffix}</td>
           <td><input type="text" inputmode="decimal" class="form-control form-control-sm payment-method-input comma-amount${extraClass}"
-            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${displayVal}" placeholder="0.00" ${readonlyAttr}></td>
+            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${displayVal}" placeholder="0" ${readonlyAttr}></td>
           <td class="text-center">${actionCell}</td>
         </tr>
         <tr class="payment-row-remaining" style="display:none"><td colspan="3" class="remaining-hint-text py-1"></td></tr>`;

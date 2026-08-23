@@ -748,7 +748,10 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
     file_number: invoice.file_number,
     issue_date: fmtDateOnly(invoice.issue_date) || fmtDateOnly(dateOverrides.entry_date),
     admission_date: dateOverrides.admission_date ?? fmtDateOnly(invoice.admission_date),
-    discharge_date: dateOverrides.discharge_date ?? fmtDateOnly(invoice.discharge_date),
+    discharge_date:
+      'discharge_date' in dateOverrides
+        ? fmtDateOnly(dateOverrides.discharge_date)
+        : fmtDateOnly(invoice.discharge_date),
     stay_days: invoice.stay_days,
     financial_treatment: invoice.financial_treatment || '',
     notes: invoice.notes || '',
@@ -819,7 +822,7 @@ async function createDraftInvoiceForDailyEntry(fileNumber, patientName, entryDat
     file_number: fileNumber,
     issue_date: entry,
     admission_date: entry,
-    discharge_date: entry,
+    discharge_date: null,
     items: [],
     payments: [],
     stay_entries: [],
@@ -913,7 +916,7 @@ async function openPatientStay(data, user = null) {
   const fileNumber = data.file_number?.trim();
   const patientName = data.patient_name?.trim() || '';
   const admissionDate = fmtDateOnly(data.admission_date);
-  const dischargeDate = fmtDateOnly(data.discharge_date) || admissionDate;
+  const dischargeDate = fmtDateOnly(data.discharge_date);
   if (!fileNumber || !patientName || !admissionDate) {
     throw new Error('رقم الملف واسم المريض وتاريخ الدخول مطلوبان');
   }

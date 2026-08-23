@@ -77,7 +77,12 @@ function applyDailyStayContext(ctx) {
   }
   if (ctx?.invoice) {
     document.getElementById('daily-stay-admission').value = fmtStayDate(ctx.invoice.admission_date);
-    document.getElementById('daily-stay-discharge').value = fmtStayDate(ctx.invoice.discharge_date);
+    const dischargeEl = document.getElementById('daily-stay-discharge');
+    if (dischargeEl) {
+      const admission = fmtStayDate(ctx.invoice.admission_date);
+      const discharge = ctx.invoice.discharge_date ? fmtStayDate(ctx.invoice.discharge_date) : '';
+      dischargeEl.value = discharge && discharge !== admission ? discharge : '';
+    }
     if (typeof loadFinancialTreatments === 'function') {
       loadFinancialTreatments({ daily_stay_financial: ctx.invoice.financial_treatment || '' });
     } else {
@@ -133,7 +138,8 @@ async function saveOpenPatientStay() {
   const file_number = getStayFileNumber();
   const patient_name = getStayPatientName();
   const admission_date = document.getElementById('daily-stay-admission')?.value;
-  const discharge_date = document.getElementById('daily-stay-discharge')?.value || admission_date;
+  const dischargeRaw = document.getElementById('daily-stay-discharge')?.value?.trim();
+  const discharge_date = dischargeRaw || null;
   if (!file_number || !patient_name || !admission_date) {
     showToast('رقم الملف واسم المريض وتاريخ الدخول مطلوبان', 'warning');
     return;
@@ -186,7 +192,7 @@ function dailyParseAmount(text) {
 function dailyFormatNumber(n, decimals = 2) {
   const num = Number(n) || 0;
   return num.toLocaleString('en-US', {
-    minimumFractionDigits: decimals === 0 ? 0 : 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
   });
 }
@@ -229,7 +235,7 @@ function renderDailyCell(section) {
     section.services?.length > 0
       ? `<select class="form-select form-select-sm mb-1 daily-service" data-section="${section.code}"><option value="">— خدمة —</option>${serviceOptions}</select>`
       : '';
-  return `<td>${serviceSelect}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" placeholder="0.00"></td>`;
+  return `<td>${serviceSelect}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" placeholder="0"></td>`;
 }
 
 function renderDailySectionsTable() {
