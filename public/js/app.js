@@ -129,6 +129,7 @@ function showApp() {
   applyPermissions();
   bindEvents();
   loadInvoiceTypes();
+  loadFinancialTreatments();
   loadStayTypes();
   loadPaymentMethodsForm();
   loadContractedEntities();
@@ -158,7 +159,6 @@ function applyInvoiceFollowUpMode(enabled) {
     'admission_date',
     'discharge_date',
     'stay_days',
-    'financial_treatment',
   ];
   metaIds.forEach((id) => {
     const el = document.getElementById(id);
@@ -417,6 +417,7 @@ function bindEvents() {
 
   document.getElementById('upload-logo-btn').addEventListener('click', uploadLogo);
   document.getElementById('add-stay-type-btn').addEventListener('click', addStayType);
+  document.getElementById('add-financial-treatment-btn')?.addEventListener('click', addFinancialTreatment);
   document.getElementById('add-invoice-type-btn').addEventListener('click', addInvoiceType);
   document.getElementById('add-payment-method-btn').addEventListener('click', addPaymentMethod);
   document.getElementById('new-stay-type').addEventListener('keydown', (e) => {
@@ -1967,7 +1968,7 @@ async function loadInvoiceForEdit(id, options = {}) {
     document.getElementById('admission_date').value = fmtDate(inv.admission_date);
     document.getElementById('discharge_date').value = fmtDate(inv.discharge_date);
     document.getElementById('stay_days').value = inv.stay_days;
-    document.getElementById('financial_treatment').value = inv.financial_treatment;
+    await loadFinancialTreatments({ financial_treatment: inv.financial_treatment || '' });
     await loadStayTypes();
     initStayEntries(inv.stay_entries || []);
     document.getElementById('notes').value = inv.notes || '';
@@ -2336,6 +2337,35 @@ async function loadInvoiceTypes() {
   }
 }
 
+async function loadFinancialTreatments(selected = {}) {
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/financial-treatments`);
+    const items = await res.json();
+
+    const fillSelect = (selectId, value) => {
+      const select = document.getElementById(selectId);
+      if (!select) return;
+      select.innerHTML =
+        '<option value="">-- اختر --</option>' +
+        items.map((t) => `<option value="${escapeAttr(t.name)}">${escapeHtml(t.name)}</option>`).join('');
+      if (value) {
+        if (!items.some((t) => t.name === value)) {
+          select.insertAdjacentHTML(
+            'beforeend',
+            `<option value="${escapeAttr(value)}">${escapeHtml(value)}</option>`
+          );
+        }
+        select.value = value;
+      }
+    };
+
+    fillSelect('financial_treatment', selected.financial_treatment);
+    fillSelect('daily-stay-financial', selected.daily_stay_financial ?? selected.financial_treatment);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 async function loadPaymentMethodsForm(values = {}) {
   try {
     const res = await apiFetch(`${SETTINGS_API}/payment-methods`);
@@ -2411,6 +2441,7 @@ function lookupEndpoint(kind, id = '') {
     payment: `${SETTINGS_API}/payment-methods${id ? `/${id}` : ''}`,
     entity: `${SETTINGS_API}/contracted-entities${id ? `/${id}` : ''}`,
     exclusion: `${SETTINGS_API}/discount-exclusions${id ? `/${id}` : ''}`,
+    financial: `${SETTINGS_API}/financial-treatments${id ? `/${id}` : ''}`,
   };
   return map[kind];
 }
@@ -2435,6 +2466,7 @@ async function saveLookupItem(kind, id) {
     if (kind === 'stay') loadStayTypes();
     if (kind === 'entity') loadContractedEntities();
     if (kind === 'exclusion') recalculate();
+    if (kind === 'financial') loadFinancialTreatments();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -2456,6 +2488,7 @@ async function toggleLookupItem(kind, id, isActive) {
     if (kind === 'stay') loadStayTypes();
     if (kind === 'entity') loadContractedEntities();
     if (kind === 'exclusion') recalculate();
+    if (kind === 'financial') loadFinancialTreatments();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -2474,6 +2507,7 @@ async function deleteLookupItem(kind, id) {
     if (kind === 'stay') loadStayTypes();
     if (kind === 'entity') loadContractedEntities();
     if (kind === 'exclusion') recalculate();
+    if (kind === 'financial') loadFinancialTreatments();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -2634,13 +2668,15 @@ async function addDiscountExclusion() {
 
 async function loadSettingsPage() {
   try {
-    const [settingsRes, stayRes, invoiceRes, paymentRes, entityRes, exclusionRes] = await Promise.all([
+    const [settingsRes, stayRes, invoiceRes, paymentRes, entityRes, exclusionRes, financialRes] =
+      await Promise.all([
       apiFetch(SETTINGS_API),
       apiFetch(`${SETTINGS_API}/stay-types?all=1`),
       apiFetch(`${SETTINGS_API}/invoice-types?all=1`),
       apiFetch(`${SETTINGS_API}/payment-methods?all=1`),
       apiFetch(`${SETTINGS_API}/contracted-entities/tree?all=1`),
       apiFetch(`${SETTINGS_API}/discount-exclusions?all=1`),
+      apiFetch(`${SETTINGS_API}/financial-treatments?all=1`),
     ]);
     const settings = await settingsRes.json();
     const stayTypes = await stayRes.json();
@@ -2648,6 +2684,7 @@ async function loadSettingsPage() {
     const paymentMethods = await paymentRes.json();
     const entities = await entityRes.json();
     const exclusions = await exclusionRes.json();
+    const financialTreatments = await financialRes.json();
 
     if (settings.logo_url) {
       document.getElementById('logo-preview').src = settings.logo_url;
@@ -2658,12 +2695,17 @@ async function loadSettingsPage() {
     }
 
     document.getElementById('stay-types-list').innerHTML = renderStayTypesList(stayTypes);
+    document.getElementById('financial-treatments-list').innerHTML = renderAdminLookupList(
+      financialTreatments,
+      'financial'
+    );
     document.getElementById('invoice-types-list').innerHTML = renderAdminLookupList(invoiceTypes, 'invoice');
     document.getElementById('payment-methods-list').innerHTML = renderAdminLookupList(paymentMethods, 'payment');
     document.getElementById('contracted-entities-list').innerHTML = renderContractedEntitiesList(entities);
     document.getElementById('discount-exclusions-list').innerHTML = renderAdminLookupList(exclusions, 'exclusion');
 
     await loadInvoiceTypes();
+    await loadFinancialTreatments();
     await loadStayTypes();
     await loadPaymentMethodsForm();
     await loadContractedEntities();
@@ -2717,6 +2759,28 @@ async function addStayType() {
     showToast('تمت الإضافة', 'success');
     loadSettingsPage();
     loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function addFinancialTreatment() {
+  const input = document.getElementById('new-financial-treatment');
+  const name = input?.value.trim();
+  if (!name) return showToast('اكتب اسم المعاملة المالية', 'warning');
+
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/financial-treatments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    input.value = '';
+    showToast('تمت الإضافة', 'success');
+    loadSettingsPage();
+    loadFinancialTreatments();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -3512,6 +3576,7 @@ async function saveServiceEditor() {
 }
 
 window.loadInvoiceForEdit = loadInvoiceForEdit;
+window.loadFinancialTreatments = loadFinancialTreatments;
 window.deleteInvoice = deleteInvoice;
 window.quickApproveInvoice = quickApproveInvoice;
 window.selectPatientForReport = selectPatientForReport;

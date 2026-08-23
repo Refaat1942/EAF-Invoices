@@ -26,6 +26,12 @@ const {
   updateDiscountExclusion,
   deleteDiscountExclusion,
 } = require('../services/discountExclusionService');
+const {
+  listFinancialTreatments,
+  createFinancialTreatment,
+  updateFinancialTreatment,
+  deleteFinancialTreatment,
+} = require('../services/financialTreatmentService');
 const { getSettings, saveLogo, getLogoUrl, saveGeneralSettings } = require('../services/settingsService');
 const { canAccess } = require('../services/authService');
 
@@ -75,6 +81,35 @@ router.get('/contracted-entities/tree', async (req, res) => {
   }
 });
 router.get('/discount-exclusions', lookupListHandler(listDiscountExclusions, 'invoices.view'));
+router.get('/financial-treatments', lookupListHandler(listFinancialTreatments, 'invoices.view'));
+
+router.post('/financial-treatments', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const row = await createFinancialTreatment(req.body.name);
+    res.status(201).json(row);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/financial-treatments/:id', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const row = await updateFinancialTreatment(Number(req.params.id), req.body);
+    res.json(row);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/financial-treatments/:id', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const ok = await deleteFinancialTreatment(Number(req.params.id));
+    if (!ok) return res.status(404).json({ error: 'غير موجود' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.post('/stay-types', requirePermission('settings.*'), async (req, res) => {
   try {

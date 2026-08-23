@@ -73,7 +73,11 @@ function applyDailyStayContext(ctx) {
   if (ctx?.invoice) {
     document.getElementById('daily-stay-admission').value = fmtStayDate(ctx.invoice.admission_date);
     document.getElementById('daily-stay-discharge').value = fmtStayDate(ctx.invoice.discharge_date);
-    document.getElementById('daily-stay-financial').value = ctx.invoice.financial_treatment || '';
+    if (typeof loadFinancialTreatments === 'function') {
+      loadFinancialTreatments({ daily_stay_financial: ctx.invoice.financial_treatment || '' });
+    } else {
+      document.getElementById('daily-stay-financial').value = ctx.invoice.financial_treatment || '';
+    }
   }
 
   const summary = document.getElementById('daily-patient-summary');
@@ -136,7 +140,7 @@ async function saveOpenPatientStay() {
         patient_name,
         admission_date,
         discharge_date,
-        financial_treatment: document.getElementById('daily-stay-financial')?.value.trim() || '',
+        financial_treatment: document.getElementById('daily-stay-financial')?.value || '',
         account_balance: document.getElementById('daily-stay-balance')?.value,
       }),
     });
@@ -479,6 +483,7 @@ function clearDailyForm() {
 
 async function initDailyChargesView() {
   if (!dailyCan('daily_charges.view')) return;
+  if (typeof loadFinancialTreatments === 'function') await loadFinancialTreatments();
   if (!dailySectionsCache.length) await loadDailySections();
   if (!document.getElementById('daily-entry-date').value) {
     document.getElementById('daily-entry-date').value = new Date().toISOString().slice(0, 10);

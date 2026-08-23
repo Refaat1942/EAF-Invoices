@@ -708,6 +708,16 @@ async function runMigrations() {
 
   await seedDailyChargeSections();
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS financial_treatments (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) UNIQUE NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
   await seedLookupTables();
 }
 
@@ -801,6 +811,22 @@ async function seedLookupTables() {
       `INSERT INTO invoice_types (code, name, sort_order, is_active) VALUES ($1, $2, $3, TRUE)
        ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, sort_order = EXCLUDED.sort_order, is_active = TRUE`,
       [invoiceTypes[i].code, invoiceTypes[i].name, i + 1]
+    );
+  }
+
+  const financialTreatments = [
+    'مدني (خاص)',
+    'جهات متعاقدة',
+    'جهات غير متعاقدة',
+    'عسكري',
+    'تأمين صحي',
+    'مجاني',
+  ];
+  for (let i = 0; i < financialTreatments.length; i++) {
+    await query(
+      `INSERT INTO financial_treatments (name, sort_order, is_active) VALUES ($1, $2, TRUE)
+       ON CONFLICT (name) DO UPDATE SET sort_order = EXCLUDED.sort_order, is_active = TRUE`,
+      [financialTreatments[i], i + 1]
     );
   }
 
