@@ -21,4 +21,17 @@ function requirePermission(permission) {
   };
 }
 
-module.exports = { requireAuth, requirePermission };
+function requireAnyPermission(...permissions) {
+  return (req, res, next) => {
+    if (!req.session?.user) {
+      return res.status(401).json({ error: 'يجب تسجيل الدخول' });
+    }
+    req.user = req.session.user;
+    if (!permissions.some((permission) => userHasPermission(req.user, permission))) {
+      return res.status(403).json({ error: 'ليس لديك صلاحية لهذا الإجراء' });
+    }
+    next();
+  };
+}
+
+module.exports = { requireAuth, requirePermission, requireAnyPermission };

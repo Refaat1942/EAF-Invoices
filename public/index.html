@@ -480,89 +480,6 @@
                     <button type="button" class="btn btn-outline-primary fw-bold" id="daily-print-radiology-btn" title="طباعة الأشعة">🖨️ أشعة</button>
                     <button type="button" class="btn btn-outline-primary fw-bold" id="daily-print-laboratory-btn" title="طباعة التحاليل">🖨️ تحاليل</button>
                   </div>
-                  <button type="button" class="btn btn-outline-success fw-bold" id="daily-catalog-import-btn" title="استيراد أصناف الأدوية / المستلزمات / المستحضرات">📥 استيراد كتالوج الأصناف</button>
-                  <button type="button" class="btn btn-outline-secondary fw-bold" id="daily-catalog-manage-btn" data-bs-toggle="collapse" data-bs-target="#daily-catalog-manage-collapse">🗂️ إدارة الأصناف</button>
-                  <input type="file" id="daily-catalog-import-file" accept=".csv,.xlsx,.xls,.txt" class="d-none">
-                  <span class="small text-muted" id="daily-catalog-stats"></span>
-                </div>
-              </div>
-
-              <div class="collapse mb-3" id="daily-catalog-manage-collapse">
-                <div class="card border shadow-sm">
-                  <div class="card-header bg-light py-2 d-flex flex-wrap gap-2 align-items-center justify-content-between">
-                    <strong class="fw-black">إدارة أصناف الكتالوج</strong>
-                    <div class="d-flex flex-wrap gap-2 align-items-center">
-                      <select class="form-select form-select-sm" id="daily-catalog-filter-category" style="width:auto;min-width:140px">
-                        <option value="">كل الفئات</option>
-                        <option value="Medicine">أدوية</option>
-                        <option value="Supplies">مستلزمات</option>
-                        <option value="Cosmetics">مستحضرات تجميل</option>
-                      </select>
-                      <input type="search" class="form-control form-control-sm" id="daily-catalog-filter-search" placeholder="بحث بالكود أو الاسم" style="width:auto;min-width:180px">
-                      <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-catalog-refresh-btn">تحديث</button>
-                    </div>
-                  </div>
-                  <div class="card-body">
-                    <form id="daily-catalog-add-form" class="row g-2 align-items-end mb-3 border-bottom pb-3">
-                      <div class="col-md-2">
-                        <label class="form-label small fw-bold">كود</label>
-                        <input type="text" class="form-control form-control-sm" id="daily-catalog-add-code" required>
-                      </div>
-                      <div class="col-md-3">
-                        <label class="form-label small fw-bold">الاسم</label>
-                        <input type="text" class="form-control form-control-sm" id="daily-catalog-add-name" required>
-                      </div>
-                      <div class="col-md-2">
-                        <label class="form-label small fw-bold">الفئة</label>
-                        <select class="form-select form-select-sm" id="daily-catalog-add-category" required>
-                          <option value="Medicine">أدوية</option>
-                          <option value="Supplies">مستلزمات</option>
-                          <option value="Cosmetics">مستحضرات تجميل</option>
-                        </select>
-                      </div>
-                      <div class="col-md-2">
-                        <label class="form-label small fw-bold">الوحدة</label>
-                        <input type="text" class="form-control form-control-sm" id="daily-catalog-add-unit" value="مرة">
-                      </div>
-                      <div class="col-md-2" id="daily-catalog-add-price-wrap">
-                        <label class="form-label small fw-bold">السعر</label>
-                        <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="daily-catalog-add-price">
-                      </div>
-                      <div class="col-md-2" id="daily-catalog-add-cost-wrap" style="display:none">
-                        <label class="form-label small fw-bold">سعر التكلفة</label>
-                        <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="daily-catalog-add-cost">
-                      </div>
-                      <div class="col-md-2" id="daily-catalog-add-markup-wrap" style="display:none">
-                        <label class="form-label small fw-bold">نسبة الربح %</label>
-                        <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="daily-catalog-add-markup">
-                      </div>
-                      <div class="col-md-2" id="daily-catalog-add-selling-wrap" style="display:none">
-                        <label class="form-label small fw-bold">سعر البيع</label>
-                        <input type="text" class="form-control form-control-sm bg-light" id="daily-catalog-add-selling" readonly tabindex="-1">
-                      </div>
-                      <div class="col-md-1">
-                        <button type="submit" class="btn btn-success btn-sm fw-bold w-100">إضافة</button>
-                      </div>
-                    </form>
-                    <div class="table-responsive">
-                      <table class="table table-sm table-bordered table-hover mb-0">
-                        <thead class="table-light">
-                          <tr>
-                            <th>كود</th>
-                            <th>الاسم</th>
-                            <th>الفئة</th>
-                            <th>الوحدة</th>
-                            <th>السعر / الهامش</th>
-                            <th>الحالة</th>
-                            <th></th>
-                          </tr>
-                        </thead>
-                        <tbody id="daily-catalog-manage-body">
-                          <tr><td colspan="7" class="text-muted text-center">افتح القسم لتحميل الأصناف</td></tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -712,6 +629,91 @@
                 <div class="col-md-2"><button class="btn btn-primary fw-bold w-100" id="add-entity-btn">إضافة</button></div>
               </div>
               <ul class="list-group admin-lookup-list" id="contracted-entities-list"></ul>
+            </div>
+          </div>
+        </div>
+        <div class="col-12" id="item-catalog-settings-card" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-danger text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <span>💊 إدارة كتالوج الأصناف (أدوية / مستلزمات / مستحضرات)</span>
+              <div class="d-flex flex-wrap gap-2 align-items-center">
+                <button type="button" class="btn btn-sm btn-light fw-bold" id="item-catalog-export-btn">تصدير CSV</button>
+                <button type="button" class="btn btn-sm btn-warning fw-bold" id="item-catalog-import-btn">📥 استيراد Excel/CSV</button>
+                <input type="file" id="item-catalog-import-file" accept=".csv,.xlsx,.xls,.txt" class="d-none">
+                <span class="small text-white-50" id="item-catalog-stats"></span>
+              </div>
+            </div>
+            <div class="card-body">
+              <p class="small text-muted mb-3">إضافة وتعديل الأدوية والمستلزمات والمستحضرات المستخدمة في الحركة اليومية. الحركة اليومية تعرض الأصناف النشطة فقط من هذا الكتالوج.</p>
+              <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                <select class="form-select form-select-sm" id="item-catalog-filter-category" style="width:auto;min-width:140px">
+                  <option value="">كل الفئات</option>
+                  <option value="Medicine">أدوية</option>
+                  <option value="Supplies">مستلزمات</option>
+                  <option value="Cosmetics">مستحضرات تجميل</option>
+                </select>
+                <input type="search" class="form-control form-control-sm" id="item-catalog-filter-search" placeholder="بحث بالكود أو الاسم" style="width:auto;min-width:200px">
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="item-catalog-refresh-btn">تحديث القائمة</button>
+              </div>
+              <form id="item-catalog-add-form" class="row g-2 align-items-end mb-3 border-bottom pb-3">
+                <div class="col-md-2">
+                  <label class="form-label small fw-bold">كود</label>
+                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-code" required>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small fw-bold">الاسم</label>
+                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-name" required>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small fw-bold">الفئة</label>
+                  <select class="form-select form-select-sm" id="item-catalog-add-category" required>
+                    <option value="Medicine">أدوية</option>
+                    <option value="Supplies">مستلزمات</option>
+                    <option value="Cosmetics">مستحضرات تجميل</option>
+                  </select>
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small fw-bold">الوحدة</label>
+                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-unit" value="مرة">
+                </div>
+                <div class="col-md-2" id="item-catalog-add-price-wrap">
+                  <label class="form-label small fw-bold">السعر</label>
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-price">
+                </div>
+                <div class="col-md-2" id="item-catalog-add-cost-wrap" style="display:none">
+                  <label class="form-label small fw-bold">سعر التكلفة</label>
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-cost">
+                </div>
+                <div class="col-md-2" id="item-catalog-add-markup-wrap" style="display:none">
+                  <label class="form-label small fw-bold">نسبة الربح %</label>
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-markup">
+                </div>
+                <div class="col-md-2" id="item-catalog-add-selling-wrap" style="display:none">
+                  <label class="form-label small fw-bold">سعر البيع</label>
+                  <input type="text" class="form-control form-control-sm bg-light" id="item-catalog-add-selling" readonly tabindex="-1">
+                </div>
+                <div class="col-md-1">
+                  <button type="submit" class="btn btn-success btn-sm fw-bold w-100">إضافة</button>
+                </div>
+              </form>
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered table-hover mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>كود</th>
+                      <th>الاسم</th>
+                      <th>الفئة</th>
+                      <th>الوحدة</th>
+                      <th>السعر / الهامش</th>
+                      <th>الحالة</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="item-catalog-manage-body">
+                    <tr><td colspan="7" class="text-muted text-center">جاري التحميل...</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -892,7 +894,7 @@
     </section>
   </main>
 
-  <div class="modal fade" id="daily-catalog-edit-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal fade" id="item-catalog-edit-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-content">
         <div class="modal-header">
@@ -900,18 +902,18 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <input type="hidden" id="daily-catalog-edit-id">
+          <input type="hidden" id="item-catalog-edit-id">
           <div class="mb-2">
             <label class="form-label fw-bold small">كود</label>
-            <input type="text" class="form-control form-control-sm" id="daily-catalog-edit-code" required>
+            <input type="text" class="form-control form-control-sm" id="item-catalog-edit-code" required>
           </div>
           <div class="mb-2">
             <label class="form-label fw-bold small">الاسم</label>
-            <input type="text" class="form-control form-control-sm" id="daily-catalog-edit-name" required>
+            <input type="text" class="form-control form-control-sm" id="item-catalog-edit-name" required>
           </div>
           <div class="mb-2">
             <label class="form-label fw-bold small">الفئة</label>
-            <select class="form-select form-select-sm" id="daily-catalog-edit-category" required>
+            <select class="form-select form-select-sm" id="item-catalog-edit-category" required>
               <option value="Medicine">أدوية</option>
               <option value="Supplies">مستلزمات</option>
               <option value="Cosmetics">مستحضرات تجميل</option>
@@ -919,34 +921,34 @@
           </div>
           <div class="mb-2">
             <label class="form-label fw-bold small">الوحدة</label>
-            <input type="text" class="form-control form-control-sm" id="daily-catalog-edit-unit">
+            <input type="text" class="form-control form-control-sm" id="item-catalog-edit-unit">
           </div>
-          <div class="mb-2" id="daily-catalog-edit-price-wrap">
+          <div class="mb-2" id="item-catalog-edit-price-wrap">
             <label class="form-label fw-bold small">السعر</label>
-            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="daily-catalog-edit-price">
+            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-edit-price">
           </div>
-          <div class="mb-2" id="daily-catalog-edit-cost-wrap" style="display:none">
+          <div class="mb-2" id="item-catalog-edit-cost-wrap" style="display:none">
             <label class="form-label fw-bold small">سعر التكلفة</label>
-            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="daily-catalog-edit-cost">
+            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-edit-cost">
           </div>
-          <div class="mb-2" id="daily-catalog-edit-markup-wrap" style="display:none">
+          <div class="mb-2" id="item-catalog-edit-markup-wrap" style="display:none">
             <label class="form-label fw-bold small">نسبة الربح %</label>
-            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="daily-catalog-edit-markup">
+            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-edit-markup">
           </div>
-          <div class="mb-2" id="daily-catalog-edit-selling-wrap" style="display:none">
+          <div class="mb-2" id="item-catalog-edit-selling-wrap" style="display:none">
             <label class="form-label fw-bold small">سعر البيع</label>
-            <input type="text" class="form-control form-control-sm bg-light" id="daily-catalog-edit-selling" readonly tabindex="-1">
+            <input type="text" class="form-control form-control-sm bg-light" id="item-catalog-edit-selling" readonly tabindex="-1">
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إلغاء</button>
-          <button type="button" class="btn btn-primary fw-bold" id="daily-catalog-edit-save-btn">حفظ</button>
+          <button type="button" class="btn btn-primary fw-bold" id="item-catalog-edit-save-btn">حفظ</button>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="modal fade" id="daily-catalog-import-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal fade" id="item-catalog-import-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
       <div class="modal-content">
         <div class="modal-header">
@@ -954,20 +956,20 @@
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <div id="daily-catalog-import-loading" class="text-center py-4" style="display:none">
+          <div id="item-catalog-import-loading" class="text-center py-4" style="display:none">
             <div class="spinner-border text-primary"></div>
             <p class="mt-2 text-muted">جاري تحليل الملف...</p>
           </div>
-          <div id="daily-catalog-import-step-map" style="display:none">
-            <div class="alert alert-info py-2 mb-3" id="daily-catalog-import-hint" style="display:none"></div>
+          <div id="item-catalog-import-step-map" style="display:none">
+            <div class="alert alert-info py-2 mb-3" id="item-catalog-import-hint" style="display:none"></div>
             <p class="small text-muted mb-2">تعيين الأعمدة — يدعم العربية والإنجليزية. لن يُحذف أي صنف موجود تلقائيًا.</p>
-            <div class="row g-2 mb-3" id="daily-catalog-import-mapping"></div>
+            <div class="row g-2 mb-3" id="item-catalog-import-mapping"></div>
             <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-              <button type="button" class="btn btn-outline-primary btn-sm fw-bold" id="daily-catalog-import-refresh-preview-btn">تحديث المعاينة</button>
-              <span class="small text-muted" id="daily-catalog-import-row-count"></span>
+              <button type="button" class="btn btn-outline-primary btn-sm fw-bold" id="item-catalog-import-refresh-preview-btn">تحديث المعاينة</button>
+              <span class="small text-muted" id="item-catalog-import-row-count"></span>
             </div>
           </div>
-          <div id="daily-catalog-import-step-preview" style="display:none">
+          <div id="item-catalog-import-step-preview" style="display:none">
             <h6 class="fw-black mb-2">معاينة قبل الحفظ</h6>
             <div class="table-responsive">
               <table class="table table-sm table-bordered mb-0">
@@ -981,21 +983,21 @@
                     <th>السعر</th>
                   </tr>
                 </thead>
-                <tbody id="daily-catalog-import-preview-body"></tbody>
+                <tbody id="item-catalog-import-preview-body"></tbody>
               </table>
             </div>
           </div>
-          <div id="daily-catalog-import-step-result" style="display:none">
-            <div class="alert alert-success mb-3" id="daily-catalog-import-result-summary"></div>
-            <div id="daily-catalog-import-errors-wrap" style="display:none">
+          <div id="item-catalog-import-step-result" style="display:none">
+            <div class="alert alert-success mb-3" id="item-catalog-import-result-summary"></div>
+            <div id="item-catalog-import-errors-wrap" style="display:none">
               <h6 class="fw-bold text-danger mb-2">أخطاء</h6>
-              <ul class="small mb-0" id="daily-catalog-import-errors-list"></ul>
+              <ul class="small mb-0" id="item-catalog-import-errors-list"></ul>
             </div>
           </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إغلاق</button>
-          <button type="button" class="btn btn-primary fw-bold" id="daily-catalog-import-confirm-btn" style="display:none">تأكيد الاستيراد</button>
+          <button type="button" class="btn btn-primary fw-bold" id="item-catalog-import-confirm-btn" style="display:none">تأكيد الاستيراد</button>
         </div>
       </div>
     </div>
@@ -1084,7 +1086,8 @@
   </div><!-- app-container -->
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/js/app.js?v=20260823j"></script>
-  <script src="/js/daily-charges.js?v=20260824e"></script>
+  <script src="/js/app.js?v=20260824a"></script>
+  <script src="/js/daily-charges.js?v=20260824g"></script>
+  <script src="/js/item-catalog-settings.js?v=20260824a"></script>
 </body>
 </html>

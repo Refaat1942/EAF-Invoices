@@ -660,8 +660,7 @@ async function runMigrations() {
       updated_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       updated_by_name TEXT DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(patient_id, entry_date)
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
 
@@ -695,6 +694,9 @@ async function runMigrations() {
 
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_patient_date ON patient_daily_entries(patient_id, entry_date)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_invoice ON patient_daily_entries(invoice_id)`);
+  await query(
+    `ALTER TABLE patient_daily_entries DROP CONSTRAINT IF EXISTS patient_daily_entries_patient_id_entry_date_key`
+  );
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entry_lines_entry ON patient_daily_entry_lines(entry_id)`);
 
   await query(`

@@ -293,7 +293,6 @@ async function loadDailySections() {
     ? { id: plSection.price_list_id, name: plSection.price_list_name }
     : null;
   renderDailySectionsTable();
-  await loadDailyCatalogStats();
 
   const priceSections = dailySectionsCache.filter((s) => s.category_code && !s.catalog_category);
   const totalPriceServices = priceSections.reduce((sum, s) => sum + (s.services?.length || 0), 0);
@@ -307,93 +306,6 @@ async function loadDailySections() {
   if (dailyStayContext?.invoice?.id && priceSections.length && totalPriceServices === 0) {
     showToast('لم تُحمَّل خدمات من اللائحة — تأكد من استيراد اللائحة في الإعدادات', 'warning');
   }
-}
-
-async function loadDailyCatalogStats() {
-  const el = document.getElementById('daily-catalog-stats');
-  if (!el) return;
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog/stats`);
-    if (!res.ok) return;
-    const stats = await res.json();
-    if (!stats.total) {
-      el.textContent = 'كتالوج الأصناف فارغ — استورد ملف Excel/CSV أو أضف أصناف';
-      return;
-    }
-    const parts = (stats.by_category || []).map((row) => `${row.category}: ${row.count}`);
-    el.textContent = `كتالوج: ${stats.total} صنف (${parts.join(' · ')})`;
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-const DAILY_CATALOG_CATEGORY_LABELS = {
-  Medicine: 'أدوية',
-  Supplies: 'مستلزمات',
-  Cosmetics: 'مستحضرات تجميل',
-};
-
-function dailyComputeSellingPrice(cost, markup) {
-  const c = dailyParseAmount(cost);
-  const m = dailyParseAmount(markup);
-  return Math.round((c + (c * m) / 100) * 100) / 100;
-}
-
-function toggleCatalogPricingFields(mode = 'add') {
-  const prefix = mode === 'edit' ? 'edit' : 'add';
-  const category = document.getElementById(`daily-catalog-${prefix}-category`)?.value;
-  const isSupplies = category === 'Supplies';
-  const priceWrap = document.getElementById(`daily-catalog-${prefix}-price-wrap`);
-  const costWrap = document.getElementById(`daily-catalog-${prefix}-cost-wrap`);
-  const markupWrap = document.getElementById(`daily-catalog-${prefix}-markup-wrap`);
-  const sellingWrap = document.getElementById(`daily-catalog-${prefix}-selling-wrap`);
-  if (priceWrap) priceWrap.style.display = isSupplies ? 'none' : '';
-  if (costWrap) costWrap.style.display = isSupplies ? '' : 'none';
-  if (markupWrap) markupWrap.style.display = isSupplies ? '' : 'none';
-  if (sellingWrap) sellingWrap.style.display = isSupplies ? '' : 'none';
-  const priceEl = document.getElementById(`daily-catalog-${prefix}-price`);
-  if (priceEl) priceEl.required = !isSupplies;
-  const costEl = document.getElementById(`daily-catalog-${prefix}-cost`);
-  if (costEl) costEl.required = isSupplies;
-  if (isSupplies) updateCatalogSellingPreview(mode);
-}
-
-function updateCatalogSellingPreview(mode = 'add') {
-  const prefix = mode === 'edit' ? 'edit' : 'add';
-  const selling = dailyComputeSellingPrice(
-    document.getElementById(`daily-catalog-${prefix}-cost`)?.value,
-    document.getElementById(`daily-catalog-${prefix}-markup`)?.value
-  );
-  const el = document.getElementById(`daily-catalog-${prefix}-selling`);
-  if (!el) return;
-  el.value =
-    selling > 0
-      ? typeof formatAmountInput === 'function'
-        ? formatAmountInput(selling)
-        : String(selling)
-      : '';
-}
-
-function buildCatalogItemPayload(mode = 'add') {
-  const prefix = mode === 'edit' ? 'edit' : 'add';
-  const category = document.getElementById(`daily-catalog-${prefix}-category`)?.value;
-  const base = {
-    code: document.getElementById(`daily-catalog-${prefix}-code`)?.value.trim(),
-    name: document.getElementById(`daily-catalog-${prefix}-name`)?.value.trim(),
-    category,
-    unit: document.getElementById(`daily-catalog-${prefix}-unit`)?.value.trim() || 'مرة',
-  };
-  if (category === 'Supplies') {
-    return {
-      ...base,
-      cost_price: dailyParseAmount(document.getElementById(`daily-catalog-${prefix}-cost`)?.value),
-      markup_percent: dailyParseAmount(document.getElementById(`daily-catalog-${prefix}-markup`)?.value),
-    };
-  }
-  return {
-    ...base,
-    price: dailyParseAmount(document.getElementById(`daily-catalog-${prefix}-price`)?.value),
-  };
 }
 
 function dailyEscapeHtml(text) {
@@ -424,203 +336,6 @@ function refreshCatalogSelectsInRows() {
     }
   });
 }
-
-async function refreshDailyCatalogAfterChange() {
-  await loadDailySections();
-  refreshCatalogSelectsInRows();
-  await loadDailyCatalogStats();
-  const collapse = document.getElementById('daily-catalog-manage-collapse');
-  if (collapse?.classList.contains('show')) {
-    await loadDailyCatalogManageTable();
-  }
-}
-
-function renderDailyCatalogManageRow(item) {
-  const label = DAILY_CATALOG_CATEGORY_LABELS[item.category] || item.category;
-  const priceCell =
-    item.category === 'Supplies'
-      ? `<small class="d-block text-muted">تكلفة: ${dailyFmt(item.cost_price || 0)}</small>
-         <small class="d-block text-muted">ربح: ${dailyFmt(item.markup_percent || 0)}%</small>
-         <strong>بيع: ${dailyFmt(item.price)}</strong>`
-      : dailyFmt(item.price);
-  const statusBadge = item.is_active
-    ? '<span class="badge bg-success">نشط</span>'
-    : '<span class="badge bg-secondary">موقوف</span>';
-  const canManage = dailyCan('daily_charges.manage');
-  const actions = canManage
-    ? `<button type="button" class="btn btn-outline-primary btn-sm" data-catalog-edit="${item.id}">تعديل</button>
-       <button type="button" class="btn btn-outline-${item.is_active ? 'warning' : 'success'} btn-sm" data-catalog-toggle="${item.id}" data-catalog-active="${item.is_active ? '1' : '0'}">${item.is_active ? 'إيقاف' : 'تفعيل'}</button>`
-    : '';
-  const rowClass = item.is_active ? '' : 'table-secondary';
-  return `<tr class="${rowClass}">
-    <td class="fw-bold">${dailyEscapeHtml(item.code)}</td>
-    <td>${dailyEscapeHtml(item.name)}</td>
-    <td>${dailyEscapeHtml(label)}</td>
-    <td>${dailyEscapeHtml(item.unit || '')}</td>
-    <td>${priceCell}</td>
-    <td>${statusBadge}</td>
-    <td class="d-flex gap-1 flex-wrap">${actions}</td>
-  </tr>`;
-}
-
-function bindDailyCatalogManageRowActions() {
-  const body = document.getElementById('daily-catalog-manage-body');
-  if (!body) return;
-  body.querySelectorAll('[data-catalog-edit]').forEach((btn) => {
-    btn.addEventListener('click', () => openDailyCatalogEditModal(Number(btn.dataset.catalogEdit)));
-  });
-  body.querySelectorAll('[data-catalog-toggle]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      toggleDailyCatalogItemActive(Number(btn.dataset.catalogToggle), btn.dataset.catalogActive !== '1')
-    );
-  });
-}
-
-async function loadDailyCatalogManageTable() {
-  if (!dailyCan('daily_charges.view')) return;
-  const body = document.getElementById('daily-catalog-manage-body');
-  if (!body) return;
-  body.innerHTML = '<tr><td colspan="7" class="text-center text-muted">جاري التحميل...</td></tr>';
-
-  const category = document.getElementById('daily-catalog-filter-category')?.value || '';
-  const search = document.getElementById('daily-catalog-filter-search')?.value.trim() || '';
-  const params = new URLSearchParams({ active_only: '0' });
-  if (category) params.set('category', category);
-  if (search) params.set('search', search);
-
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog?${params}`);
-    const items = await res.json();
-    if (!res.ok) throw new Error(items.error || 'فشل التحميل');
-    if (!items.length) {
-      body.innerHTML = '<tr><td colspan="7" class="text-center text-muted">لا توجد أصناف</td></tr>';
-      return;
-    }
-    body.innerHTML = items.map((item) => renderDailyCatalogManageRow(item)).join('');
-    bindDailyCatalogManageRowActions();
-  } catch (err) {
-    body.innerHTML = `<tr><td colspan="7" class="text-center text-danger">${dailyEscapeHtml(err.message)}</td></tr>`;
-  }
-}
-
-async function submitDailyCatalogAdd(event) {
-  event.preventDefault();
-  if (!dailyCan('daily_charges.manage')) {
-    showToast('ليس لديك صلاحية الإضافة', 'warning');
-    return;
-  }
-  const payload = buildCatalogItemPayload('add');
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل الإضافة');
-    showToast('تم إضافة الصنف', 'success');
-    const form = document.getElementById('daily-catalog-add-form');
-    if (form) form.reset();
-    const unitEl = document.getElementById('daily-catalog-add-unit');
-    if (unitEl) unitEl.value = 'مرة';
-    const filterCat = document.getElementById('daily-catalog-filter-category')?.value;
-    const addCat = document.getElementById('daily-catalog-add-category');
-    if (filterCat && addCat) addCat.value = filterCat;
-    toggleCatalogPricingFields('add');
-    await refreshDailyCatalogAfterChange();
-  } catch (err) {
-    showToast(err.message, 'danger');
-  }
-}
-
-async function openDailyCatalogEditModal(itemId) {
-  if (!dailyCan('daily_charges.manage')) return;
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog/${itemId}`);
-    const item = await res.json();
-    if (!res.ok) throw new Error(item.error || 'فشل التحميل');
-    document.getElementById('daily-catalog-edit-id').value = item.id;
-    document.getElementById('daily-catalog-edit-code').value = item.code || '';
-    document.getElementById('daily-catalog-edit-name').value = item.name || '';
-    document.getElementById('daily-catalog-edit-category').value = item.category || 'Medicine';
-    document.getElementById('daily-catalog-edit-unit').value = item.unit || 'مرة';
-    const priceEl = document.getElementById('daily-catalog-edit-price');
-    const costEl = document.getElementById('daily-catalog-edit-cost');
-    const markupEl = document.getElementById('daily-catalog-edit-markup');
-    if (priceEl) {
-      priceEl.value =
-        typeof formatAmountInput === 'function' ? formatAmountInput(item.price) : String(item.price || '');
-    }
-    if (costEl) {
-      costEl.value =
-        item.cost_price != null && typeof formatAmountInput === 'function'
-          ? formatAmountInput(item.cost_price)
-          : item.cost_price != null
-            ? String(item.cost_price)
-            : '';
-    }
-    if (markupEl) {
-      markupEl.value =
-        item.markup_percent != null && typeof formatAmountInput === 'function'
-          ? formatAmountInput(item.markup_percent)
-          : item.markup_percent != null
-            ? String(item.markup_percent)
-            : '';
-    }
-    toggleCatalogPricingFields('edit');
-    const modalEl = document.getElementById('daily-catalog-edit-modal');
-    if (modalEl && window.bootstrap) {
-      window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
-    }
-  } catch (err) {
-    showToast(err.message, 'danger');
-  }
-}
-
-async function saveDailyCatalogEdit() {
-  if (!dailyCan('daily_charges.manage')) return;
-  const id = document.getElementById('daily-catalog-edit-id')?.value;
-  if (!id) return;
-  const payload = buildCatalogItemPayload('edit');
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل الحفظ');
-    showToast('تم تحديث الصنف', 'success');
-    const modalEl = document.getElementById('daily-catalog-edit-modal');
-    if (modalEl && window.bootstrap) {
-      window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-    }
-    await refreshDailyCatalogAfterChange();
-  } catch (err) {
-    showToast(err.message, 'danger');
-  }
-}
-
-async function toggleDailyCatalogItemActive(id, activate) {
-  if (!dailyCan('daily_charges.manage')) return;
-  const actionLabel = activate ? 'تفعيل' : 'إيقاف';
-  if (!confirm(`${actionLabel} هذا الصنف؟`)) return;
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog/${id}/active`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_active: activate }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل التحديث');
-    showToast(activate ? 'تم تفعيل الصنف' : 'تم إيقاف الصنف', 'success');
-    await refreshDailyCatalogAfterChange();
-  } catch (err) {
-    showToast(err.message, 'danger');
-  }
-}
-
-let dailyCatalogSearchTimer = null;
 
 function buildDailyStayTypeOptions(selectedId = '') {
   if (!dailyStayTypesCache.length) return '<option value="">—</option>';
@@ -679,7 +394,7 @@ function renderDailyCellHtml(section, line = {}) {
     section.services?.length > 0
       ? `<select class="form-select form-select-sm mb-1 ${selectClass}" data-section="${section.code}"><option value="">${placeholder}</option>${itemOptions}</select>`
       : usesCatalog
-        ? `<small class="text-muted d-block mb-1">لا أصناف — استورد الكتالوج</small>`
+        ? `<small class="text-muted d-block mb-1">لا أصناف نشطة — راجع كتالوج الأصناف في الإعدادات</small>`
         : '';
 
   return `<td>${itemSelect}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}"></td>`;
@@ -1002,230 +717,9 @@ function onDailyServicePick(event) {
   updateDailyGrandTotal();
 }
 
-let dailyCatalogImportFile = null;
-let dailyCatalogImportState = null;
-
-const DAILY_IMPORT_FIELD_LABELS = {
-  code: 'الكود',
-  name: 'الاسم',
-  category: 'الفئة',
-  unit: 'الوحدة',
-  price: 'السعر',
-  cost_price: 'سعر التكلفة',
-  markup_percent: 'نسبة الربح %',
-};
-
-function resetDailyCatalogImportModal() {
-  dailyCatalogImportState = null;
-  document.getElementById('daily-catalog-import-loading').style.display = 'none';
-  document.getElementById('daily-catalog-import-step-map').style.display = 'none';
-  document.getElementById('daily-catalog-import-step-preview').style.display = 'none';
-  document.getElementById('daily-catalog-import-step-result').style.display = 'none';
-  document.getElementById('daily-catalog-import-confirm-btn').style.display = 'none';
-  document.getElementById('daily-catalog-import-hint').style.display = 'none';
-  document.getElementById('daily-catalog-import-errors-wrap').style.display = 'none';
-}
-
-function renderDailyCatalogImportMapping(state) {
-  const wrap = document.getElementById('daily-catalog-import-mapping');
-  if (!wrap || !state) return;
-  const headers = state.headers || [];
-  const mapping = state.mapping || {};
-  const fields = (state.fields || []).filter((f) =>
-    ['code', 'name', 'category', 'unit', 'price'].includes(f.key)
-  );
-
-  wrap.innerHTML = fields
-    .map((field) => {
-      const options = headers
-        .map(
-          (h) =>
-            `<option value="${dailyEscapeAttr(h)}" ${mapping[field.key] === h ? 'selected' : ''}>${dailyEscapeHtml(h)}</option>`
-        )
-        .join('');
-      const requiredMark = field.required ? ' *' : '';
-      return `<div class="col-md-4 col-lg-3">
-        <label class="form-label small fw-bold">${dailyEscapeHtml(field.label || DAILY_IMPORT_FIELD_LABELS[field.key] || field.key)}${requiredMark}</label>
-        <select class="form-select form-select-sm daily-import-map" data-field="${field.key}">
-          <option value="">— لا يطابق —</option>
-          ${options}
-        </select>
-      </div>`;
-    })
-    .join('');
-
-  wrap.querySelectorAll('.daily-import-map').forEach((select) => {
-    select.addEventListener('change', () => {
-      if (!dailyCatalogImportState) return;
-      if (select.value) {
-        dailyCatalogImportState.mapping[select.dataset.field] = select.value;
-      } else {
-        delete dailyCatalogImportState.mapping[select.dataset.field];
-      }
-    });
-  });
-
-  const hint = document.getElementById('daily-catalog-import-hint');
-  if (hint && state.needs_manual_mapping) {
-    hint.style.display = '';
-    hint.textContent =
-      'راجع تعيين الأعمدة — لم يتم التعرف على بعض الأعمدة المطلوبة تلقائيًا.';
-  }
-
-  const countEl = document.getElementById('daily-catalog-import-row-count');
-  if (countEl) countEl.textContent = `${state.total_rows || 0} صف في الملف`;
-}
-
-function renderDailyCatalogImportPreview(rows = []) {
-  const body = document.getElementById('daily-catalog-import-preview-body');
-  if (!body) return;
-  if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="6" class="text-muted text-center">لا توجد صفوف للمعاينة</td></tr>';
-    return;
-  }
-  body.innerHTML = rows
-    .map(
-      (row) =>
-        `<tr>
-          <td>${row.row_number || ''}</td>
-          <td>${dailyEscapeHtml(row.code)}</td>
-          <td>${dailyEscapeHtml(row.name)}</td>
-          <td>${dailyEscapeHtml(row.category)}</td>
-          <td>${dailyEscapeHtml(row.unit)}</td>
-          <td>${dailyFmt(row.price)}</td>
-        </tr>`
-    )
-    .join('');
-}
-
-function collectDailyCatalogImportMapping() {
-  const mapping = {};
-  document.querySelectorAll('.daily-import-map').forEach((select) => {
-    if (select.value) mapping[select.dataset.field] = select.value;
-  });
-  return mapping;
-}
-
-async function refreshDailyCatalogImportPreview() {
-  if (!dailyCatalogImportFile) return;
-  const mapping = collectDailyCatalogImportMapping();
-  const formData = new FormData();
-  formData.append('file', dailyCatalogImportFile);
-  formData.append('mapping', JSON.stringify(mapping));
-
-  document.getElementById('daily-catalog-import-loading').style.display = '';
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog/import/analyze`, { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل المعاينة');
-    dailyCatalogImportState = data;
-    renderDailyCatalogImportMapping(data);
-    renderDailyCatalogImportPreview(data.preview_rows || []);
-    document.getElementById('daily-catalog-import-step-preview').style.display = '';
-    document.getElementById('daily-catalog-import-confirm-btn').style.display = '';
-  } catch (err) {
-    showToast(err.message, 'danger');
-  } finally {
-    document.getElementById('daily-catalog-import-loading').style.display = 'none';
-  }
-}
-
-async function openDailyCatalogImportModal(file) {
-  if (!dailyCan('daily_charges.manage')) {
-    showToast('ليس لديك صلاحية استيراد الكتالوج', 'warning');
-    return;
-  }
-  if (!file) return;
-
-  dailyCatalogImportFile = file;
-  resetDailyCatalogImportModal();
-
-  const modalEl = document.getElementById('daily-catalog-import-modal');
-  if (modalEl && window.bootstrap) {
-    window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
-  }
-
-  document.getElementById('daily-catalog-import-loading').style.display = '';
-  document.getElementById('daily-catalog-import-step-map').style.display = '';
-
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog/import/analyze`, { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل تحليل الملف');
-    dailyCatalogImportState = data;
-    renderDailyCatalogImportMapping(data);
-    renderDailyCatalogImportPreview(data.preview_rows || []);
-    document.getElementById('daily-catalog-import-step-preview').style.display = '';
-    document.getElementById('daily-catalog-import-confirm-btn').style.display = '';
-  } catch (err) {
-    showToast(err.message, 'danger');
-    if (modalEl && window.bootstrap) {
-      window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-    }
-  } finally {
-    document.getElementById('daily-catalog-import-loading').style.display = 'none';
-  }
-}
-
-async function confirmDailyCatalogImport() {
-  if (!dailyCatalogImportFile) return;
-  const mapping = collectDailyCatalogImportMapping();
-  const required = ['code', 'name', 'category', 'price'];
-  const missing = required.filter((key) => !mapping[key]);
-  if (missing.length) {
-    showToast(`يجب تعيين: ${missing.map((k) => DAILY_IMPORT_FIELD_LABELS[k]).join('، ')}`, 'warning');
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append('file', dailyCatalogImportFile);
-  formData.append('mapping', JSON.stringify(mapping));
-
-  const confirmBtn = document.getElementById('daily-catalog-import-confirm-btn');
-  if (confirmBtn) confirmBtn.disabled = true;
-
-  try {
-    const res = await apiFetch(`${DAILY_API}/catalog/import/confirm`, { method: 'POST', body: formData });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل الاستيراد');
-
-    document.getElementById('daily-catalog-import-step-map').style.display = 'none';
-    document.getElementById('daily-catalog-import-step-preview').style.display = 'none';
-    document.getElementById('daily-catalog-import-step-result').style.display = '';
-    document.getElementById('daily-catalog-import-confirm-btn').style.display = 'none';
-
-    const summary = document.getElementById('daily-catalog-import-result-summary');
-    if (summary) {
-      summary.innerHTML = `تم الاستيراد: <strong>${data.inserted || 0}</strong> مُضاف، <strong>${data.updated || 0}</strong> محدّث، <strong>${data.skipped || 0}</strong> متخطى، <strong>${(data.errors || []).length}</strong> خطأ`;
-    }
-
-    const errorsWrap = document.getElementById('daily-catalog-import-errors-wrap');
-    const errorsList = document.getElementById('daily-catalog-import-errors-list');
-    if (data.errors?.length && errorsWrap && errorsList) {
-      errorsWrap.style.display = '';
-      errorsList.innerHTML = data.errors
-        .slice(0, 30)
-        .map(
-          (err) =>
-            `<li>صف ${err.row || '—'} (${dailyEscapeHtml(err.code || '—')}): ${dailyEscapeHtml(err.message)}</li>`
-        )
-        .join('');
-    }
-
-    await refreshDailyCatalogAfterChange();
-    showToast('تم استيراد الكتالوج', 'success');
-  } catch (err) {
-    showToast(err.message, 'danger');
-  } finally {
-    if (confirmBtn) confirmBtn.disabled = false;
-  }
-}
-
-async function importDailyCatalog(file) {
-  await openDailyCatalogImportModal(file);
+async function reloadDailyCatalogSectionsFromSettings() {
+  await loadDailySections();
+  refreshCatalogSelectsInRows();
 }
 
 async function deleteDailyEntryById(entryId) {
@@ -1274,47 +768,16 @@ function collectDailyRowsForSave() {
   const rows = [];
   document.querySelectorAll('.daily-entry-row').forEach((tr) => {
     if (!rowHasChargeData(tr)) return;
+    const entryId = tr.dataset.entryId ? Number(tr.dataset.entryId) : null;
     rows.push({
+      entry_id: entryId,
       entry_date: today,
       stay_type_id: tr.querySelector('.daily-row-stay-type')?.value || null,
       notes: tr.dataset.entryNotes || notes,
       lines: collectDailyLinesFromRow(tr),
     });
   });
-  return mergeDailyEntriesForSave(rows);
-}
-
-function mergeDailyEntriesForSave(entries) {
-  if (!entries.length) return [];
-  const merged = { entry_date: entries[0].entry_date, stay_type_id: null, notes: '', lines: [] };
-  const lineMap = new Map();
-
-  for (const entry of entries) {
-    if (entry.stay_type_id) merged.stay_type_id = entry.stay_type_id;
-    if (entry.notes) merged.notes = entry.notes;
-    for (const line of entry.lines || []) {
-      const key = line.section_code;
-      const existing = lineMap.get(key);
-      if (!existing) {
-        lineMap.set(key, { ...line });
-        continue;
-      }
-      if (line.extra_date) existing.extra_date = line.extra_date;
-      if (line.extra_text) existing.extra_text = line.extra_text;
-      if (line.service_id && existing.service_id && Number(line.service_id) !== Number(existing.service_id)) {
-        throw new Error('لا يمكن دمج صفوف بخدمات مختلفة لنفس القسم — احفظ كل صف أو وحّد الخدمة');
-      }
-      if (line.service_id) existing.service_id = line.service_id;
-      const addAmt = Number(line.amount) || 0;
-      if (addAmt > 0) {
-        existing.amount = (Number(existing.amount) || 0) + addAmt;
-        if (line.manual_amount) existing.manual_amount = true;
-      }
-    }
-  }
-
-  merged.lines = [...lineMap.values()];
-  return [merged];
+  return rows;
 }
 
 async function loadDailyPatientHistory() {
@@ -1421,14 +884,14 @@ async function saveDailyEntry() {
     dailyCurrentEntryId = data.saved?.[data.saved.length - 1]?.id || null;
 
     const invLabel = data.invoice_sync.created ? 'تم إنشاء فاتورة مسودة' : 'تم تحديث الفاتورة';
-    const toastMsg = `تم حفظ ${data.count} يوم — ${invLabel} #${data.invoice_sync.invoice_id}`;
+    const toastMsg = `تم حفظ ${data.count} صف — ${invLabel} #${data.invoice_sync.invoice_id}`;
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
     await loadOpenPatientStay(file_number);
     await loadDailyEntriesIntoSheet();
     await loadDailyPatientHistory();
 
     const statusEl = document.getElementById('daily-entry-status');
-    if (statusEl) statusEl.textContent = `محفوظ — ${data.count} يوم`;
+    if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
     showToast(toastMsg, 'success');
   } catch (err) {
     showToast(err.message, 'danger');
@@ -1483,8 +946,6 @@ async function initDailyChargesView() {
   await loadDailyStayTypes();
   if (typeof bindCommaAmountInputs === 'function') {
     bindCommaAmountInputs(document.getElementById('view-daily'));
-    bindCommaAmountInputs(document.getElementById('daily-catalog-manage-collapse'));
-    bindCommaAmountInputs(document.getElementById('daily-catalog-edit-modal'));
   }
   const savedFile = sessionStorage.getItem('dailyStayFileNumber');
   if (savedFile) {
@@ -1670,48 +1131,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-history-btn')?.addEventListener('click', showDailyEntryHistory);
   document.getElementById('daily-add-row-btn')?.addEventListener('click', () => addDailyEntryRow());
   document.getElementById('import-daily-charges-btn')?.addEventListener('click', importDailyChargesToInvoice);
-  document.getElementById('daily-catalog-import-btn')?.addEventListener('click', () => {
-    document.getElementById('daily-catalog-import-file')?.click();
-  });
-  document.getElementById('daily-catalog-import-file')?.addEventListener('change', (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (file) openDailyCatalogImportModal(file);
-  });
-  document.getElementById('daily-catalog-import-refresh-preview-btn')?.addEventListener('click', () =>
-    refreshDailyCatalogImportPreview()
-  );
-  document.getElementById('daily-catalog-import-confirm-btn')?.addEventListener('click', () =>
-    confirmDailyCatalogImport()
-  );
-  document.getElementById('daily-catalog-add-form')?.addEventListener('submit', submitDailyCatalogAdd);
-  document.getElementById('daily-catalog-add-category')?.addEventListener('change', () => toggleCatalogPricingFields('add'));
-  document.getElementById('daily-catalog-edit-category')?.addEventListener('change', () => toggleCatalogPricingFields('edit'));
-  ['add', 'edit'].forEach((mode) => {
-    document.getElementById(`daily-catalog-${mode}-cost`)?.addEventListener('input', () => updateCatalogSellingPreview(mode));
-    document.getElementById(`daily-catalog-${mode}-markup`)?.addEventListener('input', () => updateCatalogSellingPreview(mode));
-  });
-  toggleCatalogPricingFields('add');
-  document.getElementById('daily-catalog-edit-save-btn')?.addEventListener('click', saveDailyCatalogEdit);
-  document.getElementById('daily-catalog-refresh-btn')?.addEventListener('click', () => loadDailyCatalogManageTable());
-  document.getElementById('daily-catalog-filter-category')?.addEventListener('change', (event) => {
-    const addCat = document.getElementById('daily-catalog-add-category');
-    if (addCat && event.target.value) addCat.value = event.target.value;
-    loadDailyCatalogManageTable();
-  });
-  document.getElementById('daily-catalog-filter-search')?.addEventListener('input', () => {
-    clearTimeout(dailyCatalogSearchTimer);
-    dailyCatalogSearchTimer = setTimeout(() => loadDailyCatalogManageTable(), 300);
-  });
-  const catalogCollapse = document.getElementById('daily-catalog-manage-collapse');
-  if (catalogCollapse) {
-    catalogCollapse.addEventListener('shown.bs.collapse', () => {
-      loadDailyCatalogManageTable();
-      toggleCatalogPricingFields('add');
-    });
-  }
 });
 
 window.initDailyChargesView = initDailyChargesView;
 window.importDailyChargesToInvoice = importDailyChargesToInvoice;
 window.syncDailyChargeRowsFromTotals = syncDailyChargeRowsFromTotals;
+window.reloadDailyCatalogSectionsFromSettings = reloadDailyCatalogSectionsFromSettings;

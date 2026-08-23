@@ -290,6 +290,7 @@ function applyPermissions() {
     can('invoices.create') || can('invoices.edit') ? '' : 'none';
   document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
   document.getElementById('pricing-settings-card').style.display = isAdmin ? '' : 'none';
+  document.getElementById('item-catalog-settings-card').style.display = isAdmin ? '' : 'none';
 
   const createBtn = document.querySelector('[data-view="create"]');
   if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
@@ -2844,6 +2845,7 @@ async function loadSettingsPage() {
     await loadContractedEntities();
     loadUsers();
     if (can('settings.*')) await loadPricingSection();
+    if (typeof loadItemCatalogSection === 'function') await loadItemCatalogSection();
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
   }

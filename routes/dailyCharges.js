@@ -18,7 +18,9 @@ const { getDailyPrintReport, resolveDailyPrintKind } = require('../services/repo
 const { buildDailyReportHtml, wrapDailyItemsPrintPage } = require('../services/pdfService');
 const { generateDailyItemsPdfBuffer } = require('../services/exportService');
 const { getLogoUrl } = require('../services/settingsService');
-const { requireAuth, requirePermission } = require('../middleware/auth');
+const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
+
+const catalogManagePerm = requireAnyPermission('settings.*', 'daily_charges.manage');
 const {
   CATALOG_CATEGORIES,
   listCatalogItems,
@@ -56,7 +58,7 @@ router.get('/sections', requirePermission('daily_charges.view'), async (req, res
   }
 });
 
-router.get('/catalog', requirePermission('daily_charges.view'), async (req, res) => {
+router.get('/catalog', requireAnyPermission('daily_charges.view', 'settings.*'), async (req, res) => {
   try {
     const category = req.query.category || null;
     if (category && !CATALOG_CATEGORIES.includes(category)) {
@@ -74,7 +76,7 @@ router.get('/catalog', requirePermission('daily_charges.view'), async (req, res)
   }
 });
 
-router.get('/catalog/stats', requirePermission('daily_charges.view'), async (req, res) => {
+router.get('/catalog/stats', requireAnyPermission('daily_charges.view', 'settings.*'), async (req, res) => {
   try {
     res.json(await getCatalogStats());
   } catch (err) {
@@ -82,7 +84,7 @@ router.get('/catalog/stats', requirePermission('daily_charges.view'), async (req
   }
 });
 
-router.get('/catalog/export', requirePermission('daily_charges.manage'), async (req, res) => {
+router.get('/catalog/export', catalogManagePerm, async (req, res) => {
   try {
     const csv = await exportCatalogCsv();
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -93,7 +95,7 @@ router.get('/catalog/export', requirePermission('daily_charges.manage'), async (
   }
 });
 
-router.post('/catalog/import/analyze', requirePermission('daily_charges.manage'), upload.single('file'), async (req, res) => {
+router.post('/catalog/import/analyze', catalogManagePerm, upload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer?.length) {
       return res.status(400).json({ error: 'الملف مطلوب (CSV أو Excel)' });
@@ -119,7 +121,7 @@ router.post('/catalog/import/analyze', requirePermission('daily_charges.manage')
   }
 });
 
-router.post('/catalog/import/confirm', requirePermission('daily_charges.manage'), upload.single('file'), async (req, res) => {
+router.post('/catalog/import/confirm', catalogManagePerm, upload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer?.length) {
       return res.status(400).json({ error: 'الملف مطلوب (CSV أو Excel)' });
@@ -139,7 +141,7 @@ router.post('/catalog/import/confirm', requirePermission('daily_charges.manage')
   }
 });
 
-router.post('/catalog/import', requirePermission('daily_charges.manage'), upload.single('file'), async (req, res) => {
+router.post('/catalog/import', catalogManagePerm, upload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer?.length) {
       return res.status(400).json({ error: 'الملف مطلوب (CSV أو Excel)' });
@@ -166,7 +168,7 @@ router.post('/catalog/import', requirePermission('daily_charges.manage'), upload
   }
 });
 
-router.get('/catalog/:id', requirePermission('daily_charges.view'), async (req, res) => {
+router.get('/catalog/:id', requireAnyPermission('daily_charges.view', 'settings.*'), async (req, res) => {
   try {
     const item = await getCatalogItemById(Number(req.params.id));
     if (!item) return res.status(404).json({ error: 'الصنف غير موجود' });
@@ -176,7 +178,7 @@ router.get('/catalog/:id', requirePermission('daily_charges.view'), async (req, 
   }
 });
 
-router.post('/catalog', requirePermission('daily_charges.manage'), async (req, res) => {
+router.post('/catalog', catalogManagePerm, async (req, res) => {
   try {
     const item = await createCatalogItem(req.body);
     res.json({ item, stats: await getCatalogStats() });
@@ -185,7 +187,7 @@ router.post('/catalog', requirePermission('daily_charges.manage'), async (req, r
   }
 });
 
-router.put('/catalog/:id', requirePermission('daily_charges.manage'), async (req, res) => {
+router.put('/catalog/:id', catalogManagePerm, async (req, res) => {
   try {
     const item = await updateCatalogItem(Number(req.params.id), req.body);
     res.json({ item, stats: await getCatalogStats() });
@@ -194,7 +196,7 @@ router.put('/catalog/:id', requirePermission('daily_charges.manage'), async (req
   }
 });
 
-router.patch('/catalog/:id/active', requirePermission('daily_charges.manage'), async (req, res) => {
+router.patch('/catalog/:id/active', catalogManagePerm, async (req, res) => {
   try {
     const isActive = req.body.is_active === true || req.body.is_active === 'true' || req.body.is_active === 1;
     const item = await setCatalogItemActive(Number(req.params.id), isActive);

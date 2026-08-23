@@ -198,6 +198,34 @@ function computeDailyTotal(lines, sections) {
   );
 }
 
+async function getEntryById(entryId, client = null) {
+  const id = Number(entryId);
+  if (!id) return null;
+  const run = client ? client.query.bind(client) : query;
+  const { rows } = await run(
+    `SELECT e.*, p.file_number, p.name AS patient_name, st.name AS stay_type_name
+     FROM patient_daily_entries e
+     JOIN patients p ON p.id = e.patient_id
+     LEFT JOIN stay_types st ON st.id = e.stay_type_id
+     WHERE e.id = $1`,
+    [id]
+  );
+  if (!rows.length) return null;
+  const entry = rows[0];
+  const { rows: lineRows } = await run(
+    `SELECT l.*, s.name AS service_name, s.code AS service_code,
+            c.name AS catalog_item_name, c.code AS catalog_item_code, c.category AS catalog_item_category
+     FROM patient_daily_entry_lines l
+     LEFT JOIN services s ON s.id = l.service_id
+     LEFT JOIN daily_entry_catalog_items c ON c.id = l.catalog_item_id
+     WHERE l.entry_id = $1
+     ORDER BY l.sort_order, l.id`,
+    [entry.id]
+  );
+  entry.lines = lineRows;
+  return entry;
+}
+
 async function getEntryByPatientDate(patientId, entryDate, client = null) {
   const run = client ? client.query.bind(client) : query;
   const { rows } = await run(
@@ -493,7 +521,17 @@ async function saveEntry(data, user = null, options = {}) {
   const userName = user?.full_name || user?.username || '';
 
   return withTransaction(async (client) => {
-    const existing = await getEntryByPatientDate(patient.id, entryDate, client);
+    const entryIdInput = Number(data.entry_id || data.id) || null;
+    let existing = null;
+    if (entryIdInput) {
+      const { rows } = await client.query(
+        `SELECT * FROM patient_daily_entries WHERE id = $1 AND patient_id = $2`,
+        [entryIdInput, patient.id]
+      );
+      existing = rows[0] || null;
+      if (!existing) throw new Error(`الحركة #${entryIdInput} غير موجودة`);
+    }
+
     if (existing?.invoice_id && data.allow_invoiced_edit !== true) {
       const invRes = await client.query('SELECT status FROM invoices WHERE id = $1', [existing.invoice_id]);
       if (invRes.rows[0]?.status === 'approved') {
@@ -501,7 +539,7 @@ async function saveEntry(data, user = null, options = {}) {
       }
     }
 
-    let entryId = existing?.id || null;
+    let entryId = entryIdInput || existing?.id || null;
     let action = existing ? 'update' : 'create';
 
     if (existing) {
@@ -612,7 +650,7 @@ async function saveEntry(data, user = null, options = {}) {
       }
     }
 
-    const saved = await getEntryByPatientDate(patient.id, entryDate, client);
+    const saved = await getEntryById(entryId, client);
     await client.query(
       `INSERT INTO patient_daily_entry_history (entry_id, action, snapshot, changed_by_user_id, changed_by_name)
        VALUES ($1, $2, $3::jsonb, $4, $5)`,
@@ -988,7 +1026,7 @@ async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = nu
   const { rows } = await query(sql, params);
   const entries = [];
   for (const row of rows) {
-    const entry = await getEntryByPatientDate(row.patient_id, row.entry_date);
+    const entry = await getEntryById(row.id);
     if (entry) entries.push(entry);
   }
   return entries;
@@ -1092,6 +1130,7 @@ async function unlinkEntriesFromInvoice(invoiceId, client = null) {
 module.exports = {
   listSections,
   getSectionsWithServices,
+  getEntryById,
   getEntryByPatientDate,
   listEntries,
   listEntryHistory,
