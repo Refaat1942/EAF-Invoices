@@ -414,7 +414,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           total_collected = $33, total_collected_raw = $34, remaining = $35, remaining_raw = $36,
           employee_name = $37, auditor_name = $38, captain_name = $39, manager_name = $40,
           file_password = $41, notes = $42,
-          status = $43, submitted_at = CASE WHEN $43 = 'pending_review' THEN NOW() ELSE submitted_at END,
+          status = $43, submitted_at = CASE WHEN $46 = 'pending_review' THEN NOW() ELSE submitted_at END,
           patient_credit_applied = $44,
           updated_at = NOW()
         WHERE id = $45`,
@@ -464,6 +464,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           invoiceStatus,
           patientCreditApplied,
           existingId,
+          invoiceStatus,
         ]
       );
 
