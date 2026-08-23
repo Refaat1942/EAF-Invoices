@@ -9,7 +9,8 @@ const {
   getEntriesForInvoice,
   getInvoiceItemsFromDailyCharges,
 } = require('../services/dailyChargeService');
-const { upsertPatient } = require('../services/patientService');
+const { upsertPatient, getPatientByFileNumber } = require('../services/patientService');
+const { getOpenPatientStay, openPatientStay } = require('../services/invoiceService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
@@ -62,6 +63,32 @@ router.get('/entries/:id/history', requirePermission('daily_charges.view'), asyn
     res.json(await listEntryHistory(Number(req.params.id)));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/open-stay', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const file_number = req.query.file_number?.trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    const stay = await getOpenPatientStay(file_number);
+    if (stay) return res.json(stay);
+    const patient = await getPatientByFileNumber(file_number);
+    return res.json({
+      patient: patient || { file_number, name: '', account_balance: 0 },
+      invoice: null,
+      daily_summary: { entry_count: 0, daily_total_sum: 0 },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/open-stay', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const result = await openPatientStay(req.body, req.session?.user || null);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

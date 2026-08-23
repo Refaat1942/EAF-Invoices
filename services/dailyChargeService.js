@@ -259,6 +259,18 @@ async function saveEntry(data, user = null) {
     );
 
     return saved;
+  }).then(async (saved) => {
+    try {
+      const { syncDailyEntryToInvoices } = require('./invoiceService');
+      saved.invoice_sync = await syncDailyEntryToInvoices(saved, {
+        file_number: data.file_number,
+        patient_name: data.patient_name || patient.name,
+      });
+    } catch (err) {
+      saved.invoice_sync = { synced: false, error: err.message };
+      console.error('Daily entry invoice sync failed:', err);
+    }
+    return saved;
   });
 }
 

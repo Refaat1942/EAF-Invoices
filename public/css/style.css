@@ -612,3 +612,41 @@ body {
 .daily-charges-card .daily-amount {
   font-weight: 700;
 }
+
+.patient-stay-steps {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.patient-stay-step {
+  flex: 1;
+  min-width: 140px;
+  padding: 0.65rem 1rem;
+  border-radius: 8px;
+  background: #e9ecef;
+  color: #6c757d;
+  font-weight: 700;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.patient-stay-step.active {
+  background: #0d6efd;
+  color: #fff;
+}
+
+.patient-stay-step.done {
+  background: #198754;
+  color: #fff;
+}
+
+.daily-step-locked {
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
+.daily-step-locked .card-header {
+  opacity: 1;
+}

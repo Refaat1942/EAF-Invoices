@@ -2,6 +2,166 @@ const DAILY_API = '/api/daily-charges';
 
 let dailySectionsCache = [];
 let dailyCurrentEntryId = null;
+let dailyStayContext = null;
+
+function getStayFileNumber() {
+  return document.getElementById('daily-stay-file-number')?.value.trim() || '';
+}
+
+function getStayPatientName() {
+  return document.getElementById('daily-stay-patient-name')?.value.trim() || '';
+}
+
+function fmtStayDate(value) {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+
+function setDailyWorkflowSteps(hasStay) {
+  document.querySelectorAll('.patient-stay-step').forEach((el) => {
+    const step = Number(el.dataset.step);
+    el.classList.toggle('active', !hasStay && step === 1);
+    el.classList.toggle('done', hasStay && step <= 3);
+    if (hasStay && step === 2) el.classList.add('active');
+  });
+  const panel = document.getElementById('daily-step-2-panel');
+  if (panel) panel.classList.toggle('daily-step-locked', !hasStay);
+}
+
+function updateDailyInvoicePanel(ctx) {
+  const empty = document.getElementById('daily-invoice-empty');
+  const info = document.getElementById('daily-invoice-info');
+  const inv = ctx?.invoice;
+  if (!inv?.id) {
+    if (empty) empty.style.display = '';
+    if (info) info.style.display = 'none';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  if (info) info.style.display = '';
+  const numEl = document.getElementById('daily-inv-number');
+  if (numEl) numEl.textContent = inv.serial_number ? inv.serial_number : `#${inv.id}`;
+  const statusEl = document.getElementById('daily-inv-status');
+  if (statusEl) {
+    statusEl.textContent = inv.status_label || inv.status || '—';
+    statusEl.className = `badge ${inv.status === 'pending_review' ? 'bg-warning text-dark' : inv.status === 'approved' ? 'bg-success' : 'bg-secondary'}`;
+  }
+  const periodEl = document.getElementById('daily-inv-period');
+  if (periodEl) {
+    periodEl.textContent = `${fmtStayDate(inv.admission_date) || '—'} → ${fmtStayDate(inv.discharge_date) || '—'}`;
+  }
+  const daysEl = document.getElementById('daily-inv-days');
+  if (daysEl) daysEl.textContent = ctx.daily_summary?.entry_count ?? 0;
+  const dailyTotalEl = document.getElementById('daily-inv-daily-total');
+  if (dailyTotalEl) dailyTotalEl.textContent = dailyFmt(ctx.daily_summary?.daily_total_sum ?? 0);
+  const finalEl = document.getElementById('daily-inv-final-total');
+  if (finalEl) finalEl.textContent = dailyFmt(inv.final_total ?? 0);
+}
+
+function applyDailyStayContext(ctx) {
+  dailyStayContext = ctx;
+  const hasOpenInvoice = Boolean(ctx?.invoice?.id);
+  setDailyWorkflowSteps(hasOpenInvoice);
+
+  if (ctx?.patient) {
+    document.getElementById('daily-stay-file-number').value = ctx.patient.file_number || '';
+    document.getElementById('daily-stay-patient-name').value = ctx.patient.name || ctx.invoice?.patient_name || '';
+    if (ctx.patient.account_balance != null) {
+      document.getElementById('daily-stay-balance').value = ctx.patient.account_balance;
+    }
+  }
+  if (ctx?.invoice) {
+    document.getElementById('daily-stay-admission').value = fmtStayDate(ctx.invoice.admission_date);
+    document.getElementById('daily-stay-discharge').value = fmtStayDate(ctx.invoice.discharge_date);
+    document.getElementById('daily-stay-financial').value = ctx.invoice.financial_treatment || '';
+  }
+
+  const summary = document.getElementById('daily-patient-summary');
+  const summaryText = document.getElementById('daily-patient-summary-text');
+  if (hasOpenInvoice && summary && summaryText) {
+    summary.style.display = '';
+    summaryText.textContent = `${getStayPatientName()} — ملف ${getStayFileNumber()}`;
+  } else if (summary) {
+    summary.style.display = 'none';
+  }
+
+  const statusEl = document.getElementById('daily-entry-status');
+  if (statusEl) {
+    statusEl.textContent = hasOpenInvoice ? 'جاهز للتسجيل' : 'أكمل تسجيل المريض أولًا';
+  }
+
+  updateDailyInvoicePanel(ctx);
+  if (hasOpenInvoice) sessionStorage.setItem('dailyStayFileNumber', getStayFileNumber());
+}
+
+async function loadOpenPatientStay(fileNumber) {
+  const fn = (fileNumber || getStayFileNumber()).trim();
+  if (!fn) {
+    applyDailyStayContext(null);
+    return null;
+  }
+  try {
+    const res = await apiFetch(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل البحث');
+    applyDailyStayContext(data);
+    await loadDailyPatientHistory();
+    return data;
+  } catch (err) {
+    showToast(err.message, 'danger');
+    return null;
+  }
+}
+
+async function saveOpenPatientStay() {
+  if (!dailyCan('daily_charges.manage')) {
+    showToast('ليس لديك صلاحية تسجيل الإقامة', 'warning');
+    return;
+  }
+  const file_number = getStayFileNumber();
+  const patient_name = getStayPatientName();
+  const admission_date = document.getElementById('daily-stay-admission')?.value;
+  const discharge_date = document.getElementById('daily-stay-discharge')?.value || admission_date;
+  if (!file_number || !patient_name || !admission_date) {
+    showToast('رقم الملف واسم المريض وتاريخ الدخول مطلوبان', 'warning');
+    return;
+  }
+
+  try {
+    const res = await apiFetch(`${DAILY_API}/open-stay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_number,
+        patient_name,
+        admission_date,
+        discharge_date,
+        financial_treatment: document.getElementById('daily-stay-financial')?.value.trim() || '',
+        account_balance: document.getElementById('daily-stay-balance')?.value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل التسجيل');
+    applyDailyStayContext(data);
+    await loadDailyPatientHistory();
+    const label = data.created ? 'تم إنشاء فاتورة مسودة' : 'تم تحديث الإقامة';
+    showToast(`${label} #${data.invoice?.id}`, 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function openDailyStayInvoice() {
+  const invoiceId = dailyStayContext?.invoice?.id;
+  if (!invoiceId) {
+    showToast('لا توجد فاتورة مفتوحة — سجّل المريض أولًا', 'warning');
+    return;
+  }
+  if (typeof switchView === 'function' && typeof loadInvoiceForEdit === 'function') {
+    switchView('create', { keepForm: true });
+    await loadInvoiceForEdit(invoiceId);
+  }
+}
 
 function dailyCan(view) {
   return typeof can === 'function' && (can(view) || can('daily_charges.view') || can('daily_charges.manage'));
@@ -171,18 +331,16 @@ function fillDailyFormFromEntry(entry) {
 }
 
 async function loadDailyEntryForCurrentSelection() {
-  const fileNumber = document.getElementById('daily-file-number')?.value.trim();
+  const fileNumber = getStayFileNumber();
   const entryDate = document.getElementById('daily-entry-date')?.value;
   if (!fileNumber || !entryDate) return;
+  if (!dailyStayContext?.invoice?.id) return;
 
   try {
     const res = await apiFetch(
       `${DAILY_API}/entries/by-date?file_number=${encodeURIComponent(fileNumber)}&entry_date=${entryDate}`
     );
     const entry = await res.json();
-    if (entry?.patient_name && !document.getElementById('daily-patient-name').value) {
-      document.getElementById('daily-patient-name').value = entry.patient_name;
-    }
     fillDailyFormFromEntry(entry?.id ? entry : null);
   } catch (err) {
     console.error(err);
@@ -191,7 +349,7 @@ async function loadDailyEntryForCurrentSelection() {
 
 async function loadDailyPatientHistory() {
   const tbody = document.getElementById('daily-history-tbody');
-  const fileNumber = document.getElementById('daily-file-number')?.value.trim();
+  const fileNumber = getStayFileNumber();
   if (!tbody) return;
   if (!fileNumber) {
     tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">اختر مريضًا لعرض السجل</td></tr>';
@@ -233,7 +391,11 @@ async function saveDailyEntry() {
     showToast('ليس لديك صلاحية تسجيل الحركة اليومية', 'warning');
     return;
   }
-  const file_number = document.getElementById('daily-file-number').value.trim();
+  if (!dailyStayContext?.invoice?.id) {
+    showToast('سجّل المريض وفتح الإقامة في الخطوة ① أولًا', 'warning');
+    return;
+  }
+  const file_number = getStayFileNumber();
   const entry_date = document.getElementById('daily-entry-date').value;
   if (!file_number || !entry_date) {
     showToast('رقم الملف وتاريخ اليوم مطلوبان', 'warning');
@@ -246,7 +408,7 @@ async function saveDailyEntry() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         file_number,
-        patient_name: document.getElementById('daily-patient-name').value.trim(),
+        patient_name: getStayPatientName(),
         entry_date,
         stay_type_id: document.getElementById('daily-stay-type').value || null,
         notes: document.getElementById('daily-notes').value,
@@ -257,7 +419,16 @@ async function saveDailyEntry() {
     if (!res.ok) throw new Error(data.error || 'فشل الحفظ');
     fillDailyFormFromEntry(data);
     await loadDailyPatientHistory();
-    showToast('تم حفظ الحركة اليومية', 'success');
+    let toastMsg = 'تم حفظ الحركة اليومية';
+    if (data.invoice_sync?.synced) {
+      const invLabel = data.invoice_sync.created ? 'تم إنشاء فاتورة مسودة' : 'تم تحديث الفاتورة';
+      toastMsg = `${toastMsg} — ${invLabel} #${data.invoice_sync.invoice_id}`;
+      await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
+      await loadOpenPatientStay(file_number);
+    } else if (data.invoice_sync?.error) {
+      toastMsg = `${toastMsg} (تعذّر تحديث الفاتورة: ${data.invoice_sync.error})`;
+    }
+    showToast(toastMsg, data.invoice_sync?.error ? 'warning' : 'success');
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -314,7 +485,14 @@ async function initDailyChargesView() {
     document.getElementById('daily-entry-date').value = new Date().toISOString().slice(0, 10);
   }
   await loadDailyStayTypes();
-  await loadDailyPatientHistory();
+  const savedFile = sessionStorage.getItem('dailyStayFileNumber');
+  if (savedFile) {
+    document.getElementById('daily-stay-file-number').value = savedFile;
+    await loadOpenPatientStay(savedFile);
+  } else {
+    applyDailyStayContext(null);
+    await loadDailyPatientHistory();
+  }
 }
 
 function appendInvoiceItemRow(item) {
@@ -368,6 +546,18 @@ function syncDailyChargeRowsFromTotals(totalsItems = []) {
     });
   }
   return added;
+}
+
+async function refreshInvoiceFormAfterDailySave(fileNumber, invoiceId) {
+  const formFile = document.getElementById('file_number')?.value.trim();
+  const currentId = document.getElementById('invoice-id')?.value;
+  const viewCreate = document.getElementById('view-create')?.style.display !== 'none';
+  if (!viewCreate || formFile !== fileNumber) return;
+  if (typeof loadInvoiceForEdit === 'function' && invoiceId) {
+    if (!currentId || String(currentId) === String(invoiceId)) {
+      await loadInvoiceForEdit(invoiceId);
+    }
+  }
 }
 
 async function applyDailyStayTypeRate() {
@@ -432,13 +622,13 @@ async function importDailyChargesToInvoice() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
+  document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
+  document.getElementById('daily-stay-file-number')?.addEventListener('blur', () => loadOpenPatientStay());
+  document.getElementById('daily-open-invoice-btn')?.addEventListener('click', openDailyStayInvoice);
   document.getElementById('daily-save-btn')?.addEventListener('click', saveDailyEntry);
   document.getElementById('daily-clear-btn')?.addEventListener('click', clearDailyForm);
   document.getElementById('daily-history-btn')?.addEventListener('click', showDailyEntryHistory);
-  document.getElementById('daily-file-number')?.addEventListener('blur', async () => {
-    await loadDailyEntryForCurrentSelection();
-    await loadDailyPatientHistory();
-  });
   document.getElementById('daily-entry-date')?.addEventListener('change', loadDailyEntryForCurrentSelection);
   document.getElementById('daily-stay-type')?.addEventListener('change', applyDailyStayTypeRate);
   document.getElementById('import-daily-charges-btn')?.addEventListener('click', importDailyChargesToInvoice);

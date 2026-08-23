@@ -5,7 +5,7 @@ const { nextSerialNumber, formatFiscalYearLabel } = require('./serialService');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
 const { getContractedEntityById, getEffectiveDiscountPercent } = require('./contractedEntityService');
 const { listDiscountExclusions } = require('./discountExclusionService');
-const { upsertPatient, applyPatientCredit } = require('./patientService');
+const { upsertPatient, applyPatientCredit, setPatientBalance, getPatientByFileNumber } = require('./patientService');
 const { getSummaryReport, STATUS_LABELS } = require('./reportService');
 
 const { getStayTypeById } = require('./stayTypeService');
@@ -350,6 +350,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
     Math.round((Number(totals.patient_credit_applied ?? data.patient_credit_applied) || 0) * 100) / 100;
   data.method_payments = totals.method_payments || data.method_payments || [];
   const nextStatus = saveMode === 'submit' ? 'pending_review' : 'draft';
+  const preserveStatus = options.preserve_status === true;
 
   let stayDays =
     calcData.stay_days !== undefined && calcData.stay_days !== ''
@@ -396,7 +397,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
       fiscalYear = current.fiscal_year;
       serialSequence = current.serial_sequence;
       qrToken = current.qr_token;
-      invoiceStatus = nextStatus;
+      invoiceStatus = preserveStatus ? current.status : nextStatus;
       const filePassword = '';
 
       await client.query(
@@ -688,6 +689,253 @@ async function deleteInvoice(id) {
   return rowCount > 0;
 }
 
+function fmtDateOnly(value) {
+  if (!value) return null;
+  return String(value).slice(0, 10);
+}
+
+function expandStayDates(admissionDate, dischargeDate, entryDate) {
+  const entry = fmtDateOnly(entryDate);
+  let admission = fmtDateOnly(admissionDate) || entry;
+  let discharge = fmtDateOnly(dischargeDate) || entry;
+  if (entry < admission) admission = entry;
+  if (entry > discharge) discharge = entry;
+  return { admission_date: admission, discharge_date: discharge };
+}
+
+function invoiceManualItems(invoice) {
+  return (invoice.items || [])
+    .filter((item) => !item.daily_entry_line_id)
+    .map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      amount: item.amount,
+      service_id: item.service_id,
+      patient_credit_applied: item.patient_credit_applied,
+      item_discount_percent: item.item_discount_percent,
+      discount_exclusion_id: item.discount_exclusion_id,
+    }));
+}
+
+function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
+  return {
+    invoice_id: invoice.id,
+    invoice_type: invoice.invoice_type,
+    patient_name: invoice.patient_name,
+    file_number: invoice.file_number,
+    issue_date: fmtDateOnly(invoice.issue_date) || fmtDateOnly(dateOverrides.entry_date),
+    admission_date: dateOverrides.admission_date ?? fmtDateOnly(invoice.admission_date),
+    discharge_date: dateOverrides.discharge_date ?? fmtDateOnly(invoice.discharge_date),
+    stay_days: invoice.stay_days,
+    financial_treatment: invoice.financial_treatment || '',
+    notes: invoice.notes || '',
+    stamp_duty: invoice.stamp_duty,
+    professional_fees: invoice.professional_fees,
+    balance: invoice.balance,
+    admin_expenses_percent: invoice.admin_expenses_percent,
+    contracted_entity_id: invoice.contracted_entity_id,
+    discount_percent: invoice.discount_percent,
+    letter_from_date: invoice.letter_from_date,
+    letter_to_date: invoice.letter_to_date,
+    employee_name: invoice.employee_name || '',
+    auditor_name: invoice.auditor_name || '',
+    captain_name: invoice.captain_name || 'نقيب / عمرو صالح محمد',
+    manager_name: invoice.manager_name || 'رائد / جمال عبد الناصر - المدير المالي',
+    stay_entries: invoice.stay_entries || [],
+    method_payments: (invoice.method_payments || []).map((m) => ({
+      payment_method_id: m.payment_method_id,
+      code: m.code,
+      amount: m.amount,
+    })),
+    payments: invoice.payments || [],
+    items: manualItems,
+    include_daily_charges: true,
+    save_mode: 'draft',
+  };
+}
+
+async function resolveOpenInvoiceForDailyEntry(fileNumber) {
+  const { rows } = await query(
+    `SELECT id FROM invoices
+     WHERE TRIM(file_number) = TRIM($1)
+       AND status IN ('draft', 'pending_review')
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [fileNumber]
+  );
+  return rows[0]?.id || null;
+}
+
+async function syncInvoiceDailyCharges(invoiceId, options = {}) {
+  const invoice = await getInvoiceById(invoiceId);
+  if (!invoice || invoice.status === 'approved') return null;
+
+  const entryDate = options.entry_date ? fmtDateOnly(options.entry_date) : null;
+  const dates = entryDate
+    ? expandStayDates(invoice.admission_date, invoice.discharge_date, entryDate)
+    : {
+        admission_date: fmtDateOnly(invoice.admission_date),
+        discharge_date: fmtDateOnly(invoice.discharge_date),
+      };
+
+  const manualItems = invoiceManualItems(invoice);
+  const payload = invoiceToSavePayload(invoice, manualItems, { ...dates, entry_date: entryDate });
+
+  const updated = await saveInvoice(payload, invoiceId, null, {
+    save_mode: 'draft',
+    preserve_status: options.preserve_status !== false,
+  });
+  return updated;
+}
+
+async function createDraftInvoiceForDailyEntry(fileNumber, patientName, entryDate) {
+  const entry = fmtDateOnly(entryDate);
+  const payload = {
+    invoice_type: 'civil',
+    patient_name: patientName || '',
+    file_number: fileNumber,
+    issue_date: entry,
+    admission_date: entry,
+    discharge_date: entry,
+    items: [],
+    payments: [],
+    stay_entries: [],
+    stamp_duty: 0,
+    professional_fees: 0,
+    balance: 0,
+    admin_expenses_percent: 12,
+    include_daily_charges: true,
+    save_mode: 'draft',
+  };
+  return saveInvoice(payload, null, null, { save_mode: 'draft' });
+}
+
+async function syncDailyEntryToInvoices(entry, meta = {}) {
+  const fileNumber = meta.file_number?.trim();
+  const patientName = meta.patient_name || '';
+  const entryDate = fmtDateOnly(entry?.entry_date);
+  if (!fileNumber || !entryDate) {
+    return { synced: false, reason: 'missing_file_or_date' };
+  }
+
+  let invoiceId = await resolveOpenInvoiceForDailyEntry(fileNumber);
+  let created = false;
+
+  if (!invoiceId) {
+    const createdInvoice = await createDraftInvoiceForDailyEntry(fileNumber, patientName, entryDate);
+    invoiceId = createdInvoice.id;
+    created = true;
+  }
+
+  const updated = await syncInvoiceDailyCharges(invoiceId, {
+    entry_date: entryDate,
+    preserve_status: true,
+  });
+
+  return {
+    synced: true,
+    created,
+    invoice_id: invoiceId,
+    final_total: updated?.final_total,
+    admission_date: updated?.admission_date,
+    discharge_date: updated?.discharge_date,
+  };
+}
+
+async function getDailySummaryForStay(fileNumber, admissionDate, dischargeDate) {
+  const params = [fileNumber.trim()];
+  let sql = `
+    SELECT COUNT(*)::int AS entry_count, COALESCE(SUM(e.daily_total), 0) AS daily_total_sum
+    FROM patient_daily_entries e
+    JOIN patients p ON p.id = e.patient_id
+    WHERE p.file_number = $1`;
+  if (admissionDate) {
+    sql += ` AND e.entry_date >= $2::date`;
+    params.push(fmtDateOnly(admissionDate));
+  }
+  if (dischargeDate) {
+    sql += ` AND e.entry_date <= $${params.length + 1}::date`;
+    params.push(fmtDateOnly(dischargeDate));
+  }
+  const { rows } = await query(sql, params);
+  return rows[0] || { entry_count: 0, daily_total_sum: 0 };
+}
+
+async function getOpenPatientStay(fileNumber) {
+  const fn = fileNumber?.trim();
+  if (!fn) return null;
+
+  const patient = await getPatientByFileNumber(fn);
+  const invoiceId = await resolveOpenInvoiceForDailyEntry(fn);
+  let invoice = null;
+  if (invoiceId) {
+    invoice = await getInvoiceById(invoiceId);
+  }
+  if (!patient && !invoice) return null;
+
+  const dailySummary = await getDailySummaryForStay(
+    fn,
+    invoice?.admission_date,
+    invoice?.discharge_date
+  );
+
+  return {
+    patient: patient || { file_number: fn, name: invoice?.patient_name || '', account_balance: 0 },
+    invoice,
+    daily_summary: dailySummary,
+  };
+}
+
+async function openPatientStay(data, user = null) {
+  const fileNumber = data.file_number?.trim();
+  const patientName = data.patient_name?.trim() || '';
+  const admissionDate = fmtDateOnly(data.admission_date);
+  const dischargeDate = fmtDateOnly(data.discharge_date) || admissionDate;
+  if (!fileNumber || !patientName || !admissionDate) {
+    throw new Error('رقم الملف واسم المريض وتاريخ الدخول مطلوبان');
+  }
+
+  await upsertPatient(fileNumber, patientName);
+  if (data.account_balance !== undefined && data.account_balance !== null && data.account_balance !== '') {
+    await setPatientBalance(fileNumber, data.account_balance, patientName);
+  }
+
+  let invoiceId = await resolveOpenInvoiceForDailyEntry(fileNumber);
+  let created = false;
+
+  if (!invoiceId) {
+    const createdInvoice = await createDraftInvoiceForDailyEntry(fileNumber, patientName, admissionDate);
+    invoiceId = createdInvoice.id;
+    created = true;
+  }
+
+  const invoice = await getInvoiceById(invoiceId);
+  const manualItems = invoiceManualItems(invoice);
+  const payload = invoiceToSavePayload(invoice, manualItems, {
+    admission_date: admissionDate,
+    discharge_date: dischargeDate,
+    entry_date: admissionDate,
+  });
+  payload.patient_name = patientName;
+  payload.financial_treatment = data.financial_treatment || invoice.financial_treatment || '';
+
+  const updated = await saveInvoice(payload, invoiceId, user, {
+    save_mode: 'draft',
+    preserve_status: true,
+  });
+  await syncInvoiceDailyCharges(invoiceId, { preserve_status: true });
+
+  const patient = await getPatientByFileNumber(fileNumber);
+  const dailySummary = await getDailySummaryForStay(fileNumber, updated.admission_date, updated.discharge_date);
+
+  return {
+    patient,
+    invoice: updated,
+    created,
+    daily_summary: dailySummary,
+  };
+}
+
 async function getReportsSummary(filters = {}) {
   return getSummaryReport(filters);
 }
@@ -701,4 +949,8 @@ module.exports = {
   deleteInvoice,
   getReportsSummary,
   prepareCalculationData,
+  syncInvoiceDailyCharges,
+  syncDailyEntryToInvoices,
+  getOpenPatientStay,
+  openPatientStay,
 };

@@ -42,7 +42,7 @@
         <span class="text-light small fw-bold" id="nav-user"></span>
         <button class="btn btn-outline-light btn-sm nav-btn active" data-view="create">فاتورة جديدة</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="list">الفواتير</button>
-        <button class="btn btn-outline-light btn-sm nav-btn" data-view="daily" id="nav-daily">الحركة اليومية</button>
+        <button class="btn btn-outline-light btn-sm nav-btn" data-view="daily" id="nav-daily">إقامة المريض</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="reports">التقارير</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="settings" id="nav-settings">الإعدادات</button>
         <button class="btn btn-outline-danger btn-sm fw-bold" id="logout-btn">خروج</button>
@@ -397,34 +397,76 @@
       </div>
     </section>
 
-    <!-- Daily Patient Charges View -->
+    <!-- Patient Stay Workflow: register → daily entries → open invoice -->
     <section id="view-daily" class="view-section" style="display:none">
-      <div class="card shadow-sm daily-charges-card">
-        <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center flex-wrap gap-2">
-          <h5 class="mb-0 fw-black">الحركة اليومية للمريض</h5>
-          <span class="badge bg-light text-dark fw-bold" id="daily-entry-status"></span>
-        </div>
-        <div class="card-body">
-          <div class="row g-3 mb-3">
-            <div class="col-md-3">
-              <label class="form-label fw-bold">رقم الملف *</label>
-              <input type="text" class="form-control fw-bold" id="daily-file-number" autocomplete="off">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label fw-bold">اسم المريض</label>
-              <input type="text" class="form-control fw-bold" id="daily-patient-name">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label fw-bold">تاريخ اليوم *</label>
-              <input type="date" class="form-control fw-bold" id="daily-entry-date">
-            </div>
-            <div class="col-md-3">
-              <label class="form-label fw-bold">نوع الإقامة</label>
-              <select class="form-select fw-bold" id="daily-stay-type">
-                <option value="">-- اختر --</option>
-              </select>
+      <div class="patient-stay-steps mb-3">
+        <div class="patient-stay-step active" data-step="1"><span>①</span> بيانات المريض</div>
+        <div class="patient-stay-step" data-step="2"><span>②</span> الحركة اليومية</div>
+        <div class="patient-stay-step" data-step="3"><span>③</span> الفاتورة المفتوحة</div>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-lg-8">
+          <!-- Step 1: Patient registration -->
+          <div class="card shadow-sm mb-3" id="daily-step-1-card">
+            <div class="card-header bg-primary text-white fw-black">① تسجيل / فتح إقامة المريض</div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">رقم الملف *</label>
+                  <input type="text" class="form-control fw-bold" id="daily-stay-file-number" autocomplete="off">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">اسم المريض *</label>
+                  <input type="text" class="form-control fw-bold" id="daily-stay-patient-name">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold">تاريخ الدخول *</label>
+                  <input type="date" class="form-control fw-bold" id="daily-stay-admission">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">تاريخ الخروج</label>
+                  <input type="date" class="form-control fw-bold" id="daily-stay-discharge">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">المعاملة المالية</label>
+                  <input type="text" class="form-control fw-bold" id="daily-stay-financial" placeholder="مدني / تعاقد / ...">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">رصيد الحساب</label>
+                  <input type="number" step="0.01" class="form-control fw-bold" id="daily-stay-balance" placeholder="0">
+                </div>
+              </div>
+              <div class="d-flex gap-2 flex-wrap mt-3">
+                <button type="button" class="btn btn-success fw-bold" id="daily-stay-open-btn">✅ تسجيل المريض وفتح الإقامة</button>
+                <button type="button" class="btn btn-outline-primary fw-bold" id="daily-stay-lookup-btn">🔍 بحث</button>
+              </div>
+              <p class="small text-muted mt-2 mb-0">سجّل بيانات المريض أولًا — تُنشأ فاتورة مسودة تلقائيًا ويتم تحديثها مع كل حركة يومية حتى الاعتماد.</p>
             </div>
           </div>
+
+          <!-- Step 2: Daily charges -->
+          <div class="card shadow-sm daily-charges-card daily-step-locked" id="daily-step-2-panel">
+            <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <h5 class="mb-0 fw-black">② الحركة اليومية</h5>
+              <span class="badge bg-light text-dark fw-bold" id="daily-entry-status">أكمل تسجيل المريض أولًا</span>
+            </div>
+            <div class="card-body">
+              <div class="alert alert-light border mb-3 py-2" id="daily-patient-summary" style="display:none">
+                <strong id="daily-patient-summary-text"></strong>
+              </div>
+              <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">تاريخ اليوم *</label>
+                  <input type="date" class="form-control fw-bold" id="daily-entry-date">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">نوع الإقامة (اليوم)</label>
+                  <select class="form-select fw-bold" id="daily-stay-type">
+                    <option value="">-- اختر --</option>
+                  </select>
+                </div>
+              </div>
 
           <div class="table-responsive daily-sheet-wrap mb-3">
             <table class="table table-bordered table-sm daily-sheet-table" id="daily-sections-table">
@@ -473,6 +515,30 @@
                 <tr><td colspan="6" class="text-muted text-center">اختر مريضًا لعرض السجل</td></tr>
               </tbody>
             </table>
+          </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Open invoice panel -->
+        <div class="col-lg-4">
+          <div class="card shadow-sm sticky-top" id="daily-step-3-panel" style="top:1rem">
+            <div class="card-header bg-warning fw-black">③ الفاتورة المفتوحة</div>
+            <div class="card-body">
+              <div id="daily-invoice-empty" class="text-muted text-center py-4">
+                <p class="mb-0">سجّل المريض في الخطوة ① لإنشاء فاتورة مسودة.</p>
+              </div>
+              <div id="daily-invoice-info" style="display:none">
+                <div class="mb-2"><span class="text-muted">فاتورة:</span> <strong id="daily-inv-number">#—</strong></div>
+                <div class="mb-2"><span class="text-muted">الحالة:</span> <span class="badge bg-secondary" id="daily-inv-status">—</span></div>
+                <div class="mb-2"><span class="text-muted">الفترة:</span> <span id="daily-inv-period">—</span></div>
+                <div class="mb-2"><span class="text-muted">أيام مسجّلة:</span> <strong id="daily-inv-days">0</strong></div>
+                <div class="mb-2"><span class="text-muted">إجمالي الحركة:</span> <strong id="daily-inv-daily-total">0</strong></div>
+                <div class="mb-3"><span class="text-muted">إجمالي الفاتورة:</span> <strong class="fs-5 text-primary" id="daily-inv-final-total">0</strong></div>
+                <button type="button" class="btn btn-primary w-100 fw-bold mb-2" id="daily-open-invoice-btn">📄 فتح الفاتورة للمراجعة</button>
+                <p class="small text-muted mb-0">تُحدَّث الفاتورة تلقائيًا مع كل حفظ للحركة اليومية حتى يتم اعتمادها.</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -807,6 +873,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/app.js?v=20260823a"></script>
-  <script src="/js/daily-charges.js?v=20260823a"></script>
+  <script src="/js/daily-charges.js?v=20260823b"></script>
 </body>
 </html>
