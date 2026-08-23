@@ -620,8 +620,9 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           service_id, service_code_snapshot, service_name_snapshot, unit_snapshot, unit_price_snapshot,
           price_type_snapshot, tier_key_snapshot, discountable_snapshot, administrative_fee_applicable_snapshot,
           admin_fee_amount_snapshot, admin_fee_percent_snapshot, price_list_id_snapshot, price_list_name_snapshot,
-          composite_components_snapshot, patient_credit_applied, daily_entry_id, daily_entry_line_id
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25,$26)`,
+          composite_components_snapshot, patient_credit_applied, daily_entry_id, daily_entry_line_id,
+          cost_price_snapshot, markup_percent_snapshot, selling_price_snapshot, margin_amount_snapshot
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25,$26,$27,$28,$29,$30)`,
         [
           invoiceId,
           item.description || item.service_name_snapshot || '',
@@ -649,6 +650,10 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           item.patient_credit_applied || 0,
           item.daily_entry_id || null,
           item.daily_entry_line_id || null,
+          item.cost_price_snapshot != null ? item.cost_price_snapshot : null,
+          item.markup_percent_snapshot != null ? item.markup_percent_snapshot : null,
+          item.selling_price_snapshot != null ? item.selling_price_snapshot : null,
+          item.margin_amount_snapshot != null ? item.margin_amount_snapshot : null,
         ]
       );
     }

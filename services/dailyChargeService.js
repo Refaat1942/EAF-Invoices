@@ -778,6 +778,39 @@ async function deleteEntry(entryId) {
   return { deleted: true, id, entry_date: entry.entry_date, invoice_sync };
 }
 
+function hasStoredSuppliesSnapshots(item) {
+  return (
+    item?.cost_price_snapshot != null ||
+    item?.selling_price_snapshot != null ||
+    item?.margin_amount_snapshot != null
+  );
+}
+
+function applyInvoiceSuppliesSnapshots(item) {
+  if (!hasStoredSuppliesSnapshots(item)) return item;
+  const qty = round2(item.quantity) || 1;
+  const cost = round2(item.cost_price_snapshot);
+  const markup = round2(item.markup_percent_snapshot);
+  const selling = round2(item.selling_price_snapshot ?? item.amount);
+  const lineCost = round2(cost * qty);
+  const lineSelling = round2(selling * qty);
+  const lineMargin =
+    item.margin_amount_snapshot != null
+      ? round2(item.margin_amount_snapshot)
+      : round2(lineSelling - lineCost);
+
+  return {
+    ...item,
+    section_code: item.section_code || 'supplies',
+    cost_price: cost,
+    markup_percent: markup,
+    amount: selling,
+    supplies_cost_raw: lineCost,
+    supplies_selling_raw: lineSelling,
+    supplies_margin_raw: lineMargin,
+  };
+}
+
 function attachSuppliesMarkupFields(item, lineCtx = null) {
   const sectionCode = item.section_code || lineCtx?.section_code;
   const isSupplies = sectionCode === 'supplies';
@@ -789,13 +822,21 @@ function attachSuppliesMarkupFields(item, lineCtx = null) {
   const lineCost = round2(costPrice * qty);
   const lineSelling = round2(unitPrice * qty);
   const lineMargin = round2(lineSelling - lineCost);
-  return {
+  const result = {
     ...item,
     cost_price: costPrice > 0 ? costPrice : item.cost_price,
     markup_percent: markupPercent > 0 || costPrice > 0 ? markupPercent : item.markup_percent,
     supplies_cost_raw: lineCost,
     supplies_margin_raw: lineMargin,
     supplies_selling_raw: lineSelling,
+  };
+  if (!isSupplies) return result;
+  return {
+    ...result,
+    cost_price_snapshot: costPrice,
+    markup_percent_snapshot: markupPercent,
+    selling_price_snapshot: unitPrice,
+    margin_amount_snapshot: lineMargin,
   };
 }
 
@@ -899,6 +940,20 @@ async function enrichDailyInvoiceItems(items = []) {
     const serviceId = next.service_id || ctx?.service_id || section?.default_service?.id || null;
 
     if (item.daily_entry_line_id) {
+      if (hasStoredSuppliesSnapshots(item)) {
+        let next = applyInvoiceSuppliesSnapshots(item);
+        if (ctx) {
+          const name = resolveDailyItemName(next, ctx, section, null);
+          next.description =
+            item.description || buildDailyItemDescription(formattedDate, name, extraText);
+          next.entry_date = formattedDate;
+          next.section_sort_order =
+            ctx.section_sort_order ?? section?.sort_order ?? next.section_sort_order ?? 999;
+          next.section_code = ctx.section_code || next.section_code;
+        }
+        enriched.push(next);
+        continue;
+      }
       if (!ctx) {
         throw new Error(`بند الحركة اليومية #${item.daily_entry_line_id} غير موجود — أعد حفظ الحركة`);
       }

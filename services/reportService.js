@@ -232,10 +232,10 @@ async function getDailyItemsReport(kind, filters = {}) {
            l.section_code,
            l.description,
            l.quantity,
-           l.unit_price,
-           l.amount,
-           l.cost_price,
-           l.markup_percent,
+           COALESCE(ii.selling_price_snapshot, l.unit_price) AS unit_price,
+           COALESCE(ii.total, l.amount) AS amount,
+           COALESCE(ii.cost_price_snapshot, l.cost_price) AS cost_price,
+           COALESCE(ii.markup_percent_snapshot, l.markup_percent) AS markup_percent,
            c.code AS catalog_item_code,
            c.name AS catalog_item_name,
            c.category AS catalog_item_category,
@@ -244,6 +244,7 @@ async function getDailyItemsReport(kind, filters = {}) {
     FROM patient_daily_entry_lines l
     JOIN patient_daily_entries e ON e.id = l.entry_id
     JOIN patients p ON p.id = e.patient_id
+    LEFT JOIN invoice_items ii ON ii.daily_entry_line_id = l.id AND ii.invoice_id = e.invoice_id
     LEFT JOIN daily_entry_catalog_items c ON c.id = l.catalog_item_id
     LEFT JOIN services s ON s.id = l.service_id
     WHERE p.file_number = $1
@@ -456,17 +457,22 @@ async function getSuppliesMarkupReport(filters = {}) {
            c.code AS item_code,
            COALESCE(c.name, l.description) AS item_name,
            l.quantity,
-           l.cost_price,
-           l.markup_percent,
-           l.unit_price AS selling_price,
-           (COALESCE(l.unit_price, 0) - COALESCE(l.cost_price, 0)) AS unit_margin,
-           (COALESCE(l.unit_price, 0) - COALESCE(l.cost_price, 0)) * COALESCE(l.quantity, 1) AS margin_amount,
-           l.amount AS line_total
+           COALESCE(ii.cost_price_snapshot, l.cost_price) AS cost_price,
+           COALESCE(ii.markup_percent_snapshot, l.markup_percent) AS markup_percent,
+           COALESCE(ii.selling_price_snapshot, l.unit_price) AS selling_price,
+           (COALESCE(ii.selling_price_snapshot, l.unit_price, 0) - COALESCE(ii.cost_price_snapshot, l.cost_price, 0)) AS unit_margin,
+           COALESCE(
+             ii.margin_amount_snapshot,
+             (COALESCE(ii.selling_price_snapshot, l.unit_price, 0) - COALESCE(ii.cost_price_snapshot, l.cost_price, 0))
+               * COALESCE(l.quantity, 1)
+           ) AS margin_amount,
+           COALESCE(ii.total, l.amount) AS line_total
     FROM patient_daily_entry_lines l
     JOIN patient_daily_entries e ON e.id = l.entry_id
     JOIN patients p ON p.id = e.patient_id
     LEFT JOIN daily_entry_catalog_items c ON c.id = l.catalog_item_id
     LEFT JOIN invoices inv ON inv.id = e.invoice_id
+    LEFT JOIN invoice_items ii ON ii.daily_entry_line_id = l.id AND ii.invoice_id = e.invoice_id
     WHERE l.catalog_item_id IS NOT NULL
       AND (l.section_code = 'supplies' OR c.category = 'Supplies')
       AND COALESCE(l.amount, 0) > 0`;

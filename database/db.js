@@ -742,6 +742,30 @@ async function runMigrations() {
     await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
   }
 
+  const suppliesSnapshotColumns = [
+    'cost_price_snapshot NUMERIC(14,2)',
+    'markup_percent_snapshot NUMERIC(8,2)',
+    'selling_price_snapshot NUMERIC(14,2)',
+    'margin_amount_snapshot NUMERIC(14,2)',
+  ];
+  for (const col of suppliesSnapshotColumns) {
+    const name = col.split(' ')[0];
+    await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
+  }
+
+  await query(`
+    UPDATE invoice_items ii
+    SET cost_price_snapshot = l.cost_price,
+        markup_percent_snapshot = l.markup_percent,
+        selling_price_snapshot = ii.amount,
+        margin_amount_snapshot = (COALESCE(ii.amount, 0) - COALESCE(l.cost_price, 0)) * COALESCE(ii.quantity, 1)
+    FROM patient_daily_entry_lines l
+    WHERE ii.daily_entry_line_id = l.id
+      AND l.section_code = 'supplies'
+      AND ii.cost_price_snapshot IS NULL
+      AND (l.cost_price IS NOT NULL OR l.markup_percent IS NOT NULL OR COALESCE(ii.amount, 0) > 0)
+  `);
+
   await seedDailyChargeSections();
 
   await query(`
