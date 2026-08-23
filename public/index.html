@@ -463,16 +463,16 @@
               <div class="alert alert-light border mb-3 py-2" id="daily-patient-summary" style="display:none">
                 <strong id="daily-patient-summary-text"></strong>
               </div>
-              <div class="row g-3 mb-3">
-                <div class="col-md-4">
-                  <label class="form-label fw-bold">تاريخ اليوم *</label>
-                  <input type="date" class="form-control fw-bold" id="daily-entry-date">
+              <div class="row g-3 mb-3 align-items-end">
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">تاريخ سريع</label>
+                  <input type="date" class="form-control fw-bold" id="daily-entry-date" title="اختر تاريخًا ثم اضغط «إضافة يوم»">
                 </div>
-                <div class="col-md-4">
-                  <label class="form-label fw-bold">نوع الإقامة (اليوم)</label>
-                  <select class="form-select fw-bold" id="daily-stay-type">
-                    <option value="">-- اختر --</option>
-                  </select>
+                <div class="col-md-9 d-flex gap-2 flex-wrap">
+                  <button type="button" class="btn btn-outline-primary fw-bold" id="daily-add-row-btn">+ إضافة يوم</button>
+                  <button type="button" class="btn btn-primary fw-bold" id="daily-save-btn">💾 حفظ الكل</button>
+                  <button type="button" class="btn btn-outline-secondary fw-bold" id="daily-clear-btn">مسح الكل</button>
+                  <button type="button" class="btn btn-outline-dark fw-bold" id="daily-history-btn">📜 سجل التعديلات</button>
                 </div>
               </div>
 
@@ -482,12 +482,10 @@
                 <tr id="daily-sections-head"></tr>
                 <tr id="daily-sections-subhead"></tr>
               </thead>
-              <tbody>
-                <tr id="daily-sections-row"></tr>
-              </tbody>
+              <tbody id="daily-sections-body"></tbody>
               <tfoot class="table-warning">
                 <tr>
-                  <td id="daily-total-foot-label" colspan="2" class="fw-black text-end">إجمالي اليوم</td>
+                  <td id="daily-total-foot-label" colspan="2" class="fw-black text-end">إجمالي الكل</td>
                   <td class="fw-black" id="daily-total-display">0</td>
                   <td id="daily-total-foot-spacer" colspan="20"></td>
                 </tr>
@@ -496,14 +494,8 @@
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-bold">ملاحظات</label>
+            <label class="form-label fw-bold">ملاحظات (اختياري — تُطبَّق على الصفوف الجديدة)</label>
             <textarea class="form-control" id="daily-notes" rows="2"></textarea>
-          </div>
-
-          <div class="d-flex gap-2 flex-wrap mb-4">
-            <button type="button" class="btn btn-primary fw-bold" id="daily-save-btn">💾 حفظ اليوم</button>
-            <button type="button" class="btn btn-outline-secondary fw-bold" id="daily-clear-btn">مسح</button>
-            <button type="button" class="btn btn-outline-dark fw-bold" id="daily-history-btn">📜 سجل التعديلات</button>
           </div>
 
           <h6 class="fw-black mb-2">سجل الحركة للمريض</h6>
@@ -892,7 +884,7 @@
   </div><!-- app-container -->
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/js/app.js?v=20260823g"></script>
-  <script src="/js/daily-charges.js?v=20260823g"></script>
+  <script src="/js/app.js?v=20260823h"></script>
+  <script src="/js/daily-charges.js?v=20260823h"></script>
 </body>
 </html>

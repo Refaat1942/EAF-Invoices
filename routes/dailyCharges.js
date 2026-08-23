@@ -6,6 +6,8 @@ const {
   listEntries,
   listEntryHistory,
   saveEntry,
+  saveEntriesBatch,
+  deleteEntry,
   getEntriesForInvoice,
   getInvoiceItemsFromDailyCharges,
 } = require('../services/dailyChargeService');
@@ -37,6 +39,7 @@ router.get('/entries', requirePermission('daily_charges.view'), async (req, res)
         uninvoiced_only: req.query.uninvoiced_only === '1',
         invoice_id: req.query.invoice_id,
         limit: req.query.limit,
+        include_lines: req.query.include_lines === '1',
       })
     );
   } catch (err) {
@@ -96,6 +99,23 @@ router.post('/entries', requirePermission('daily_charges.manage'), async (req, r
   try {
     const entry = await saveEntry(req.body, req.session?.user || null);
     res.json(entry);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/entries/batch', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const result = await saveEntriesBatch(req.body, req.session?.user || null);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/entries/:id', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    res.json(await deleteEntry(Number(req.params.id)));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

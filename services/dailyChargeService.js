@@ -1,6 +1,6 @@
 const { query, withTransaction } = require('../database/db');
 const { getDefaultPriceList } = require('./priceListService');
-const { listServices } = require('./serviceCatalogService');
+const { listServices, resolveServiceForInvoice } = require('./serviceCatalogService');
 const { upsertPatient } = require('./patientService');
 
 function round2(n) {
@@ -152,13 +152,34 @@ async function listEntries(filters = {}) {
     params.push(Number(filters.invoice_id));
   }
 
-  sql += ` ORDER BY e.entry_date DESC, e.id DESC`;
+  sql += filters.include_lines ? ` ORDER BY e.entry_date ASC, e.id ASC` : ` ORDER BY e.entry_date DESC, e.id DESC`;
   if (filters.limit) {
     sql += ` LIMIT $${i++}`;
     params.push(Number(filters.limit));
   }
 
   const { rows } = await query(sql, params);
+
+  if (filters.include_lines && rows.length) {
+    const entryIds = rows.map((r) => r.id);
+    const { rows: lineRows } = await query(
+      `SELECT l.*, s.name AS service_name, s.code AS service_code
+       FROM patient_daily_entry_lines l
+       LEFT JOIN services s ON s.id = l.service_id
+       WHERE l.entry_id = ANY($1::int[])
+       ORDER BY l.entry_id, l.sort_order, l.id`,
+      [entryIds]
+    );
+    const linesByEntry = {};
+    for (const line of lineRows) {
+      if (!linesByEntry[line.entry_id]) linesByEntry[line.entry_id] = [];
+      linesByEntry[line.entry_id].push(line);
+    }
+    for (const row of rows) {
+      row.lines = linesByEntry[row.id] || [];
+    }
+  }
+
   return rows;
 }
 
@@ -170,19 +191,37 @@ async function listEntryHistory(entryId) {
   return rows;
 }
 
+async function normalizeLineWithPrice(section, rawLine = {}) {
+  const normalized = normalizeLine(section, rawLine);
+  if (section.input_type !== 'amount' || !normalized.service_id) return normalized;
+
+  const manualAmount = rawLine.manual_amount === true;
+  if (manualAmount && Number(normalized.amount) > 0) return normalized;
+
+  try {
+    const resolved = await resolveServiceForInvoice(Number(normalized.service_id));
+    const qty = normalized.quantity || 1;
+    normalized.unit_price = round2(resolved.amount);
+    normalized.amount = round2(normalized.unit_price * qty);
+    normalized.description = resolved.description || normalized.description;
+  } catch {
+    /* keep entered values */
+  }
+  return normalized;
+}
+
 async function saveEntry(data, user = null) {
   const patient = await resolvePatient(data.file_number, data.patient_name);
   const entryDate = data.entry_date;
   if (!entryDate) throw new Error('تاريخ اليوم مطلوب');
 
   const sections = await listSections();
-  const sectionMap = Object.fromEntries(sections.map((s) => [s.code, s]));
   const rawLines = Array.isArray(data.lines) ? data.lines : [];
   const lines = [];
 
   for (const section of sections) {
     const raw = rawLines.find((line) => line.section_code === section.code) || {};
-    const normalized = normalizeLine(section, raw);
+    const normalized = await normalizeLineWithPrice(section, raw);
     const hasValue =
       section.input_type === 'date'
         ? Boolean(normalized.extra_date)
@@ -272,6 +311,47 @@ async function saveEntry(data, user = null) {
     }
     return saved;
   });
+}
+
+async function saveEntriesBatch(data, user = null) {
+  const entries = Array.isArray(data.entries) ? data.entries : [];
+  if (!entries.length) throw new Error('لا توجد أيام للحفظ');
+  const saved = [];
+  let lastSync = null;
+  for (const entryData of entries) {
+    const result = await saveEntry(
+      {
+        ...entryData,
+        file_number: data.file_number,
+        patient_name: data.patient_name,
+      },
+      user
+    );
+    saved.push(result);
+    if (result.invoice_sync?.synced) lastSync = result.invoice_sync;
+  }
+  return { saved, count: saved.length, invoice_sync: lastSync };
+}
+
+async function deleteEntry(entryId) {
+  const id = Number(entryId);
+  if (!id) throw new Error('معرف الحركة غير صالح');
+
+  const { rows } = await query(`SELECT * FROM patient_daily_entries WHERE id = $1`, [id]);
+  if (!rows.length) throw new Error('الحركة غير موجودة');
+  const entry = rows[0];
+
+  if (entry.invoice_id) {
+    const invRes = await query(`SELECT status FROM invoices WHERE id = $1`, [entry.invoice_id]);
+    if (invRes.rows[0]?.status === 'approved') {
+      throw new Error('لا يمكن حذف حركة مرتبطة بفاتورة معتمدة');
+    }
+  }
+
+  await query(`DELETE FROM patient_daily_entry_lines WHERE entry_id = $1`, [id]);
+  await query(`DELETE FROM patient_daily_entry_history WHERE entry_id = $1`, [id]);
+  await query(`DELETE FROM patient_daily_entries WHERE id = $1`, [id]);
+  return { deleted: true, id };
 }
 
 function lineToInvoiceItem(line, entry) {
@@ -420,6 +500,8 @@ module.exports = {
   listEntries,
   listEntryHistory,
   saveEntry,
+  saveEntriesBatch,
+  deleteEntry,
   getEntriesForInvoice,
   getInvoiceItemsFromDailyCharges,
   entriesToInvoiceItems,
