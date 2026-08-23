@@ -1278,6 +1278,7 @@ function collectFormData() {
       if (creditAmt > 0) item.patient_credit_applied = creditAmt;
       if (serviceIdEl?.value) item.service_id = Number(serviceIdEl.value);
       if (row.dataset.dailyLineId) item.daily_entry_line_id = Number(row.dataset.dailyLineId);
+      if (row.dataset.dailyEntryId) item.daily_entry_id = Number(row.dataset.dailyEntryId);
       const override = row.dataset.discountOverride;
       if (override === 'true' || override === 'false') {
         item.discount_eligible_override = override === 'true';
@@ -1379,6 +1380,9 @@ async function recalculate(options = {}) {
     updateCalculationValidationUI(totals);
     applyItemDiscountPercents((totals.items || []).filter((item) => !item.is_stay_entry));
     updateStayEntriesFromTotals(totals.stay_entries || []);
+    if (typeof syncDailyChargeRowsFromTotals === 'function') {
+      syncDailyChargeRowsFromTotals(totals.items || []);
+    }
 
     if (hasPatientFileNumber()) {
       const creditChanged = syncPatientCreditPaymentOnly(totals);
@@ -1907,6 +1911,8 @@ async function loadInvoiceForEdit(id) {
       row.querySelector('[data-field="receipt_date"]').value = pay.receipt_date || '';
       row.querySelector('[data-field="receipt_number"]').value = pay.receipt_number || '';
       row.querySelector('[data-field="pay_amount"]').value = pay.amount || '';
+      if (item.daily_entry_line_id) row.dataset.dailyLineId = item.daily_entry_line_id;
+      if (item.daily_entry_id) row.dataset.dailyEntryId = item.daily_entry_id;
     }
 
     ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {

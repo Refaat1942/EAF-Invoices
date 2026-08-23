@@ -284,16 +284,49 @@ function lineToInvoiceItem(line, entry) {
   };
 }
 
-function entriesToInvoiceItems(entries) {
+function entriesToInvoiceItems(entries, sections = []) {
+  const sectionTypeMap = Object.fromEntries(sections.map((s) => [s.code, s.input_type]));
+  const skipTypes = new Set(['date', 'text']);
   const items = [];
   for (const entry of entries) {
     for (const line of entry.lines || []) {
-      if (line.input_type === 'date' || line.input_type === 'text') continue;
+      const inputType = sectionTypeMap[line.section_code];
+      if (inputType && skipTypes.has(inputType)) continue;
       if (round2(line.amount) <= 0) continue;
       items.push(lineToInvoiceItem(line, entry));
     }
   }
   return items;
+}
+
+async function enrichDailyInvoiceItems(items = []) {
+  if (!items.length) return items;
+  const sections = await getSectionsWithServices();
+  const sectionMap = Object.fromEntries(sections.map((s) => [s.code, s]));
+  const { resolveServiceForInvoice } = require('./serviceCatalogService');
+  const enriched = [];
+
+  for (const item of items) {
+    let next = { ...item };
+    const section = item.section_code ? sectionMap[item.section_code] : null;
+    const serviceId = next.service_id || section?.default_service?.id || null;
+    if (serviceId) {
+      next.service_id = Number(serviceId);
+      try {
+        const resolved = await resolveServiceForInvoice(Number(serviceId));
+        next = {
+          ...next,
+          ...resolved,
+          description: next.description || resolved.description,
+          amount: next.amount ?? resolved.amount,
+        };
+      } catch {
+        /* keep item as-is */
+      }
+    }
+    enriched.push(next);
+  }
+  return enriched;
 }
 
 async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = null) {
@@ -332,8 +365,10 @@ async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = nu
 }
 
 async function getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, invoiceId = null) {
+  const sections = await listSections();
   const entries = await getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId);
-  return entriesToInvoiceItems(entries);
+  const items = entriesToInvoiceItems(entries, sections);
+  return enrichDailyInvoiceItems(items);
 }
 
 async function linkEntriesToInvoice(invoiceId, fileNumber, fromDate, toDate, client = null) {
@@ -376,6 +411,7 @@ module.exports = {
   getEntriesForInvoice,
   getInvoiceItemsFromDailyCharges,
   entriesToInvoiceItems,
+  enrichDailyInvoiceItems,
   linkEntriesToInvoice,
   unlinkEntriesFromInvoice,
   computeDailyTotal,

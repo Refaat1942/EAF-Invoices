@@ -8,6 +8,7 @@ const { computeDailyTotal, entriesToInvoiceItems } = require('../services/dailyC
 const sections = [
   { code: 'accommodation', input_type: 'amount' },
   { code: 'sessions_date', input_type: 'date' },
+  { code: 'sessions_detail', input_type: 'text' },
   { code: 'supplies', input_type: 'amount' },
 ];
 
@@ -23,16 +24,20 @@ if (total !== 3000) {
   process.exit(1);
 }
 
-const items = entriesToInvoiceItems([
-  {
-    id: 1,
-    entry_date: '2026-08-01',
-    lines: [
-      { id: 10, section_code: 'supplies', description: 'مستلزمات', amount: 500, quantity: 1, unit_price: 500 },
-      { id: 11, section_code: 'sessions_date', description: 'تاريخ', amount: 0, extra_date: '2026-08-01' },
-    ],
-  },
-]);
+const items = entriesToInvoiceItems(
+  [
+    {
+      id: 1,
+      entry_date: '2026-08-01',
+      lines: [
+        { id: 10, section_code: 'supplies', description: 'مستلزمات', amount: 500, quantity: 1, unit_price: 500 },
+        { id: 11, section_code: 'sessions_date', description: 'تاريخ', amount: 0, extra_date: '2026-08-01' },
+        { id: 12, section_code: 'sessions_detail', description: 'جلسات', amount: 0, extra_text: '3 جلسات' },
+      ],
+    },
+  ],
+  sections
+);
 
 if (items.length !== 1 || items[0].amount !== 500) {
   console.error('FAIL entriesToInvoiceItems', items);

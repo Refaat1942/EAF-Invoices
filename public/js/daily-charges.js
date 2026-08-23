@@ -18,36 +18,76 @@ async function loadDailySections() {
   renderDailySectionsTable();
 }
 
+function renderDailyCell(section) {
+  if (section.input_type === 'date') {
+    return `<td><input type="date" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="date"></td>`;
+  }
+  if (section.input_type === 'text') {
+    return `<td><input type="text" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="text" placeholder="${section.name}"></td>`;
+  }
+  const serviceOptions = (section.services || [])
+    .map(
+      (service) =>
+        `<option value="${service.id}" data-price="${service.price}" ${section.default_service?.id === service.id ? 'selected' : ''}>${service.name}</option>`
+    )
+    .join('');
+  const serviceSelect =
+    section.services?.length > 0
+      ? `<select class="form-select form-select-sm mb-1 daily-service" data-section="${section.code}"><option value="">— خدمة —</option>${serviceOptions}</select>`
+      : '';
+  return `<td>${serviceSelect}<input type="number" step="0.01" min="0" class="form-control form-control-sm daily-field daily-amount" data-section="${section.code}" data-type="amount" placeholder="0"></td>`;
+}
+
 function renderDailySectionsTable() {
   const head = document.getElementById('daily-sections-head');
+  const subhead = document.getElementById('daily-sections-subhead');
   const row = document.getElementById('daily-sections-row');
   if (!head || !row) return;
 
-  head.innerHTML = dailySectionsCache
-    .map((section) => `<th class="daily-section-th" title="${section.category_code || ''}">${section.name}</th>`)
-    .join('');
+  const consultationCodes = ['consultant_exam', 'specialist_exam', 'consultation_stamp'];
+  const consultationSections = dailySectionsCache.filter((s) => consultationCodes.includes(s.code));
+  let consultInserted = false;
+  const blocks = [];
 
-  row.innerHTML = dailySectionsCache
-    .map((section) => {
-      if (section.input_type === 'date') {
-        return `<td><input type="date" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="date"></td>`;
+  for (const section of dailySectionsCache) {
+    if (consultationCodes.includes(section.code)) {
+      if (!consultInserted) {
+        blocks.push({ type: 'consultations', sections: consultationSections });
+        consultInserted = true;
       }
-      if (section.input_type === 'text') {
-        return `<td><input type="text" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="text" placeholder="${section.name}"></td>`;
+      continue;
+    }
+    blocks.push({ type: 'single', section });
+  }
+
+  head.innerHTML = blocks
+    .map((block) => {
+      if (block.type === 'consultations') {
+        return '<th colspan="3" class="text-center daily-group-th">الكشوفات</th>';
       }
-      const serviceOptions = (section.services || [])
-        .map(
-          (service) =>
-            `<option value="${service.id}" data-price="${service.price}" ${section.default_service?.id === service.id ? 'selected' : ''}>${service.name}</option>`
-        )
-        .join('');
-      const serviceSelect =
-        section.services?.length > 0
-          ? `<select class="form-select form-select-sm mb-1 daily-service" data-section="${section.code}"><option value="">— خدمة —</option>${serviceOptions}</select>`
-          : '';
-      return `<td>${serviceSelect}<input type="number" step="0.01" min="0" class="form-control form-control-sm daily-field daily-amount" data-section="${section.code}" data-type="amount" placeholder="0"></td>`;
+      return `<th rowspan="2" class="daily-section-th" title="${block.section.category_code || ''}">${block.section.name}</th>`;
     })
     .join('');
+
+  if (subhead) {
+    subhead.innerHTML = blocks
+      .map((block) => {
+        if (block.type === 'consultations') {
+          return block.sections.map((s) => `<th class="daily-section-th">${s.name}</th>`).join('');
+        }
+        return '';
+      })
+      .join('');
+    subhead.style.display = consultationSections.length ? '' : 'none';
+  }
+
+  row.innerHTML = dailySectionsCache.map((section) => renderDailyCell(section)).join('');
+
+  const footLabel = document.getElementById('daily-total-foot-label');
+  const footSpacer = document.getElementById('daily-total-foot-spacer');
+  const colCount = dailySectionsCache.length;
+  if (footLabel) footLabel.colSpan = Math.max(colCount - 1, 1);
+  if (footSpacer) footSpacer.colSpan = Math.max(colCount - 2, 0);
 
   row.querySelectorAll('.daily-field, .daily-service').forEach((el) => {
     el.addEventListener('input', updateDailyTotalDisplay);
@@ -296,6 +336,56 @@ function appendInvoiceItemRow(item) {
   targetRow.querySelector('[data-field="quantity"]').value = item.quantity || 1;
   targetRow.querySelector('[data-field="amount"]').value = item.amount || 0;
   if (item.daily_entry_line_id) targetRow.dataset.dailyLineId = item.daily_entry_line_id;
+  if (item.daily_entry_id) targetRow.dataset.dailyEntryId = item.daily_entry_id;
+}
+
+function syncDailyChargeRowsFromTotals(totalsItems = []) {
+  const dailyItems = (totalsItems || []).filter(
+    (item) => item.daily_entry_line_id && !item.is_stay_entry
+  );
+  if (!dailyItems.length) return 0;
+
+  const existingLineIds = new Set(
+    [...document.querySelectorAll('#items-tbody tr')]
+      .map((row) => row.dataset.dailyLineId)
+      .filter(Boolean)
+  );
+  let added = 0;
+  for (const item of dailyItems) {
+    if (existingLineIds.has(String(item.daily_entry_line_id))) continue;
+    appendInvoiceItemRow(item);
+    existingLineIds.add(String(item.daily_entry_line_id));
+    added++;
+  }
+  if (added > 0) {
+    document.querySelectorAll('#items-tbody tr').forEach((row) => {
+      if (row.dataset.staySync) return;
+      const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
+      const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+      const total = Math.round(qty * amt * 100) / 100;
+      const totalEl = row.querySelector('[data-field="total"]');
+      if (totalEl) totalEl.value = total ? (typeof fmtInt === 'function' ? fmtInt(total) : total) : '';
+    });
+  }
+  return added;
+}
+
+async function applyDailyStayTypeRate() {
+  const select = document.getElementById('daily-stay-type');
+  const stayTypeId = select?.value;
+  if (!stayTypeId) return;
+  try {
+    const res = await apiFetch('/api/settings/stay-types');
+    const types = await res.json();
+    const stayType = types.find((t) => String(t.id) === String(stayTypeId));
+    const accInput = document.querySelector('.daily-amount[data-section="accommodation"]');
+    if (accInput && Number(stayType?.daily_rate) > 0 && !accInput.value) {
+      accInput.value = stayType.daily_rate;
+      updateDailyTotalDisplay();
+    }
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 async function importDailyChargesToInvoice() {
@@ -350,8 +440,10 @@ document.addEventListener('DOMContentLoaded', () => {
     await loadDailyPatientHistory();
   });
   document.getElementById('daily-entry-date')?.addEventListener('change', loadDailyEntryForCurrentSelection);
+  document.getElementById('daily-stay-type')?.addEventListener('change', applyDailyStayTypeRate);
   document.getElementById('import-daily-charges-btn')?.addEventListener('click', importDailyChargesToInvoice);
 });
 
 window.initDailyChargesView = initDailyChargesView;
 window.importDailyChargesToInvoice = importDailyChargesToInvoice;
+window.syncDailyChargeRowsFromTotals = syncDailyChargeRowsFromTotals;

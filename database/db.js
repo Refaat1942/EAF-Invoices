@@ -697,6 +697,15 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_invoice ON patient_daily_entries(invoice_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entry_lines_entry ON patient_daily_entry_lines(entry_id)`);
 
+  const dailyInvoiceItemColumns = [
+    'daily_entry_id INTEGER REFERENCES patient_daily_entries(id) ON DELETE SET NULL',
+    'daily_entry_line_id INTEGER REFERENCES patient_daily_entry_lines(id) ON DELETE SET NULL',
+  ];
+  for (const col of dailyInvoiceItemColumns) {
+    const name = col.split(' ')[0];
+    await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
+  }
+
   await seedDailyChargeSections();
 
   await seedLookupTables();
@@ -708,16 +717,17 @@ async function seedDailyChargeSections() {
     { code: 'companion', name: 'مرافق', category_code: 'COMPANION', input_type: 'amount', sort_order: 2 },
     { code: 'nursing_point', name: 'نقطة', category_code: 'NURSING', input_type: 'amount', sort_order: 3 },
     { code: 'sessions_date', name: 'تاريخ الجلسات', input_type: 'date', sort_order: 4 },
-    { code: 'sessions', name: 'جلسات', category_code: 'PHYSIO', input_type: 'amount', sort_order: 5 },
-    { code: 'supplies', name: 'مستلزمات', input_type: 'amount', sort_order: 6 },
-    { code: 'medicines', name: 'أدوية', input_type: 'amount', sort_order: 7 },
+    { code: 'sessions_detail', name: 'جلسات', input_type: 'text', sort_order: 5 },
+    { code: 'sessions', name: 'إجمالي جلسات', category_code: 'PHYSIO', input_type: 'amount', sort_order: 6 },
+    { code: 'supplies', name: 'مستلزمات', input_type: 'amount', sort_order: 7 },
+    { code: 'medicines', name: 'أدوية', input_type: 'amount', sort_order: 8 },
     {
       code: 'consultant_exam',
       name: 'كشف استشاري',
       category_code: 'MEDICAL_EXAMS',
       default_service_code: 'EXAM-CONSULTANT',
       input_type: 'amount',
-      sort_order: 8,
+      sort_order: 9,
     },
     {
       code: 'specialist_exam',
@@ -725,16 +735,16 @@ async function seedDailyChargeSections() {
       category_code: 'MEDICAL_EXAMS',
       default_service_code: 'EXAM-SPECIALIST',
       input_type: 'amount',
-      sort_order: 9,
+      sort_order: 10,
     },
-    { code: 'consultation_stamp', name: 'دمغة كشوفات', category_code: 'STAMPS', input_type: 'amount', sort_order: 10 },
-    { code: 'analyses', name: 'تحاليل', category_code: 'LAB', input_type: 'amount', sort_order: 11 },
-    { code: 'analyses_stamp', name: 'دمغة تحاليل', category_code: 'STAMPS', input_type: 'amount', sort_order: 12 },
-    { code: 'xray_type', name: 'نوع الأشعة', category_code: 'RADIOLOGY', input_type: 'text', sort_order: 13 },
-    { code: 'xray_total', name: 'أشعة', category_code: 'RADIOLOGY', input_type: 'amount', sort_order: 14 },
-    { code: 'xray_stamp', name: 'دمغة أشعة', category_code: 'STAMPS', input_type: 'amount', sort_order: 15 },
-    { code: 'other', name: 'أخرى', category_code: 'GENERAL', input_type: 'amount', sort_order: 16 },
-    { code: 'prosthetics', name: 'مصنع', category_code: 'PROSTHETICS', input_type: 'amount', sort_order: 17 },
+    { code: 'consultation_stamp', name: 'دمغة كشوفات', category_code: 'STAMPS', input_type: 'amount', sort_order: 11 },
+    { code: 'analyses', name: 'تحاليل', category_code: 'LAB', input_type: 'amount', sort_order: 12 },
+    { code: 'analyses_stamp', name: 'دمغة تحاليل', category_code: 'STAMPS', input_type: 'amount', sort_order: 13 },
+    { code: 'xray_type', name: 'نوع الأشعة', category_code: 'RADIOLOGY', input_type: 'text', sort_order: 14 },
+    { code: 'xray_total', name: 'إجمالي أشعة', category_code: 'RADIOLOGY', input_type: 'amount', sort_order: 15 },
+    { code: 'xray_stamp', name: 'دمغة أشعة', category_code: 'STAMPS', input_type: 'amount', sort_order: 16 },
+    { code: 'other', name: 'أخرى', category_code: 'GENERAL', input_type: 'amount', sort_order: 17 },
+    { code: 'prosthetics', name: 'مصنع', category_code: 'PROSTHETICS', input_type: 'amount', sort_order: 18 },
   ];
 
   for (const section of sections) {
