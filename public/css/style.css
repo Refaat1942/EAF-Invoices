@@ -592,3 +592,23 @@ body {
 .patient-report-empty {
   border-style: dashed;
 }
+
+.daily-sheet-wrap {
+  overflow-x: auto;
+}
+
+.daily-sheet-table .daily-section-th {
+  white-space: nowrap;
+  font-size: 0.82rem;
+  vertical-align: middle;
+  text-align: center;
+}
+
+.daily-sheet-table td {
+  min-width: 110px;
+  vertical-align: top;
+}
+
+.daily-charges-card .daily-amount {
+  font-weight: 700;
+}

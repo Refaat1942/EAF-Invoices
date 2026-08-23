@@ -42,6 +42,7 @@
         <span class="text-light small fw-bold" id="nav-user"></span>
         <button class="btn btn-outline-light btn-sm nav-btn active" data-view="create">فاتورة جديدة</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="list">الفواتير</button>
+        <button class="btn btn-outline-light btn-sm nav-btn" data-view="daily" id="nav-daily">الحركة اليومية</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="reports">التقارير</button>
         <button class="btn btn-outline-light btn-sm nav-btn" data-view="settings" id="nav-settings">الإعدادات</button>
         <button class="btn btn-outline-danger btn-sm fw-bold" id="logout-btn">خروج</button>
@@ -213,6 +214,7 @@
                   <div class="col-md-3">
                     <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="add-row-btn">+ صف جديد</button>
                     <button type="button" class="btn btn-outline-danger btn-sm fw-bold" id="remove-row-btn">- حذف آخر صف</button>
+                    <button type="button" class="btn btn-outline-info btn-sm fw-bold" id="import-daily-charges-btn" title="استيراد الحركة اليومية للمريض">📋 استيراد الحركة اليومية</button>
                   </div>
                   <div class="col-md-3">
                     <label class="form-label fw-bold">دمغة</label>
@@ -389,6 +391,86 @@
                 </tr>
               </thead>
               <tbody id="invoices-list"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Daily Patient Charges View -->
+    <section id="view-daily" class="view-section" style="display:none">
+      <div class="card shadow-sm daily-charges-card">
+        <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <h5 class="mb-0 fw-black">الحركة اليومية للمريض</h5>
+          <span class="badge bg-light text-dark fw-bold" id="daily-entry-status"></span>
+        </div>
+        <div class="card-body">
+          <div class="row g-3 mb-3">
+            <div class="col-md-3">
+              <label class="form-label fw-bold">رقم الملف *</label>
+              <input type="text" class="form-control fw-bold" id="daily-file-number" autocomplete="off">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold">اسم المريض</label>
+              <input type="text" class="form-control fw-bold" id="daily-patient-name">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold">تاريخ اليوم *</label>
+              <input type="date" class="form-control fw-bold" id="daily-entry-date">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold">نوع الإقامة</label>
+              <select class="form-select fw-bold" id="daily-stay-type">
+                <option value="">-- اختر --</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="table-responsive daily-sheet-wrap mb-3">
+            <table class="table table-bordered table-sm daily-sheet-table" id="daily-sections-table">
+              <thead class="table-light">
+                <tr id="daily-sections-head"></tr>
+              </thead>
+              <tbody>
+                <tr id="daily-sections-row"></tr>
+              </tbody>
+              <tfoot class="table-warning">
+                <tr>
+                  <td colspan="2" class="fw-black text-end">إجمالي اليوم</td>
+                  <td class="fw-black" id="daily-total-display">0</td>
+                  <td colspan="20"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-bold">ملاحظات</label>
+            <textarea class="form-control" id="daily-notes" rows="2"></textarea>
+          </div>
+
+          <div class="d-flex gap-2 flex-wrap mb-4">
+            <button type="button" class="btn btn-primary fw-bold" id="daily-save-btn">💾 حفظ اليوم</button>
+            <button type="button" class="btn btn-outline-secondary fw-bold" id="daily-clear-btn">مسح</button>
+            <button type="button" class="btn btn-outline-dark fw-bold" id="daily-history-btn">📜 سجل التعديلات</button>
+          </div>
+
+          <h6 class="fw-black mb-2">سجل الحركة للمريض</h6>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm">
+              <thead class="table-light">
+                <tr>
+                  <th>التاريخ</th>
+                  <th>الإجمالي</th>
+                  <th>نوع الإقامة</th>
+                  <th>الفاتورة</th>
+                  <th>آخر تحديث</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="daily-history-tbody">
+                <tr><td colspan="6" class="text-muted text-center">اختر مريضًا لعرض السجل</td></tr>
+              </tbody>
             </table>
           </div>
         </div>
@@ -723,6 +805,7 @@
   </div><!-- app-container -->
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/js/app.js?v=20260822c"></script>
+  <script src="/js/app.js?v=20260823a"></script>
+  <script src="/js/daily-charges.js?v=20260823a"></script>
 </body>
 </html>

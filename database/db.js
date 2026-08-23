@@ -632,7 +632,132 @@ async function runMigrations() {
   const { seedDefaultPriceList } = require('../database/seeds/seedPriceList');
   await seedDefaultPriceList();
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS daily_charge_sections (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      category_code VARCHAR(100),
+      default_service_code VARCHAR(100),
+      input_type VARCHAR(20) NOT NULL DEFAULT 'amount',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS patient_daily_entries (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      entry_date DATE NOT NULL,
+      stay_type_id INTEGER REFERENCES stay_types(id) ON DELETE SET NULL,
+      daily_total NUMERIC(14,2) NOT NULL DEFAULT 0,
+      notes TEXT DEFAULT '',
+      invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_by_name TEXT DEFAULT '',
+      updated_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      updated_by_name TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(patient_id, entry_date)
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS patient_daily_entry_lines (
+      id SERIAL PRIMARY KEY,
+      entry_id INTEGER NOT NULL REFERENCES patient_daily_entries(id) ON DELETE CASCADE,
+      section_code VARCHAR(50) NOT NULL,
+      service_id INTEGER REFERENCES services(id) ON DELETE SET NULL,
+      description TEXT DEFAULT '',
+      quantity NUMERIC(14,2) NOT NULL DEFAULT 1,
+      unit_price NUMERIC(14,2) NOT NULL DEFAULT 0,
+      amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      extra_date DATE,
+      extra_text TEXT DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS patient_daily_entry_history (
+      id SERIAL PRIMARY KEY,
+      entry_id INTEGER NOT NULL REFERENCES patient_daily_entries(id) ON DELETE CASCADE,
+      action VARCHAR(20) NOT NULL,
+      snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+      changed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      changed_by_name TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_patient_date ON patient_daily_entries(patient_id, entry_date)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_invoice ON patient_daily_entries(invoice_id)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_daily_entry_lines_entry ON patient_daily_entry_lines(entry_id)`);
+
+  await seedDailyChargeSections();
+
   await seedLookupTables();
+}
+
+async function seedDailyChargeSections() {
+  const sections = [
+    { code: 'accommodation', name: 'إقامة', category_code: 'ACCOMMODATION', input_type: 'amount', sort_order: 1 },
+    { code: 'companion', name: 'مرافق', category_code: 'COMPANION', input_type: 'amount', sort_order: 2 },
+    { code: 'nursing_point', name: 'نقطة', category_code: 'NURSING', input_type: 'amount', sort_order: 3 },
+    { code: 'sessions_date', name: 'تاريخ الجلسات', input_type: 'date', sort_order: 4 },
+    { code: 'sessions', name: 'جلسات', category_code: 'PHYSIO', input_type: 'amount', sort_order: 5 },
+    { code: 'supplies', name: 'مستلزمات', input_type: 'amount', sort_order: 6 },
+    { code: 'medicines', name: 'أدوية', input_type: 'amount', sort_order: 7 },
+    {
+      code: 'consultant_exam',
+      name: 'كشف استشاري',
+      category_code: 'MEDICAL_EXAMS',
+      default_service_code: 'EXAM-CONSULTANT',
+      input_type: 'amount',
+      sort_order: 8,
+    },
+    {
+      code: 'specialist_exam',
+      name: 'كشف أخصائي',
+      category_code: 'MEDICAL_EXAMS',
+      default_service_code: 'EXAM-SPECIALIST',
+      input_type: 'amount',
+      sort_order: 9,
+    },
+    { code: 'consultation_stamp', name: 'دمغة كشوفات', category_code: 'STAMPS', input_type: 'amount', sort_order: 10 },
+    { code: 'analyses', name: 'تحاليل', category_code: 'LAB', input_type: 'amount', sort_order: 11 },
+    { code: 'analyses_stamp', name: 'دمغة تحاليل', category_code: 'STAMPS', input_type: 'amount', sort_order: 12 },
+    { code: 'xray_type', name: 'نوع الأشعة', category_code: 'RADIOLOGY', input_type: 'text', sort_order: 13 },
+    { code: 'xray_total', name: 'أشعة', category_code: 'RADIOLOGY', input_type: 'amount', sort_order: 14 },
+    { code: 'xray_stamp', name: 'دمغة أشعة', category_code: 'STAMPS', input_type: 'amount', sort_order: 15 },
+    { code: 'other', name: 'أخرى', category_code: 'GENERAL', input_type: 'amount', sort_order: 16 },
+    { code: 'prosthetics', name: 'مصنع', category_code: 'PROSTHETICS', input_type: 'amount', sort_order: 17 },
+  ];
+
+  for (const section of sections) {
+    await query(
+      `INSERT INTO daily_charge_sections (code, name, category_code, default_service_code, input_type, sort_order, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+       ON CONFLICT (code) DO UPDATE SET
+         name = EXCLUDED.name,
+         category_code = EXCLUDED.category_code,
+         default_service_code = EXCLUDED.default_service_code,
+         input_type = EXCLUDED.input_type,
+         sort_order = EXCLUDED.sort_order,
+         is_active = TRUE`,
+      [
+        section.code,
+        section.name,
+        section.category_code || null,
+        section.default_service_code || null,
+        section.input_type,
+        section.sort_order,
+      ]
+    );
+  }
 }
 
 async function seedLookupTables() {

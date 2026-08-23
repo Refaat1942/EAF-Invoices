@@ -140,6 +140,10 @@ function showApp() {
 function applyPermissions() {
   const isAdmin = can('settings.*');
   document.getElementById('nav-settings').style.display = isAdmin ? '' : 'none';
+  const dailyNav = document.getElementById('nav-daily');
+  if (dailyNav) dailyNav.style.display = can('daily_charges.view') ? '' : 'none';
+  document.getElementById('import-daily-charges-btn').style.display =
+    can('invoices.create') || can('invoices.edit') ? '' : 'none';
   document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
   document.getElementById('pricing-settings-card').style.display = isAdmin ? '' : 'none';
 
@@ -1273,6 +1277,7 @@ function collectFormData() {
       const item = { description: desc, quantity: qty, amount: amt };
       if (creditAmt > 0) item.patient_credit_applied = creditAmt;
       if (serviceIdEl?.value) item.service_id = Number(serviceIdEl.value);
+      if (row.dataset.dailyLineId) item.daily_entry_line_id = Number(row.dataset.dailyLineId);
       const override = row.dataset.discountOverride;
       if (override === 'true' || override === 'false') {
         item.discount_eligible_override = override === 'true';
@@ -1305,6 +1310,7 @@ function collectFormData() {
   }
 
   return {
+    invoice_id: document.getElementById('invoice-id').value || null,
     invoice_type: document.getElementById('invoice_type').value,
     contracted_entity_id: document.getElementById('contracted_entity_id').value || null,
     discount_percent: parseFloat(document.getElementById('discount_percent_display').value) || 0,
@@ -1935,6 +1941,7 @@ function switchView(view, options = {}) {
     loadReports();
   }
   if (view === 'settings') loadSettingsPage();
+  if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView();
 }
 
 function populateReportTypeFilter() {

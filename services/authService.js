@@ -20,6 +20,8 @@ const PERMISSION_CATALOG = [
   { key: 'users.*', label: 'إدارة المستخدمين', description: 'إضافة وتعديل وحذف المستخدمين', group: 'المستخدمين' },
   { key: 'patients.view', label: 'عرض أرصدة المرضى', description: 'رؤية رصيد حساب المريض', group: 'المرضى' },
   { key: 'patients.manage', label: 'إدارة أرصدة المرضى', description: 'تعديل رصيد حساب المريض', group: 'المرضى' },
+  { key: 'daily_charges.view', label: 'عرض الحركة اليومية', description: 'رؤية واستعراض حركة المريض اليومية', group: 'الحركة اليومية' },
+  { key: 'daily_charges.manage', label: 'تسجيل الحركة اليومية', description: 'إدخال وتعديل حركة المريض اليومية', group: 'الحركة اليومية' },
 ];
 
 const PERMISSIONS = {
@@ -30,6 +32,7 @@ const PERMISSIONS = {
     'reports.view',
     'reports.export',
     'patients.view',
+    'daily_charges.view',
   ],
   user: [
     'invoices.view',
@@ -37,6 +40,8 @@ const PERMISSIONS = {
     'invoices.edit',
     'invoices.submit',
     'reports.view',
+    'daily_charges.view',
+    'daily_charges.manage',
   ],
 };
 

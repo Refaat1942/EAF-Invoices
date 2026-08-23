@@ -84,6 +84,29 @@ async function prepareCalculationData(data) {
     calcData.discount_percent = 0;
   }
 
+  if (
+    calcData.file_number &&
+    calcData.admission_date &&
+    calcData.discharge_date &&
+    calcData.include_daily_charges !== false
+  ) {
+    const { getInvoiceItemsFromDailyCharges } = require('./dailyChargeService');
+    const dailyItems = await getInvoiceItemsFromDailyCharges(
+      calcData.file_number,
+      calcData.admission_date,
+      calcData.discharge_date,
+      calcData.invoice_id || calcData.id || null
+    );
+    if (dailyItems.length) {
+      const existing = Array.isArray(calcData.items) ? calcData.items : [];
+      const linkedLineIds = new Set(
+        existing.filter((item) => item.daily_entry_line_id).map((item) => Number(item.daily_entry_line_id))
+      );
+      const merged = dailyItems.filter((item) => !linkedLineIds.has(Number(item.daily_entry_line_id)));
+      if (merged.length) calcData.items = [...existing, ...merged];
+    }
+  }
+
   return calcData;
 }
 
@@ -582,6 +605,17 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
 
     await saveStayEntries(client, invoiceId, totals.stay_entries || []);
     await saveMethodPayments(client, invoiceId, data.method_payments || []);
+
+    if (data.file_number && data.admission_date && data.discharge_date) {
+      const { linkEntriesToInvoice } = require('./dailyChargeService');
+      await linkEntriesToInvoice(
+        invoiceId,
+        data.file_number,
+        data.admission_date,
+        data.discharge_date,
+        client
+      );
+    }
 
     return getInvoiceById(invoiceId, client);
   });
