@@ -7,6 +7,7 @@ const PATIENTS_API = '/api/patients';
 let currentInvoiceId = null;
 let currentUser = null;
 let currentInvoiceStatus = null;
+let invoiceFollowUpMode = false;
 let rowCount = 12;
 let invoiceTypeLabels = {};
 let paymentMethodsCache = [];
@@ -134,7 +135,102 @@ function showApp() {
   loadPermissionCatalog();
   ensureDefaultPriceListId();
   loadCatalogCache();
-  resetForm();
+  switchView('daily');
+}
+
+function isDailySourcedInvoice(inv) {
+  if (!inv) return false;
+  const hasDailyLines = (inv.items || []).some((item) => item.daily_entry_line_id);
+  const hasStayFile = Boolean(String(inv.file_number || '').trim());
+  return hasDailyLines || (hasStayFile && inv.status !== 'approved');
+}
+
+function applyInvoiceFollowUpMode(enabled) {
+  invoiceFollowUpMode = enabled;
+  const card = document.querySelector('.invoice-card');
+  const banner = document.getElementById('invoice-followup-banner');
+  if (card) card.classList.toggle('invoice-followup-mode', enabled);
+  if (banner) banner.style.display = enabled ? '' : 'none';
+
+  const metaIds = [
+    'file_number',
+    'patient_name',
+    'admission_date',
+    'discharge_date',
+    'stay_days',
+    'financial_treatment',
+  ];
+  metaIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (enabled) {
+      el.setAttribute('readonly', 'readonly');
+      el.classList.add('bg-light');
+    } else if (!(currentInvoiceStatus === 'approved')) {
+      el.removeAttribute('readonly');
+      el.classList.remove('bg-light');
+    }
+  });
+
+  const manualEntryIds = ['add-row-btn', 'remove-row-btn', 'add-stay-entry-btn', 'import-daily-charges-btn'];
+  manualEntryIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = enabled ? 'none' : '';
+  });
+
+  const stayWrap = document.querySelector('.stay-entries-wrap');
+  if (stayWrap) stayWrap.style.display = enabled ? 'none' : '';
+
+  if (enabled) lockDailyInvoiceRows();
+}
+
+function lockDailyInvoiceRows() {
+  document.querySelectorAll('#items-tbody tr').forEach((row) => {
+    const isDaily = Boolean(row.dataset.dailyLineId);
+    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    const hasContent = Boolean(desc || amt || isDaily);
+
+    if (invoiceFollowUpMode) {
+      row.style.display = hasContent ? '' : 'none';
+    } else {
+      row.style.display = '';
+    }
+
+    row.classList.toggle('daily-invoice-row', isDaily);
+    row.querySelectorAll('[data-field="description"], [data-field="quantity"], [data-field="amount"]').forEach((el) => {
+      if (invoiceFollowUpMode && (isDaily || hasContent)) {
+        el.setAttribute('readonly', 'readonly');
+        el.classList.add('bg-light');
+      } else if (currentInvoiceStatus !== 'approved') {
+        el.removeAttribute('readonly');
+        el.classList.remove('bg-light');
+      }
+    });
+  });
+}
+
+async function openInvoiceFollowUpView() {
+  const fileNumber = sessionStorage.getItem('dailyStayFileNumber');
+  if (!fileNumber) {
+    showToast('ابدأ من إقامة المريض — سجّل المريض والحركة اليومية أولًا', 'info');
+    switchView('daily');
+    return;
+  }
+  try {
+    const res = await apiFetch(`/api/daily-charges/open-stay?file_number=${encodeURIComponent(fileNumber)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل تحميل الإقامة');
+    if (data.invoice?.id) {
+      await loadInvoiceForEdit(data.invoice.id, { followUp: true });
+      return;
+    }
+    showToast('لا توجد فاتورة مفتوحة — سجّل المريض من إقامة المريض أولًا', 'warning');
+    switchView('daily');
+  } catch (err) {
+    showToast(err.message, 'danger');
+    switchView('daily');
+  }
 }
 
 function applyPermissions() {
@@ -247,7 +343,8 @@ function bindEvents() {
   document.getElementById('save-draft-btn').addEventListener('click', () => saveInvoiceWithMode('draft'));
   document.getElementById('submit-review-btn').addEventListener('click', () => saveInvoiceWithMode('submit'));
   document.getElementById('approve-invoice-btn').addEventListener('click', approveCurrentInvoice);
-  document.getElementById('reset-form-btn').addEventListener('click', resetForm);
+  document.getElementById('reset-form-btn').addEventListener('click', () => switchView('daily'));
+  document.getElementById('goto-daily-from-invoice-btn')?.addEventListener('click', () => switchView('daily'));
   document.getElementById('add-row-btn').addEventListener('click', () => {
     document.getElementById('items-tbody').appendChild(createRow(rowCount++));
     bindCalcTriggers();
@@ -1383,6 +1480,7 @@ async function recalculate(options = {}) {
     if (typeof syncDailyChargeRowsFromTotals === 'function') {
       syncDailyChargeRowsFromTotals(totals.items || []);
     }
+    if (invoiceFollowUpMode) lockDailyInvoiceRows();
 
     if (hasPatientFileNumber()) {
       const creditChanged = syncPatientCreditPaymentOnly(totals);
@@ -1788,6 +1886,7 @@ function downloadFile(format) {
 }
 
 function resetForm() {
+  applyInvoiceFollowUpMode(false);
   currentInvoiceId = null;
   currentInvoiceStatus = null;
   document.getElementById('invoice-form').reset();
@@ -1824,7 +1923,7 @@ function resetForm() {
   recalculate();
 }
 
-async function loadInvoiceForEdit(id) {
+async function loadInvoiceForEdit(id, options = {}) {
   try {
     const res = await apiFetch(`${API}/${id}`);
     const inv = await res.json();
@@ -1833,8 +1932,17 @@ async function loadInvoiceForEdit(id) {
     currentInvoiceId = inv.id;
     switchView('create', { keepForm: true });
 
+    const followUp = options.followUp === true || isDailySourcedInvoice(inv);
+    applyInvoiceFollowUpMode(followUp && inv.status !== 'approved');
+
     document.getElementById('invoice-id').value = inv.id;
-    document.getElementById('form-title').textContent = 'تعديل الفاتورة';
+    if (followUp) {
+      document.getElementById('form-title').textContent = inv.serial_number
+        ? `متابعة الفاتورة ${inv.serial_number}`
+        : `متابعة الفاتورة #${inv.id}`;
+    } else {
+      document.getElementById('form-title').textContent = 'تعديل الفاتورة';
+    }
     updateInvoiceStatusUI(inv.status, inv.serial_number);
 
     document.getElementById('invoice_type').value = inv.invoice_type;
@@ -1926,7 +2034,8 @@ async function loadInvoiceForEdit(id) {
     }
 
     bindCalcTriggers();
-    recalculate();
+    await recalculate();
+    if (invoiceFollowUpMode) lockDailyInvoiceRows();
     if (inv.status === 'approved') loadQR(inv.id);
     updateInvoiceActionButtons();
   } catch (err) {
@@ -1935,11 +2044,14 @@ async function loadInvoiceForEdit(id) {
 }
 
 function switchView(view, options = {}) {
+  if (view === 'create' && !options.keepForm) {
+    void openInvoiceFollowUpView();
+    return;
+  }
   document.querySelectorAll('.view-section').forEach((s) => (s.style.display = 'none'));
   document.getElementById(`view-${view}`).style.display = 'block';
   document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
 
-  if (view === 'create' && !options.keepForm) resetForm();
   if (view === 'list') loadInvoicesList();
   if (view === 'reports') {
     populateReportTypeFilter();

@@ -158,8 +158,7 @@ async function openDailyStayInvoice() {
     return;
   }
   if (typeof switchView === 'function' && typeof loadInvoiceForEdit === 'function') {
-    switchView('create', { keepForm: true });
-    await loadInvoiceForEdit(invoiceId);
+    await loadInvoiceForEdit(invoiceId, { followUp: true });
   }
 }
 

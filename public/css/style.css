@@ -650,3 +650,18 @@ body {
 .daily-step-locked .card-header {
   opacity: 1;
 }
+
+.invoice-followup-mode .service-search {
+  pointer-events: none;
+  background-color: #f8f9fa;
+}
+
+.invoice-followup-mode tr.daily-invoice-row td {
+  background-color: #f0f9ff;
+}
+
+.invoice-followup-mode #items-section .table-responsive {
+  border: 2px solid #0dcaf0;
+  border-radius: 8px;
+  padding: 0.25rem;
+}
