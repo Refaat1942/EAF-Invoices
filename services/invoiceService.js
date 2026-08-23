@@ -141,8 +141,8 @@ async function saveDiscountFields(client, invoiceId, data, totals, createdBy = n
       totals.discount_amount_raw || 0,
       totals.net_after_discount ?? totals.items_subtotal_after_discount ?? 0,
       totals.net_after_discount_raw ?? totals.items_subtotal_after_discount_raw ?? 0,
-      data.letter_from_date || null,
-      data.letter_to_date || null,
+      fmtDateOnly(data.letter_from_date),
+      fmtDateOnly(data.letter_to_date),
       createdBy?.id || null,
       createdBy?.name || '',
     ]
@@ -322,6 +322,12 @@ async function listInvoices(filters = {}) {
 }
 
 async function saveInvoice(data, existingId = null, createdBy = null, options = {}) {
+  data.issue_date = fmtDateOnly(data.issue_date);
+  data.admission_date = fmtDateOnly(data.admission_date);
+  data.discharge_date = fmtDateOnly(data.discharge_date);
+  data.letter_from_date = fmtDateOnly(data.letter_from_date);
+  data.letter_to_date = fmtDateOnly(data.letter_to_date);
+
   const saveMode = options.save_mode || data.save_mode || 'draft';
   const calcData = await prepareCalculationData(data);
   const totals = calculateInvoiceTotals(calcData);
@@ -691,8 +697,24 @@ async function deleteInvoice(id) {
 }
 
 function fmtDateOnly(value) {
-  if (!value) return null;
-  return String(value).slice(0, 10);
+  if (value === undefined || value === null || value === '') return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return null;
 }
 
 function expandStayDates(admissionDate, dischargeDate, entryDate) {
