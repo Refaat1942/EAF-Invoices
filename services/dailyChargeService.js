@@ -7,6 +7,54 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function formatDailyEntryDateLabel(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${d}-${m}-${y}`;
+  }
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    const [y, m, d] = text.slice(0, 10).split('-');
+    return `${d}-${m}-${y}`;
+  }
+  if (/GMT|Coordinated Universal Time/i.test(text)) {
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) return formatDailyEntryDateLabel(parsed);
+    return '';
+  }
+  if (/^\d{2}-\d{2}-\d{4}$/.test(text)) return text;
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) return formatDailyEntryDateLabel(parsed);
+  return text.slice(0, 10);
+}
+
+function buildDailyItemDescription(entryDate, name, extraText = '') {
+  const dateLabel = formatDailyEntryDateLabel(entryDate);
+  let desc = String(name || '').trim();
+  if (extraText) desc = desc ? `${desc} (${extraText})` : String(extraText);
+  return dateLabel ? `[${dateLabel}] ${desc}`.trim() : desc;
+}
+
+async function loadDailyLineContextMap(lineIds = []) {
+  const ids = [...new Set(lineIds.map(Number).filter(Boolean))];
+  if (!ids.length) return {};
+  const { rows } = await query(
+    `SELECT l.id AS line_id, l.section_code, l.extra_text, l.service_id,
+            s.name AS service_name, e.entry_date, e.id AS entry_id, dcs.sort_order AS section_sort_order
+     FROM patient_daily_entry_lines l
+     JOIN patient_daily_entries e ON e.id = l.entry_id
+     LEFT JOIN services s ON s.id = l.service_id
+     LEFT JOIN daily_charge_sections dcs ON dcs.code = l.section_code
+     WHERE l.id = ANY($1::int[])`,
+    [ids]
+  );
+  return Object.fromEntries(rows.map((row) => [row.line_id, row]));
+}
+
 async function listSections() {
   const { rows } = await query(
     `SELECT * FROM daily_charge_sections WHERE is_active = TRUE ORDER BY sort_order, id`
@@ -354,12 +402,11 @@ async function deleteEntry(entryId) {
   return { deleted: true, id };
 }
 
-function lineToInvoiceItem(line, entry) {
-  const dateLabel = entry.entry_date;
-  let description = line.description || line.section_code;
-  if (line.service_name) description = line.service_name;
-  if (line.extra_text) description = `${description} (${line.extra_text})`;
-  description = `[${dateLabel}] ${description}`;
+function lineToInvoiceItem(line, entry, sections = []) {
+  const section = sections.find((s) => s.code === line.section_code);
+  const entryDate = formatDailyEntryDateLabel(entry.entry_date);
+  const serviceName = line.service_name || line.description || section?.name || line.section_code;
+  const description = buildDailyItemDescription(entryDate, serviceName, line.extra_text);
 
   const quantity = round2(line.quantity || 1) || 1;
   const amount = round2(line.unit_price || line.amount || 0);
@@ -373,6 +420,8 @@ function lineToInvoiceItem(line, entry) {
     daily_entry_id: entry.id,
     daily_entry_line_id: line.id,
     section_code: line.section_code,
+    entry_date: entryDate,
+    section_sort_order: section?.sort_order ?? 999,
   };
 }
 
@@ -380,12 +429,23 @@ function entriesToInvoiceItems(entries, sections = []) {
   const sectionTypeMap = Object.fromEntries(sections.map((s) => [s.code, s.input_type]));
   const skipTypes = new Set(['date', 'text']);
   const items = [];
-  for (const entry of entries) {
-    for (const line of entry.lines || []) {
+  const sortedEntries = [...entries].sort((a, b) => {
+    const da = formatDailyEntryDateLabel(a.entry_date);
+    const db = formatDailyEntryDateLabel(b.entry_date);
+    return da.localeCompare(db) || (Number(a.id) || 0) - (Number(b.id) || 0);
+  });
+
+  for (const entry of sortedEntries) {
+    const sortedLines = [...(entry.lines || [])].sort((a, b) => {
+      const sa = sections.find((s) => s.code === a.section_code)?.sort_order ?? 999;
+      const sb = sections.find((s) => s.code === b.section_code)?.sort_order ?? 999;
+      return sa - sb || (Number(a.id) || 0) - (Number(b.id) || 0);
+    });
+    for (const line of sortedLines) {
       const inputType = sectionTypeMap[line.section_code];
       if (inputType && skipTypes.has(inputType)) continue;
       if (round2(line.amount) <= 0) continue;
-      items.push(lineToInvoiceItem(line, entry));
+      items.push(lineToInvoiceItem(line, entry, sections));
     }
   }
   return items;
@@ -395,30 +455,74 @@ async function enrichDailyInvoiceItems(items = []) {
   if (!items.length) return items;
   const sections = await getSectionsWithServices();
   const sectionMap = Object.fromEntries(sections.map((s) => [s.code, s]));
-  const { resolveServiceForInvoice } = require('./serviceCatalogService');
+  const lineContextMap = await loadDailyLineContextMap(
+    items.map((item) => item.daily_entry_line_id).filter(Boolean)
+  );
   const enriched = [];
 
   for (const item of items) {
     let next = { ...item };
+    const ctx = item.daily_entry_line_id ? lineContextMap[Number(item.daily_entry_line_id)] : null;
     const section = item.section_code ? sectionMap[item.section_code] : null;
-    const serviceId = next.service_id || section?.default_service?.id || null;
+    const entryDate =
+      ctx?.entry_date ||
+      item.entry_date ||
+      (String(item.description || '').match(/\[(\d{2}-\d{2}-\d{4})\]/) || [])[1] ||
+      null;
+    const formattedDate = formatDailyEntryDateLabel(entryDate);
+    const serviceId = next.service_id || ctx?.service_id || section?.default_service?.id || null;
+
     if (serviceId) {
       next.service_id = Number(serviceId);
       try {
         const resolved = await resolveServiceForInvoice(Number(serviceId));
+        const name = resolved.description || ctx?.service_name || section?.name || next.description;
         next = {
           ...next,
           ...resolved,
-          description: next.description || resolved.description,
+          description: buildDailyItemDescription(formattedDate, name, ctx?.extra_text),
           amount: next.amount ?? resolved.amount,
+          entry_date: formattedDate,
+          section_sort_order: ctx?.section_sort_order ?? section?.sort_order ?? next.section_sort_order ?? 999,
         };
       } catch {
-        /* keep item as-is */
+        const name = ctx?.service_name || section?.name || next.service_name_snapshot || next.description;
+        next.description = buildDailyItemDescription(formattedDate, name, ctx?.extra_text);
       }
+    } else if (item.daily_entry_line_id) {
+      const name = ctx?.service_name || section?.name || next.service_name_snapshot || section?.name;
+      next.description = buildDailyItemDescription(formattedDate, name, ctx?.extra_text);
+      next.entry_date = formattedDate;
+      next.section_sort_order = ctx?.section_sort_order ?? section?.sort_order ?? 999;
+    } else if (/GMT|Coordinated Universal Time/i.test(String(next.description || ''))) {
+      next.description = buildDailyItemDescription(
+        formattedDate,
+        next.service_name_snapshot || section?.name || 'بند يومي',
+        ctx?.extra_text
+      );
     }
+
     enriched.push(next);
   }
-  return enriched;
+
+  return sortDailyInvoiceItems(enriched);
+}
+
+function sortDailyInvoiceItems(items = []) {
+  return [...items].sort((a, b) => {
+    const dailyA = Boolean(a.daily_entry_line_id);
+    const dailyB = Boolean(b.daily_entry_line_id);
+    if (dailyA && !dailyB) return -1;
+    if (!dailyA && dailyB) return 1;
+
+    const dateA = formatDailyEntryDateLabel(a.entry_date || a.daily_entry_date || '');
+    const dateB = formatDailyEntryDateLabel(b.entry_date || b.daily_entry_date || '');
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    const orderA = Number(a.section_sort_order) || 999;
+    const orderB = Number(b.section_sort_order) || 999;
+    if (orderA !== orderB) return orderA - orderB;
+    return (Number(a.daily_entry_line_id) || 0) - (Number(b.daily_entry_line_id) || 0);
+  });
 }
 
 async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = null) {
@@ -506,6 +610,9 @@ module.exports = {
   getInvoiceItemsFromDailyCharges,
   entriesToInvoiceItems,
   enrichDailyInvoiceItems,
+  sortDailyInvoiceItems,
+  formatDailyEntryDateLabel,
+  buildDailyItemDescription,
   linkEntriesToInvoice,
   unlinkEntriesFromInvoice,
   computeDailyTotal,

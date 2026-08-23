@@ -13,8 +13,13 @@ const { resolveServiceForInvoice } = require('./serviceCatalogService');
 const { getSetting } = require('./settingsService');
 
 async function enrichItemsWithServices(items = []) {
+  const { enrichDailyInvoiceItems } = require('./dailyChargeService');
+  const dailyItems = items.filter((item) => item.daily_entry_line_id);
+  const otherItems = items.filter((item) => !item.daily_entry_line_id);
+  const enrichedDaily = dailyItems.length ? await enrichDailyInvoiceItems(dailyItems) : [];
+
   const enriched = [];
-  for (const item of items) {
+  for (const item of otherItems) {
     if (item.service_id) {
       try {
         const resolved = await resolveServiceForInvoice(Number(item.service_id), {
@@ -34,7 +39,8 @@ async function enrichItemsWithServices(items = []) {
     }
     enriched.push(item);
   }
-  return enriched;
+
+  return sortDailyInvoiceItems([...enrichedDaily, ...enriched]);
 }
 
 async function prepareCalculationData(data) {
@@ -106,6 +112,8 @@ async function prepareCalculationData(data) {
       if (merged.length) {
         calcData.items = [...existing, ...merged];
         calcData.items = await enrichItemsWithServices(calcData.items);
+        const { sortDailyInvoiceItems } = require('./dailyChargeService');
+        calcData.items = sortDailyInvoiceItems(calcData.items);
       }
     }
   }
@@ -256,7 +264,17 @@ async function getInvoiceById(id, client = null) {
   const invoice = rows[0];
 
   const items = await run(
-    'SELECT * FROM invoice_items WHERE invoice_id = $1 ORDER BY sort_order, id',
+    `SELECT ii.*,
+            pde.entry_date AS daily_entry_date,
+            l.section_code,
+            l.extra_text AS daily_extra_text,
+            dcs.sort_order AS section_sort_order
+     FROM invoice_items ii
+     LEFT JOIN patient_daily_entry_lines l ON l.id = ii.daily_entry_line_id
+     LEFT JOIN patient_daily_entries pde ON pde.id = ii.daily_entry_id
+     LEFT JOIN daily_charge_sections dcs ON dcs.code = l.section_code
+     WHERE ii.invoice_id = $1
+     ORDER BY pde.entry_date NULLS LAST, dcs.sort_order NULLS LAST, ii.sort_order, ii.id`,
     [id]
   );
   const payments = await run(
@@ -267,9 +285,12 @@ async function getInvoiceById(id, client = null) {
   const stayEntries = await loadStayEntries(id, client);
   const typeMap = await getInvoiceTypesMap();
 
+  const { enrichDailyInvoiceItems } = require('./dailyChargeService');
+  const enrichedItems = await enrichDailyInvoiceItems(items.rows);
+
   return {
     ...(await attachInvoiceLabels(invoice, typeMap)),
-    items: items.rows,
+    items: enrichedItems,
     payments: payments.rows,
     method_payments: methodPayments,
     stay_entries: stayEntries,

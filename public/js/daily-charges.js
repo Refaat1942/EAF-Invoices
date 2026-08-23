@@ -192,17 +192,23 @@ function dailyCan(view) {
   return typeof can === 'function' && (can(view) || can('daily_charges.view') || can('daily_charges.manage'));
 }
 
-function dailyParseAmount(text) {
-  if (typeof parseDisplayAmount === 'function') return parseDisplayAmount(text);
-  return parseFloat(String(text || '').replace(/,/g, '')) || 0;
-}
-
 function dailyFormatNumber(n, decimals = 2) {
   const num = Number(n) || 0;
-  return num.toLocaleString('en-US', {
+  return num.toLocaleString('ar-EG', {
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
   });
+}
+
+function dailyParseAmount(text) {
+  if (typeof parseDisplayAmount === 'function') return parseDisplayAmount(text);
+  return parseFloat(
+    String(text || '')
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(/[٬,]/g, '')
+      .replace(/[٫]/g, '.')
+      .replace(/[^\d.-]/g, '')
+  ) || 0;
 }
 
 function dailyFmt(n) {
@@ -253,7 +259,6 @@ function renderDailyCellHtml(section, line = {}) {
     return `<td><input type="date" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="date" value="${val}"></td>`;
   }
   if (section.input_type === 'text') {
-    const val = line.extra_text || '';
     return `<td><input type="text" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="text" placeholder="${section.name}" value="${dailyEscapeAttr(line.extra_text || '')}"></td>`;
   }
 

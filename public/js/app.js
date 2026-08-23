@@ -35,10 +35,21 @@ const STATUS_BADGES = {
 
 function formatPlainNumber(n, maxDecimals = 2) {
   const num = Number(n) || 0;
-  return num.toLocaleString('en-US', {
+  return num.toLocaleString('ar-EG', {
     minimumFractionDigits: 0,
     maximumFractionDigits: maxDecimals,
   });
+}
+
+function normalizeDigitsForParse(text) {
+  return String(text || '')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[٬,]/g, '')
+    .replace(/[٫]/g, '.');
+}
+
+function parseDisplayAmount(text) {
+  return parseFloat(normalizeDigitsForParse(text).replace(/[^\d.-]/g, '')) || 0;
 }
 
 const fmt = (n) => formatPlainNumber(n, 2);
@@ -83,10 +94,6 @@ function bindCommaAmountInputs(root = document) {
       if (input.value && !Number.isNaN(raw)) input.value = String(raw);
     });
   });
-}
-
-function parseDisplayAmount(text) {
-  return parseFloat(String(text || '').replace(/,/g, '').replace(/[^\d.-]/g, '')) || 0;
 }
 
 function fmtDual(raw, rounded) {
