@@ -8,6 +8,67 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'Africa/Cairo';
+
+function getCurrentBusinessDateString() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function normalizeCalendarDate(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  if (!Number.isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return '';
+}
+
+function resolveAllowedDailyEntryDate(submittedDate) {
+  const allowed = getCurrentBusinessDateString();
+  const hasSubmitted =
+    submittedDate !== undefined && submittedDate !== null && String(submittedDate).trim() !== '';
+  if (hasSubmitted) {
+    const submitted = normalizeCalendarDate(submittedDate);
+    if (!submitted) {
+      throw new Error('تاريخ اليوم غير صالح');
+    }
+    if (submitted !== allowed) {
+      throw new Error(
+        `لا يمكن تسجيل الحركة اليومية إلا لتاريخ اليوم (${allowed}) — التاريخ المُرسَل (${submitted}) غير مقبول`
+      );
+    }
+  }
+  return allowed;
+}
+
+function assertExistingEntryDateIsToday(existingEntryDate) {
+  const allowed = getCurrentBusinessDateString();
+  const existing = normalizeCalendarDate(existingEntryDate);
+  if (!existing || existing !== allowed) {
+    const shown = existing || '—';
+    throw new Error(
+      `لا يمكن تعديل حركة يوم سابق (${shown}) — التسجيل والتعديل متاح لليوم الحالي فقط (${allowed})`
+    );
+  }
+}
+
 function formatDailyEntryDateLabel(value) {
   if (value === undefined || value === null || value === '') return '';
   if (value instanceof Date) {
@@ -488,8 +549,7 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
 
 async function saveEntry(data, user = null, options = {}) {
   const patient = await resolvePatient(data.file_number, data.patient_name);
-  const entryDate = data.entry_date;
-  if (!entryDate) throw new Error('تاريخ اليوم مطلوب');
+  const entryDate = resolveAllowedDailyEntryDate(data.entry_date);
 
   const sections = await listSections();
   const sectionsWithServices = await getSectionsWithServices();
@@ -519,6 +579,7 @@ async function saveEntry(data, user = null, options = {}) {
   const dailyTotal = computeDailyTotal(lines, sections);
   const userId = user?.id || null;
   const userName = user?.full_name || user?.username || '';
+  const isNewEntry = !Number(data.entry_id || data.id);
 
   return withTransaction(async (client) => {
     const entryIdInput = Number(data.entry_id || data.id) || null;
@@ -530,6 +591,7 @@ async function saveEntry(data, user = null, options = {}) {
       );
       existing = rows[0] || null;
       if (!existing) throw new Error(`الحركة #${entryIdInput} غير موجودة`);
+      assertExistingEntryDateIsToday(existing.entry_date);
     }
 
     if (existing?.invoice_id && data.allow_invoiced_edit !== true) {
@@ -667,22 +729,26 @@ async function saveEntry(data, user = null, options = {}) {
         patient_name: data.patient_name || patient.name,
       });
       if (!saved.invoice_sync?.synced) {
-        const errMsg = saved.invoice_sync?.error || saved.invoice_sync?.reason || 'فشل ربط الفاتورة';
-        saved.invoice_sync.error = errMsg;
+        throw new Error(
+          saved.invoice_sync?.error || saved.invoice_sync?.reason || 'فشل ربط الفاتورة بعد حفظ الحركة اليومية'
+        );
       }
+      return saved;
     } catch (err) {
-      saved.invoice_sync = { synced: false, error: err.message };
-      console.error('Daily entry invoice sync failed:', err);
+      if (isNewEntry && saved?.id) {
+        await deleteDailyEntryCascade(saved.id);
+      }
+      throw err;
     }
-    return saved;
   });
 }
 
 async function saveEntriesBatch(data, user = null) {
   const entries = Array.isArray(data.entries) ? data.entries : [];
   if (!entries.length) throw new Error('لا توجد أيام للحفظ');
-  const saved = [];
+  const savedMeta = [];
   for (const entryData of entries) {
+    const wasNew = !Number(entryData.entry_id || entryData.id);
     const result = await saveEntry(
       {
         ...entryData,
@@ -692,25 +758,31 @@ async function saveEntriesBatch(data, user = null) {
       user,
       { skip_invoice_sync: true }
     );
-    saved.push(result);
+    savedMeta.push({ result, wasNew });
   }
 
-  let invoice_sync = { synced: false, reason: 'missing_file_number' };
-  if (data.file_number?.trim() && saved.length) {
-    try {
-      const { syncPatientDailyChargesToInvoice } = require('./invoiceService');
-      invoice_sync = await syncPatientDailyChargesToInvoice(data.file_number, data.patient_name || '');
-      if (!invoice_sync.synced) {
-        invoice_sync.error =
-          invoice_sync.error || invoice_sync.reason || 'فشل ربط الفاتورة بعد حفظ الحركة اليومية';
-      }
-    } catch (err) {
-      invoice_sync = { synced: false, error: err.message };
-      console.error('Daily batch invoice sync failed:', err);
+  const fileNumber = data.file_number?.trim();
+  if (!fileNumber) {
+    return {
+      saved: savedMeta.map((m) => m.result),
+      count: savedMeta.length,
+      invoice_sync: { synced: false, reason: 'missing_file_number' },
+    };
+  }
+
+  try {
+    const { syncPatientDailyChargesToInvoice } = require('./invoiceService');
+    const invoice_sync = await syncPatientDailyChargesToInvoice(fileNumber, data.patient_name || '');
+    if (!invoice_sync.synced) {
+      throw new Error(
+        invoice_sync.error || invoice_sync.reason || 'فشل ربط الفاتورة بعد حفظ الحركة اليومية'
+      );
     }
+    return { saved: savedMeta.map((m) => m.result), count: savedMeta.length, invoice_sync };
+  } catch (err) {
+    await rollbackDailyEntriesOnInvoiceFailure(savedMeta, fileNumber);
+    throw err;
   }
-
-  return { saved, count: saved.length, invoice_sync };
 }
 
 async function deleteEntry(entryId) {
@@ -1035,6 +1107,44 @@ async function enrichDailyInvoiceItems(items = []) {
   return sortDailyInvoiceItems(enriched);
 }
 
+function dedupeDailyInvoiceItemsByLineId(items = []) {
+  const seenLineIds = new Set();
+  const result = [];
+  for (const item of items) {
+    const lineId = Number(item.daily_entry_line_id);
+    if (lineId) {
+      if (seenLineIds.has(lineId)) continue;
+      seenLineIds.add(lineId);
+    }
+    result.push(item);
+  }
+  return result;
+}
+
+async function deleteDailyEntryCascade(entryId) {
+  const id = Number(entryId);
+  if (!id) return;
+  await query(`DELETE FROM patient_daily_entry_lines WHERE entry_id = $1`, [id]);
+  await query(`DELETE FROM patient_daily_entry_history WHERE entry_id = $1`, [id]);
+  await query(`DELETE FROM patient_daily_entries WHERE id = $1`, [id]);
+}
+
+async function rollbackDailyEntriesOnInvoiceFailure(savedMeta, fileNumber) {
+  for (const { result, wasNew } of savedMeta) {
+    if (wasNew && result?.id) {
+      await deleteDailyEntryCascade(result.id);
+    }
+  }
+  const fn = fileNumber?.trim();
+  if (!fn) return;
+  try {
+    const { syncPatientDailyChargesToInvoice } = require('./invoiceService');
+    await syncPatientDailyChargesToInvoice(fn);
+  } catch (err) {
+    console.error('Invoice recovery after daily entry rollback failed:', err);
+  }
+}
+
 function sortDailyInvoiceItems(items = []) {
   return [...items].sort((a, b) => {
     const dailyA = Boolean(a.daily_entry_line_id);
@@ -1091,13 +1201,24 @@ async function getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, inv
   const sections = await listSections();
   const entries = await getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId);
   const items = entriesToInvoiceItems(entries, sections);
-  return enrichDailyInvoiceItems(items);
+  return dedupeDailyInvoiceItemsByLineId(await enrichDailyInvoiceItems(items));
 }
 
 async function cleanOrphanDailyInvoiceItems(invoiceId, client = null) {
   if (!invoiceId) return 0;
   const run = client ? client.query.bind(client) : query;
   let removed = 0;
+  const dupRes = await run(
+    `DELETE FROM invoice_items ii
+     WHERE ii.invoice_id = $1
+       AND ii.daily_entry_line_id IS NOT NULL
+       AND ii.id > (
+         SELECT MIN(id) FROM invoice_items
+         WHERE invoice_id = $1 AND daily_entry_line_id = ii.daily_entry_line_id
+       )`,
+    [invoiceId]
+  );
+  removed += dupRes.rowCount || 0;
   const lineRes = await run(
     `DELETE FROM invoice_items
      WHERE invoice_id = $1
@@ -1196,6 +1317,7 @@ module.exports = {
   getInvoiceItemsFromDailyCharges,
   entriesToInvoiceItems,
   enrichDailyInvoiceItems,
+  dedupeDailyInvoiceItemsByLineId,
   sortDailyInvoiceItems,
   formatDailyEntryDateLabel,
   buildDailyItemDescription,
@@ -1207,4 +1329,7 @@ module.exports = {
   linkEntriesToInvoice,
   unlinkEntriesFromInvoice,
   computeDailyTotal,
+  getCurrentBusinessDateString,
+  normalizeCalendarDate,
+  resolveAllowedDailyEntryDate,
 };

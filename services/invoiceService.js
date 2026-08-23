@@ -123,12 +123,14 @@ async function prepareCalculationData(data) {
     const fromDate = fmtDateOnly(calcData.admission_date);
     let toDate = fmtDateOnly(calcData.discharge_date);
     if (!toDate && fromDate) toDate = fromDate;
-    const { getInvoiceItemsFromDailyCharges } = require('./dailyChargeService');
-    const dailyItems = await getInvoiceItemsFromDailyCharges(
-      calcData.file_number,
-      fromDate,
-      toDate,
-      calcData.invoice_id || calcData.id || null
+    const { getInvoiceItemsFromDailyCharges, dedupeDailyInvoiceItemsByLineId } = require('./dailyChargeService');
+    const dailyItems = dedupeDailyInvoiceItemsByLineId(
+      await getInvoiceItemsFromDailyCharges(
+        calcData.file_number,
+        fromDate,
+        toDate,
+        calcData.invoice_id || calcData.id || null
+      )
     );
     const manualOnly = (Array.isArray(calcData.items) ? calcData.items : []).filter(
       (item) => !item.daily_entry_line_id && !item.daily_entry_id && !isStaleDailyInvoiceItem(item)
@@ -837,6 +839,68 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
   };
 }
 
+async function verifyInvoiceDailyLineSync(invoiceId, fileNumber, fromDate, toDate) {
+  const invoice = await getInvoiceById(invoiceId);
+  if (!invoice) throw new Error('الفاتورة غير موجودة بعد مزامنة الحركة اليومية');
+  if (invoice.status === 'approved') return { skipped: true, reason: 'approved' };
+
+  const dailyItems = (invoice.items || []).filter((item) => item.daily_entry_line_id);
+  const lineIds = dailyItems.map((item) => Number(item.daily_entry_line_id));
+  const uniqueLineIds = new Set(lineIds);
+  if (lineIds.length !== uniqueLineIds.size) {
+    throw new Error('تكرار في بنود الفاتورة المرتبطة بالحركة اليومية');
+  }
+
+  const { getInvoiceItemsFromDailyCharges } = require('./dailyChargeService');
+  const expected = await getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, invoiceId);
+  const expectedWithLine = expected.filter((item) => item.daily_entry_line_id);
+
+  if (expectedWithLine.length !== dailyItems.length) {
+    throw new Error(
+      `عدد بنود الفاتورة (${dailyItems.length}) لا يطابق الحركة اليومية (${expectedWithLine.length})`
+    );
+  }
+
+  const expectedMap = new Map(
+    expectedWithLine.map((item) => [Number(item.daily_entry_line_id), item])
+  );
+  let dailyLinesSubtotal = 0;
+  for (const invItem of dailyItems) {
+    const lineId = Number(invItem.daily_entry_line_id);
+    const exp = expectedMap.get(lineId);
+    if (!exp) {
+      throw new Error(`بند فاتورة مرتبط بحركة يومية غير متوقعة (#${lineId})`);
+    }
+    const invQty = round2(invItem.quantity);
+    const expQty = round2(exp.quantity);
+    const invAmt = round2(invItem.amount);
+    const expAmt = round2(exp.amount);
+    if (invQty !== expQty || invAmt !== expAmt) {
+      throw new Error(`بند الفاتورة للحركة #${lineId} لا يطابق الكمية أو السعر المتوقع`);
+    }
+    dailyLinesSubtotal = round2(dailyLinesSubtotal + invQty * invAmt);
+  }
+
+  const manualItems = invoiceManualItems(invoice);
+  let manualSubtotal = 0;
+  for (const item of manualItems) {
+    manualSubtotal = round2(manualSubtotal + round2(item.quantity || 1) * round2(item.amount || 0));
+  }
+  const expectedSubtotal = round2(dailyLinesSubtotal + manualSubtotal);
+  const invoiceSubtotal = round2(invoice.items_subtotal_raw ?? invoice.items_subtotal ?? 0);
+  if (expectedSubtotal !== invoiceSubtotal) {
+    throw new Error(
+      `إجمالي الفاتورة (${invoiceSubtotal}) لا يطابق مجموع البنود المتوقع (${expectedSubtotal})`
+    );
+  }
+
+  return {
+    daily_line_count: dailyItems.length,
+    items_subtotal: invoiceSubtotal,
+    final_total: round2(invoice.final_total_raw ?? invoice.final_total ?? 0),
+  };
+}
+
 async function resolveOpenInvoiceForDailyEntry(fileNumber) {
   const { rows } = await query(
     `SELECT id FROM invoices
@@ -963,6 +1027,10 @@ async function syncDailyEntryToInvoices(entry, meta = {}) {
 
   const daily_summary = await getDailySummaryForPatient(fileNumber);
 
+  const verifyFrom = fmtDateOnly(updated.admission_date) || entryDate;
+  const verifyTo = fmtDateOnly(updated.discharge_date) || verifyFrom;
+  await verifyInvoiceDailyLineSync(invoiceId, fileNumber, verifyFrom, verifyTo);
+
   return {
     synced: true,
     created,
@@ -1013,6 +1081,10 @@ async function syncPatientDailyChargesToInvoice(fileNumber, patientName = '') {
   }
 
   const daily_summary = await getDailySummaryForPatient(fn);
+
+  const verifyFrom = linkFrom || fmtDateOnly(updated.admission_date);
+  const verifyTo = linkTo || verifyFrom;
+  await verifyInvoiceDailyLineSync(invoiceId, fn, verifyFrom, verifyTo);
 
   return {
     synced: true,
@@ -1159,6 +1231,7 @@ module.exports = {
   syncInvoiceAfterDailyChange,
   syncDailyEntryToInvoices,
   syncPatientDailyChargesToInvoice,
+  verifyInvoiceDailyLineSync,
   getOpenPatientStay,
   openPatientStay,
 };

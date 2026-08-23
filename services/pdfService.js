@@ -14,15 +14,13 @@ function fmtDual(raw, rounded) {
   const r = Number(raw) || 0;
   const rd = Number(rounded) || 0;
   if (Math.abs(round2(r) - round2(rd)) < 0.001) {
-    return `<span class="num-main">${formatNumberInt(rd)}</span>`;
+    return `<span class="num-main">${formatNumber(rd)}</span>`;
   }
-  return `<span class="dual-wrap"><span class="num-main">${formatNumberInt(rd)}</span><span class="num-raw">(${formatNumber(r)})</span></span>`;
+  return `<span class="dual-wrap"><span class="num-main">${formatNumber(rd)}</span><span class="num-raw">(${formatNumber(r)})</span></span>`;
 }
 
 function fmtPlain(n) {
-  const num = Number(n) || 0;
-  if (Math.abs(num - Math.round(num)) < 0.001) return formatNumberInt(num);
-  return formatNumber(num);
+  return formatNumber(n);
 }
 
 function formatDate(d) {

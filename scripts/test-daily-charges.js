@@ -3,7 +3,12 @@
  * Run: node scripts/test-daily-charges.js
  */
 
-const { computeDailyTotal, entriesToInvoiceItems } = require('../services/dailyChargeService');
+const {
+  computeDailyTotal,
+  entriesToInvoiceItems,
+  getCurrentBusinessDateString,
+  resolveAllowedDailyEntryDate,
+} = require('../services/dailyChargeService');
 
 const sections = [
   { code: 'accommodation', input_type: 'amount' },
@@ -41,6 +46,39 @@ const items = entriesToInvoiceItems(
 
 if (items.length !== 1 || items[0].amount !== 500) {
   console.error('FAIL entriesToInvoiceItems', items);
+  process.exit(1);
+}
+
+const allowedToday = getCurrentBusinessDateString();
+if (resolveAllowedDailyEntryDate(allowedToday) !== allowedToday) {
+  console.error('FAIL resolveAllowedDailyEntryDate allowed today');
+  process.exit(1);
+}
+
+try {
+  resolveAllowedDailyEntryDate('2020-01-01');
+  console.error('FAIL should reject past entry_date');
+  process.exit(1);
+} catch (err) {
+  if (!String(err.message).includes('غير مقبول')) {
+    console.error('FAIL unexpected error for past date', err.message);
+    process.exit(1);
+  }
+}
+
+try {
+  resolveAllowedDailyEntryDate('2099-12-31');
+  console.error('FAIL should reject future entry_date');
+  process.exit(1);
+} catch (err) {
+  if (!String(err.message).includes('غير مقبول')) {
+    console.error('FAIL unexpected error for future date', err.message);
+    process.exit(1);
+  }
+}
+
+if (resolveAllowedDailyEntryDate(undefined) !== allowedToday) {
+  console.error('FAIL missing entry_date should use business today');
   process.exit(1);
 }
 

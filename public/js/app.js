@@ -35,10 +35,10 @@ const STATUS_BADGES = {
 
 function formatPlainNumber(n, maxDecimals = 2) {
   const num = Number(n) || 0;
-  return num.toLocaleString('ar-EG', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: maxDecimals,
-  });
+  if (maxDecimals === 0) {
+    return num.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+  }
+  return num.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: maxDecimals });
 }
 
 function normalizeDigitsForParse(text) {
@@ -99,8 +99,8 @@ function bindCommaAmountInputs(root = document) {
 function fmtDual(raw, rounded) {
   const r = Number(raw) || 0;
   const rd = Number(rounded) || 0;
-  if (Math.round(r * 100) === Math.round(rd * 100)) return fmtInt(rd);
-  return `<span class="dual-value"><span class="raw-part">${fmt(r)}</span> <span class="rounded-part">← ${fmtInt(rd)}</span></span>`;
+  if (Math.round(r * 100) === Math.round(rd * 100)) return fmt(rd);
+  return `<span class="dual-value"><span class="raw-part">${fmt(r)}</span> <span class="rounded-part">← ${fmt(rd)}</span></span>`;
 }
 
 function can(permission) {
@@ -1561,7 +1561,7 @@ function updateInvoiceRowLineTotal(row) {
   const qty = parseDisplayAmount(qtyEl.value);
   const amt = parseDisplayAmount(amtEl.value);
   const total = Math.round(qty * amt * 100) / 100;
-  totalEl.value = total ? fmtInt(total) : '';
+  totalEl.value = total ? fmt(total) : '';
 }
 
 function syncInvoiceRowsFromCalculatedItems(items = []) {
@@ -1612,7 +1612,7 @@ function syncInvoiceRowsFromCalculatedItems(items = []) {
     }
     const totalEl = row.querySelector('[data-field="total"]');
     if (totalEl && item.total != null && item.total !== '') {
-      totalEl.value = fmtInt(item.total);
+      totalEl.value = fmt(item.total);
     } else {
       updateInvoiceRowLineTotal(row);
     }

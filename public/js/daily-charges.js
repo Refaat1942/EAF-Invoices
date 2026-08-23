@@ -873,14 +873,6 @@ async function saveDailyEntry() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'فشل الحفظ');
 
-    if (!data.invoice_sync?.synced) {
-      const syncErr = data.invoice_sync?.error || data.invoice_sync?.reason || 'فشل ربط الفاتورة';
-      showToast(`تم حفظ الحركة اليومية لكن فشل تحديث الفاتورة: ${syncErr}`, 'danger');
-      await loadDailyEntriesIntoSheet();
-      await loadDailyPatientHistory();
-      return;
-    }
-
     dailyCurrentEntryId = data.saved?.[data.saved.length - 1]?.id || null;
 
     const invLabel = data.invoice_sync.created ? 'تم إنشاء فاتورة مسودة' : 'تم تحديث الفاتورة';
@@ -1028,7 +1020,7 @@ function syncDailyChargeRowsFromTotals(totalsItems = []) {
             typeof formatAmountInput === 'function' ? formatAmountInput(item.amount) : String(item.amount);
         }
         if (totalEl && item.total != null && item.total !== '') {
-          totalEl.value = typeof fmtInt === 'function' ? fmtInt(item.total) : String(item.total);
+          totalEl.value = typeof fmt === 'function' ? fmt(item.total) : String(item.total);
         } else if (typeof updateInvoiceRowLineTotal === 'function') {
           updateInvoiceRowLineTotal(row);
         }

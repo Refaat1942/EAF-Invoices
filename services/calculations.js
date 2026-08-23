@@ -8,18 +8,17 @@ function resolveAdminPercent(value, fallback = 12) {
 }
 
 function roundNearest(n) {
-  return Math.round(round2(n));
+  return round2(n);
 }
 
 function dualValue(n) {
   const raw = round2(n);
-  const rounded = roundNearest(raw);
-  return { raw, rounded };
+  return { raw, rounded: raw };
 }
 
 function calculateItemTotal(quantity, amount) {
   const raw = round2((Number(quantity) || 0) * (Number(amount) || 0));
-  return { raw, rounded: roundNearest(raw), total: roundNearest(raw) };
+  return { raw, rounded: raw, total: raw };
 }
 
 function normalizeArabic(text) {
@@ -151,7 +150,7 @@ function resolveItemEligibility(item, exclusions, discountActive) {
 function resolvePaymentTotals(data) {
   if (Array.isArray(data.method_payments) && data.method_payments.length) {
     const totalCollectedRaw = round2(
-      data.method_payments.reduce((sum, entry) => sum + round2(entry.amount), 0)
+      data.method_payments.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0)
     );
     const totalCollected = roundNearest(totalCollectedRaw);
 
@@ -788,9 +787,11 @@ function calculateStayDays(admissionDate, dischargeDate) {
 }
 
 function formatDual(raw, rounded, formatter) {
-  const fmt = formatter || ((n) => Number(n).toLocaleString('ar-EG'));
-  if (round2(raw) === round2(rounded)) return fmt(rounded);
-  return `${fmt(raw)} ← ${fmt(rounded)}`;
+  const fmt = formatter || ((n) => Number(n).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const rawVal = round2(raw);
+  const roundedVal = round2(rounded);
+  if (rawVal === roundedVal) return fmt(roundedVal);
+  return `${fmt(rawVal)} ← ${fmt(roundedVal)}`;
 }
 
 module.exports = {
