@@ -133,7 +133,7 @@
                     </div>
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">عدد أيام الإقامة</label>
-                      <input type="number" class="form-control fw-bold" id="stay_days" min="0">
+                      <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" data-decimals="0" id="stay_days" placeholder="0">
                     </div>
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">المعاملة المالية للمريض</label>
@@ -224,19 +224,19 @@
                   </div>
                   <div class="col-md-3">
                     <label class="form-label fw-bold">دمغة</label>
-                    <input type="number" step="0.01" class="form-control calc-trigger" id="stamp_duty" value="0">
+                    <input type="text" inputmode="decimal" class="form-control calc-trigger comma-amount" id="stamp_duty" value="0.00">
                   </div>
                   <div class="col-md-3">
                     <label class="form-label fw-bold">مهن</label>
-                    <input type="number" step="0.01" class="form-control calc-trigger" id="professional_fees" value="0">
+                    <input type="text" inputmode="decimal" class="form-control calc-trigger comma-amount" id="professional_fees" value="0.00">
                   </div>
                   <div class="col-md-3">
                     <label class="form-label fw-bold" id="balance-field-label">الرصيد</label>
-                    <input type="number" step="0.01" class="form-control calc-trigger" id="balance" value="0">
+                    <input type="text" inputmode="decimal" class="form-control calc-trigger comma-amount" id="balance" value="0.00">
                   </div>
                   <div class="col-md-3">
                     <label class="form-label fw-bold">نسبة المصروفات الإدارية %</label>
-                    <input type="number" step="0.01" class="form-control calc-trigger" id="admin_expenses_percent" value="12">
+                    <input type="text" inputmode="decimal" class="form-control calc-trigger comma-amount" id="admin_expenses_percent" value="12.00">
                   </div>
                 </div>
 
@@ -442,7 +442,7 @@
                 </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold">رصيد الحساب</label>
-                  <input type="number" step="0.01" class="form-control fw-bold" id="daily-stay-balance" placeholder="0">
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-balance" placeholder="0.00">
                 </div>
               </div>
               <div class="d-flex gap-2 flex-wrap mt-3">
@@ -608,7 +608,7 @@
             <div class="card-body">
               <div class="input-group mb-3">
                 <input type="text" class="form-control fw-bold" id="new-stay-type" placeholder="نوع إقامة جديد...">
-                <input type="number" step="0.01" min="0" class="form-control fw-bold" id="new-stay-rate" placeholder="سعر اليوم" style="max-width:140px">
+                <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="new-stay-rate" placeholder="سعر اليوم" style="max-width:140px">
                 <button class="btn btn-primary fw-bold" id="add-stay-type-btn">إضافة</button>
               </div>
               <ul class="list-group admin-lookup-list" id="stay-types-list"></ul>
@@ -626,7 +626,7 @@
                     <option value="">— جهة رئيسية —</option>
                   </select>
                 </div>
-                <div class="col-md-2"><input type="number" step="0.01" min="0" max="100" class="form-control fw-bold" id="new-entity-discount" placeholder="الخصم %"></div>
+                <div class="col-md-2"><input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="new-entity-discount" placeholder="الخصم %"></div>
                 <div class="col-md-2"><button class="btn btn-primary fw-bold w-100" id="add-entity-btn">إضافة</button></div>
               </div>
               <ul class="list-group admin-lookup-list" id="contracted-entities-list"></ul>
@@ -677,23 +677,23 @@
               <div class="row g-2 mb-3">
                 <div class="col-md-2">
                   <label class="form-label fw-bold small mb-1">المصروفات الإدارية %</label>
-                  <input type="number" step="0.01" min="0" max="100" class="form-control form-control-sm fw-bold" id="pricing-admin-fee-rate">
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-admin-fee-rate">
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold small mb-1">فتح الملف</label>
-                  <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="pricing-file-opening-fee">
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-file-opening-fee">
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold small mb-1">إسعاف القاهرة</label>
-                  <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="pricing-ambulance-fee">
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-ambulance-fee">
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold small mb-1">أجنبي مقيم %</label>
-                  <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="pricing-foreign-resident">
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-foreign-resident">
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold small mb-1">أجنبي بدون إقامة %</label>
-                  <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="pricing-foreign-non-resident">
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-foreign-non-resident">
                 </div>
                 <div class="col-md-2 d-flex align-items-end">
                   <button type="button" class="btn btn-sm btn-success fw-bold w-100" id="pricing-save-settings-btn">حفظ الإعدادات</button>
@@ -846,7 +846,7 @@
             </div>
             <div class="col-md-3">
               <label class="form-label fw-bold small">السعر</label>
-              <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" id="service-edit-price">
+              <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="service-edit-price">
             </div>
             <div class="col-md-3">
               <label class="form-label fw-bold small d-block">يخضع للخصم</label>
@@ -892,7 +892,7 @@
   </div><!-- app-container -->
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/js/app.js?v=20260823c"></script>
-  <script src="/js/daily-charges.js?v=20260823d"></script>
+  <script src="/js/app.js?v=20260823f"></script>
+  <script src="/js/daily-charges.js?v=20260823f"></script>
 </body>
 </html>

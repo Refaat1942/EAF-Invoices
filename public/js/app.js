@@ -36,13 +36,54 @@ const STATUS_BADGES = {
 function formatPlainNumber(n, maxDecimals = 2) {
   const num = Number(n) || 0;
   return num.toLocaleString('en-US', {
-    minimumFractionDigits: maxDecimals === 0 ? 0 : 0,
+    minimumFractionDigits: maxDecimals === 0 ? 0 : 2,
     maximumFractionDigits: maxDecimals,
   });
 }
 
 const fmt = (n) => formatPlainNumber(n, 2);
 const fmtInt = (n) => formatPlainNumber(n, 0);
+
+function formatAmountInput(n, decimals = 2) {
+  if (n === '' || n === null || n === undefined) return '';
+  const num = Number(n);
+  if (Number.isNaN(num)) return '';
+  return formatPlainNumber(num, decimals);
+}
+
+function setCommaAmountValue(input, value, decimals = 2) {
+  if (!input) return;
+  if (value === '' || value === null || value === undefined) {
+    input.value = '';
+    return;
+  }
+  input.value = formatAmountInput(value, decimals);
+}
+
+function bindCommaAmountInputs(root = document) {
+  const scope = root === document ? document : root;
+  scope.querySelectorAll('input.comma-amount, input[data-comma-amount="1"]').forEach((input) => {
+    const decimals = input.dataset.decimals === '0' ? 0 : 2;
+    if (input.type === 'number') input.type = 'text';
+    if (input.value) {
+      const existing = parseDisplayAmount(input.value);
+      if (existing || existing === 0) input.value = formatAmountInput(existing, decimals);
+    }
+    if (input.dataset.commaBound === '1') return;
+    input.dataset.commaBound = '1';
+    input.setAttribute('inputmode', 'decimal');
+    input.autocomplete = 'off';
+    input.addEventListener('blur', () => {
+      const raw = parseDisplayAmount(input.value);
+      const next = raw || raw === 0 ? formatAmountInput(raw, decimals) : '';
+      if (input.value !== next) input.value = next;
+    });
+    input.addEventListener('focus', () => {
+      const raw = parseDisplayAmount(input.value);
+      if (input.value && !Number.isNaN(raw)) input.value = String(raw);
+    });
+  });
+}
 
 function parseDisplayAmount(text) {
   return parseFloat(String(text || '').replace(/,/g, '').replace(/[^\d.-]/g, '')) || 0;
@@ -188,7 +229,7 @@ function lockDailyInvoiceRows() {
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
     const isDaily = Boolean(row.dataset.dailyLineId);
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
-    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     const hasContent = Boolean(desc || amt || isDaily);
 
     if (invoiceFollowUpMode) {
@@ -315,16 +356,16 @@ function createRow(index) {
   tr.dataset.index = index;
   tr.innerHTML = `
     <td><input type="text" class="row-total" data-field="total" readonly tabindex="-1"></td>
-    <td><input type="number" step="0.01" class="calc-trigger" data-field="amount" value=""></td>
-    <td><input type="number" step="0.01" class="calc-trigger" data-field="quantity" value=""></td>
+    <td><input type="text" inputmode="decimal" class="calc-trigger comma-amount" data-field="amount" value=""></td>
+    <td><input type="text" inputmode="decimal" class="calc-trigger comma-amount" data-field="quantity" value=""></td>
     <td><input type="text" class="discount-pct-display" data-field="discount_percent" readonly tabindex="-1" value="0%"></td>
     <td class="service-cell">
       <input type="hidden" data-field="service_id" value="">
       <input type="text" class="desc-input calc-trigger service-search" data-field="description" autocomplete="off" placeholder="ابحث عن خدمة من اللائحة...">
       <div class="service-suggest d-none"></div>
     </td>
-    <td><input type="number" step="0.01" min="0" class="calc-trigger patient-credit-input" data-field="patient_credit_applied" value="" placeholder="0" title="خصم من رصيد المريض"></td>
-    <td><input type="number" step="0.01" class="pay-amt calc-trigger" data-field="pay_amount" value=""></td>
+    <td><input type="text" inputmode="decimal" class="calc-trigger comma-amount patient-credit-input" data-field="patient_credit_applied" value="" placeholder="0" title="خصم من رصيد المريض"></td>
+    <td><input type="text" inputmode="decimal" class="pay-amt calc-trigger comma-amount" data-field="pay_amount" value=""></td>
     <td><input type="text" class="pay-num calc-trigger" data-field="receipt_number"></td>
     <td><input type="date" class="pay-date calc-trigger" data-field="receipt_date"></td>
   `;
@@ -461,6 +502,7 @@ function bindCalcTriggers() {
     el.addEventListener('input', recalculate);
   });
   bindNumberInputWheelBlock();
+  bindCommaAmountInputs();
   bindServiceSearch();
   bindPaymentMethodHelpers();
 }
@@ -503,7 +545,7 @@ function getPaymentRemainingExcluding(excludeInput = null) {
   const finalTotal = getInvoiceFinalTotalForPayment();
   let paid = 0;
   document.querySelectorAll('.payment-method-input').forEach((input) => {
-    if (input !== excludeInput) paid += parseFloat(input.value) || 0;
+    if (input !== excludeInput) paid += parseDisplayAmount(input.value);
   });
   return Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
 }
@@ -512,7 +554,7 @@ function updatePaymentRowHints() {
   const finalTotal = getInvoiceFinalTotalForPayment();
   let paid = 0;
   document.querySelectorAll('.payment-method-input').forEach((input) => {
-    paid += parseFloat(input.value) || 0;
+    paid += parseDisplayAmount(input.value);
   });
   const remaining = Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
 
@@ -567,8 +609,8 @@ function fillRemainingPayment(code) {
     showToast('لا يوجد متبقي — تم تغطية إجمالي الفاتورة', 'info');
     return;
   }
-  const current = parseFloat(input.value) || 0;
-  input.value = Math.round((current + remaining) * 100) / 100;
+  const current = parseDisplayAmount(input.value);
+  input.value = formatAmountInput(Math.round((current + remaining) * 100) / 100);
   recalculate();
 }
 
@@ -718,9 +760,9 @@ function applyServiceToRow(row, service) {
   const qtyInput = row.querySelector('[data-field="quantity"]');
   const serviceIdInput = row.querySelector('[data-field="service_id"]');
   if (descInput) descInput.value = service.name;
-  if (amountInput) amountInput.value = service.price ?? '';
+  if (amountInput) amountInput.value = service.price != null && service.price !== '' ? formatAmountInput(service.price) : '';
   if (serviceIdInput) serviceIdInput.value = service.id || '';
-  if (qtyInput && !parseFloat(qtyInput.value)) qtyInput.value = 1;
+  if (qtyInput && !parseDisplayAmount(qtyInput.value)) qtyInput.value = formatAmountInput(1, 0);
   row.dataset.discountOverride = service.discountable ? 'true' : 'false';
   row.classList.remove('stay-sync-row');
   delete row.dataset.staySync;
@@ -774,8 +816,8 @@ function findFirstEmptyItemRow() {
   for (const row of document.querySelectorAll('#items-tbody tr')) {
     if (row.dataset.staySync) continue;
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
-    const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
-    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
+    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     if (!desc && !qty && !amt) return row;
   }
   return null;
@@ -797,8 +839,8 @@ function syncStayEntriesToItemRows() {
     const stayTypeId = stayTypeSelect?.value;
     const stayName =
       stayTypeSelect?.selectedOptions?.[0]?.textContent?.replace(/\s*\([\d,.]+\/يوم\)\s*$/, '')?.trim() || '';
-    const days = parseFloat(stayRow.querySelector('[data-field="days"]')?.value) || 0;
-    const rate = parseFloat(stayRow.querySelector('[data-field="daily_rate"]')?.value) || 0;
+    const days = parseDisplayAmount(stayRow.querySelector('[data-field="days"]')?.value);
+    const rate = parseDisplayAmount(stayRow.querySelector('[data-field="daily_rate"]')?.value);
 
     if (!stayTypeId || (!days && !rate)) {
       const existing = findItemRowByStayKey(stayKey);
@@ -816,8 +858,8 @@ function syncStayEntriesToItemRows() {
 
     const desc = stayName ? `إقامة - ${stayName}` : 'إقامة';
     itemRow.querySelector('[data-field="description"]').value = desc;
-    itemRow.querySelector('[data-field="quantity"]').value = days || '';
-    itemRow.querySelector('[data-field="amount"]').value = rate || '';
+    itemRow.querySelector('[data-field="quantity"]').value = days ? formatAmountInput(days, 0) : '';
+    itemRow.querySelector('[data-field="amount"]').value = rate ? formatAmountInput(rate) : '';
 
     const matched = findCatalogServiceByName(stayName);
     const serviceIdEl = itemRow.querySelector('[data-field="service_id"]');
@@ -865,8 +907,8 @@ function createStayEntryRow(entry = {}) {
     <td><select class="form-select form-select-sm stay-type-select" data-field="stay_type_id">${buildStayTypeOptions(entry.stay_type_id)}</select></td>
     <td><input type="date" class="form-control form-control-sm stay-entry-trigger" data-field="from_date" value="${fmtDate(entry.from_date)}"></td>
     <td><input type="date" class="form-control form-control-sm stay-entry-trigger" data-field="to_date" value="${fmtDate(entry.to_date)}"></td>
-    <td><input type="number" min="0" class="form-control form-control-sm stay-entry-trigger" data-field="days" value="${entry.days ?? ''}"></td>
-    <td><input type="number" step="0.01" min="0" class="form-control form-control-sm stay-entry-trigger" data-field="daily_rate" value="${entry.daily_rate ?? ''}"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm stay-entry-trigger comma-amount" data-decimals="0" data-field="days" value="${entry.days != null && entry.days !== '' ? formatAmountInput(entry.days, 0) : ''}"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm stay-entry-trigger comma-amount" data-field="daily_rate" value="${entry.daily_rate != null && entry.daily_rate !== '' ? formatAmountInput(entry.daily_rate) : ''}"></td>
     <td><input type="text" class="form-control form-control-sm row-total" data-field="total" readonly tabindex="-1" value="${entry.total ? fmt(entry.total) : ''}"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger remove-stay-entry-btn" title="حذف">×</button></td>
   `;
@@ -900,6 +942,7 @@ function bindStayEntryTriggers() {
     el.addEventListener('input', onStayEntryInput);
     el.addEventListener('change', onStayEntryInput);
   });
+  bindCommaAmountInputs(document.getElementById('stay-entries-tbody'));
   document.querySelectorAll('.stay-type-select').forEach((el) => {
     el.removeEventListener('change', onStayTypeSelect);
     el.addEventListener('change', onStayTypeSelect);
@@ -946,13 +989,13 @@ function onStayEntryRowChange(row) {
   const fromDate = row.querySelector('[data-field="from_date"]').value;
   const toDate = row.querySelector('[data-field="to_date"]').value;
   const daysInput = row.querySelector('[data-field="days"]');
-  const rate = parseFloat(row.querySelector('[data-field="daily_rate"]').value) || 0;
+  const rate = parseDisplayAmount(row.querySelector('[data-field="daily_rate"]').value);
 
   if (fromDate && toDate) {
-    daysInput.value = calcDaysBetween(fromDate, toDate);
+    daysInput.value = formatAmountInput(calcDaysBetween(fromDate, toDate), 0);
   }
 
-  const days = parseFloat(daysInput.value) || 0;
+  const days = parseDisplayAmount(daysInput.value);
   const total = Math.round(days * rate * 100) / 100;
   row.querySelector('[data-field="total"]').value = total ? fmt(total) : '';
   syncStayDaysFromEntries();
@@ -964,8 +1007,8 @@ function onStayEntryRowChange(row) {
 function updateStayEntryTotalsLocal() {
   let subtotal = 0;
   document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
-    const days = parseFloat(row.querySelector('[data-field="days"]').value) || 0;
-    const rate = parseFloat(row.querySelector('[data-field="daily_rate"]').value) || 0;
+    const days = parseDisplayAmount(row.querySelector('[data-field="days"]').value);
+    const rate = parseDisplayAmount(row.querySelector('[data-field="daily_rate"]').value);
     subtotal += Math.round(days * rate * 100) / 100;
   });
   document.getElementById('stay-subtotal-display').textContent = fmt(subtotal);
@@ -979,13 +1022,13 @@ function collectStayEntries() {
     const toDate = row.querySelector('[data-field="to_date"]').value;
     const days = row.querySelector('[data-field="days"]').value;
     const dailyRate = row.querySelector('[data-field="daily_rate"]').value;
-    if (!stayTypeId && !fromDate && !toDate && !dailyRate) return;
+    if (!stayTypeId && !fromDate && !toDate && !parseDisplayAmount(dailyRate)) return;
     entries.push({
       stay_type_id: stayTypeId || null,
       from_date: fromDate || null,
       to_date: toDate || null,
-      days,
-      daily_rate: dailyRate,
+      days: parseDisplayAmount(days),
+      daily_rate: parseDisplayAmount(dailyRate),
     });
   });
   return entries;
@@ -1083,14 +1126,14 @@ function sumBillableLineTotals() {
   let total = 0;
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
     if (row.dataset.staySync) return;
-    const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
-    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
+    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
     if (desc || qty || amt) total += qty * amt;
   });
   document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
-    const days = parseFloat(row.querySelector('[data-field="days"]')?.value) || 0;
-    const rate = parseFloat(row.querySelector('[data-field="daily_rate"]')?.value) || 0;
+    const days = parseDisplayAmount(row.querySelector('[data-field="days"]')?.value);
+    const rate = parseDisplayAmount(row.querySelector('[data-field="daily_rate"]')?.value);
     if (days || rate) total += days * rate;
   });
   return Math.round(total * 100) / 100;
@@ -1100,7 +1143,7 @@ function sumManualPaymentMethods() {
   let total = 0;
   document.querySelectorAll('.payment-method-input').forEach((input) => {
     if (input.dataset.methodCode === 'patient_credit') return;
-    total += parseFloat(input.value) || 0;
+    total += parseDisplayAmount(input.value);
   });
   return Math.round(total * 100) / 100;
 }
@@ -1131,8 +1174,8 @@ function distributePatientCreditAcrossRows(creditPool) {
     const creditInput = row.querySelector('[data-field="patient_credit_applied"]');
     if (!creditInput) return;
 
-    const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
-    const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
+    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
     const lineTotal = Math.round(qty * amt * 100) / 100;
 
@@ -1143,7 +1186,7 @@ function distributePatientCreditAcrossRows(creditPool) {
 
     const apply = Math.min(lineTotal, remaining);
     remaining = Math.round((remaining - apply) * 100) / 100;
-    creditInput.value = apply > 0 ? String(apply) : '';
+    creditInput.value = apply > 0 ? formatAmountInput(apply) : '';
   });
 }
 
@@ -1154,7 +1197,7 @@ function syncPatientBalanceField() {
 
   if (hasPatientFileNumber()) {
     const net = getPatientNetBalance();
-    balanceEl.value = net;
+    balanceEl.value = formatAmountInput(net);
     balanceEl.readOnly = true;
     balanceEl.classList.add('bg-light');
     balanceEl.classList.toggle('text-danger', net < 0);
@@ -1198,10 +1241,10 @@ function syncPatientCreditPaymentOnly(totals) {
   let changed = false;
 
   getPaymentInputsByCode('patient_credit').forEach((input) => {
-    const current = parseFloat(input.value) || 0;
+    const current = parseDisplayAmount(input.value);
     const nextNum = creditTotal > 0.009 ? creditTotal : 0;
     if (Math.abs(current - nextNum) > 0.009) {
-      input.value = creditTotal > 0.009 ? creditTotal : '';
+      input.value = creditTotal > 0.009 ? formatAmountInput(creditTotal) : '';
       changed = true;
     }
     input.readOnly = true;
@@ -1217,7 +1260,7 @@ function sumLinePatientCredits() {
   let total = 0;
   document.querySelectorAll('#items-tbody tr [data-field="patient_credit_applied"]').forEach((input) => {
     if (input.closest('tr')?.dataset.staySync) return;
-    total += parseFloat(input.value) || 0;
+    total += parseDisplayAmount(input.value);
   });
   return Math.round(total * 100) / 100;
 }
@@ -1243,7 +1286,7 @@ function updatePatientCreditSummary(totals) {
 
 function syncPatientCreditPaymentMethod(amount) {
   getPaymentInputsByCode('patient_credit').forEach((input) => {
-    input.value = amount > 0 ? amount : '';
+    input.value = amount > 0 ? formatAmountInput(amount) : '';
     input.readOnly = true;
     input.classList.add('bg-light');
     const row = input.closest('tr');
@@ -1259,7 +1302,7 @@ async function loadPatientBalance() {
     patientAccountBalance = null;
     hint.style.display = 'none';
     creditWrap.style.display = 'none';
-    document.getElementById('balance').value = '0';
+    document.getElementById('balance').value = formatAmountInput(0);
     syncPatientBalanceField();
     autoApplyPatientCreditToRows();
     await recalculate({ skipAutoCredit: true });
@@ -1363,10 +1406,10 @@ function collectFormData() {
   rows.forEach((row) => {
     if (row.dataset.staySync) return;
     const desc = row.querySelector('[data-field="description"]').value.trim();
-    const qty = parseFloat(row.querySelector('[data-field="quantity"]').value) || 0;
-    const amt = parseFloat(row.querySelector('[data-field="amount"]').value) || 0;
-    const payAmt = parseFloat(row.querySelector('[data-field="pay_amount"]').value) || 0;
-    const creditAmt = parseFloat(row.querySelector('[data-field="patient_credit_applied"]')?.value) || 0;
+    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]').value);
+    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]').value);
+    const payAmt = parseDisplayAmount(row.querySelector('[data-field="pay_amount"]').value);
+    const creditAmt = parseDisplayAmount(row.querySelector('[data-field="patient_credit_applied"]')?.value);
     const receiptDate = row.querySelector('[data-field="receipt_date"]').value;
     const receiptNum = row.querySelector('[data-field="receipt_number"]').value;
 
@@ -1389,7 +1432,7 @@ function collectFormData() {
   });
 
   const methodPayments = collectMethodPayments().filter((entry) => entry.code !== 'patient_credit');
-  const otherPaid = methodPayments.reduce((sum, entry) => sum + (parseFloat(entry.amount) || 0), 0);
+  const otherPaid = methodPayments.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
   const creditSum = hasPatientFileNumber()
     ? computeInvoicePatientCredit(
         Number(lastCalculationTotals?.final_total) || sumBillableLineTotals(),
@@ -1420,14 +1463,14 @@ function collectFormData() {
     patient_name: document.getElementById('patient_name').value,
     admission_date: document.getElementById('admission_date').value,
     discharge_date: document.getElementById('discharge_date').value,
-    stay_days: document.getElementById('stay_days').value,
+    stay_days: parseDisplayAmount(document.getElementById('stay_days').value),
     financial_treatment: document.getElementById('financial_treatment').value,
     stay_entries: collectStayEntries(),
     notes: document.getElementById('notes').value,
-    stamp_duty: document.getElementById('stamp_duty').value,
-    professional_fees: document.getElementById('professional_fees').value,
-    balance: hasPatientFileNumber() ? 0 : document.getElementById('balance').value,
-    admin_expenses_percent: document.getElementById('admin_expenses_percent').value,
+    stamp_duty: parseDisplayAmount(document.getElementById('stamp_duty').value),
+    professional_fees: parseDisplayAmount(document.getElementById('professional_fees').value),
+    balance: hasPatientFileNumber() ? 0 : parseDisplayAmount(document.getElementById('balance').value),
+    admin_expenses_percent: parseDisplayAmount(document.getElementById('admin_expenses_percent').value),
     method_payments: methodPayments,
     employee_name: document.getElementById('employee_name').value,
     auditor_name: document.getElementById('auditor_name').value,
@@ -1444,7 +1487,7 @@ function collectMethodPayments() {
     entries.push({
       payment_method_id: Number(input.dataset.methodId),
       code: input.dataset.methodCode,
-      amount: input.value || 0,
+      amount: parseDisplayAmount(input.value),
     });
   });
   return entries;
@@ -1457,8 +1500,8 @@ async function recalculate(options = {}) {
   const data = collectFormData();
 
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    const qty = parseFloat(row.querySelector('[data-field="quantity"]').value) || 0;
-    const amt = parseFloat(row.querySelector('[data-field="amount"]').value) || 0;
+    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]').value);
+    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]').value);
     const total = Math.round(qty * amt * 100) / 100;
     row.querySelector('[data-field="total"]').value = total ? fmtInt(total) : '';
   });
@@ -1624,7 +1667,7 @@ function updatePaymentValidationUI(t) {
   const hasPayments = validation.has_payments || collected > 0;
 
   document.querySelectorAll('.payment-method-input').forEach((input) => {
-    const amount = parseFloat(input.value) || 0;
+    const amount = parseDisplayAmount(input.value);
     const row = input.closest('tr');
     input.classList.toggle('is-active', amount > 0);
     if (row) row.classList.toggle('payment-row-active', amount > 0);
@@ -1692,7 +1735,7 @@ function fillFullPayment(code) {
   const remainingForCash = Math.max(total - creditSum, 0);
   document.querySelectorAll('.payment-method-input').forEach((input) => {
     if (input.dataset.methodCode === 'patient_credit') return;
-    input.value = input.dataset.methodCode === code ? remainingForCash : 0;
+    input.value = input.dataset.methodCode === code ? formatAmountInput(remainingForCash) : formatAmountInput(0);
   });
   syncPatientCreditPaymentMethod(creditSum);
   recalculate();
@@ -1700,7 +1743,7 @@ function fillFullPayment(code) {
 
 function clearAllPayments() {
   document.querySelectorAll('.payment-method-input').forEach((input) => {
-    input.value = 0;
+    input.value = formatAmountInput(0);
   });
   recalculate();
 }
@@ -1897,11 +1940,11 @@ function resetForm() {
   updateInvoiceStatusUI(null);
   document.getElementById('captain_name').value = 'نقيب / عمرو صالح محمد';
   document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر - المدير المالي';
-  document.getElementById('admin_expenses_percent').value = '12';
-  document.getElementById('stamp_duty').value = '0';
-  document.getElementById('professional_fees').value = '0';
+  document.getElementById('admin_expenses_percent').value = formatAmountInput(12);
+  document.getElementById('stamp_duty').value = formatAmountInput(0);
+  document.getElementById('professional_fees').value = formatAmountInput(0);
   patientAccountBalance = null;
-  document.getElementById('balance').value = '0';
+  document.getElementById('balance').value = formatAmountInput(0);
   syncPatientBalanceField();
   const creditDisplay = document.getElementById('patient_credit_total_display');
   if (creditDisplay) creditDisplay.value = '0';
@@ -1967,17 +2010,17 @@ async function loadInvoiceForEdit(id, options = {}) {
     document.getElementById('issue_date').value = fmtDate(inv.issue_date || inv.created_at);
     document.getElementById('admission_date').value = fmtDate(inv.admission_date);
     document.getElementById('discharge_date').value = fmtDate(inv.discharge_date);
-    document.getElementById('stay_days').value = inv.stay_days;
+    document.getElementById('stay_days').value = inv.stay_days != null && inv.stay_days !== '' ? formatAmountInput(inv.stay_days, 0) : '';
     await loadFinancialTreatments({ financial_treatment: inv.financial_treatment || '' });
     await loadStayTypes();
     initStayEntries(inv.stay_entries || []);
     document.getElementById('notes').value = inv.notes || '';
-    document.getElementById('stamp_duty').value = inv.stamp_duty;
-    document.getElementById('professional_fees').value = inv.professional_fees;
+    document.getElementById('stamp_duty').value = formatAmountInput(inv.stamp_duty ?? 0);
+    document.getElementById('professional_fees').value = formatAmountInput(inv.professional_fees ?? 0);
     if (!inv.file_number) {
-      document.getElementById('balance').value = inv.balance;
+      document.getElementById('balance').value = formatAmountInput(inv.balance ?? 0);
     }
-    document.getElementById('admin_expenses_percent').value = inv.admin_expenses_percent;
+    document.getElementById('admin_expenses_percent').value = formatAmountInput(inv.admin_expenses_percent ?? 0);
 
     const paymentValues = {};
     if (inv.method_payments?.length) {
@@ -2011,15 +2054,15 @@ async function loadInvoiceForEdit(id, options = {}) {
       if (item.discountable_snapshot === false) row.dataset.discountOverride = 'false';
       else if (item.discountable_snapshot === true) row.dataset.discountOverride = 'true';
       else delete row.dataset.discountOverride;
-      row.querySelector('[data-field="quantity"]').value = item.quantity || '';
-      row.querySelector('[data-field="amount"]').value = item.amount || '';
+      row.querySelector('[data-field="quantity"]').value = item.quantity ? formatAmountInput(item.quantity, 0) : '';
+      row.querySelector('[data-field="amount"]').value = item.amount ? formatAmountInput(item.amount) : '';
       const creditField = row.querySelector('[data-field="patient_credit_applied"]');
-      if (creditField) creditField.value = item.patient_credit_applied || '';
+      if (creditField) creditField.value = item.patient_credit_applied ? formatAmountInput(item.patient_credit_applied) : '';
       const pctField = row.querySelector('[data-field="discount_percent"]');
       if (pctField) pctField.value = `${item.item_discount_percent || 0}%`;
       row.querySelector('[data-field="receipt_date"]').value = pay.receipt_date || '';
       row.querySelector('[data-field="receipt_number"]').value = pay.receipt_number || '';
-      row.querySelector('[data-field="pay_amount"]').value = pay.amount || '';
+      row.querySelector('[data-field="pay_amount"]').value = pay.amount ? formatAmountInput(pay.amount) : '';
       if (item.daily_entry_line_id) row.dataset.dailyLineId = item.daily_entry_line_id;
       if (item.daily_entry_id) row.dataset.dailyEntryId = item.daily_entry_id;
     }
@@ -2259,8 +2302,8 @@ function renderStayTypesList(items) {
           <small class="text-muted">سعر اليوم الافتراضي</small>
         </div>
         <div class="d-flex gap-1 align-items-center flex-wrap">
-          <input type="number" step="0.01" min="0" class="form-control form-control-sm fw-bold" style="width:110px"
-            id="stay-rate-${item.id}" value="${item.daily_rate || 0}">
+          <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" style="width:110px"
+            id="stay-rate-${item.id}" value="${formatAmountInput(item.daily_rate || 0)}">
           <button type="button" class="btn btn-sm btn-outline-primary" onclick="saveStayTypeItem(${item.id})">💾</button>
           <button type="button" class="btn btn-sm btn-outline-${item.is_active ? 'warning' : 'success'}"
             onclick="toggleLookupItem('stay', ${item.id}, ${!item.is_active})">${item.is_active ? '⏸️' : '▶️'}</button>
@@ -2276,7 +2319,7 @@ async function saveStayTypeItem(id) {
   const nameInput = document.querySelector(`.admin-lookup-name[data-kind="stay"][data-id="${id}"]`);
   const rateInput = document.getElementById(`stay-rate-${id}`);
   const name = nameInput?.value.trim();
-  const daily_rate = parseFloat(rateInput?.value) || 0;
+  const daily_rate = parseDisplayAmount(rateInput?.value);
   if (!name) return showToast('اسم نوع الإقامة مطلوب', 'warning');
   try {
     const res = await apiFetch(`${SETTINGS_API}/stay-types/${id}`, {
@@ -2379,6 +2422,7 @@ async function loadPaymentMethodsForm(values = {}) {
     let html = amountMethods
       .map((m, i) => {
         const val = values[m.id] ?? values[m.code] ?? 0;
+        const displayVal = val ? formatAmountInput(val) : '';
         const isPatientCredit = m.code === 'patient_credit';
         const readonlyAttr = isPatientCredit ? 'readonly' : '';
         const extraClass = isPatientCredit ? ' bg-light' : '';
@@ -2388,8 +2432,8 @@ async function loadPaymentMethodsForm(values = {}) {
         const labelSuffix = isPatientCredit ? ' <small class="text-muted">(تلقائي من البيان)</small>' : '';
         return `<tr class="payment-method-row" data-method-code="${m.code}">
           <td class="fw-bold">${i + 1} - ${m.name}${labelSuffix}</td>
-          <td><input type="number" step="0.01" min="0" class="form-control form-control-sm payment-method-input${extraClass}"
-            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${val}" placeholder="0.00" ${readonlyAttr}></td>
+          <td><input type="text" inputmode="decimal" class="form-control form-control-sm payment-method-input comma-amount${extraClass}"
+            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${displayVal}" placeholder="0.00" ${readonlyAttr}></td>
           <td class="text-center">${actionCell}</td>
         </tr>
         <tr class="payment-row-remaining" style="display:none"><td colspan="3" class="remaining-hint-text py-1"></td></tr>`;
@@ -2591,8 +2635,8 @@ function renderContractedEntitiesList(items) {
         <div class="d-flex gap-1 align-items-center flex-wrap">
           <input type="text" class="form-control form-control-sm fw-bold admin-lookup-name" style="max-width:180px"
             data-id="${item.id}" data-kind="entity" value="${escapeAttr(item.name)}">
-          <input type="number" step="0.01" min="0" max="100" class="form-control form-control-sm" style="width:80px"
-            id="entity-discount-${item.id}" value="${item.discount_percent || 0}">
+          <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" style="width:80px"
+            id="entity-discount-${item.id}" value="${formatAmountInput(item.discount_percent || 0)}">
           <button type="button" class="btn btn-sm btn-outline-primary" onclick="saveEntityItem(${item.id})">💾</button>
           <button type="button" class="btn btn-sm btn-outline-${item.is_active ? 'warning' : 'success'}"
             onclick="toggleLookupItem('entity', ${item.id}, ${!item.is_active})">${item.is_active ? '⏸️' : '▶️'}</button>
@@ -2608,7 +2652,7 @@ async function saveEntityItem(id) {
   const nameInput = document.querySelector(`.admin-lookup-name[data-kind="entity"][data-id="${id}"]`);
   const discountInput = document.getElementById(`entity-discount-${id}`);
   const name = nameInput?.value.trim();
-  const discount_percent = parseFloat(discountInput?.value) || 0;
+  const discount_percent = parseDisplayAmount(discountInput?.value);
   if (!name) return showToast('اسم الجهة مطلوب', 'warning');
   try {
     const res = await apiFetch(`${SETTINGS_API}/contracted-entities/${id}`, {
@@ -2628,7 +2672,7 @@ async function saveEntityItem(id) {
 async function addContractedEntity() {
   const name = document.getElementById('new-entity-name').value.trim();
   const parent_id = document.getElementById('new-entity-parent').value || null;
-  const discount_percent = parseFloat(document.getElementById('new-entity-discount').value) || 0;
+  const discount_percent = parseDisplayAmount(document.getElementById('new-entity-discount').value);
   if (!name) return showToast('اسم الجهة مطلوب', 'warning');
   try {
     const res = await apiFetch(`${SETTINGS_API}/contracted-entities`, {
@@ -2703,6 +2747,8 @@ async function loadSettingsPage() {
     document.getElementById('payment-methods-list').innerHTML = renderAdminLookupList(paymentMethods, 'payment');
     document.getElementById('contracted-entities-list').innerHTML = renderContractedEntitiesList(entities);
     document.getElementById('discount-exclusions-list').innerHTML = renderAdminLookupList(exclusions, 'exclusion');
+    bindCommaAmountInputs(document.getElementById('stay-types-list'));
+    bindCommaAmountInputs(document.getElementById('contracted-entities-list'));
 
     await loadInvoiceTypes();
     await loadFinancialTreatments();
@@ -2743,7 +2789,7 @@ async function addStayType() {
   const input = document.getElementById('new-stay-type');
   const rateInput = document.getElementById('new-stay-rate');
   const name = input.value.trim();
-  const daily_rate = parseFloat(rateInput?.value) || 0;
+  const daily_rate = parseDisplayAmount(rateInput?.value);
   if (!name) return showToast('اكتب اسم نوع الإقامة', 'warning');
 
   try {
@@ -3238,11 +3284,12 @@ async function loadPricingSection() {
         .join('');
     }
 
-    document.getElementById('pricing-admin-fee-rate').value = settings.administrative_fee_rate ?? '12';
-    document.getElementById('pricing-file-opening-fee').value = settings.file_opening_fee ?? '50';
-    document.getElementById('pricing-ambulance-fee').value = settings.ambulance_rental_cairo ?? '3000';
-    document.getElementById('pricing-foreign-resident').value = settings.foreign_resident_multiplier ?? '150';
-    document.getElementById('pricing-foreign-non-resident').value = settings.foreign_non_resident_multiplier ?? '200';
+    document.getElementById('pricing-admin-fee-rate').value = formatAmountInput(settings.administrative_fee_rate ?? 12);
+    document.getElementById('pricing-file-opening-fee').value = formatAmountInput(settings.file_opening_fee ?? 50);
+    document.getElementById('pricing-ambulance-fee').value = formatAmountInput(settings.ambulance_rental_cairo ?? 3000);
+    document.getElementById('pricing-foreign-resident').value = formatAmountInput(settings.foreign_resident_multiplier ?? 150);
+    document.getElementById('pricing-foreign-non-resident').value = formatAmountInput(settings.foreign_non_resident_multiplier ?? 200);
+    bindCommaAmountInputs(document.getElementById('pricing-settings-card'));
 
     await loadPricingCategories();
     await loadPricingServices();
@@ -3352,11 +3399,11 @@ async function onPricingListChange() {
 async function savePricingSettings() {
   try {
     const body = {
-      administrative_fee_rate: document.getElementById('pricing-admin-fee-rate').value,
-      file_opening_fee: document.getElementById('pricing-file-opening-fee').value,
-      ambulance_rental_cairo: document.getElementById('pricing-ambulance-fee').value,
-      foreign_resident_multiplier: document.getElementById('pricing-foreign-resident').value,
-      foreign_non_resident_multiplier: document.getElementById('pricing-foreign-non-resident').value,
+      administrative_fee_rate: parseDisplayAmount(document.getElementById('pricing-admin-fee-rate').value),
+      file_opening_fee: parseDisplayAmount(document.getElementById('pricing-file-opening-fee').value),
+      ambulance_rental_cairo: parseDisplayAmount(document.getElementById('pricing-ambulance-fee').value),
+      foreign_resident_multiplier: parseDisplayAmount(document.getElementById('pricing-foreign-resident').value),
+      foreign_non_resident_multiplier: parseDisplayAmount(document.getElementById('pricing-foreign-non-resident').value),
     };
     const res = await apiFetch(`${PRICING_API}/settings`, {
       method: 'PUT',
@@ -3477,7 +3524,7 @@ async function openServiceEditor(id = null) {
     document.getElementById('service-edit-code').value = svc.code || '';
     document.getElementById('service-edit-name').value = svc.name || '';
     document.getElementById('service-edit-unit').value = svc.unit || 'مرة';
-    document.getElementById('service-edit-price').value = svc.price ?? 0;
+    document.getElementById('service-edit-price').value = svc.price != null ? formatAmountInput(svc.price) : '';
     document.getElementById('service-edit-price-type').value = svc.price_type || 'fixed';
     document.getElementById('service-edit-discountable').checked = !!svc.discountable;
     document.getElementById('service-edit-admin-fee').checked = !!svc.administrative_fee_applicable;
@@ -3496,6 +3543,7 @@ async function openServiceEditor(id = null) {
     document.getElementById('service-edit-active').checked = true;
     document.getElementById('service-edit-notes').value = '';
   }
+  bindCommaAmountInputs(document.getElementById('service-edit-modal'));
   serviceEditModal.show();
 }
 
@@ -3519,19 +3567,20 @@ function renderServiceComponentsEditor(components = []) {
     .map(
       (c, i) => `<div class="row g-1 mb-1 component-row" data-index="${i}">
         <div class="col-md-4"><input class="form-control form-control-sm fw-bold comp-name" value="${escapeAttr(c.name || '')}"></div>
-        <div class="col-md-3"><input type="number" step="0.01" class="form-control form-control-sm fw-bold comp-amount" value="${c.amount ?? 0}"></div>
+        <div class="col-md-3"><input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comp-amount comma-amount" value="${c.amount != null ? formatAmountInput(c.amount) : formatAmountInput(0)}"></div>
         <div class="col-md-2"><label class="small"><input type="checkbox" class="comp-discountable" ${c.discountable !== false ? 'checked' : ''}> خصم</label></div>
         <div class="col-md-2"><label class="small"><input type="checkbox" class="comp-admin" ${c.administrative_fee_applicable !== false ? 'checked' : ''}> إداري</label></div>
         <div class="col-md-1"><label class="small"><input type="checkbox" class="comp-total" ${c.is_total ? 'checked' : ''}> ∑</label></div>
       </div>`
     )
     .join('');
+  bindCommaAmountInputs(container);
 }
 
 function collectServiceComponentsFromEditor() {
   return [...document.querySelectorAll('#service-edit-components .component-row')].map((row, sort_order) => ({
     name: row.querySelector('.comp-name')?.value || '',
-    amount: Number(row.querySelector('.comp-amount')?.value) || 0,
+    amount: parseDisplayAmount(row.querySelector('.comp-amount')?.value),
     discountable: row.querySelector('.comp-discountable')?.checked ?? true,
     administrative_fee_applicable: row.querySelector('.comp-admin')?.checked ?? true,
     is_total: row.querySelector('.comp-total')?.checked ?? false,
@@ -3546,7 +3595,7 @@ async function saveServiceEditor() {
     code: document.getElementById('service-edit-code').value.trim(),
     name: document.getElementById('service-edit-name').value.trim(),
     unit: document.getElementById('service-edit-unit').value.trim() || 'مرة',
-    price: Number(document.getElementById('service-edit-price').value) || 0,
+    price: parseDisplayAmount(document.getElementById('service-edit-price').value),
     price_type: document.getElementById('service-edit-price-type').value,
     discountable: document.getElementById('service-edit-discountable').checked,
     administrative_fee_applicable: document.getElementById('service-edit-admin-fee').checked,
@@ -3577,6 +3626,12 @@ async function saveServiceEditor() {
 
 window.loadInvoiceForEdit = loadInvoiceForEdit;
 window.loadFinancialTreatments = loadFinancialTreatments;
+window.parseDisplayAmount = parseDisplayAmount;
+window.formatAmountInput = formatAmountInput;
+window.setCommaAmountValue = setCommaAmountValue;
+window.bindCommaAmountInputs = bindCommaAmountInputs;
+window.fmt = fmt;
+window.fmtInt = fmtInt;
 window.deleteInvoice = deleteInvoice;
 window.quickApproveInvoice = quickApproveInvoice;
 window.selectPatientForReport = selectPatientForReport;

@@ -51,7 +51,7 @@ function updateDailyInvoicePanel(ctx) {
     periodEl.textContent = `${fmtStayDate(inv.admission_date) || '—'} → ${fmtStayDate(inv.discharge_date) || '—'}`;
   }
   const daysEl = document.getElementById('daily-inv-days');
-  if (daysEl) daysEl.textContent = ctx.daily_summary?.entry_count ?? 0;
+  if (daysEl) daysEl.textContent = dailyFmtInt(ctx.daily_summary?.entry_count ?? 0);
   const dailyTotalEl = document.getElementById('daily-inv-daily-total');
   if (dailyTotalEl) dailyTotalEl.textContent = dailyFmt(ctx.daily_summary?.daily_total_sum ?? 0);
   const finalEl = document.getElementById('daily-inv-final-total');
@@ -67,7 +67,12 @@ function applyDailyStayContext(ctx) {
     document.getElementById('daily-stay-file-number').value = ctx.patient.file_number || '';
     document.getElementById('daily-stay-patient-name').value = ctx.patient.name || ctx.invoice?.patient_name || '';
     if (ctx.patient.account_balance != null) {
-      document.getElementById('daily-stay-balance').value = ctx.patient.account_balance;
+      const balanceEl = document.getElementById('daily-stay-balance');
+      if (typeof setCommaAmountValue === 'function') {
+        setCommaAmountValue(balanceEl, ctx.patient.account_balance);
+      } else {
+        balanceEl.value = dailyFormatInput(ctx.patient.account_balance);
+      }
     }
   }
   if (ctx?.invoice) {
@@ -95,6 +100,9 @@ function applyDailyStayContext(ctx) {
   }
 
   updateDailyInvoicePanel(ctx);
+  if (typeof bindCommaAmountInputs === 'function') {
+    bindCommaAmountInputs(document.getElementById('view-daily'));
+  }
   if (hasOpenInvoice) sessionStorage.setItem('dailyStayFileNumber', getStayFileNumber());
 }
 
@@ -141,7 +149,7 @@ async function saveOpenPatientStay() {
         admission_date,
         discharge_date,
         financial_treatment: document.getElementById('daily-stay-financial')?.value || '',
-        account_balance: document.getElementById('daily-stay-balance')?.value,
+        account_balance: dailyParseAmount(document.getElementById('daily-stay-balance')?.value),
       }),
     });
     const data = await res.json();
@@ -170,9 +178,32 @@ function dailyCan(view) {
   return typeof can === 'function' && (can(view) || can('daily_charges.view') || can('daily_charges.manage'));
 }
 
+function dailyParseAmount(text) {
+  if (typeof parseDisplayAmount === 'function') return parseDisplayAmount(text);
+  return parseFloat(String(text || '').replace(/,/g, '')) || 0;
+}
+
+function dailyFormatNumber(n, decimals = 2) {
+  const num = Number(n) || 0;
+  return num.toLocaleString('en-US', {
+    minimumFractionDigits: decimals === 0 ? 0 : 2,
+    maximumFractionDigits: decimals,
+  });
+}
+
 function dailyFmt(n) {
-  if (typeof fmt === 'function') return fmt(n);
-  return Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  return dailyFormatNumber(n, 2);
+}
+
+function dailyFmtInt(n) {
+  return dailyFormatNumber(n, 0);
+}
+
+function dailyFormatInput(n, decimals = 2) {
+  if (n === '' || n === null || n === undefined) return '';
+  const num = Number(n);
+  if (Number.isNaN(num)) return '';
+  return dailyFormatNumber(num, decimals);
 }
 
 async function loadDailySections() {
@@ -198,7 +229,7 @@ function renderDailyCell(section) {
     section.services?.length > 0
       ? `<select class="form-select form-select-sm mb-1 daily-service" data-section="${section.code}"><option value="">— خدمة —</option>${serviceOptions}</select>`
       : '';
-  return `<td>${serviceSelect}<input type="number" step="0.01" min="0" class="form-control form-control-sm daily-field daily-amount" data-section="${section.code}" data-type="amount" placeholder="0"></td>`;
+  return `<td>${serviceSelect}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" placeholder="0.00"></td>`;
 }
 
 function renderDailySectionsTable() {
@@ -256,6 +287,7 @@ function renderDailySectionsTable() {
     el.addEventListener('input', updateDailyTotalDisplay);
     el.addEventListener('change', onDailyServicePick);
   });
+  if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(row);
 }
 
 function onDailyServicePick(event) {
@@ -263,9 +295,11 @@ function onDailyServicePick(event) {
   if (!select.classList.contains('daily-service')) return;
   const section = select.dataset.section;
   const option = select.selectedOptions[0];
-  const price = parseFloat(option?.dataset.price) || 0;
+  const price = dailyParseAmount(option?.dataset.price);
   const amountInput = document.querySelector(`.daily-amount[data-section="${section}"]`);
-  if (amountInput && price > 0 && !amountInput.value) amountInput.value = price;
+  if (amountInput && price > 0 && !dailyParseAmount(amountInput.value)) {
+    amountInput.value = typeof formatAmountInput === 'function' ? formatAmountInput(price) : String(price);
+  }
   updateDailyTotalDisplay();
 }
 
@@ -282,7 +316,7 @@ function collectDailyLinesFromForm() {
     return {
       section_code: section.code,
       service_id: serviceSelect?.value ? Number(serviceSelect.value) : null,
-      amount: parseFloat(field?.value) || 0,
+      amount: dailyParseAmount(field?.value),
       quantity: 1,
     };
   });
@@ -294,7 +328,7 @@ function updateDailyTotalDisplay() {
   );
   let total = 0;
   document.querySelectorAll('.daily-amount').forEach((input) => {
-    if (amountSections.has(input.dataset.section)) total += parseFloat(input.value) || 0;
+    if (amountSections.has(input.dataset.section)) total += dailyParseAmount(input.value);
   });
   const display = document.getElementById('daily-total-display');
   if (display) display.textContent = dailyFmt(Math.round(total * 100) / 100);
@@ -327,7 +361,7 @@ function fillDailyFormFromEntry(entry) {
     if (!section || !field) continue;
     if (section.input_type === 'date') field.value = line.extra_date ? String(line.extra_date).slice(0, 10) : '';
     else if (section.input_type === 'text') field.value = line.extra_text || '';
-    else field.value = line.amount || '';
+    else field.value = line.amount ? (typeof formatAmountInput === 'function' ? formatAmountInput(line.amount) : line.amount) : '';
     if (serviceSelect && line.service_id) serviceSelect.value = line.service_id;
   }
   updateDailyTotalDisplay();
@@ -489,6 +523,9 @@ async function initDailyChargesView() {
     document.getElementById('daily-entry-date').value = new Date().toISOString().slice(0, 10);
   }
   await loadDailyStayTypes();
+  if (typeof bindCommaAmountInputs === 'function') {
+    bindCommaAmountInputs(document.getElementById('view-daily'));
+  }
   const savedFile = sessionStorage.getItem('dailyStayFileNumber');
   if (savedFile) {
     document.getElementById('daily-stay-file-number').value = savedFile;
@@ -515,8 +552,20 @@ function appendInvoiceItemRow(item) {
   targetRow.querySelector('[data-field="description"]').value = item.description || '';
   const serviceIdEl = targetRow.querySelector('[data-field="service_id"]');
   if (serviceIdEl) serviceIdEl.value = item.service_id || '';
-  targetRow.querySelector('[data-field="quantity"]').value = item.quantity || 1;
-  targetRow.querySelector('[data-field="amount"]').value = item.amount || 0;
+  targetRow.querySelector('[data-field="quantity"]').value =
+    item.quantity != null && item.quantity !== ''
+      ? typeof formatAmountInput === 'function'
+        ? formatAmountInput(item.quantity, 0)
+        : item.quantity
+      : typeof formatAmountInput === 'function'
+        ? formatAmountInput(1, 0)
+        : 1;
+  targetRow.querySelector('[data-field="amount"]').value =
+    item.amount != null && item.amount !== ''
+      ? typeof formatAmountInput === 'function'
+        ? formatAmountInput(item.amount)
+        : item.amount
+      : '';
   if (item.daily_entry_line_id) targetRow.dataset.dailyLineId = item.daily_entry_line_id;
   if (item.daily_entry_id) targetRow.dataset.dailyEntryId = item.daily_entry_id;
 }
@@ -542,8 +591,8 @@ function syncDailyChargeRowsFromTotals(totalsItems = []) {
   if (added > 0) {
     document.querySelectorAll('#items-tbody tr').forEach((row) => {
       if (row.dataset.staySync) return;
-      const qty = parseFloat(row.querySelector('[data-field="quantity"]')?.value) || 0;
-      const amt = parseFloat(row.querySelector('[data-field="amount"]')?.value) || 0;
+      const qty = dailyParseAmount(row.querySelector('[data-field="quantity"]')?.value);
+      const amt = dailyParseAmount(row.querySelector('[data-field="amount"]')?.value);
       const total = Math.round(qty * amt * 100) / 100;
       const totalEl = row.querySelector('[data-field="total"]');
       if (totalEl) totalEl.value = total ? (typeof fmtInt === 'function' ? fmtInt(total) : total) : '';
