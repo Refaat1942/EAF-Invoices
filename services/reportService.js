@@ -325,7 +325,7 @@ async function getDailyItemsReport(kind, filters = {}) {
       name: patient?.name || mappedRows[0]?.patient_name || '',
     },
     filters: {
-      file_number,
+      file_number: fileNumber,
       from_date: filters.from_date || null,
       to_date: filters.to_date || null,
     },
