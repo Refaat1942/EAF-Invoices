@@ -85,6 +85,32 @@ function formatInvoiceLineDescriptionHtml(item) {
   return escapeHtml(text);
 }
 
+function hasLatinText(text) {
+  return /[A-Za-z]/.test(String(text || ''));
+}
+
+function formatDailyReportTextHtml(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return '';
+  if (hasLatinText(value)) {
+    return `<span class="cell-ltr">${escapeHtml(value)}</span>`;
+  }
+  return escapeHtml(value);
+}
+
+function dailyReportLatinCellClass(text, baseClass = '') {
+  const classes = [baseClass, hasLatinText(text) ? 'ltr-cell' : ''].filter(Boolean);
+  return classes.join(' ');
+}
+
+function dailyReportItemNameCellClass(text) {
+  return dailyReportLatinCellClass(text, 'desc');
+}
+
+function dailyReportUnitCellClass(text) {
+  return dailyReportLatinCellClass(text, 'unit');
+}
+
 function enrichInvoice(invoice) {
   const totals = calculateInvoiceTotals({
     ...invoice,
@@ -688,16 +714,16 @@ function buildDailyItemsRows(report) {
            <td class="num">${row.selling_price != null ? fmtPlain(row.selling_price) : '—'}</td>`
         : '';
       return `<tr>
-        <td>${escapeHtml(row.patient_name || '')}</td>
-        <td>${escapeHtml(row.file_number || '')}</td>
-        <td>${formatDate(row.entry_date)}</td>
-        <td class="desc">${escapeHtml(row.item_name || '')}</td>
-        <td>${escapeHtml(row.category || '')}</td>
-        <td class="num">${row.quantity ?? ''}</td>
-        <td>${escapeHtml(row.unit || '')}</td>
-        <td class="num">${fmtPlain(row.unit_price)}</td>
+        <td class="${dailyReportLatinCellClass(row.patient_name)}">${formatDailyReportTextHtml(row.patient_name)}</td>
+        <td class="${dailyReportLatinCellClass(row.file_number, 'file-cell')}">${formatDailyReportTextHtml(row.file_number)}</td>
+        <td class="date-cell">${formatDate(row.entry_date)}</td>
+        <td class="${dailyReportItemNameCellClass(row.item_name)} col-item">${formatDailyReportTextHtml(row.item_name)}</td>
+        <td class="desc">${escapeHtml(row.category || '')}</td>
+        <td class="num col-qty">${row.quantity ?? ''}</td>
+        <td class="${dailyReportUnitCellClass(row.unit)} col-unit">${formatDailyReportTextHtml(row.unit)}</td>
+        <td class="num col-price">${fmtPlain(row.unit_price)}</td>
         ${suppliesCells}
-        <td class="num">${fmtPlain(row.total)}</td>
+        <td class="num col-total">${fmtPlain(row.total)}</td>
       </tr>`;
     })
     .join('');
@@ -830,8 +856,42 @@ function buildDailyItemsHtml(report, options = {}) {
       background: #d9d9d9;
       font-weight: 900;
     }
-    table.items-table .desc { text-align: right; }
-    table.items-table .num { font-variant-numeric: tabular-nums; }
+    table.items-table .desc,
+    table.items-table .unit {
+      text-align: right;
+      padding-right: 4px;
+      unicode-bidi: plaintext;
+      font-family: Arial, 'Cairo', sans-serif;
+      white-space: normal;
+      word-break: break-word;
+    }
+    table.items-table .ltr-cell {
+      direction: ltr;
+      text-align: right;
+      unicode-bidi: isolate;
+      white-space: nowrap;
+    }
+    table.items-table .cell-ltr {
+      white-space: nowrap;
+    }
+    table.items-table .num {
+      direction: ltr;
+      unicode-bidi: embed;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    table.items-table .date-cell {
+      white-space: nowrap;
+    }
+    .col-patient { width: 11%; }
+    .col-file { width: 10%; }
+    .col-date { width: 8%; }
+    .col-item { width: 20%; }
+    .col-category { width: 8%; }
+    .col-qty { width: 6%; }
+    .col-unit { width: 7%; }
+    .col-price { width: 9%; }
+    .col-total { width: 9%; }
     .summary-row td { background: #fff3cd; font-weight: 900; }
   </style>
 </head>
@@ -859,14 +919,14 @@ function buildDailyItemsHtml(report, options = {}) {
     <table class="items-table">
       <thead>
         <tr>
-          <th>المريض</th>
-          <th>رقم الملف</th>
-          <th>التاريخ</th>
-          <th>اسم الصنف</th>
-          <th>الفئة</th>
-          <th>الكمية</th>
-          <th>الوحدة</th>
-          <th>سعر الوحدة</th>
+          <th class="col-patient">المريض</th>
+          <th class="col-file">رقم الملف</th>
+          <th class="col-date">التاريخ</th>
+          <th class="col-item">اسم الصنف</th>
+          <th class="col-category">الفئة</th>
+          <th class="col-qty">الكمية</th>
+          <th class="col-unit">الوحدة</th>
+          <th class="col-price">سعر الوحدة</th>
           ${suppliesHeaders}
           <th>الإجمالي</th>
         </tr>
