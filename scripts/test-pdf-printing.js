@@ -34,6 +34,8 @@ const { recordInvoiceReturns } = require('../services/invoiceReturnService');
 const TEST_FILE = 'PDF-E2E-PRINT';
 const TEST_PREFIX = 'PDF-E2E';
 const TEST_PRICE_LIST_CODE = 'PDF-E2E-PL';
+const CUSTOMER_MEDICINES_LABEL = DEFAULT_SECTION_LABELS.medicines;
+const CUSTOMER_SUPPLIES_LABEL = DEFAULT_SECTION_LABELS.supplies;
 const CODES = {
   med: '9030001',
   supply: '9030002',
@@ -126,6 +128,46 @@ function assertTextContains(reportType, text, label, needle) {
   if (!hay.includes(needle)) {
     fail(reportType, label, `contains «${needle}»`, hay.slice(0, 400));
   }
+}
+
+function normalizeArabicForMatch(text) {
+  return String(text || '')
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function assertTextContainsNormalized(reportType, text, label, needle) {
+  const hay = normalizeArabicForMatch(text);
+  const normalizedNeedle = normalizeArabicForMatch(needle);
+  if (!hay.includes(normalizedNeedle)) {
+    const withoutAl = normalizedNeedle.replace(/^ال/, '');
+    if (withoutAl && hay.includes(withoutAl)) return;
+    fail(reportType, label, `contains «${needle}»`, String(text || '').slice(0, 400));
+  }
+}
+
+function assertPdfBufferContainsUtf8(reportType, buffer, label, needle) {
+  const haystack = Buffer.isBuffer(buffer) ? buffer : Buffer.from('');
+  const needleBuf = Buffer.from(String(needle), 'utf8');
+  if (!haystack.includes(needleBuf)) {
+    fail(reportType, label, `UTF-8 contains «${needle}»`, haystack.length);
+  }
+}
+
+function assertPdfBufferNotContainsUtf8(reportType, buffer, label, needle) {
+  const haystack = Buffer.isBuffer(buffer) ? buffer : Buffer.from('');
+  const needleBuf = Buffer.from(String(needle), 'utf8');
+  if (haystack.includes(needleBuf)) {
+    fail(reportType, label, `UTF-8 does not contain «${needle}»`, 'found in PDF buffer');
+  }
+}
+
+function resolveCatalogProductLabel(item, fallback = '') {
+  return String(item?.description || item?.service_name_snapshot || fallback).trim();
 }
 
 function assertHtmlContains(reportType, html, label, needle) {
@@ -371,25 +413,36 @@ async function validateFinalInvoice(reportType, invoice) {
 
   const enriched = enrichInvoice(invoice);
   const html = buildInvoiceHtml(enriched, { baseUrl: 'http://localhost:3000', showQr: false });
+  const htmlText = htmlToText(html);
+  const medItem = enriched.items.find((i) => i.section_code === 'medicines');
+  const supplyItem = enriched.items.find((i) => i.section_code === 'supplies');
+  const medProductName = resolveCatalogProductLabel(medItem, SPECS.med.name);
+  const supplyProductName = resolveCatalogProductLabel(supplyItem, SPECS.supply.name);
 
   assertHtmlContains(reportType, html, 'patient name', invoice.patient_name);
   assertHtmlContains(reportType, html, 'file number', invoice.file_number);
   assertHtmlContains(reportType, html, 'serial number', invoice.serial_number);
-  assertHtmlContains(reportType, html, 'medicines section label', DEFAULT_SECTION_LABELS.medicines);
-  assertHtmlContains(reportType, html, 'supplies section label', DEFAULT_SECTION_LABELS.supplies);
-  assertTrue(reportType, 'med item name hidden', !htmlToText(html).includes(SPECS.med.name), SPECS.med.name);
-  assertTrue(reportType, 'supply item name hidden', !htmlToText(html).includes(SPECS.supply.name), SPECS.supply.name);
+  assertHtmlContains(reportType, html, 'medicines section label', CUSTOMER_MEDICINES_LABEL);
+  assertHtmlContains(reportType, html, 'supplies section label', CUSTOMER_SUPPLIES_LABEL);
+  assertTrue(reportType, 'med item name hidden', !htmlText.includes(medProductName), medProductName);
+  assertTrue(reportType, 'supply item name hidden', !htmlText.includes(supplyProductName), supplyProductName);
   assertHtmlContains(reportType, html, 'lab service name', SPECS.lab.name);
   assertHtmlContains(reportType, html, 'xray service name', SPECS.xray.name);
   assertHtmlContains(reportType, html, 'aggregated med total', fmtAmount(SPECS.med.lineTotal));
   assertHtmlContains(reportType, html, 'aggregated supply total', fmtAmount(SPECS.supply.lineTotal));
+  assertEq(
+    reportType,
+    'final total unchanged',
+    enriched.final_total,
+    invoice.final_total ?? enriched.final_total_raw
+  );
   assertHtmlContains(reportType, html, 'final total', fmtAmount(enriched.final_total));
   assertHtmlContains(reportType, html, 'total collected', fmtAmount(enriched.total_collected));
   assertHtmlContains(reportType, html, 'remaining', fmtAmount(enriched.remaining));
   assertHtmlContains(reportType, html, 'admin expenses', fmtAmount(enriched.admin_expenses));
 
-  const supplyItem = enriched.items.find((i) => i.description?.includes(SPECS.supply.name));
-  assertTrue(reportType, 'supply invoice item', Boolean(supplyItem), 'missing');
+  assertTrue(reportType, 'medicine invoice item preserved', Boolean(medItem), 'missing');
+  assertTrue(reportType, 'supply invoice item preserved', Boolean(supplyItem), 'missing');
   assertEq(reportType, 'supply cost snapshot', supplyItem.cost_price_snapshot, SPECS.supply.cost);
   assertEq(reportType, 'supply markup snapshot', supplyItem.markup_percent_snapshot, SPECS.supply.markup);
   assertEq(reportType, 'supply selling snapshot', supplyItem.selling_price_snapshot, SPECS.supply.unitPrice);
@@ -398,13 +451,33 @@ async function validateFinalInvoice(reportType, invoice) {
   try {
     const pdfBuf = await generatePdfBuffer(enriched, 'http://localhost:3000', { logoUrl: '' });
     await assertPdfBuffer(reportType, pdfBuf, 'invoice PDF');
+    assertPdfBufferContainsUtf8(reportType, pdfBuf, 'PDF medicines label', CUSTOMER_MEDICINES_LABEL);
+    assertPdfBufferContainsUtf8(reportType, pdfBuf, 'PDF supplies label', CUSTOMER_SUPPLIES_LABEL);
+    assertPdfBufferNotContainsUtf8(reportType, pdfBuf, 'PDF med name hidden', medProductName);
+    assertPdfBufferNotContainsUtf8(reportType, pdfBuf, 'PDF supply name hidden', supplyProductName);
     const pdfText = await extractPdfText(pdfBuf);
     if (pdfText) {
       assertTextContains(reportType, pdfText, 'PDF patient name', invoice.patient_name);
       assertTextContains(reportType, pdfText, 'PDF file number', invoice.file_number);
-      assertTextContains(reportType, pdfText, 'PDF medicines label', DEFAULT_SECTION_LABELS.medicines);
-      assertTrue(reportType, 'PDF med name hidden', !pdfText.includes(SPECS.med.name), SPECS.med.name);
+      assertTextContainsNormalized(reportType, pdfText, 'PDF medicines label', CUSTOMER_MEDICINES_LABEL);
+      assertTextContainsNormalized(reportType, pdfText, 'PDF supplies label', CUSTOMER_SUPPLIES_LABEL);
+      assertTextContains(reportType, pdfText, 'PDF lab service name', SPECS.lab.name);
+      assertTextContains(reportType, pdfText, 'PDF xray service name', SPECS.xray.name);
+      assertTextContains(reportType, pdfText, 'PDF aggregated med total', fmtAmount(SPECS.med.lineTotal));
+      assertTextContains(reportType, pdfText, 'PDF aggregated supply total', fmtAmount(SPECS.supply.lineTotal));
       assertTextContains(reportType, pdfText, 'PDF final total', fmtAmount(enriched.final_total));
+      assertTrue(
+        reportType,
+        'PDF med name hidden',
+        !normalizeArabicForMatch(pdfText).includes(normalizeArabicForMatch(medProductName)),
+        medProductName
+      );
+      assertTrue(
+        reportType,
+        'PDF supply name hidden',
+        !normalizeArabicForMatch(pdfText).includes(normalizeArabicForMatch(supplyProductName)),
+        supplyProductName
+      );
     }
   } catch (err) {
     console.log(`SKIP invoice PDF generation: ${err.message}`);
