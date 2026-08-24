@@ -617,6 +617,42 @@ async function prepareEntrySaveContext(data) {
   };
 }
 
+async function resolveEntryDoctorFields(data, existing = null, client = null) {
+  const { getDoctorById, normalizeDoctorText } = require('./doctorService');
+  const doctorId = Number(data.doctor_id) || null;
+  const specialtyInput = normalizeDoctorText(data.doctor_specialty || data.specialty || '');
+
+  if (!doctorId) {
+    return {
+      doctor_id: null,
+      doctor_specialty: specialtyInput,
+      doctor_name_snapshot: '',
+      doctor_department_snapshot: '',
+    };
+  }
+
+  const doctor = await getDoctorById(doctorId, client);
+  if (!doctor) throw new Error('الطبيب غير موجود');
+  const keepingSameInactive =
+    existing && Number(existing.doctor_id) === doctor.id && !doctor.is_active;
+  if (!doctor.is_active && !keepingSameInactive) {
+    throw new Error('لا يمكن اختيار طبيب غير نشط');
+  }
+  if (
+    specialtyInput &&
+    normalizeDoctorText(doctor.specialty).toLowerCase() !== specialtyInput.toLowerCase()
+  ) {
+    throw new Error('التخصص المختار لا يطابق الطبيب');
+  }
+
+  return {
+    doctor_id: doctor.id,
+    doctor_specialty: doctor.specialty,
+    doctor_name_snapshot: doctor.name,
+    doctor_department_snapshot: doctor.department,
+  };
+}
+
 async function persistEntryInTransaction(client, data, user, context = null) {
   const ctx = context || await prepareEntrySaveContext(data);
   const { patient, entryDate, lines, dailyTotal } = ctx;
@@ -644,14 +680,27 @@ async function persistEntryInTransaction(client, data, user, context = null) {
 
   let entryId = entryIdInput || existing?.id || null;
   const action = existing ? 'update' : 'create';
+  const doctorFields = await resolveEntryDoctorFields(data, existing, client);
 
   if (existing) {
     await client.query(
       `UPDATE patient_daily_entries SET
         stay_type_id = $1, daily_total = $2, notes = $3,
-        updated_by_user_id = $4, updated_by_name = $5, updated_at = NOW()
-       WHERE id = $6`,
-      [data.stay_type_id || null, dailyTotal, data.notes || '', userId, userName, existing.id]
+        doctor_id = $4, doctor_specialty = $5, doctor_name_snapshot = $6, doctor_department_snapshot = $7,
+        updated_by_user_id = $8, updated_by_name = $9, updated_at = NOW()
+       WHERE id = $10`,
+      [
+        data.stay_type_id || null,
+        dailyTotal,
+        data.notes || '',
+        doctorFields.doctor_id,
+        doctorFields.doctor_specialty,
+        doctorFields.doctor_name_snapshot,
+        doctorFields.doctor_department_snapshot,
+        userId,
+        userName,
+        existing.id,
+      ]
     );
 
     const { rows: oldLines } = await client.query(
@@ -726,9 +775,22 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     const inserted = await client.query(
       `INSERT INTO patient_daily_entries (
         patient_id, entry_date, stay_type_id, daily_total, notes,
+        doctor_id, doctor_specialty, doctor_name_snapshot, doctor_department_snapshot,
         created_by_user_id, created_by_name, updated_by_user_id, updated_by_name
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$6,$7) RETURNING id`,
-      [patient.id, entryDate, data.stay_type_id || null, dailyTotal, data.notes || '', userId, userName]
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$10,$11) RETURNING id`,
+      [
+        patient.id,
+        entryDate,
+        data.stay_type_id || null,
+        dailyTotal,
+        data.notes || '',
+        doctorFields.doctor_id,
+        doctorFields.doctor_specialty,
+        doctorFields.doctor_name_snapshot,
+        doctorFields.doctor_department_snapshot,
+        userId,
+        userName,
+      ]
     );
     entryId = inserted.rows[0].id;
 
@@ -1020,6 +1082,7 @@ function lineToInvoiceItem(line, entry, sections = []) {
   const section = sections.find((s) => s.code === line.section_code);
   const entryDate = formatDailyEntryDateLabel(entry.entry_date);
   const serviceName = line.service_name || line.description || section?.name || line.section_code;
+  // Doctor metadata on entry is internal only — never included in customer invoice descriptions.
   const description = buildDailyItemDescription(entryDate, serviceName, line.extra_text);
 
   const quantity = round2(line.quantity || 1) || 1;

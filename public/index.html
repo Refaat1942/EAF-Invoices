@@ -646,6 +646,43 @@
             </div>
           </div>
         </div>
+        <div class="col-12" id="doctors-settings-card" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-info text-dark fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <span>🩺 إدارة الأطباء (داخلي — لا يظهر على الفاتورة)</span>
+              <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-sm btn-light fw-bold" id="doctor-template-btn">قالب Excel</button>
+                <button type="button" class="btn btn-sm btn-light fw-bold" id="doctor-export-btn">تصدير Excel</button>
+                <button type="button" class="btn btn-sm btn-warning fw-bold" id="doctor-import-analyze-btn">استيراد Excel</button>
+                <input type="file" id="doctor-import-file" accept=".xlsx,.xls,.csv" class="d-none">
+              </div>
+            </div>
+            <div class="card-body">
+              <p class="small text-muted mb-3">بيانات الأطباء للحركة اليومية والتقارير الداخلية فقط. لا تُطبع على فاتورة المريض أو PDF.</p>
+              <div id="doctor-import-preview" class="mb-3" style="display:none"></div>
+              <button type="button" class="btn btn-sm btn-success fw-bold mb-3" id="doctor-import-confirm-btn" style="display:none">تأكيد الاستيراد</button>
+              <form id="doctor-add-form" class="row g-2 align-items-end mb-3 border-bottom pb-3">
+                <div class="col-md-2"><label class="form-label small fw-bold">القسم</label><input type="text" class="form-control form-control-sm" id="doctor-add-department" required></div>
+                <div class="col-md-2"><label class="form-label small fw-bold">التخصص</label><input type="text" class="form-control form-control-sm" id="doctor-add-specialty" required></div>
+                <div class="col-md-4"><label class="form-label small fw-bold">اسم الطبيب</label><input type="text" class="form-control form-control-sm" id="doctor-add-name" required></div>
+                <div class="col-md-2"><label class="form-label small fw-bold">كود (اختياري)</label><input type="text" class="form-control form-control-sm" id="doctor-add-code"></div>
+                <div class="col-md-2"><button type="submit" class="btn btn-sm btn-primary fw-bold w-100">إضافة</button></div>
+              </form>
+              <div class="d-flex flex-wrap gap-2 mb-3">
+                <select class="form-select form-select-sm" id="doctor-filter-department" style="width:auto;min-width:140px"><option value="">كل الأقسام</option></select>
+                <select class="form-select form-select-sm" id="doctor-filter-specialty" style="width:auto;min-width:140px"><option value="">كل التخصصات</option></select>
+                <input type="search" class="form-control form-control-sm" id="doctor-filter-search" placeholder="بحث..." style="width:auto;min-width:180px">
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="doctor-filter-refresh">تحديث</button>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered">
+                  <thead class="table-light"><tr><th>القسم</th><th>التخصص</th><th>الاسم</th><th>كود</th><th>الحالة</th><th></th></tr></thead>
+                  <tbody id="doctors-manage-body"><tr><td colspan="6" class="text-muted text-center">جاري التحميل...</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="col-12" id="item-catalog-settings-card" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-danger text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -907,6 +944,22 @@
               <label class="form-label fw-bold small mb-1">رقم الملف / اسم المريض</label>
               <input type="text" class="form-control form-control-sm fw-bold" id="report-patient-search" placeholder="ابحث عن مريض...">
             </div>
+            <div class="col-md-2" id="report-doctor-filters-wrap" style="display:none">
+              <label class="form-label fw-bold small mb-1">تقرير الأطباء</label>
+              <select class="form-select form-select-sm" id="report-doctor-department"><option value="">كل الأقسام</option></select>
+            </div>
+            <div class="col-md-2" id="report-doctor-specialty-wrap" style="display:none">
+              <label class="form-label fw-bold small mb-1">التخصص</label>
+              <select class="form-select form-select-sm" id="report-doctor-specialty"><option value="">كل التخصصات</option></select>
+            </div>
+            <div class="col-md-2" id="report-doctor-id-wrap" style="display:none">
+              <label class="form-label fw-bold small mb-1">الطبيب</label>
+              <select class="form-select form-select-sm" id="report-doctor-id"><option value="">كل الأطباء</option></select>
+            </div>
+            <div class="col-md-2" id="report-doctor-file-wrap" style="display:none">
+              <label class="form-label fw-bold small mb-1">رقم الملف (اختياري)</label>
+              <input type="text" class="form-control form-control-sm" id="report-doctor-file">
+            </div>
             <div class="col-md-2">
               <label class="form-label fw-bold small mb-1">من تاريخ</label>
               <input type="date" class="form-control form-control-sm" id="report-from">
@@ -928,6 +981,7 @@
                 <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="remaining">المتبقي</button>
                 <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="supplies_markup">هامش مستلزمات</button>
                 <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="patient_status">موقف مريض</button>
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="doctors">تقرير الأطباء</button>
               </div>
             </div>
             <div class="col-md-2 d-flex gap-2 align-items-end">
@@ -1189,6 +1243,30 @@
     </div>
   </div>
 
+  <div class="modal fade" id="doctor-edit-modal" tabindex="-1" aria-hidden="true" style="display:none">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-black">تعديل طبيب</h5>
+          <button type="button" class="btn-close" data-close-doctor-edit></button>
+        </div>
+        <form id="doctor-edit-form">
+          <div class="modal-body row g-2">
+            <input type="hidden" id="doctor-edit-id">
+            <div class="col-12"><label class="form-label fw-bold">القسم</label><input type="text" class="form-control" id="doctor-edit-department" required></div>
+            <div class="col-12"><label class="form-label fw-bold">التخصص</label><input type="text" class="form-control" id="doctor-edit-specialty" required></div>
+            <div class="col-12"><label class="form-label fw-bold">الاسم</label><input type="text" class="form-control" id="doctor-edit-name" required></div>
+            <div class="col-12"><label class="form-label fw-bold">كود</label><input type="text" class="form-control" id="doctor-edit-code"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-doctor-edit>إلغاء</button>
+            <button type="submit" class="btn btn-primary fw-bold">حفظ</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container position-fixed bottom-0 start-0 p-3" id="toast-container"></div>
   </div><!-- app-container -->
 
@@ -1196,5 +1274,6 @@
   <script src="/js/app.js?v=20260824a"></script>
   <script src="/js/daily-charges.js?v=20260824h"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
+  <script src="/js/doctor-settings.js?v=20260824a"></script>
 </body>
 </html>

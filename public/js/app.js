@@ -294,6 +294,7 @@ function applyPermissions() {
   document.getElementById('pricing-settings-card').style.display = isAdmin ? '' : 'none';
   document.getElementById('item-catalog-settings-card').style.display = isAdmin ? '' : 'none';
   document.getElementById('backup-settings-card').style.display = isAdmin ? '' : 'none';
+  document.getElementById('doctors-settings-card').style.display = isAdmin ? '' : 'none';
 
   const createBtn = document.querySelector('[data-view="create"]');
   if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
@@ -2426,8 +2427,14 @@ function populateReportTypeFilter() {
 
 function updateReportFiltersUI() {
   const isPatientReport = currentReportType === 'patient_status';
+  const isDoctorReport = currentReportType === 'doctors';
   document.getElementById('report-patient-wrap').style.display = isPatientReport ? '' : 'none';
-  document.getElementById('report-invoice-type-wrap').style.display = isPatientReport ? '' : '';
+  document.getElementById('report-invoice-type-wrap').style.display = isPatientReport ? '' : 'none';
+  document.getElementById('report-doctor-filters-wrap').style.display = isDoctorReport ? '' : 'none';
+  document.getElementById('report-doctor-specialty-wrap').style.display = isDoctorReport ? '' : 'none';
+  document.getElementById('report-doctor-id-wrap').style.display = isDoctorReport ? '' : 'none';
+  document.getElementById('report-doctor-file-wrap').style.display = isDoctorReport ? '' : 'none';
+  if (isDoctorReport && typeof loadDoctorReportFilters === 'function') loadDoctorReportFilters();
 }
 
 function getReportQueryParams() {
@@ -2452,13 +2459,65 @@ function getReportQueryParams() {
       params.set('patient_search', rawSearch);
     }
   }
+
+  if (currentReportType === 'doctors') {
+    const from = document.getElementById('report-from')?.value;
+    const to = document.getElementById('report-to')?.value;
+    if (from) params.set('from_date', from);
+    if (to) params.set('to_date', to);
+    const dept = document.getElementById('report-doctor-department')?.value;
+    const spec = document.getElementById('report-doctor-specialty')?.value;
+    const docId = document.getElementById('report-doctor-id')?.value;
+    const file = document.getElementById('report-doctor-file')?.value?.trim();
+    if (dept) params.set('department', dept);
+    if (spec) params.set('specialty', spec);
+    if (docId) params.set('doctor_id', docId);
+    if (file) params.set('file_number', file);
+  }
   return params;
 }
 
 function exportCurrentReport() {
   const params = getReportQueryParams();
+  if (currentReportType === 'doctors') {
+    window.open(`/api/doctors/reports/export?${params}`, '_blank');
+    return;
+  }
   params.set('report', currentReportType);
   window.open(`${API}/reports/export?${params}`, '_blank');
+}
+
+async function loadDoctorReportFilters() {
+  try {
+    const [deptRes, specRes, docRes] = await Promise.all([
+      apiFetch('/api/doctors/departments?all=1'),
+      apiFetch('/api/doctors/specialties?all=1'),
+      apiFetch('/api/doctors?all=1'),
+    ]);
+    const departments = await deptRes.json();
+    const specialties = await specRes.json();
+    const doctors = await docRes.json();
+    const deptSel = document.getElementById('report-doctor-department');
+    const specSel = document.getElementById('report-doctor-specialty');
+    const docSel = document.getElementById('report-doctor-id');
+    if (deptSel) {
+      deptSel.innerHTML =
+        '<option value="">كل الأقسام</option>' +
+        departments.map((d) => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+    }
+    if (specSel) {
+      specSel.innerHTML =
+        '<option value="">كل التخصصات</option>' +
+        specialties.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+    }
+    if (docSel) {
+      docSel.innerHTML =
+        '<option value="">كل الأطباء</option>' +
+        doctors.map((d) => `<option value="${d.id}">${escapeHtml(d.name)} — ${escapeHtml(d.specialty)}</option>`).join('');
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 async function loadUsers() {
@@ -3068,6 +3127,7 @@ async function loadSettingsPage() {
     loadUsers();
     if (can('settings.*')) await loadPricingSection();
     if (can('settings.*')) await loadBackupSection();
+    if (typeof loadDoctorsSection === 'function') await loadDoctorsSection();
     if (typeof loadItemCatalogSection === 'function') await loadItemCatalogSection();
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
@@ -3378,6 +3438,7 @@ async function loadReports() {
     if (currentReportType === 'remaining') endpoint = `${API}/reports/remaining?${params}`;
     if (currentReportType === 'patient_status') endpoint = `${API}/reports/patient-status?${params}`;
     if (currentReportType === 'supplies_markup') endpoint = `${API}/reports/supplies-markup?${params}`;
+    if (currentReportType === 'doctors') endpoint = `/api/doctors/reports/summary?${params}`;
     if (currentReportType === 'invoices') {
       params.set('approved_only', 'false');
       endpoint = `${API}?${params}`;
@@ -3418,6 +3479,40 @@ async function loadReports() {
       }
 
       container.innerHTML = renderPatientStatusReport(data);
+      return;
+    }
+
+    if (currentReportType === 'doctors') {
+      const rows = data.rows || [];
+      container.innerHTML = `
+        <div class="col-12">
+          <div class="card shadow-sm">
+            <div class="card-header bg-info text-dark fw-black">تقرير الأطباء (داخلي)</div>
+            <div class="card-body p-0">
+              <table class="table table-striped mb-0">
+                <thead class="table-light">
+                  <tr><th>الطبيب</th><th>التخصص</th><th>القسم</th><th>زيارات</th><th>خدمات</th><th>إجمالي القيمة</th></tr>
+                </thead>
+                <tbody>
+                  ${rows.length
+                    ? rows
+                        .map(
+                          (r) =>
+                            `<tr><td class="fw-bold">${escapeHtml(r.doctor_name)}</td><td>${escapeHtml(r.specialty)}</td><td>${escapeHtml(r.department)}</td><td>${r.visit_count}</td><td>${r.service_count}</td><td>${fmt(r.total_value)}</td></tr>`
+                        )
+                        .join('')
+                    : '<tr><td colspan="6" class="text-center py-4">لا توجد بيانات</td></tr>'}
+                </tbody>
+                <tfoot class="table-warning">
+                  <tr><td colspan="3" class="fw-black text-end">الإجمالي</td>
+                  <td class="fw-black">${data.totals?.visit_count || 0}</td>
+                  <td class="fw-black">${data.totals?.service_count || 0}</td>
+                  <td class="fw-black">${fmt(data.totals?.total_value || 0)}</td></tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </div>`;
       return;
     }
 

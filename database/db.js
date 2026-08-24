@@ -876,6 +876,40 @@ async function runMigrations() {
     `CREATE INDEX IF NOT EXISTS idx_invoice_item_returns_return ON invoice_item_returns(invoice_return_id)`
   );
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS doctors (
+      id SERIAL PRIMARY KEY,
+      code VARCHAR(50) UNIQUE,
+      name TEXT NOT NULL,
+      department TEXT NOT NULL DEFAULT '',
+      specialty TEXT NOT NULL DEFAULT '',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_doctors_dept_specialty_name
+     ON doctors (LOWER(TRIM(department)), LOWER(TRIM(specialty)), LOWER(TRIM(name)))`
+  );
+  await query(`CREATE INDEX IF NOT EXISTS idx_doctors_specialty ON doctors(specialty)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_doctors_department ON doctors(department)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_doctors_active ON doctors(is_active)`);
+
+  await query(
+    `ALTER TABLE patient_daily_entries ADD COLUMN IF NOT EXISTS doctor_id INTEGER REFERENCES doctors(id) ON DELETE SET NULL`
+  );
+  await query(
+    `ALTER TABLE patient_daily_entries ADD COLUMN IF NOT EXISTS doctor_specialty TEXT DEFAULT ''`
+  );
+  await query(
+    `ALTER TABLE patient_daily_entries ADD COLUMN IF NOT EXISTS doctor_name_snapshot TEXT DEFAULT ''`
+  );
+  await query(
+    `ALTER TABLE patient_daily_entries ADD COLUMN IF NOT EXISTS doctor_department_snapshot TEXT DEFAULT ''`
+  );
+  await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_doctor ON patient_daily_entries(doctor_id)`);
+
   await seedDailyChargeSections();
 
   await query(`

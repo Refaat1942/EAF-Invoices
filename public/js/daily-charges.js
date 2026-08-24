@@ -5,6 +5,56 @@ let dailyCurrentEntryId = null;
 let dailyStayContext = null;
 let dailyEntriesLoadSeq = 0;
 let dailyStayTypesCache = [];
+let dailySpecialtiesCache = [];
+
+function dailyEscapeHtml(text) {
+  if (typeof escapeHtml === 'function') return escapeHtml(text);
+  return String(text || '');
+}
+
+async function loadDailyDoctorSpecialties() {
+  try {
+    const res = await apiFetch('/api/doctors/specialties');
+    dailySpecialtiesCache = await res.json();
+  } catch {
+    dailySpecialtiesCache = [];
+  }
+}
+
+function buildDailySpecialtyOptions(selected = '') {
+  let html = '<option value="">— التخصص —</option>';
+  for (const s of dailySpecialtiesCache) {
+    html += `<option value="${dailyEscapeHtml(s)}"${s === selected ? ' selected' : ''}>${dailyEscapeHtml(s)}</option>`;
+  }
+  return html;
+}
+
+async function populateDailyDoctorSelect(selectEl, specialty, selectedId) {
+  if (!selectEl) return;
+  const params = new URLSearchParams();
+  if (specialty) params.set('specialty', specialty);
+  if (selectedId) params.set('include_doctor_id', selectedId);
+  try {
+    const res = await apiFetch(`/api/doctors/for-daily?${params}`);
+    const doctors = await res.json();
+    let html = '<option value="">— الطبيب —</option>';
+    for (const d of doctors) {
+      html += `<option value="${d.id}"${String(d.id) === String(selectedId) ? ' selected' : ''}>${dailyEscapeHtml(d.name)}</option>`;
+    }
+    selectEl.innerHTML = html;
+  } catch {
+    selectEl.innerHTML = '<option value="">— الطبيب —</option>';
+  }
+}
+
+async function onDailySpecialtyChange(selectEl) {
+  const tr = selectEl.closest('.daily-entry-row');
+  const doctorSel = tr?.querySelector('.daily-row-doctor');
+  if (doctorSel) {
+    doctorSel.value = '';
+    await populateDailyDoctorSelect(doctorSel, selectEl.value, null);
+  }
+}
 
 function getStayFileNumber() {
   return document.getElementById('daily-stay-file-number')?.value.trim() || '';
@@ -475,6 +525,7 @@ function renderDailySectionsTable() {
 
   head.innerHTML =
     '<th rowspan="2" class="daily-meta-th">التاريخ</th><th rowspan="2" class="daily-meta-th">نوع الإقامة</th>' +
+    '<th rowspan="2" class="daily-meta-th">التخصص</th><th rowspan="2" class="daily-meta-th">الطبيب</th>' +
     blocks
       .map((block) => {
         if (block.type === 'consultations') {
@@ -497,7 +548,7 @@ function renderDailySectionsTable() {
     subhead.style.display = consultationSections.length ? '' : 'none';
   }
 
-  const colCount = dailySectionsCache.length + 4;
+  const colCount = dailySectionsCache.length + 6;
   const footLabel = document.getElementById('daily-total-foot-label');
   const footSpacer = document.getElementById('daily-total-foot-spacer');
   if (footLabel) footLabel.colSpan = Math.max(colCount - 2, 1);
@@ -606,10 +657,21 @@ function createDailyEntryRow(entry = {}) {
   tr.innerHTML = `
     <td><input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1"></td>
     <td><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(entry.stay_type_id)}</select></td>
+    <td><select class="form-select form-select-sm daily-row-specialty">${buildDailySpecialtyOptions(entry.doctor_specialty || '')}</select></td>
+    <td><select class="form-select form-select-sm daily-row-doctor"><option value="">— الطبيب —</option></select></td>
     ${dailySectionsCache.map((section) => renderDailyCellHtml(section, getLineForSection(entry, section.code))).join('')}
     <td class="daily-row-total fw-bold text-nowrap"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف اليوم">×</button></td>
   `;
+
+  const specialtySel = tr.querySelector('.daily-row-specialty');
+  const doctorSel = tr.querySelector('.daily-row-doctor');
+  if (specialtySel) {
+    specialtySel.addEventListener('change', () => onDailySpecialtyChange(specialtySel));
+  }
+  if (doctorSel && entry.doctor_specialty) {
+    populateDailyDoctorSelect(doctorSel, entry.doctor_specialty, entry.doctor_id || null);
+  }
 
   bindDailyRowEvents(tr);
   for (const section of dailySectionsCache) {
@@ -862,6 +924,8 @@ function collectDailyRowsForSave() {
       entry_id: entryId,
       entry_date: today,
       stay_type_id: tr.querySelector('.daily-row-stay-type')?.value || null,
+      doctor_specialty: tr.querySelector('.daily-row-specialty')?.value || '',
+      doctor_id: tr.querySelector('.daily-row-doctor')?.value || null,
       notes: tr.dataset.entryNotes || notes,
       lines: collectDailyLinesFromRow(tr),
     });
@@ -1022,6 +1086,7 @@ function clearDailyForm() {
 async function initDailyChargesView() {
   if (!dailyCan('daily_charges.view')) return;
   if (typeof loadFinancialTreatments === 'function') await loadFinancialTreatments();
+  await loadDailyDoctorSpecialties();
   if (!dailySectionsCache.length) await loadDailySections();
   setDailyTodayDate();
   await loadDailyStayTypes();
@@ -1215,6 +1280,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.initDailyChargesView = initDailyChargesView;
+window.loadDailyDoctorSpecialties = loadDailyDoctorSpecialties;
 window.importDailyChargesToInvoice = importDailyChargesToInvoice;
 window.syncDailyChargeRowsFromTotals = syncDailyChargeRowsFromTotals;
 window.reloadDailyCatalogSectionsFromSettings = reloadDailyCatalogSectionsFromSettings;

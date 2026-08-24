@@ -122,6 +122,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/daily-charges', require('./routes/dailyCharges'));
+app.use('/api/doctors', require('./routes/doctors'));
 app.use('/api/pricing', require('./routes/pricing'));
 app.use('/api/settings', settingsRoutes);
 app.use('/download', downloadRoutes);
