@@ -59,10 +59,12 @@ async function listDoctors(filters = {}) {
   const params = [];
   let i = 1;
 
-  if (filters.active_only && filters.include_doctor_id) {
+  if (filters.active === '0' || filters.active === false) {
+    sql += ` AND is_active = FALSE`;
+  } else if (filters.active_only && filters.include_doctor_id) {
     sql += ` AND (is_active = TRUE OR id = $${i++})`;
     params.push(Number(filters.include_doctor_id));
-  } else if (filters.active_only) {
+  } else if (filters.active_only || filters.active === '1' || filters.active === true) {
     sql += ` AND is_active = TRUE`;
   }
   if (filters.department) {
@@ -80,8 +82,72 @@ async function listDoctors(filters = {}) {
   }
 
   sql += ` ORDER BY department, specialty, name`;
+  if (filters.limit) {
+    sql += ` LIMIT $${i++}`;
+    params.push(Number(filters.limit));
+  }
+
   const { rows } = await query(sql, params);
   return rows;
+}
+
+function buildDoctorOrderClause(sort, order) {
+  const direction = order === 'desc' ? 'DESC' : 'ASC';
+  switch (sort) {
+    case 'specialty':
+      return `ORDER BY specialty ${direction}, name ASC, id ASC`;
+    case 'department':
+      return `ORDER BY department ${direction}, name ASC, id ASC`;
+    default:
+      return `ORDER BY name ${direction}, id ASC`;
+  }
+}
+
+async function listDoctorsPaginated(filters = {}) {
+  const page = Math.max(1, Number(filters.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(filters.limit) || 25));
+  const offset = (page - 1) * limit;
+  const sort = filters.sort || 'name';
+  const order = filters.order || 'asc';
+
+  let where = `WHERE 1=1`;
+  const params = [];
+  let i = 1;
+
+  if (filters.active === '0' || filters.active === false) {
+    where += ` AND is_active = FALSE`;
+  } else if (filters.active === '1' || filters.active === true) {
+    where += ` AND is_active = TRUE`;
+  }
+  if (filters.department) {
+    where += ` AND LOWER(TRIM(department)) = LOWER(TRIM($${i++}))`;
+    params.push(filters.department);
+  }
+  if (filters.specialty) {
+    where += ` AND LOWER(TRIM(specialty)) = LOWER(TRIM($${i++}))`;
+    params.push(filters.specialty);
+  }
+  if (filters.search) {
+    where += ` AND (name ILIKE $${i} OR specialty ILIKE $${i} OR department ILIKE $${i} OR code ILIKE $${i})`;
+    params.push(`%${filters.search.trim()}%`);
+    i++;
+  }
+
+  const countSql = `SELECT COUNT(*)::int AS total FROM doctors ${where}`;
+  const countRes = await query(countSql, params);
+  const total = countRes.rows[0]?.total || 0;
+
+  const dataSql = `SELECT * FROM doctors ${where} ${buildDoctorOrderClause(sort, order)} LIMIT $${i++} OFFSET $${i++}`;
+  const dataParams = [...params, limit, offset];
+  const { rows } = await query(dataSql, dataParams);
+
+  return {
+    rows,
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
 }
 
 async function listSpecialties(activeOnly = true) {
@@ -484,6 +550,7 @@ module.exports = {
   doctorIdentityKey,
   DOCTOR_IMPORT_SCHEMA,
   listDoctors,
+  listDoctorsPaginated,
   listSpecialties,
   listDepartments,
   getDoctorById,

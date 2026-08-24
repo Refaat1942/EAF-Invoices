@@ -140,6 +140,81 @@ function catalogItemProductKey(normalized) {
   return `${category}|${name}`;
 }
 
+function inferImportPriceTier(existingMajor, existingMinor, ratio, price) {
+  const p = round2(price);
+  if (p <= 0) return 'major';
+  const r = ratio > 1 ? ratio : 1;
+  if (existingMajor > 0) {
+    if (Math.abs(existingMajor - p) < 0.01) return 'major';
+    if (r > 1 && Math.abs(existingMajor / r - p) < 0.01) return 'minor';
+  }
+  if (existingMinor > 0) {
+    if (Math.abs(existingMinor - p) < 0.01) return 'minor';
+    if (r > 1 && Math.abs(existingMinor * r - p) < 0.01) return 'major';
+  }
+  if (existingMajor > 0 && r > 1 && p < existingMajor) return 'minor';
+  if (existingMajor > 0 && p > existingMajor) return 'major';
+  return 'major';
+}
+
+function hasDistinctMinorTier(majorUnit, minorUnit, ratio) {
+  const major = String(majorUnit || '').trim();
+  const minor = String(minorUnit || '').trim();
+  return minor && major && minor !== major && round2(ratio) > 1;
+}
+
+function applyIncomingImportPrice(next, incoming, normalizedPrice, majorUnit, minorUnit, ratio) {
+  const r = Math.max(round2(ratio) || 0, round2(next.minor_quantity_per_major) || 1);
+  const existingMajor = round2(next.major_unit_selling_price) || 0;
+  const existingMinor = round2(next.minor_unit_selling_price) || 0;
+  const minorTier = hasDistinctMinorTier(
+    next.major_unit || majorUnit,
+    next.minor_unit || minorUnit,
+    r
+  );
+
+  if (incoming.minor_unit_selling_price != null && incoming.minor_unit_selling_price > 0) {
+    next.minor_unit_selling_price = round2(incoming.minor_unit_selling_price);
+    if (incoming.minor_unit) next.minor_unit = incoming.minor_unit;
+  }
+
+  const explicitMajor =
+    incoming.major_unit_selling_price != null && incoming.major_unit_selling_price > 0
+      ? round2(incoming.major_unit_selling_price)
+      : 0;
+  if (explicitMajor > 0) {
+    const tier = inferImportPriceTier(existingMajor, existingMinor, r, explicitMajor);
+    if (tier === 'minor' && minorTier) {
+      next.minor_unit_selling_price = explicitMajor;
+      if (incoming.minor_unit || minorUnit) next.minor_unit = incoming.minor_unit || minorUnit;
+    } else {
+      next.major_unit_selling_price = explicitMajor;
+      if (incoming.major_unit || majorUnit) next.major_unit = incoming.major_unit || majorUnit;
+    }
+  }
+
+  const genericPrice = round2(normalizedPrice) || 0;
+  if (genericPrice > 0 && genericPrice !== explicitMajor) {
+    const tier = inferImportPriceTier(existingMajor, existingMinor, r, genericPrice);
+    if (tier === 'minor' && minorTier) {
+      next.minor_unit_selling_price = genericPrice;
+      if (minorUnit) next.minor_unit = minorUnit;
+    } else if (tier === 'major') {
+      next.major_unit_selling_price = genericPrice;
+      if (majorUnit) next.major_unit = majorUnit;
+    }
+  } else if (genericPrice > 0 && !explicitMajor) {
+    const tier = inferImportPriceTier(existingMajor, existingMinor, r, genericPrice);
+    if (tier === 'minor' && minorTier) {
+      next.minor_unit_selling_price = genericPrice;
+      if (minorUnit) next.minor_unit = minorUnit;
+    } else {
+      next.major_unit_selling_price = genericPrice;
+      if (majorUnit) next.major_unit = majorUnit;
+    }
+  }
+}
+
 function mergeCatalogImportRow(base, incoming) {
   const next = { ...base };
 
@@ -154,30 +229,26 @@ function mergeCatalogImportRow(base, incoming) {
   if (incoming.major_unit) next.major_unit = incoming.major_unit;
   if (incoming.minor_unit) next.minor_unit = incoming.minor_unit;
   if (incoming.minor_quantity_per_major != null && incoming.minor_quantity_per_major !== '') {
-    next.minor_quantity_per_major = round2(incoming.minor_quantity_per_major);
-  }
-  if (incoming.major_unit_selling_price > 0) {
-    next.major_unit_selling_price = round2(incoming.major_unit_selling_price);
-    if (incoming.major_unit) next.major_unit = incoming.major_unit;
-  }
-  if (incoming.minor_unit_selling_price != null && incoming.minor_unit_selling_price > 0) {
-    next.minor_unit_selling_price = round2(incoming.minor_unit_selling_price);
-    if (incoming.minor_unit) next.minor_unit = incoming.minor_unit;
+    const incomingRatio = round2(incoming.minor_quantity_per_major);
+    const currentRatio = round2(next.minor_quantity_per_major) || 1;
+    next.minor_quantity_per_major = Math.max(currentRatio, incomingRatio);
   }
 
   const inUnits = normalizeUnitFields(incoming);
+  applyIncomingImportPrice(
+    next,
+    incoming,
+    inUnits.major_unit_selling_price,
+    inUnits.major_unit,
+    inUnits.minor_unit,
+    Math.max(round2(incoming.minor_quantity_per_major) || 0, round2(next.minor_quantity_per_major) || 1)
+  );
+
   const rowUnit = inUnits.major_unit;
-  const rowPrice = inUnits.major_unit_selling_price;
-  if (rowPrice > 0 && rowUnit) {
+  if (rowUnit) {
     const currentMajor = String(next.major_unit || '').trim();
     const currentMinor = String(next.minor_unit || '').trim();
-    if (!currentMajor || currentMajor === rowUnit) {
-      next.major_unit = rowUnit;
-      next.major_unit_selling_price = rowPrice;
-    } else if (!currentMinor || currentMinor === rowUnit) {
-      next.minor_unit = rowUnit;
-      next.minor_unit_selling_price = rowPrice;
-    } else if (currentMajor !== rowUnit && currentMinor !== rowUnit) {
+    if (currentMajor && currentMinor && currentMajor !== rowUnit && currentMinor !== rowUnit && rowUnit !== inUnits.minor_unit) {
       next._unit_conflict = true;
     }
   }
@@ -278,32 +349,87 @@ function catalogItemInsertParams(payload) {
   ];
 }
 
-async function listCatalogItems(filters = {}) {
-  let sql = `SELECT * FROM daily_entry_catalog_items WHERE 1=1`;
+function buildCatalogListWhere(filters = {}) {
+  let where = `WHERE 1=1`;
   const params = [];
   let i = 1;
 
   if (filters.category) {
-    sql += ` AND category = $${i++}`;
+    where += ` AND category = $${i++}`;
     params.push(filters.category);
   }
-  if (filters.active_only !== false) {
-    sql += ` AND is_active = TRUE`;
+  if (filters.active === '0' || filters.active === false) {
+    where += ` AND is_active = FALSE`;
+  } else if (filters.active === '1' || filters.active === true) {
+    where += ` AND is_active = TRUE`;
+  } else if (filters.active_only === true) {
+    where += ` AND is_active = TRUE`;
   }
   if (filters.search) {
-    sql += ` AND (name ILIKE $${i} OR code ILIKE $${i})`;
+    where += ` AND (name ILIKE $${i} OR code ILIKE $${i})`;
     params.push(`%${filters.search}%`);
     i++;
   }
+  if (filters.unit) {
+    where += ` AND (major_unit ILIKE $${i} OR minor_unit ILIKE $${i})`;
+    params.push(`%${filters.unit}%`);
+    i++;
+  }
 
+  return { where, params, nextIndex: i };
+}
+
+function buildCatalogOrderClause(sort, order) {
+  const direction = order === 'desc' ? 'DESC' : 'ASC';
+  switch (sort) {
+    case 'code':
+      return `ORDER BY code ${direction}, id ASC`;
+    case 'category':
+      return `ORDER BY category ${direction}, name ASC, id ASC`;
+    case 'price':
+      return `ORDER BY major_unit_selling_price ${direction} NULLS LAST, name ASC, id ASC`;
+    default:
+      return `ORDER BY name ${direction}, id ASC`;
+  }
+}
+
+async function listCatalogItems(filters = {}) {
+  const { where, params, nextIndex } = buildCatalogListWhere(filters);
+  let sql = `SELECT * FROM daily_entry_catalog_items ${where}`;
   sql += ` ORDER BY category, sort_order, name, id`;
   if (filters.limit) {
-    sql += ` LIMIT $${i++}`;
+    sql += ` LIMIT $${nextIndex}`;
     params.push(Number(filters.limit));
   }
 
   const { rows } = await query(sql, params);
   return rows;
+}
+
+async function listCatalogItemsPaginated(filters = {}) {
+  const page = Math.max(1, Number(filters.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(filters.limit) || 25));
+  const offset = (page - 1) * limit;
+  const sort = filters.sort || 'name';
+  const order = filters.order || 'asc';
+
+  const { where, params, nextIndex } = buildCatalogListWhere(filters);
+  const countSql = `SELECT COUNT(*)::int AS total FROM daily_entry_catalog_items ${where}`;
+  const countRes = await query(countSql, params);
+  const total = countRes.rows[0]?.total || 0;
+
+  let dataSql = `SELECT * FROM daily_entry_catalog_items ${where} ${buildCatalogOrderClause(sort, order)}`;
+  const dataParams = [...params, limit, offset];
+  dataSql += ` LIMIT $${nextIndex} OFFSET $${nextIndex + 1}`;
+
+  const { rows } = await query(dataSql, dataParams);
+  return {
+    rows,
+    total,
+    page,
+    limit,
+    totalPages: Math.max(1, Math.ceil(total / limit)),
+  };
 }
 
 async function getCatalogItemById(id) {
@@ -543,6 +669,42 @@ function analyzeImportRows(mappedRows = []) {
   return { preview_rows, duplicate_rows, conflict_rows, merged_count: mergedInput.length };
 }
 
+function buildImportSummary(previewRows = [], mappedRows = []) {
+  const merged_products = previewRows.filter((r) => r.merged_from_rows?.length > 1).length;
+  const new_products = previewRows.filter((r) => r.import_status === 'insert').length;
+  const existing_products = previewRows.filter(
+    (r) =>
+      r.import_status === 'skip' &&
+      String(r.import_message || '').includes('موجود')
+  ).length;
+  const conflicts = previewRows.filter((r) => r.import_status === 'conflict').length;
+  const invalid_rows = previewRows.filter((r) => r.import_status === 'error').length;
+  const duplicates = previewRows.filter((r) => r.import_status === 'duplicate').length;
+  return {
+    total_rows: mappedRows.length,
+    merged_products,
+    new_products,
+    existing_products,
+    conflicts,
+    invalid_rows,
+    duplicates,
+  };
+}
+
+function paginatePreviewRows(previewRows = [], page = 1, limit = 50) {
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 50));
+  const safePage = Math.max(1, Number(page) || 1);
+  const total = previewRows.length;
+  const offset = (safePage - 1) * safeLimit;
+  return {
+    rows: previewRows.slice(offset, offset + safeLimit),
+    preview_total: total,
+    preview_page: safePage,
+    preview_limit: safeLimit,
+    preview_total_pages: Math.max(1, Math.ceil(total / safeLimit)),
+  };
+}
+
 async function enrichImportAnalysisWithDb(previewRows, client = null) {
   const run = client ? client.query.bind(client) : query;
 
@@ -630,7 +792,7 @@ function toPreviewRow(raw) {
   };
 }
 
-async function analyzeCatalogImportFile(buffer, originalName, mappingOverride = null) {
+async function analyzeCatalogImportFile(buffer, originalName, mappingOverride = null, options = {}) {
   const table = await readTabularFile(buffer, originalName);
   if (!table.headers.length) throw new Error('لم يُعثر على أعمدة في الملف');
 
@@ -644,6 +806,12 @@ async function analyzeCatalogImportFile(buffer, originalName, mappingOverride = 
   const analysis = analyzeImportRows(mappedRows);
   await enrichImportAnalysisWithDb(analysis.preview_rows);
 
+  const pagination = paginatePreviewRows(
+    analysis.preview_rows,
+    options.page,
+    options.limit
+  );
+
   return {
     headers: table.headers,
     fields: buildImportFieldList(CATALOG_IMPORT_SCHEMA),
@@ -653,10 +821,16 @@ async function analyzeCatalogImportFile(buffer, originalName, mappingOverride = 
     needs_manual_mapping: mappingOverride ? false : detection.needs_manual_mapping,
     missing_required: detection.missing_required,
     unmapped_headers: detection.unmapped_headers,
-    preview_rows: analysis.preview_rows.slice(0, 50),
+    preview_rows: pagination.rows,
+    preview_total: pagination.preview_total,
+    preview_page: pagination.preview_page,
+    preview_limit: pagination.preview_limit,
+    preview_total_pages: pagination.preview_total_pages,
     duplicate_rows: analysis.duplicate_rows,
     conflict_rows: analysis.conflict_rows,
     total_rows: mappedRows.length,
+    summary: buildImportSummary(analysis.preview_rows, mappedRows),
+    merged_count: mappedRows.length - analysis.preview_rows.length + analysis.duplicate_rows.length,
   };
 }
 
@@ -1061,6 +1235,7 @@ async function exportCatalogCsv() {
 module.exports = {
   CATALOG_CATEGORIES,
   listCatalogItems,
+  listCatalogItemsPaginated,
   getCatalogItemById,
   getCatalogItemByCode,
   findCatalogItemByProduct,

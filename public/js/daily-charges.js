@@ -29,11 +29,13 @@ function buildDailySpecialtyOptions(selected = '') {
   return html;
 }
 
-async function populateDailyDoctorSelect(selectEl, specialty, selectedId) {
+async function populateDailyDoctorSelect(selectEl, specialty, selectedId, search = '') {
   if (!selectEl) return;
   const params = new URLSearchParams();
   if (specialty) params.set('specialty', specialty);
   if (selectedId) params.set('include_doctor_id', selectedId);
+  if (search) params.set('search', search);
+  params.set('limit', '100');
   try {
     const res = await apiFetch(`/api/doctors/for-daily?${params}`);
     const doctors = await res.json();
@@ -45,6 +47,17 @@ async function populateDailyDoctorSelect(selectEl, specialty, selectedId) {
   } catch {
     selectEl.innerHTML = '<option value="">— الطبيب —</option>';
   }
+}
+
+function onDailyDoctorSearchInput(inputEl) {
+  const tr = inputEl.closest('.daily-entry-row');
+  const specialty = tr?.querySelector('.daily-row-specialty')?.value || '';
+  const doctorSel = tr?.querySelector('.daily-row-doctor');
+  if (!doctorSel) return;
+  clearTimeout(tr._doctorSearchTimer);
+  tr._doctorSearchTimer = setTimeout(() => {
+    populateDailyDoctorSelect(doctorSel, specialty, doctorSel.value || null, inputEl.value.trim());
+  }, 300);
 }
 
 async function onDailySpecialtyChange(selectEl) {
@@ -658,7 +671,10 @@ function createDailyEntryRow(entry = {}) {
     <td><input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1"></td>
     <td><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(entry.stay_type_id)}</select></td>
     <td><select class="form-select form-select-sm daily-row-specialty">${buildDailySpecialtyOptions(entry.doctor_specialty || '')}</select></td>
-    <td><select class="form-select form-select-sm daily-row-doctor"><option value="">— الطبيب —</option></select></td>
+    <td>
+      <input type="search" class="form-control form-control-sm daily-doctor-search mb-1" placeholder="بحث طبيب..." autocomplete="off">
+      <select class="form-select form-select-sm daily-row-doctor"><option value="">— الطبيب —</option></select>
+    </td>
     ${dailySectionsCache.map((section) => renderDailyCellHtml(section, getLineForSection(entry, section.code))).join('')}
     <td class="daily-row-total fw-bold text-nowrap"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف اليوم">×</button></td>
@@ -666,8 +682,12 @@ function createDailyEntryRow(entry = {}) {
 
   const specialtySel = tr.querySelector('.daily-row-specialty');
   const doctorSel = tr.querySelector('.daily-row-doctor');
+  const doctorSearch = tr.querySelector('.daily-doctor-search');
   if (specialtySel) {
     specialtySel.addEventListener('change', () => onDailySpecialtyChange(specialtySel));
+  }
+  if (doctorSearch) {
+    doctorSearch.addEventListener('input', () => onDailyDoctorSearchInput(doctorSearch));
   }
   if (doctorSel && entry.doctor_specialty) {
     populateDailyDoctorSelect(doctorSel, entry.doctor_specialty, entry.doctor_id || null);

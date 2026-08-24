@@ -5,6 +5,8 @@ const DOCTORS_API = '/api/doctors';
 
 let doctorImportFile = null;
 let doctorImportState = null;
+let doctorPage = 1;
+let doctorSearchTimer = null;
 
 function doctorsCanManage() {
   return typeof can === 'function' && can('settings.*');
@@ -46,27 +48,68 @@ async function loadDoctorFilterOptions() {
   }
 }
 
-async function loadDoctorsTable() {
+function renderDoctorPagination(infoEl, controlsEl, page, totalPages, total, onPage) {
+  if (!infoEl || !controlsEl) return;
+  if (!total) {
+    infoEl.textContent = 'لا توجد نتائج';
+    controlsEl.innerHTML = '';
+    return;
+  }
+  infoEl.textContent = `صفحة ${page} من ${totalPages} — ${total} طبيب`;
+  controlsEl.innerHTML = '';
+  const prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'btn btn-outline-secondary';
+  prev.textContent = 'السابق';
+  prev.disabled = page <= 1;
+  prev.addEventListener('click', () => onPage(page - 1));
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'btn btn-outline-secondary';
+  next.textContent = 'التالي';
+  next.disabled = page >= totalPages;
+  next.addEventListener('click', () => onPage(page + 1));
+  controlsEl.appendChild(prev);
+  controlsEl.appendChild(next);
+}
+
+async function loadDoctorsTable(page = doctorPage) {
   const tbody = document.getElementById('doctors-manage-body');
   if (!tbody) return;
+  doctorPage = page;
   const department = document.getElementById('doctor-filter-department')?.value || '';
   const specialty = document.getElementById('doctor-filter-specialty')?.value || '';
+  const active = document.getElementById('doctor-filter-active')?.value || '';
   const search = document.getElementById('doctor-filter-search')?.value?.trim() || '';
-  const params = new URLSearchParams({ all: '1' });
+  const sort = document.getElementById('doctor-filter-sort')?.value || 'name';
+  const order = document.getElementById('doctor-filter-order')?.value || 'asc';
+  const limit = document.getElementById('doctor-filter-limit')?.value || '25';
+
+  const params = new URLSearchParams({
+    page: String(page),
+    limit,
+    sort,
+    order,
+    all: '1',
+  });
   if (department) params.set('department', department);
   if (specialty) params.set('specialty', specialty);
+  if (active) params.set('active', active);
   if (search) params.set('search', search);
+
+  tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">جاري التحميل...</td></tr>';
 
   try {
     const res = await apiFetch(`${DOCTORS_API}?${params}`);
-    const doctors = await res.json();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل التحميل');
+    const doctors = data.rows || [];
     if (!doctors.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">لا يوجد أطباء</td></tr>';
-      return;
-    }
-    tbody.innerHTML = doctors
-      .map(
-        (d) => `
+    } else {
+      tbody.innerHTML = doctors
+        .map(
+          (d) => `
       <tr>
         <td>${doctorEscape(d.department)}</td>
         <td>${doctorEscape(d.specialty)}</td>
@@ -78,15 +121,24 @@ async function loadDoctorsTable() {
           <button type="button" class="btn btn-sm btn-outline-warning" data-doctor-toggle="${d.id}" data-active="${d.is_active ? '1' : '0'}">${d.is_active ? 'إيقاف' : 'تفعيل'}</button>
         </td>
       </tr>`
-      )
-      .join('');
+        )
+        .join('');
 
-    tbody.querySelectorAll('[data-doctor-edit]').forEach((btn) => {
-      btn.addEventListener('click', () => openDoctorEditModal(Number(btn.dataset.doctorEdit)));
-    });
-    tbody.querySelectorAll('[data-doctor-toggle]').forEach((btn) => {
-      btn.addEventListener('click', () => toggleDoctorActive(Number(btn.dataset.doctorToggle), btn.dataset.active !== '1'));
-    });
+      tbody.querySelectorAll('[data-doctor-edit]').forEach((btn) => {
+        btn.addEventListener('click', () => openDoctorEditModal(Number(btn.dataset.doctorEdit)));
+      });
+      tbody.querySelectorAll('[data-doctor-toggle]').forEach((btn) => {
+        btn.addEventListener('click', () => toggleDoctorActive(Number(btn.dataset.doctorToggle), btn.dataset.active !== '1'));
+      });
+    }
+    renderDoctorPagination(
+      document.getElementById('doctor-pagination-info'),
+      document.getElementById('doctor-pagination-controls'),
+      data.page || page,
+      data.totalPages || 1,
+      data.total || 0,
+      (p) => loadDoctorsTable(p)
+    );
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="6" class="text-danger">${err.message}</td></tr>`;
   }
@@ -230,12 +282,15 @@ async function confirmDoctorImport() {
 function bindDoctorSettingsEvents() {
   document.getElementById('doctor-add-form')?.addEventListener('submit', submitDoctorAdd);
   document.getElementById('doctor-edit-form')?.addEventListener('submit', submitDoctorEdit);
-  document.getElementById('doctor-filter-refresh')?.addEventListener('click', loadDoctorsTable);
-  document.getElementById('doctor-filter-department')?.addEventListener('change', loadDoctorsTable);
-  document.getElementById('doctor-filter-specialty')?.addEventListener('change', loadDoctorsTable);
+  document.getElementById('doctor-filter-refresh')?.addEventListener('click', () => loadDoctorsTable(1));
+  document.getElementById('doctor-filter-department')?.addEventListener('change', () => loadDoctorsTable(1));
+  document.getElementById('doctor-filter-specialty')?.addEventListener('change', () => loadDoctorsTable(1));
+  ['doctor-filter-active', 'doctor-filter-sort', 'doctor-filter-order', 'doctor-filter-limit'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('change', () => loadDoctorsTable(1));
+  });
   document.getElementById('doctor-filter-search')?.addEventListener('input', () => {
-    clearTimeout(window._doctorSearchTimer);
-    window._doctorSearchTimer = setTimeout(loadDoctorsTable, 300);
+    clearTimeout(doctorSearchTimer);
+    doctorSearchTimer = setTimeout(() => loadDoctorsTable(1), 300);
   });
   document.getElementById('doctor-export-btn')?.addEventListener('click', () => {
     window.open(`${DOCTORS_API}/export`, '_blank');

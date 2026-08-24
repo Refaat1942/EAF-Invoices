@@ -35,6 +35,8 @@ const ITEM_IMPORT_STATUS_LABELS = {
 };
 
 let itemCatalogSearchTimer = null;
+let itemCatalogPage = 1;
+let itemCatalogImportPreviewPage = 1;
 let itemCatalogImportFile = null;
 let itemCatalogImportState = null;
 
@@ -201,7 +203,11 @@ async function refreshItemCatalogAfterChange() {
 
 function renderItemCatalogManageRow(item) {
   const label = ITEM_CATALOG_CATEGORY_LABELS[item.category] || item.category;
-  const priceCell = formatCatalogPricesCell(item);
+  const majorUnit = item.major_unit || item.unit || '';
+  const minorUnit = item.minor_unit || majorUnit;
+  const ratio = Number(item.minor_quantity_per_major) || 1;
+  const majorPrice = catalogFmt(item.major_unit_selling_price || item.price);
+  const minorPrice = catalogFmt(item.minor_unit_selling_price || item.price);
   const statusBadge = item.is_active
     ? '<span class="badge bg-success">نشط</span>'
     : '<span class="badge bg-secondary">موقوف</span>';
@@ -215,11 +221,39 @@ function renderItemCatalogManageRow(item) {
     <td class="fw-bold">${catalogEscapeHtml(item.code)}</td>
     <td>${catalogEscapeHtml(item.name)}</td>
     <td>${catalogEscapeHtml(label)}</td>
-    <td>${formatCatalogUnitsCell(item)}</td>
-    <td>${priceCell}</td>
+    <td>${catalogEscapeHtml(majorUnit)}</td>
+    <td>${catalogEscapeHtml(minorUnit)}</td>
+    <td>${ratio > 1 && minorUnit !== majorUnit ? ratio : '—'}</td>
+    <td>${majorPrice}</td>
+    <td>${minorUnit !== majorUnit && ratio > 1 ? minorPrice : '—'}</td>
     <td>${statusBadge}</td>
     <td class="d-flex gap-1 flex-wrap">${actions}</td>
   </tr>`;
+}
+
+function renderCatalogPagination(infoEl, controlsEl, page, totalPages, total, onPage) {
+  if (!infoEl || !controlsEl) return;
+  if (!total) {
+    infoEl.textContent = 'لا توجد نتائج';
+    controlsEl.innerHTML = '';
+    return;
+  }
+  infoEl.textContent = `صفحة ${page} من ${totalPages} — ${total} صنف`;
+  controlsEl.innerHTML = '';
+  const prev = document.createElement('button');
+  prev.type = 'button';
+  prev.className = 'btn btn-outline-secondary';
+  prev.textContent = 'السابق';
+  prev.disabled = page <= 1;
+  prev.addEventListener('click', () => onPage(page - 1));
+  const next = document.createElement('button');
+  next.type = 'button';
+  next.className = 'btn btn-outline-secondary';
+  next.textContent = 'التالي';
+  next.disabled = page >= totalPages;
+  next.addEventListener('click', () => onPage(page + 1));
+  controlsEl.appendChild(prev);
+  controlsEl.appendChild(next);
 }
 
 function bindItemCatalogManageRowActions() {
@@ -235,30 +269,53 @@ function bindItemCatalogManageRowActions() {
   });
 }
 
-async function loadItemCatalogManageTable() {
+async function loadItemCatalogManageTable(page = itemCatalogPage) {
   if (!catalogCanView()) return;
   const body = document.getElementById('item-catalog-manage-body');
   if (!body) return;
-  body.innerHTML = '<tr><td colspan="7" class="text-center text-muted">جاري التحميل...</td></tr>';
+  body.innerHTML = '<tr><td colspan="10" class="text-center text-muted">جاري التحميل...</td></tr>';
 
   const category = document.getElementById('item-catalog-filter-category')?.value || '';
+  const active = document.getElementById('item-catalog-filter-active')?.value || '';
   const search = document.getElementById('item-catalog-filter-search')?.value.trim() || '';
-  const params = new URLSearchParams({ active_only: '0' });
+  const unit = document.getElementById('item-catalog-filter-unit')?.value.trim() || '';
+  const sort = document.getElementById('item-catalog-filter-sort')?.value || 'name';
+  const order = document.getElementById('item-catalog-filter-order')?.value || 'asc';
+  const limit = document.getElementById('item-catalog-filter-limit')?.value || '25';
+  itemCatalogPage = page;
+
+  const params = new URLSearchParams({
+    page: String(page),
+    limit,
+    sort,
+    order,
+  });
   if (category) params.set('category', category);
+  if (active) params.set('active', active);
   if (search) params.set('search', search);
+  if (unit) params.set('unit', unit);
 
   try {
     const res = await apiFetch(`${ITEM_CATALOG_API}/catalog?${params}`);
-    const items = await res.json();
-    if (!res.ok) throw new Error(items.error || 'فشل التحميل');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل التحميل');
+    const items = data.rows || [];
     if (!items.length) {
-      body.innerHTML = '<tr><td colspan="7" class="text-center text-muted">لا توجد أصناف</td></tr>';
-      return;
+      body.innerHTML = '<tr><td colspan="10" class="text-center text-muted">لا توجد أصناف</td></tr>';
+    } else {
+      body.innerHTML = items.map((item) => renderItemCatalogManageRow(item)).join('');
+      bindItemCatalogManageRowActions();
     }
-    body.innerHTML = items.map((item) => renderItemCatalogManageRow(item)).join('');
-    bindItemCatalogManageRowActions();
+    renderCatalogPagination(
+      document.getElementById('item-catalog-pagination-info'),
+      document.getElementById('item-catalog-pagination-controls'),
+      data.page || page,
+      data.totalPages || 1,
+      data.total || 0,
+      (p) => loadItemCatalogManageTable(p)
+    );
   } catch (err) {
-    body.innerHTML = `<tr><td colspan="7" class="text-center text-danger">${catalogEscapeHtml(err.message)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="10" class="text-center text-danger">${catalogEscapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -401,6 +458,7 @@ async function toggleItemCatalogActive(id, activate) {
 
 function resetItemCatalogImportModal() {
   itemCatalogImportState = null;
+  itemCatalogImportPreviewPage = 1;
   document.getElementById('item-catalog-import-loading').style.display = 'none';
   document.getElementById('item-catalog-import-step-map').style.display = 'none';
   document.getElementById('item-catalog-import-step-preview').style.display = 'none';
@@ -470,9 +528,23 @@ function renderImportStatusBadge(status) {
   return `<span class="badge ${cls}">${catalogEscapeHtml(label)}</span>`;
 }
 
+function renderItemCatalogImportSummary(state = {}) {
+  const el = document.getElementById('item-catalog-import-summary');
+  if (!el) return;
+  const s = state.summary || {};
+  el.innerHTML = `<span class="badge bg-secondary me-1">إجمالي الصفوف: ${s.total_rows || state.total_rows || 0}</span>
+    <span class="badge bg-success me-1">جديد: ${s.new_products || 0}</span>
+    <span class="badge bg-info text-dark me-1">مُدمج: ${s.merged_products || 0}</span>
+    <span class="badge bg-secondary me-1">موجود: ${s.existing_products || 0}</span>
+    <span class="badge bg-danger me-1">تعارض: ${s.conflicts || 0}</span>
+    <span class="badge bg-warning text-dark me-1">مكرر: ${s.duplicates || 0}</span>
+    <span class="badge bg-danger me-1">غير صالح: ${s.invalid_rows || 0}</span>`;
+}
+
 function renderItemCatalogImportPreview(rows = [], state = {}) {
   const body = document.getElementById('item-catalog-import-preview-body');
   if (!body) return;
+  renderItemCatalogImportSummary(state);
   const dupCount = state.duplicate_rows?.length || 0;
   const conflictCount = state.conflict_rows?.length || 0;
   if (dupCount || conflictCount) {
@@ -485,12 +557,11 @@ function renderItemCatalogImportPreview(rows = [], state = {}) {
   }
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="10" class="text-muted text-center">لا توجد صفوف للمعاينة</td></tr>';
-    return;
-  }
-  body.innerHTML = rows
-    .map(
-      (row) =>
-        `<tr class="${row.import_status === 'conflict' || row.import_status === 'error' ? 'table-danger' : row.import_status === 'duplicate' ? 'table-warning' : ''}">
+  } else {
+    body.innerHTML = rows
+      .map(
+        (row) =>
+          `<tr class="${row.import_status === 'conflict' || row.import_status === 'error' ? 'table-danger' : row.import_status === 'duplicate' ? 'table-warning' : ''}">
           <td>${row.row_number || ''}</td>
           <td>${catalogEscapeHtml(row.code || '—')}</td>
           <td>${catalogEscapeHtml(row.name)}</td>
@@ -502,8 +573,17 @@ function renderItemCatalogImportPreview(rows = [], state = {}) {
           <td>${catalogFmt(row.minor_unit_selling_price || '')}</td>
           <td>${renderImportStatusBadge(row.import_status)}<small class="d-block text-muted">${catalogEscapeHtml(row.import_message || '')}</small></td>
         </tr>`
-    )
-    .join('');
+      )
+      .join('');
+  }
+  renderCatalogPagination(
+    document.getElementById('item-catalog-import-preview-info'),
+    document.getElementById('item-catalog-import-preview-controls'),
+    state.preview_page || itemCatalogImportPreviewPage,
+    state.preview_total_pages || 1,
+    state.preview_total || rows.length,
+    (p) => refreshItemCatalogImportPreview(p)
+  );
 }
 
 function collectItemCatalogImportMapping() {
@@ -514,12 +594,15 @@ function collectItemCatalogImportMapping() {
   return mapping;
 }
 
-async function refreshItemCatalogImportPreview() {
+async function refreshItemCatalogImportPreview(page = itemCatalogImportPreviewPage) {
   if (!itemCatalogImportFile) return;
+  itemCatalogImportPreviewPage = page;
   const mapping = collectItemCatalogImportMapping();
   const formData = new FormData();
   formData.append('file', itemCatalogImportFile);
   formData.append('mapping', JSON.stringify(mapping));
+  formData.append('preview_page', String(page));
+  formData.append('preview_limit', '50');
 
   document.getElementById('item-catalog-import-loading').style.display = '';
   try {
@@ -702,16 +785,25 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   });
   document.getElementById('item-catalog-edit-save-btn')?.addEventListener('click', saveItemCatalogEdit);
-  document.getElementById('item-catalog-refresh-btn')?.addEventListener('click', () => loadItemCatalogManageTable());
+  document.getElementById('item-catalog-refresh-btn')?.addEventListener('click', () => loadItemCatalogManageTable(1));
   document.getElementById('item-catalog-export-btn')?.addEventListener('click', () => exportItemCatalogCsv());
   document.getElementById('item-catalog-filter-category')?.addEventListener('change', (event) => {
     const addCat = document.getElementById('item-catalog-add-category');
     if (addCat && event.target.value) addCat.value = event.target.value;
-    loadItemCatalogManageTable();
+    loadItemCatalogManageTable(1);
+  });
+  ['item-catalog-filter-active', 'item-catalog-filter-sort', 'item-catalog-filter-order', 'item-catalog-filter-limit'].forEach(
+    (id) => {
+      document.getElementById(id)?.addEventListener('change', () => loadItemCatalogManageTable(1));
+    }
+  );
+  document.getElementById('item-catalog-filter-unit')?.addEventListener('input', () => {
+    clearTimeout(itemCatalogSearchTimer);
+    itemCatalogSearchTimer = setTimeout(() => loadItemCatalogManageTable(1), 300);
   });
   document.getElementById('item-catalog-filter-search')?.addEventListener('input', () => {
     clearTimeout(itemCatalogSearchTimer);
-    itemCatalogSearchTimer = setTimeout(() => loadItemCatalogManageTable(), 300);
+    itemCatalogSearchTimer = setTimeout(() => loadItemCatalogManageTable(1), 300);
   });
 });
 

@@ -3,6 +3,7 @@ const multer = require('multer');
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const {
   listDoctors,
+  listDoctorsPaginated,
   listSpecialties,
   listDepartments,
   getDoctorById,
@@ -50,10 +51,13 @@ router.get('/for-daily', viewDailyPerm, async (req, res) => {
   try {
     const specialty = req.query.specialty || '';
     const includeDoctorId = req.query.include_doctor_id || null;
+    const search = req.query.search || '';
     const doctors = await listDoctors({
       specialty,
+      search,
       active_only: true,
       include_doctor_id: includeDoctorId,
+      limit: req.query.limit || 100,
     });
     res.json(doctors);
   } catch (err) {
@@ -144,15 +148,25 @@ router.get('/reports/export', reportExportPerm, async (req, res) => {
 
 router.get('/', viewDailyPerm, async (req, res) => {
   try {
-    const activeOnly = req.query.all !== '1';
-    const doctors = await listDoctors({
+    const usePagination = req.query.page != null || req.query.limit != null;
+    const filters = {
       department: req.query.department || '',
       specialty: req.query.specialty || '',
       search: req.query.search || '',
-      active_only: activeOnly,
-      include_doctor_id: req.query.include_doctor_id || null,
-    });
-    res.json(doctors);
+      sort: req.query.sort || 'name',
+      order: req.query.order || 'asc',
+    };
+    if (req.query.active === '0') filters.active = '0';
+    else if (req.query.active === '1') filters.active = '1';
+    else if (req.query.all !== '1') filters.active_only = true;
+
+    if (usePagination) {
+      filters.page = req.query.page || 1;
+      filters.limit = req.query.limit || 25;
+      res.json(await listDoctorsPaginated(filters));
+    } else {
+      res.json(await listDoctors(filters));
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -24,6 +24,7 @@ const catalogManagePerm = requireAnyPermission('settings.*', 'daily_charges.mana
 const {
   CATALOG_CATEGORIES,
   listCatalogItems,
+  listCatalogItemsPaginated,
   getCatalogItemById,
   getCatalogStats,
   createCatalogItem,
@@ -64,13 +65,29 @@ router.get('/catalog', requireAnyPermission('daily_charges.view', 'settings.*'),
     if (category && !CATALOG_CATEGORIES.includes(category)) {
       return res.status(400).json({ error: 'الفئة غير صالحة (Medicine / Supplies / Cosmetics)' });
     }
-    const items = await listCatalogItems({
+    const usePagination = req.query.page != null || req.query.limit != null;
+    const filters = {
       category,
       search: req.query.search || null,
-      active_only: req.query.active_only !== '0',
-      limit: req.query.limit || null,
-    });
-    res.json(items);
+      unit: req.query.unit || null,
+      sort: req.query.sort || 'name',
+      order: req.query.order || 'asc',
+    };
+    if (req.query.active === '0') filters.active = '0';
+    else if (req.query.active === '1') filters.active = '1';
+    else if (!usePagination) {
+      filters.active_only = req.query.active_only !== '0';
+    } else if (req.query.active_only === '0') {
+      filters.active_only = false;
+    }
+
+    if (usePagination) {
+      filters.page = req.query.page || 1;
+      filters.limit = req.query.limit || 25;
+      res.json(await listCatalogItemsPaginated(filters));
+    } else {
+      res.json(await listCatalogItems(filters));
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -113,7 +130,11 @@ router.post('/catalog/import/analyze', catalogManagePerm, upload.single('file'),
     const analysis = await analyzeCatalogImportFile(
       req.file.buffer,
       req.file.originalname,
-      mappingOverride
+      mappingOverride,
+      {
+        page: req.body.preview_page || req.query.preview_page || 1,
+        limit: req.body.preview_limit || req.query.preview_limit || 50,
+      }
     );
     res.json(analysis);
   } catch (err) {

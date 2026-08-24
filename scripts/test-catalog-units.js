@@ -18,7 +18,9 @@ const {
   importCatalogRowsTransactional,
   findCatalogItemByProduct,
   normalizeUnitFields,
+  listCatalogItemsPaginated,
 } = require('../services/dailyEntryCatalogService');
+const { listDoctorsPaginated, createDoctor } = require('../services/doctorService');
 const {
   allocateNextCatalogCode,
   isValidSevenDigitCode,
@@ -117,6 +119,27 @@ const ANTINAL_ROWS = [
     minor_unit: 'STR',
     minor_unit_selling_price: 26,
     minor_quantity_per_major: 2,
+  },
+];
+
+const ANTINAL_UAT_ROWS = [
+  {
+    row_number: 2,
+    name: 'ANTINAL 200MG 24/CAP',
+    category: 'Medicine',
+    major_unit: 'PAC',
+    minor_unit: 'STR',
+    minor_quantity_per_major: 1,
+    major_unit_selling_price: 52,
+  },
+  {
+    row_number: 3,
+    name: 'ANTINAL 200MG 24/CAP',
+    category: 'Medicine',
+    major_unit: 'PAC',
+    minor_unit: 'STR',
+    minor_quantity_per_major: 2,
+    price: 26,
   },
 ];
 
@@ -519,6 +542,128 @@ async function testDailyEntryToInvoiceTransfer() {
   console.log('OK daily entry to invoice transfer');
 }
 
+async function testMergeUatAntinalDualUnitRows() {
+  const mapped = mergeImportRowsByProduct(ANTINAL_UAT_ROWS);
+  assertEq('UAT merged to one row', mapped.length, 1);
+  const payload = validateCatalogPayload(mapped[0], { allowMissingCode: true });
+  assertEq('UAT major price 52', payload.major_unit_selling_price, 52);
+  assertEq('UAT minor price 26', payload.minor_unit_selling_price, 26);
+  assertEq('UAT ratio 2', payload.minor_quantity_per_major, 2);
+  assertEq('UAT major unit PAC', payload.major_unit, 'PAC');
+  assertEq('UAT minor unit STR', payload.minor_unit, 'STR');
+
+  const analysis = analyzeImportRows(ANTINAL_UAT_ROWS);
+  const antinalRows = analysis.preview_rows.filter((r) => r.name === 'ANTINAL 200MG 24/CAP');
+  assertEq('UAT preview one ANTINAL', antinalRows.length, 1);
+  assert('UAT merge message', String(antinalRows[0].import_message || '').includes('دُمج'));
+
+  await cleanupCatalogByName('ANTINAL 200MG 24/CAP');
+  const imported = await importCatalogRowsTransactional(ANTINAL_UAT_ROWS);
+  assertEq('UAT import inserted one', imported.inserted, 1);
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS count FROM daily_entry_catalog_items
+     WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND category = 'Medicine'`,
+    ['ANTINAL 200MG 24/CAP']
+  );
+  assertEq('UAT one catalog row only', rows[0].count, 1);
+  const item = await findCatalogItemByProduct({ name: 'ANTINAL 200MG 24/CAP', category: 'Medicine' });
+  await cleanupCatalogCodes([item.code]);
+  console.log('OK UAT ANTINAL dual-unit rows merge into one item');
+}
+
+async function testCatalogPaginationSearchSort() {
+  const codes = [];
+  for (let i = 0; i < 3; i++) {
+    const item = await createCatalogItem({
+      name: `${TEST_PREFIX} PAG-${i}`,
+      category: 'Cosmetics',
+      major_unit: 'EA',
+      major_unit_selling_price: 10 + i,
+    });
+    codes.push(item.code);
+  }
+
+  const page1 = await listCatalogItemsPaginated({
+    search: TEST_PREFIX,
+    page: 1,
+    limit: 2,
+    sort: 'price',
+    order: 'asc',
+    active_only: false,
+  });
+  assertEq('catalog page size', page1.rows.length, 2);
+  assertEq('catalog total', page1.total, 3);
+  assertEq('catalog totalPages', page1.totalPages, 2);
+  assert(page1.rows[0].major_unit_selling_price <= page1.rows[1].major_unit_selling_price, 'sorted by price asc');
+
+  const page2 = await listCatalogItemsPaginated({
+    search: TEST_PREFIX,
+    page: 2,
+    limit: 2,
+    active_only: false,
+  });
+  assertEq('catalog page2 one row', page2.rows.length, 1);
+
+  const filtered = await listCatalogItemsPaginated({
+    search: `${TEST_PREFIX} PAG-1`,
+    active_only: false,
+  });
+  assertEq('catalog search one match', filtered.total, 1);
+
+  await cleanupCatalogCodes(codes);
+  console.log('OK catalog pagination search sort');
+}
+
+async function testImportPreviewPagination() {
+  const rows = Array.from({ length: 60 }, (_, i) => ({
+    row_number: i + 2,
+    name: `${TEST_PREFIX} PREVIEW-${i}`,
+    category: 'Cosmetics',
+    major_unit: 'EA',
+    major_unit_selling_price: 5,
+  }));
+  const analysis = analyzeImportRows(rows);
+  assertEq('import analysis row count', analysis.preview_rows.length, 60);
+  const page1 = analysis.preview_rows.slice(0, 50);
+  const page2 = analysis.preview_rows.slice(50, 100);
+  assertEq('import preview page1', page1.length, 50);
+  assertEq('import preview page2', page2.length, 10);
+  console.log('OK import preview pagination slices');
+}
+
+async function testDoctorPaginationSearchSort() {
+  const created = [];
+  for (let i = 0; i < 3; i++) {
+    created.push(
+      await createDoctor({
+        department: `${TEST_PREFIX} DEPT`,
+        specialty: `${TEST_PREFIX} SPEC`,
+        name: `${TEST_PREFIX} DOC-${i}`,
+      })
+    );
+  }
+
+  const page1 = await listDoctorsPaginated({
+    search: TEST_PREFIX,
+    page: 1,
+    limit: 2,
+    sort: 'name',
+    order: 'asc',
+  });
+  assertEq('doctor page size', page1.rows.length, 2);
+  assertEq('doctor total', page1.total, 3);
+
+  const filtered = await listDoctorsPaginated({
+    search: `${TEST_PREFIX} DOC-1`,
+  });
+  assertEq('doctor search one', filtered.total, 1);
+
+  for (const d of created) {
+    await query(`DELETE FROM doctors WHERE id = $1`, [d.id]);
+  }
+  console.log('OK doctor pagination search sort');
+}
+
 async function testPreserveImportedCode() {
   const existing = await createCatalogItem({
     code: '9000001',
@@ -544,11 +689,15 @@ async function main() {
   await testExplicitMinorPricePreserved();
   await testMinorMajorPriceConsistencyRejects();
   await testMergeSplitUnitRowsIntoOneCatalogItem();
+  await testMergeUatAntinalDualUnitRows();
   await testIdenticalRowsMergedAndCodeConflictDetected();
   await testDuplicateCodeRejected();
   await testDuplicateProductRejected();
   await testImportWithoutCodeGeneratesCode();
   await testRepeatedImportNoDuplicateCatalogItems();
+  await testCatalogPaginationSearchSort();
+  await testImportPreviewPagination();
+  await testDoctorPaginationSearchSort();
   await testPreserveImportedCode();
   await testDailyEntryToInvoiceTransfer();
   console.log('ALL CATALOG UNIT TESTS PASSED');
