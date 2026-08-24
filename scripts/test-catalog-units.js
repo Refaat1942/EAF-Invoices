@@ -271,6 +271,7 @@ async function testMinorMajorPriceConsistencyRejects() {
 async function testMergeSplitUnitRowsIntoOneCatalogItem() {
   const mapped = mergeImportRowsByProduct(ANTINAL_ROWS);
   assertEq('merged to one row', mapped.length, 1);
+  assert('no unit conflict on split rows', !mapped[0]._unit_conflict);
   const payload = validateCatalogPayload(mapped[0], { allowMissingCode: true });
   assertEq('item name', payload.name, 'ANTINAL 200MG 24/CAP');
   assertEq('major unit PAC', payload.major_unit, 'PAC');
@@ -410,7 +411,7 @@ async function testImportWithoutCodeGeneratesCode() {
   const importName = `${TEST_PREFIX} IMPORT NO CODE`;
   await cleanupCatalogByName(importName);
 
-  const importRows = [
+  const result = await importCatalogRowsTransactional([
     {
       row_number: 2,
       name: importName,
@@ -421,24 +422,7 @@ async function testImportWithoutCodeGeneratesCode() {
       major_unit_selling_price: 52,
       minor_unit_selling_price: 26,
     },
-  ];
-  const normalizedFixture = mergeImportRowsByProduct(importRows);
-  console.log('DIAG import normalized fixture:', JSON.stringify(normalizedFixture, null, 2));
-
-  const result = await importCatalogRowsTransactional(importRows);
-  console.log(
-    JSON.stringify(
-      {
-        inserted: result.inserted,
-        skipped: result.skipped,
-        updated: result.updated,
-        conflicts: result.conflicts,
-        errors: result.errors,
-      },
-      null,
-      2
-    )
-  );
+  ]);
   assertEq('import inserted one', result.inserted, 1);
   const found = await findCatalogItemByProduct({ name: importName, category: 'Medicine' });
   assert('imported item found', found);
@@ -451,23 +435,7 @@ async function testRepeatedImportNoDuplicateCatalogItems() {
   const importName = 'ANTINAL 200MG 24/CAP';
   await cleanupCatalogByName(importName);
 
-  const normalizedAntinalFixture = mergeImportRowsByProduct(ANTINAL_ROWS);
-  console.log('DIAG import normalized fixture:', JSON.stringify(normalizedAntinalFixture, null, 2));
-
   const first = await importCatalogRowsTransactional(ANTINAL_ROWS);
-  console.log(
-    JSON.stringify(
-      {
-        inserted: first.inserted,
-        skipped: first.skipped,
-        updated: first.updated,
-        conflicts: first.conflicts,
-        errors: first.errors,
-      },
-      null,
-      2
-    )
-  );
   assertEq('first import inserted', first.inserted, 1);
 
   const second = await importCatalogRowsTransactional(ANTINAL_ROWS);
@@ -578,6 +546,7 @@ async function testDailyEntryToInvoiceTransfer() {
 async function testMergeUatAntinalDualUnitRows() {
   const mapped = mergeImportRowsByProduct(ANTINAL_UAT_ROWS);
   assertEq('UAT merged to one row', mapped.length, 1);
+  assert('UAT no unit conflict', !mapped[0]._unit_conflict);
   const payload = validateCatalogPayload(mapped[0], { allowMissingCode: true });
   assertEq('UAT major price 52', payload.major_unit_selling_price, 52);
   assertEq('UAT minor price 26', payload.minor_unit_selling_price, 26);
@@ -602,6 +571,88 @@ async function testMergeUatAntinalDualUnitRows() {
   const item = await findCatalogItemByProduct({ name: 'ANTINAL 200MG 24/CAP', category: 'Medicine' });
   await cleanupCatalogCodes([item.code]);
   console.log('OK UAT ANTINAL dual-unit rows merge into one item');
+}
+
+function assertMergedAntinalPayload(payload, label) {
+  assertEq(`${label} name`, payload.name, 'ANTINAL 200MG 24/CAP');
+  assertEq(`${label} major unit PAC`, payload.major_unit, 'PAC');
+  assertEq(`${label} minor unit STR`, payload.minor_unit, 'STR');
+  assertEq(`${label} ratio 2`, payload.minor_quantity_per_major, 2);
+  assertEq(`${label} major price 52`, payload.major_unit_selling_price, 52);
+  assertEq(`${label} minor price 26`, payload.minor_unit_selling_price, 26);
+}
+
+async function testMergeAntinalRowOrderSymmetric() {
+  const forward = mergeImportRowsByProduct(ANTINAL_UAT_ROWS);
+  const reverse = mergeImportRowsByProduct([ANTINAL_UAT_ROWS[1], ANTINAL_UAT_ROWS[0]]);
+  assertEq('forward one row', forward.length, 1);
+  assertEq('reverse one row', reverse.length, 1);
+  assert('forward no conflict', !forward[0]._unit_conflict);
+  assert('reverse no conflict', !reverse[0]._unit_conflict);
+
+  const forwardPayload = validateCatalogPayload(forward[0], { allowMissingCode: true });
+  const reversePayload = validateCatalogPayload(reverse[0], { allowMissingCode: true });
+  assertMergedAntinalPayload(forwardPayload, 'forward');
+  assertMergedAntinalPayload(reversePayload, 'reverse');
+  console.log('OK ANTINAL row order A+B and B+A merge identically');
+}
+
+async function testMergeIncompatibleUnitsConflict() {
+  const rows = [
+    {
+      row_number: 2,
+      name: `${TEST_PREFIX} MIXED UNITS`,
+      category: 'Medicine',
+      major_unit: 'BOX',
+      minor_unit: 'STR',
+      minor_quantity_per_major: 2,
+      major_unit_selling_price: 100,
+    },
+    {
+      row_number: 3,
+      name: `${TEST_PREFIX} MIXED UNITS`,
+      category: 'Medicine',
+      major_unit: 'PAC',
+      minor_unit: 'STR',
+      minor_quantity_per_major: 2,
+      major_unit_selling_price: 50,
+    },
+  ];
+  const merged = mergeImportRowsByProduct(rows);
+  assertEq('mixed units one merged row', merged.length, 1);
+  assert('mixed units conflict flagged', merged[0]._unit_conflict);
+  const analysis = analyzeImportRows(rows);
+  assertEq('mixed units import conflict', analysis.conflict_rows.length, 1);
+  console.log('OK incompatible unit structure still conflicts');
+}
+
+async function testMergeIncompatiblePricingConflict() {
+  const rows = [
+    {
+      row_number: 2,
+      name: `${TEST_PREFIX} BAD PRICE`,
+      category: 'Medicine',
+      major_unit: 'PAC',
+      minor_unit: 'STR',
+      minor_quantity_per_major: 2,
+      major_unit_selling_price: 52,
+    },
+    {
+      row_number: 3,
+      name: `${TEST_PREFIX} BAD PRICE`,
+      category: 'Medicine',
+      major_unit: 'PAC',
+      minor_unit: 'STR',
+      minor_quantity_per_major: 2,
+      minor_unit_selling_price: 40,
+    },
+  ];
+  const merged = mergeImportRowsByProduct(rows);
+  assertEq('bad price one merged row', merged.length, 1);
+  assert('bad price conflict flagged', merged[0]._unit_conflict);
+  const analysis = analyzeImportRows(rows);
+  assertEq('bad price import conflict', analysis.conflict_rows.length, 1);
+  console.log('OK incompatible explicit pricing still conflicts');
 }
 
 async function testCatalogPaginationSearchSort() {
@@ -723,6 +774,9 @@ async function main() {
   await testMinorMajorPriceConsistencyRejects();
   await testMergeSplitUnitRowsIntoOneCatalogItem();
   await testMergeUatAntinalDualUnitRows();
+  await testMergeAntinalRowOrderSymmetric();
+  await testMergeIncompatibleUnitsConflict();
+  await testMergeIncompatiblePricingConflict();
   await testIdenticalRowsMergedAndCodeConflictDetected();
   await testDuplicateCodeRejected();
   await testDuplicateProductRejected();

@@ -163,6 +163,103 @@ function hasDistinctMinorTier(majorUnit, minorUnit, ratio) {
   return minor && major && minor !== major && round2(ratio) > 1;
 }
 
+function isPlaceholderMajorUnit(unit) {
+  const value = String(unit || '').trim();
+  return !value || value === 'مرة';
+}
+
+function initImportPriceExplicitFlags(row = {}) {
+  return {
+    _explicit_major_price: majorPriceExplicitlySupplied(row),
+    _explicit_minor_price: minorPriceExplicitlySupplied(row),
+  };
+}
+
+function prepareIncomingForUnitMerge(base, incoming) {
+  const prepared = { ...incoming };
+  if (
+    isPlaceholderMajorUnit(prepared.major_unit) &&
+    !String(prepared.unit || '').trim() &&
+    String(prepared.minor_unit || '').trim() &&
+    !isPlaceholderMajorUnit(base.major_unit)
+  ) {
+    prepared.major_unit = String(base.major_unit || '').trim();
+  }
+  return prepared;
+}
+
+function hasImportUnitStructureConflict(base, incoming) {
+  const baseMajor = String(base.major_unit || '').trim();
+  const baseMinor = String(base.minor_unit || '').trim();
+  const incomingMajorRaw = String(incoming.major_unit || '').trim();
+  const incomingMinor = String(incoming.minor_unit || '').trim();
+  const incomingMajor = isPlaceholderMajorUnit(incomingMajorRaw)
+    ? baseMajor
+    : incomingMajorRaw;
+
+  const explicitMajors = new Set();
+  if (!isPlaceholderMajorUnit(baseMajor)) explicitMajors.add(baseMajor);
+  if (!isPlaceholderMajorUnit(incomingMajorRaw)) explicitMajors.add(incomingMajorRaw);
+  if (explicitMajors.size > 1) return true;
+
+  const knownUnits = new Set();
+  for (const unit of [baseMajor, baseMinor, incomingMajor, incomingMinor]) {
+    const value = String(unit || '').trim();
+    if (value && !isPlaceholderMajorUnit(value)) knownUnits.add(value);
+  }
+
+  for (const unit of [incomingMajor, incomingMinor]) {
+    const value = String(unit || '').trim();
+    if (!value || isPlaceholderMajorUnit(value)) continue;
+    if (knownUnits.size >= 2 && baseMajor && baseMinor && baseMajor !== baseMinor) {
+      if (value !== baseMajor && value !== baseMinor) return true;
+    }
+  }
+
+  return false;
+}
+
+function reconcileMergedImportPrices(next) {
+  if (next._unit_conflict) return;
+
+  const majorUnit = String(next.major_unit || '').trim();
+  const minorUnit = String(next.minor_unit || '').trim();
+  const ratio = round2(next.minor_quantity_per_major) || 1;
+  if (!majorUnit || !minorUnit || majorUnit === minorUnit || ratio <= 1) return;
+
+  const majorPrice = round2(next.major_unit_selling_price) || 0;
+  const minorPrice = round2(next.minor_unit_selling_price) || 0;
+  if (majorPrice <= 0) return;
+
+  const expectedMinor = round2(majorPrice / ratio);
+  if (minorPrice <= 0) {
+    next.minor_unit_selling_price = expectedMinor;
+    return;
+  }
+
+  if (Math.abs(expectedMinor - minorPrice) <= 0.01) return;
+
+  if (next._explicit_major_price && next._explicit_minor_price) {
+    next._unit_conflict = true;
+    return;
+  }
+
+  if (next._explicit_major_price) {
+    next.minor_unit_selling_price = expectedMinor;
+    return;
+  }
+
+  if (next._explicit_minor_price) {
+    const expectedMajor = round2(minorPrice * ratio);
+    if (Math.abs(expectedMajor - majorPrice) > 0.01) {
+      next._unit_conflict = true;
+    }
+    return;
+  }
+
+  next.minor_unit_selling_price = expectedMinor;
+}
+
 function applyIncomingImportPrice(next, incoming, normalizedPrice, majorUnit, minorUnit, ratio) {
   const r = Math.max(round2(ratio) || 0, round2(next.minor_quantity_per_major) || 1);
   const existingMajor = round2(next.major_unit_selling_price) || 0;
@@ -175,6 +272,7 @@ function applyIncomingImportPrice(next, incoming, normalizedPrice, majorUnit, mi
 
   if (incoming.minor_unit_selling_price != null && incoming.minor_unit_selling_price > 0) {
     next.minor_unit_selling_price = round2(incoming.minor_unit_selling_price);
+    next._explicit_minor_price = true;
     if (incoming.minor_unit) next.minor_unit = incoming.minor_unit;
   }
 
@@ -186,9 +284,11 @@ function applyIncomingImportPrice(next, incoming, normalizedPrice, majorUnit, mi
     const tier = inferImportPriceTier(existingMajor, existingMinor, r, explicitMajor);
     if (tier === 'minor' && minorTier) {
       next.minor_unit_selling_price = explicitMajor;
+      next._explicit_minor_price = true;
       if (incoming.minor_unit || minorUnit) next.minor_unit = incoming.minor_unit || minorUnit;
     } else {
       next.major_unit_selling_price = explicitMajor;
+      next._explicit_major_price = true;
       if (incoming.major_unit || majorUnit) next.major_unit = incoming.major_unit || majorUnit;
     }
   }
@@ -198,25 +298,33 @@ function applyIncomingImportPrice(next, incoming, normalizedPrice, majorUnit, mi
     const tier = inferImportPriceTier(existingMajor, existingMinor, r, genericPrice);
     if (tier === 'minor' && minorTier) {
       next.minor_unit_selling_price = genericPrice;
+      next._explicit_minor_price = true;
       if (minorUnit) next.minor_unit = minorUnit;
     } else if (tier === 'major') {
       next.major_unit_selling_price = genericPrice;
+      next._explicit_major_price = true;
       if (majorUnit) next.major_unit = majorUnit;
     }
   } else if (genericPrice > 0 && !explicitMajor) {
     const tier = inferImportPriceTier(existingMajor, existingMinor, r, genericPrice);
     if (tier === 'minor' && minorTier) {
       next.minor_unit_selling_price = genericPrice;
+      next._explicit_minor_price = true;
       if (minorUnit) next.minor_unit = minorUnit;
     } else {
       next.major_unit_selling_price = genericPrice;
+      next._explicit_major_price = true;
       if (majorUnit) next.major_unit = majorUnit;
     }
   }
 }
 
 function mergeCatalogImportRow(base, incoming) {
-  const next = { ...base };
+  const next = {
+    ...base,
+    _explicit_major_price: Boolean(base._explicit_major_price),
+    _explicit_minor_price: Boolean(base._explicit_minor_price),
+  };
 
   if (incoming.code) {
     if (next.code && next.code !== incoming.code) {
@@ -226,32 +334,34 @@ function mergeCatalogImportRow(base, incoming) {
     }
   }
 
-  if (incoming.major_unit) next.major_unit = incoming.major_unit;
-  if (incoming.minor_unit) next.minor_unit = incoming.minor_unit;
-  if (incoming.minor_quantity_per_major != null && incoming.minor_quantity_per_major !== '') {
-    const incomingRatio = round2(incoming.minor_quantity_per_major);
+  const incomingForUnits = prepareIncomingForUnitMerge(next, incoming);
+
+  if (hasImportUnitStructureConflict(next, incomingForUnits)) {
+    next._unit_conflict = true;
+  }
+
+  if (incomingForUnits.major_unit) next.major_unit = incomingForUnits.major_unit;
+  if (incomingForUnits.minor_unit) next.minor_unit = incomingForUnits.minor_unit;
+  if (incomingForUnits.minor_quantity_per_major != null && incomingForUnits.minor_quantity_per_major !== '') {
+    const incomingRatio = round2(incomingForUnits.minor_quantity_per_major);
     const currentRatio = round2(next.minor_quantity_per_major) || 1;
     next.minor_quantity_per_major = Math.max(currentRatio, incomingRatio);
   }
 
-  const inUnits = normalizeUnitFields(incoming);
+  const inUnits = normalizeUnitFields(incomingForUnits);
   applyIncomingImportPrice(
     next,
-    incoming,
+    incomingForUnits,
     inUnits.major_unit_selling_price,
     inUnits.major_unit,
     inUnits.minor_unit,
-    Math.max(round2(incoming.minor_quantity_per_major) || 0, round2(next.minor_quantity_per_major) || 1)
+    Math.max(
+      round2(incomingForUnits.minor_quantity_per_major) || 0,
+      round2(next.minor_quantity_per_major) || 1
+    )
   );
 
-  const rowUnit = inUnits.major_unit;
-  if (rowUnit) {
-    const currentMajor = String(next.major_unit || '').trim();
-    const currentMinor = String(next.minor_unit || '').trim();
-    if (currentMajor && currentMinor && currentMajor !== rowUnit && currentMinor !== rowUnit && rowUnit !== inUnits.minor_unit) {
-      next._unit_conflict = true;
-    }
-  }
+  reconcileMergedImportPrices(next);
 
   if (incoming.cost_price != null && incoming.cost_price !== '') {
     next.cost_price = round2(incoming.cost_price);
@@ -281,7 +391,11 @@ function mergeImportRowsByProduct(mappedRows = []) {
     if (!key) continue;
 
     if (!groups.has(key)) {
-      groups.set(key, { ...normalized, source_row_numbers: [raw.row_number] });
+      groups.set(key, {
+        ...normalized,
+        source_row_numbers: [raw.row_number],
+        ...initImportPriceExplicitFlags(normalized),
+      });
       order.push(key);
       continue;
     }
