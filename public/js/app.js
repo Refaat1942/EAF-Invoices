@@ -8,6 +8,8 @@ let currentInvoiceId = null;
 let currentUser = null;
 let currentInvoiceStatus = null;
 let invoiceFollowUpMode = false;
+let currentInvoiceReturns = [];
+let invoiceReturnModal = null;
 let rowCount = 12;
 let invoiceTypeLabels = {};
 let paymentMethodsCache = [];
@@ -365,9 +367,10 @@ function createRow(index) {
   tr.innerHTML = `
     <td><input type="text" class="row-total" data-field="total" readonly tabindex="-1"></td>
     <td><input type="text" inputmode="decimal" class="calc-trigger comma-amount" data-field="amount" value=""></td>
-    <td><input type="text" inputmode="decimal" class="calc-trigger comma-amount" data-field="quantity" value=""></td>
+    <td><input type="text" inputmode="decimal" class="calc-trigger comma-amount" data-field="quantity" value=""><small class="invoice-return-hint text-danger d-none d-block"></small></td>
     <td><input type="text" class="discount-pct-display" data-field="discount_percent" readonly tabindex="-1" value="0%"></td>
     <td class="service-cell">
+      <input type="hidden" data-field="invoice_item_id" value="">
       <input type="hidden" data-field="service_id" value="">
       <input type="text" class="desc-input calc-trigger service-search" data-field="description" autocomplete="off" placeholder="ابحث عن خدمة من اللائحة...">
       <div class="service-suggest d-none"></div>
@@ -426,6 +429,11 @@ function bindEvents() {
   document.getElementById('preview-btn').addEventListener('click', () => {
     if (currentInvoiceId) window.open(`${API}/${currentInvoiceId}/preview`, '_blank');
   });
+
+  const returnModalEl = document.getElementById('invoice-return-modal');
+  if (returnModalEl) invoiceReturnModal = new bootstrap.Modal(returnModalEl);
+  document.getElementById('record-return-btn')?.addEventListener('click', openInvoiceReturnModal);
+  document.getElementById('invoice-return-submit-btn')?.addEventListener('click', submitInvoiceReturns);
 
   document.getElementById('list-refresh').addEventListener('click', loadInvoicesList);
   document.getElementById('list-search').addEventListener('input', debounce(loadInvoicesList, 300));
@@ -589,14 +597,21 @@ function updatePaymentRowHints() {
     }
   });
 
-  updatePaymentSplitSummary(finalTotal, paid, remaining);
+  updatePaymentSplitSummary(
+    finalTotal,
+    paid,
+    remaining,
+    Number(lastCalculationTotals?.refundable_amount) || 0
+  );
 }
 
-function updatePaymentSplitSummary(finalTotal, paid, remaining) {
+function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0) {
   const finalEl = document.getElementById('split-final-total');
   const paidEl = document.getElementById('split-paid-total');
   const remainingEl = document.getElementById('split-remaining-total');
   const remainingWrap = document.querySelector('.payment-split-summary .split-remaining');
+  const refundableWrap = document.getElementById('split-refundable-wrap');
+  const refundableEl = document.getElementById('split-refundable-total');
   if (!finalEl || !paidEl || !remainingEl) return;
 
   finalEl.textContent = fmt(finalTotal);
@@ -605,6 +620,11 @@ function updatePaymentSplitSummary(finalTotal, paid, remaining) {
   if (remainingWrap) {
     remainingWrap.classList.toggle('is-zero', remaining <= 0.009 && finalTotal > 0);
     remainingWrap.classList.toggle('has-remaining', remaining > 0.009);
+  }
+  if (refundableWrap && refundableEl) {
+    const show = refundable > 0.009;
+    refundableWrap.style.display = show ? '' : 'none';
+    if (show) refundableEl.textContent = fmt(refundable);
   }
 }
 
@@ -1389,6 +1409,10 @@ function updateInvoiceActionButtons() {
     can('invoices.approve') && (isPending || currentInvoiceId) && !isApproved ? '' : 'none';
 
   const showExports = isApproved && currentInvoiceId;
+  const returnBtn = document.getElementById('record-return-btn');
+  if (returnBtn) {
+    returnBtn.style.display = currentInvoiceId && can('invoices.edit') ? '' : 'none';
+  }
   ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
     document.getElementById(id).style.display = showExports ? 'inline-block' : 'none';
   });
@@ -1423,7 +1447,11 @@ function collectFormData() {
 
     if (desc || qty || amt) {
       const serviceIdEl = row.querySelector('[data-field="service_id"]');
+      const itemIdEl = row.querySelector('[data-field="invoice_item_id"]');
       const item = { description: desc, quantity: qty, amount: amt };
+      if (itemIdEl?.value) item.id = Number(itemIdEl.value);
+      const returnedQty = Number(row.dataset.returnedQty) || 0;
+      if (returnedQty > 0) item.returned_quantity = returnedQty;
       if (creditAmt > 0) item.patient_credit_applied = creditAmt;
       if (serviceIdEl?.value) item.service_id = Number(serviceIdEl.value);
       if (row.dataset.dailyLineId) item.daily_entry_line_id = Number(row.dataset.dailyLineId);
@@ -1616,7 +1644,159 @@ function syncInvoiceRowsFromCalculatedItems(items = []) {
     } else {
       updateInvoiceRowLineTotal(row);
     }
+    updateInvoiceReturnHint(row, item);
   });
+  updateInvoiceReturnHintsFromItems(billable);
+}
+
+function updateInvoiceReturnHint(row, item) {
+  const hint = row?.querySelector('.invoice-return-hint');
+  if (!hint) return;
+  const returned = Number(item?.returned_quantity) || Number(row.dataset.returnedQty) || 0;
+  const original = Number(item?.original_quantity ?? item?.quantity) || 0;
+  const net = Number(item?.net_quantity) ?? Math.max(0, original - returned);
+  if (returned > 0) {
+    hint.classList.remove('d-none');
+    hint.textContent = `مرتجع: ${formatAmountInput(returned, 0)} | صافي: ${formatAmountInput(net, 0)}`;
+    row.dataset.returnedQty = String(returned);
+  } else {
+    hint.classList.add('d-none');
+    hint.textContent = '';
+    delete row.dataset.returnedQty;
+  }
+}
+
+function updateInvoiceReturnHintsFromItems(items = []) {
+  const billable = (items || []).filter((item) => !item.is_stay_entry);
+  const byLineId = new Map(
+    billable.filter((item) => item.daily_entry_line_id).map((item) => [String(item.daily_entry_line_id), item])
+  );
+  const byId = new Map(billable.filter((item) => item.id).map((item) => [String(item.id), item]));
+
+  document.querySelectorAll('#items-tbody tr').forEach((row) => {
+    if (row.dataset.staySync) return;
+    const lineId = row.dataset.dailyLineId;
+    const itemId = row.querySelector('[data-field="invoice_item_id"]')?.value;
+    const item =
+      lineId && byLineId.has(String(lineId))
+        ? byLineId.get(String(lineId))
+        : itemId && byId.has(String(itemId))
+          ? byId.get(String(itemId))
+          : null;
+    if (item) updateInvoiceReturnHint(row, item);
+  });
+}
+
+function renderInvoiceReturnsHistory(returns = []) {
+  const card = document.getElementById('invoice-returns-card');
+  const container = document.getElementById('invoice-returns-history');
+  if (!card || !container) return;
+  if (!returns?.length) {
+    card.style.display = 'none';
+    container.innerHTML = '<p class="small text-muted mb-0">لا توجد إرجاعات مسجلة.</p>';
+    return;
+  }
+  card.style.display = '';
+  container.innerHTML = returns
+    .map((ret) => {
+      const lines = (ret.lines || [])
+        .map(
+          (line) =>
+            `<li class="small">${escapeHtml(line.description_snapshot || line.service_name_snapshot || '—')} — ${formatAmountInput(line.return_quantity, 0)} × ${fmt(line.unit_price_snapshot)} = ${fmt(line.return_amount)}</li>`
+        )
+        .join('');
+      return `<div class="mb-2 border-bottom pb-2">
+        <div class="fw-bold small">${ret.return_date || ''} ${ret.created_by_name ? `— ${escapeHtml(ret.created_by_name)}` : ''}</div>
+        ${ret.notes ? `<div class="small text-muted">${escapeHtml(ret.notes)}</div>` : ''}
+        <ul class="mb-0 ps-3">${lines}</ul>
+      </div>`;
+    })
+    .join('');
+}
+
+async function openInvoiceReturnModal() {
+  if (!currentInvoiceId) {
+    showToast('احفظ الفاتورة أولاً قبل تسجيل الإرجاع', 'warning');
+    return;
+  }
+  try {
+    const res = await apiFetch(`${API}/${currentInvoiceId}`);
+    const inv = await res.json();
+    if (!res.ok) throw new Error(inv.error);
+
+    const tbody = document.getElementById('invoice-return-lines-tbody');
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById('invoice-return-date').value = today;
+    document.getElementById('invoice-return-notes').value = '';
+
+    const lines = (inv.items || []).filter((item) => {
+      const qty = Number(item.quantity) || 0;
+      const returned = Number(item.returned_quantity) || 0;
+      return qty > 0 && returned < qty && (item.description || item.service_name_snapshot);
+    });
+
+    if (!lines.length) {
+      showToast('لا توجد بنود متاحة للإرجاع', 'warning');
+      return;
+    }
+
+    tbody.innerHTML = lines
+      .map((item) => {
+        const original = Number(item.quantity) || 0;
+        const returned = Number(item.returned_quantity) || 0;
+        const available = Math.max(0, original - returned);
+        return `<tr>
+          <td>${escapeHtml(item.description || item.service_name_snapshot || '—')}</td>
+          <td class="text-center">${formatAmountInput(original, 0)}</td>
+          <td class="text-center">${formatAmountInput(returned, 0)}</td>
+          <td class="text-center fw-bold">${formatAmountInput(available, 0)}</td>
+          <td><input type="text" inputmode="decimal" class="form-control form-control-sm invoice-return-qty comma-amount" data-item-id="${item.id}" value="" placeholder="0"></td>
+        </tr>`;
+      })
+      .join('');
+
+    bindCommaAmountInputs(tbody);
+    invoiceReturnModal?.show();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function submitInvoiceReturns() {
+  if (!currentInvoiceId) return;
+  const lines = [];
+  document.querySelectorAll('#invoice-return-lines-tbody .invoice-return-qty').forEach((input) => {
+    const qty = parseDisplayAmount(input.value);
+    const itemId = Number(input.dataset.itemId);
+    if (itemId && qty > 0) lines.push({ invoice_item_id: itemId, return_quantity: qty });
+  });
+  if (!lines.length) {
+    showToast('أدخل كمية إرجاع لبند واحد على الأقل', 'warning');
+    return;
+  }
+
+  try {
+    const res = await apiFetch(`${API}/${currentInvoiceId}/returns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        return_date: document.getElementById('invoice-return-date').value || null,
+        notes: document.getElementById('invoice-return-notes').value || '',
+        lines,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل تسجيل الإرجاع');
+    invoiceReturnModal?.hide();
+    showToast('تم تسجيل الإرجاع وتحديث إجماليات الفاتورة', 'success');
+    currentInvoiceReturns = data.returns || [];
+    await loadInvoiceForEdit(currentInvoiceId, {
+      keepForm: true,
+      followUp: invoiceFollowUpMode,
+    });
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
 }
 
 function updateStayEntriesFromTotals(entries) {
@@ -1661,12 +1841,31 @@ function updateSummaryDisplay(t) {
 
   document.getElementById('sum_final').innerHTML = fmtDual(t.final_total_raw, t.final_total);
   document.getElementById('sum_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
-  document.getElementById('sum_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
+  document.getElementById('sum_remaining').innerHTML = fmtDual(
+    t.outstanding_amount_raw ?? t.remaining_raw,
+    t.outstanding_amount ?? t.remaining
+  );
+
+  const refundableRaw = Number(t.refundable_amount_raw) || 0;
+  const refundable = Number(t.refundable_amount) || 0;
+  const showRefundable = refundableRaw > 0.009;
+  document.getElementById('sum_refundable_wrap').style.display = showRefundable ? '' : 'none';
+  if (showRefundable) {
+    document.getElementById('sum_refundable').innerHTML = fmtDual(refundableRaw, refundable);
+  }
 
   document.getElementById('display_final_total').innerHTML = fmtDual(t.final_total_raw, t.final_total);
   document.getElementById('display_total_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
   document.getElementById('display_total_collected2').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
-  document.getElementById('display_remaining').innerHTML = fmtDual(t.remaining_raw, t.remaining);
+  document.getElementById('display_remaining').innerHTML = fmtDual(
+    t.outstanding_amount_raw ?? t.remaining_raw,
+    t.outstanding_amount ?? t.remaining
+  );
+  const refundableRow = document.getElementById('display-refundable-row');
+  if (refundableRow) refundableRow.style.display = showRefundable ? '' : 'none';
+  if (showRefundable) {
+    document.getElementById('display_refundable').innerHTML = fmtDual(refundableRaw, refundable);
+  }
   updatePatientCreditSummary(t);
   updatePaymentRowHints();
   updatePaymentValidationUI(t);
@@ -1777,9 +1976,13 @@ function updatePaymentValidationUI(t) {
 
   const diff = Math.abs(Number(validation.difference ?? t.remaining) || 0);
   if (validation.status === 'overpaid' || Number(t.remaining) < -0.01) {
+    const refundable = Number(t.refundable_amount) || 0;
     banner.className = 'payment-validation-banner is-overpaid';
-    banner.textContent = `⚠ زيادة في الدفع: ${fmt(diff)} — المجموع ${fmt(collected)} أكبر من ${fmt(finalTotal)}`;
-    statusEl.textContent = `زيادة ${fmt(diff)}`;
+    banner.textContent =
+      refundable > 0.009
+        ? `⚠ زيادة في الدفع — مستحق إرجاع للمريض: ${fmt(refundable)}`
+        : `⚠ زيادة في الدفع: ${fmt(diff)} — المجموع ${fmt(collected)} أكبر من ${fmt(finalTotal)}`;
+    statusEl.textContent = refundable > 0.009 ? `إرجاع ${fmt(refundable)}` : `زيادة ${fmt(diff)}`;
     statusEl.className = 'fw-black text-danger';
   } else {
     banner.className = 'payment-validation-banner is-underpaid';
@@ -2020,6 +2223,8 @@ function downloadFile(format) {
 function resetForm() {
   applyInvoiceFollowUpMode(false);
   currentInvoiceId = null;
+  currentInvoiceReturns = [];
+  renderInvoiceReturnsHistory([]);
   currentInvoiceStatus = null;
   document.getElementById('invoice-form').reset();
   document.getElementById('invoice-id').value = '';
@@ -2137,6 +2342,8 @@ async function loadInvoiceForEdit(id, options = {}) {
       const row = rows[i];
       if (!row) continue;
       row.querySelector('[data-field="description"]').value = item.description || '';
+      const itemIdEl = row.querySelector('[data-field="invoice_item_id"]');
+      if (itemIdEl) itemIdEl.value = item.id || '';
       const serviceIdEl = row.querySelector('[data-field="service_id"]');
       if (serviceIdEl) serviceIdEl.value = item.service_id || '';
       if (item.discountable_snapshot === false) row.dataset.discountOverride = 'false';
@@ -2153,7 +2360,11 @@ async function loadInvoiceForEdit(id, options = {}) {
       row.querySelector('[data-field="pay_amount"]').value = pay.amount ? formatAmountInput(pay.amount) : '';
       if (item.daily_entry_line_id) row.dataset.dailyLineId = item.daily_entry_line_id;
       if (item.daily_entry_id) row.dataset.dailyEntryId = item.daily_entry_id;
+      updateInvoiceReturnHint(row, item);
     }
+
+    currentInvoiceReturns = inv.returns || [];
+    renderInvoiceReturnsHistory(currentInvoiceReturns);
 
     ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
       document.getElementById(id).style.display = inv.status === 'approved' ? 'inline-block' : 'none';

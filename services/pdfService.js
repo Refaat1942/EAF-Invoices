@@ -48,16 +48,51 @@ function enrichInvoice(invoice) {
     ...invoice,
     items: invoice.items || [],
     payments: invoice.payments || [],
+    method_payments: invoice.method_payments || [],
     stay_entries: invoice.stay_entries || [],
+  });
+
+  const calcItems = (totals.items || []).filter((item) => !item.is_stay_entry);
+  const calcByLineId = new Map(
+    calcItems.filter((item) => item.daily_entry_line_id).map((item) => [String(item.daily_entry_line_id), item])
+  );
+  const calcById = new Map(calcItems.filter((item) => item.id).map((item) => [String(item.id), item]));
+
+  const mergedItems = (invoice.items || []).map((item) => {
+    const calc =
+      item.daily_entry_line_id && calcByLineId.has(String(item.daily_entry_line_id))
+        ? calcByLineId.get(String(item.daily_entry_line_id))
+        : item.id && calcById.has(String(item.id))
+          ? calcById.get(String(item.id))
+          : null;
+    if (!calc) return item;
+    return {
+      ...item,
+      ...calc,
+      quantity: calc.original_quantity ?? item.quantity,
+      total: calc.total,
+      total_raw: calc.total_raw,
+    };
   });
 
   return {
     ...invoice,
     ...totals,
-    items: invoice.items || [],
+    items: mergedItems,
     stay_entries: totals.stay_entries || invoice.stay_entries || [],
     invoice_type_label: invoice.invoice_type_label || invoice.invoice_type,
   };
+}
+
+function formatItemQuantityDisplay(item) {
+  const original = Number(item.original_quantity ?? item.quantity) || 0;
+  const returned = Number(item.returned_quantity) || 0;
+  const net = Number(item.net_quantity) || Math.max(0, original - returned);
+  if (returned > 0) {
+    return `${formatNumberInt(original)} (−${formatNumberInt(returned)} = ${formatNumberInt(net)})`;
+  }
+  if (original) return formatNumberInt(original);
+  return '';
 }
 
 function buildInvoiceHtml(invoice, options = {}) {
@@ -465,7 +500,7 @@ function buildCombinedRows(items, payments) {
     html += `<tr class="${rowClass}">
       <td class="num">${hasItem ? fmtPlain(item.total) : ''}</td>
       <td class="num">${hasItem ? fmtPlain(item.amount) : ''}</td>
-      <td class="num">${hasItem && item.quantity !== undefined && item.quantity !== '' ? item.quantity : ''}</td>
+      <td class="num">${hasItem && item.quantity !== undefined && item.quantity !== '' ? formatItemQuantityDisplay(item) : ''}</td>
       <td class="num disc-pct">${hasItem ? `${item.item_discount_percent || 0}%` : ''}</td>
       <td class="desc">${escapeHtml(item.description || '')}</td>
       <td class="num">${hasPay ? fmtPlain(pay.amount) : ''}</td>

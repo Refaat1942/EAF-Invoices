@@ -192,6 +192,26 @@ router.get('/:id', requirePermission('invoices.view'), async (req, res) => {
   }
 });
 
+router.get('/:id/returns', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const { listInvoiceReturns } = require('../services/invoiceReturnService');
+    const returns = await listInvoiceReturns(Number(req.params.id));
+    res.json(returns);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/returns', requirePermission('invoices.edit'), async (req, res) => {
+  try {
+    const { recordInvoiceReturns } = require('../services/invoiceReturnService');
+    const result = await recordInvoiceReturns(Number(req.params.id), req.body, req.user);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.put('/:id', requirePermission('invoices.edit'), async (req, res) => {
   try {
     const saveMode = req.body.save_mode === 'submit' ? 'submit' : 'draft';

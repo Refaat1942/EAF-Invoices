@@ -733,6 +733,61 @@ async function runMigrations() {
      WHERE category = 'Supplies' AND cost_price IS NULL AND COALESCE(price, 0) > 0`
   );
 
+  await query(`ALTER TABLE daily_entry_catalog_items ADD COLUMN IF NOT EXISTS major_unit VARCHAR(50)`);
+  await query(`ALTER TABLE daily_entry_catalog_items ADD COLUMN IF NOT EXISTS minor_unit VARCHAR(50)`);
+  await query(
+    `ALTER TABLE daily_entry_catalog_items ADD COLUMN IF NOT EXISTS minor_quantity_per_major NUMERIC(14,2)`
+  );
+  await query(
+    `ALTER TABLE daily_entry_catalog_items ADD COLUMN IF NOT EXISTS major_unit_selling_price NUMERIC(14,2)`
+  );
+  await query(
+    `ALTER TABLE daily_entry_catalog_items ADD COLUMN IF NOT EXISTS minor_unit_selling_price NUMERIC(14,2)`
+  );
+  await query(
+    `UPDATE daily_entry_catalog_items
+     SET major_unit = COALESCE(major_unit, unit, 'مرة'),
+         major_unit_selling_price = COALESCE(major_unit_selling_price, price),
+         minor_unit = COALESCE(minor_unit, unit, 'مرة'),
+         minor_quantity_per_major = COALESCE(minor_quantity_per_major, 1),
+         minor_unit_selling_price = COALESCE(minor_unit_selling_price, price)
+     WHERE major_unit IS NULL OR major_unit_selling_price IS NULL`
+  );
+
+  await query(`ALTER TABLE patient_daily_entry_lines ADD COLUMN IF NOT EXISTS catalog_unit VARCHAR(50)`);
+  await query(`ALTER TABLE patient_daily_entry_lines ADD COLUMN IF NOT EXISTS catalog_unit_level VARCHAR(10)`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS daily_entry_catalog_code_registry (
+      code CHAR(7) PRIMARY KEY,
+      catalog_item_id INTEGER REFERENCES daily_entry_catalog_items(id) ON DELETE SET NULL,
+      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(`
+    CREATE TABLE IF NOT EXISTS daily_entry_catalog_code_sequence (
+      id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      last_number BIGINT NOT NULL DEFAULT 0
+    )
+  `);
+  await query(
+    `INSERT INTO daily_entry_catalog_code_sequence (id, last_number) VALUES (1, 0) ON CONFLICT (id) DO NOTHING`
+  );
+  await query(`
+    INSERT INTO daily_entry_catalog_code_registry (code, catalog_item_id)
+    SELECT code, id FROM daily_entry_catalog_items
+    WHERE code ~ '^[0-9]{7}$'
+    ON CONFLICT (code) DO NOTHING
+  `);
+  await query(`
+    UPDATE daily_entry_catalog_code_sequence
+    SET last_number = GREATEST(
+      last_number,
+      COALESCE((SELECT MAX(code::bigint) FROM daily_entry_catalog_code_registry), 0)
+    )
+    WHERE id = 1
+  `);
+
   const dailyInvoiceItemColumns = [
     'daily_entry_id INTEGER REFERENCES patient_daily_entries(id) ON DELETE SET NULL',
     'daily_entry_line_id INTEGER REFERENCES patient_daily_entry_lines(id) ON DELETE SET NULL',
@@ -765,6 +820,52 @@ async function runMigrations() {
       AND ii.cost_price_snapshot IS NULL
       AND (l.cost_price IS NOT NULL OR l.markup_percent IS NOT NULL OR COALESCE(ii.amount, 0) > 0)
   `);
+
+  await query(
+    `ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS returned_quantity NUMERIC(14,2) NOT NULL DEFAULT 0`
+  );
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS invoice_returns (
+      id SERIAL PRIMARY KEY,
+      invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+      return_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      notes TEXT DEFAULT '',
+      created_by_user_id INTEGER,
+      created_by_name VARCHAR(255) DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_invoice_returns_invoice ON invoice_returns(invoice_id)`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS invoice_item_returns (
+      id SERIAL PRIMARY KEY,
+      invoice_return_id INTEGER NOT NULL REFERENCES invoice_returns(id) ON DELETE CASCADE,
+      invoice_item_id INTEGER NOT NULL REFERENCES invoice_items(id) ON DELETE CASCADE,
+      return_quantity NUMERIC(14,2) NOT NULL,
+      unit_price_snapshot NUMERIC(14,2) NOT NULL DEFAULT 0,
+      return_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      description_snapshot TEXT DEFAULT '',
+      unit_snapshot VARCHAR(50) DEFAULT '',
+      service_id INTEGER,
+      service_code_snapshot VARCHAR(100) DEFAULT '',
+      service_name_snapshot VARCHAR(255) DEFAULT '',
+      cost_price_snapshot NUMERIC(14,2),
+      markup_percent_snapshot NUMERIC(8,2),
+      selling_price_snapshot NUMERIC(14,2),
+      margin_amount_snapshot NUMERIC(14,2),
+      admin_fee_reversal_snapshot NUMERIC(14,2),
+      discount_reversal_snapshot NUMERIC(14,2),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_invoice_item_returns_item ON invoice_item_returns(invoice_item_id)`
+  );
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_invoice_item_returns_return ON invoice_item_returns(invoice_return_id)`
+  );
 
   await seedDailyChargeSections();
 

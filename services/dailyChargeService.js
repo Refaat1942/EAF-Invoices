@@ -108,6 +108,8 @@ function isGmtDescription(text) {
 
 function resolveDailyItemName(item, ctx, section, resolved) {
   const candidates = [
+    ctx?.line_description,
+    ctx?.description,
     resolved?.description,
     ctx?.catalog_item_name,
     ctx?.service_name,
@@ -128,6 +130,7 @@ async function loadDailyLineContextMap(lineIds = []) {
   const { rows } = await query(
     `SELECT l.id AS line_id, l.section_code, l.extra_text, l.service_id, l.catalog_item_id,
             l.unit_price, l.amount, l.quantity, l.cost_price, l.markup_percent,
+            l.catalog_unit, l.catalog_unit_level, l.description AS line_description,
             s.name AS service_name, c.name AS catalog_item_name,
             e.entry_date, e.id AS entry_id, dcs.sort_order AS section_sort_order
      FROM patient_daily_entry_lines l
@@ -241,6 +244,8 @@ function normalizeLine(section, rawLine = {}) {
     section_code: section.code,
     service_id: serviceId,
     catalog_item_id: rawLine.catalog_item_id || null,
+    catalog_unit: rawLine.catalog_unit || null,
+    catalog_unit_level: rawLine.catalog_unit_level || null,
     description: rawLine.description || section.name,
     quantity,
     unit_price: unitPrice,
@@ -474,6 +479,12 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
       category: found.category_name,
       cost_price: found.cost_price,
       markup_percent: found.markup_percent,
+      major_unit: found.major_unit || found.unit,
+      minor_unit: found.minor_unit || found.unit,
+      minor_quantity_per_major: found.minor_quantity_per_major,
+      major_unit_selling_price: found.major_unit_selling_price ?? found.price,
+      minor_unit_selling_price: found.minor_unit_selling_price ?? found.price,
+      unit_options: found.unit_options,
     };
   } else {
     const { getCatalogItemById } = require('./dailyEntryCatalogService');
@@ -486,13 +497,31 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
     }
   }
 
-  const unitPrice = round2(catalogItem.price);
+  const { resolveCatalogUnitPrice } = require('./dailyEntryCatalogService');
+  const unitLevel = rawLine.catalog_unit_level || normalized.catalog_unit_level;
+  const unitLabel = rawLine.catalog_unit || normalized.catalog_unit;
+  let selection = resolveCatalogUnitPrice(catalogItem, unitLevel || 'major');
+  if (unitLabel) {
+    const options = catalogItem.unit_options || [];
+    const byUnit = options.find((opt) => opt.unit === unitLabel);
+    if (byUnit) {
+      selection = {
+        level: byUnit.level,
+        unit: byUnit.unit,
+        unitPrice: round2(byUnit.price),
+      };
+    }
+  }
+
+  const unitPrice = round2(selection.unitPrice);
   if (unitPrice <= 0) {
     throw new Error(`قسم «${section.name}»: الصنف «${catalogItem.name}» ليس له سعر صالح في الكتالوج`);
   }
 
   normalized.catalog_item_id = catalogItem.id;
   normalized.service_id = null;
+  normalized.catalog_unit = selection.unit;
+  normalized.catalog_unit_level = selection.level;
   normalized.unit_price = unitPrice;
   normalized.quantity = qty;
   normalized.amount = round2(unitPrice * qty);
@@ -634,8 +663,9 @@ async function saveEntry(data, user = null, options = {}) {
             `UPDATE patient_daily_entry_lines SET
               service_id = $1, catalog_item_id = $2, description = $3, quantity = $4,
               unit_price = $5, amount = $6, cost_price = $7, markup_percent = $8,
-              extra_date = $9, extra_text = $10, sort_order = $11
-             WHERE id = $12`,
+              catalog_unit = $9, catalog_unit_level = $10,
+              extra_date = $11, extra_text = $12, sort_order = $13
+             WHERE id = $14`,
             [
               line.service_id,
               line.catalog_item_id || null,
@@ -645,6 +675,8 @@ async function saveEntry(data, user = null, options = {}) {
               line.amount,
               line.cost_price || null,
               line.markup_percent || null,
+              line.catalog_unit || null,
+              line.catalog_unit_level || null,
               line.extra_date,
               line.extra_text,
               index,
@@ -655,8 +687,8 @@ async function saveEntry(data, user = null, options = {}) {
           await client.query(
             `INSERT INTO patient_daily_entry_lines (
               entry_id, section_code, service_id, catalog_item_id, description, quantity, unit_price, amount,
-              cost_price, markup_percent, extra_date, extra_text, sort_order
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+              cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, sort_order
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
             [
               existing.id,
               line.section_code,
@@ -668,6 +700,8 @@ async function saveEntry(data, user = null, options = {}) {
               line.amount,
               line.cost_price || null,
               line.markup_percent || null,
+              line.catalog_unit || null,
+              line.catalog_unit_level || null,
               line.extra_date,
               line.extra_text,
               index,
@@ -691,8 +725,8 @@ async function saveEntry(data, user = null, options = {}) {
         await client.query(
           `INSERT INTO patient_daily_entry_lines (
             entry_id, section_code, service_id, catalog_item_id, description, quantity, unit_price, amount,
-            cost_price, markup_percent, extra_date, extra_text, sort_order
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+            cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, sort_order
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
           [
             entryId,
             line.section_code,
@@ -704,6 +738,8 @@ async function saveEntry(data, user = null, options = {}) {
             line.amount,
             line.cost_price || null,
             line.markup_percent || null,
+            line.catalog_unit || null,
+            line.catalog_unit_level || null,
             line.extra_date,
             line.extra_text,
             index,
@@ -955,6 +991,7 @@ function lineToInvoiceItem(line, entry, sections = []) {
     section_code: line.section_code,
     entry_date: entryDate,
     section_sort_order: section?.sort_order ?? 999,
+    unit_snapshot: line.catalog_unit || '',
     cost_price: line.cost_price,
     markup_percent: line.markup_percent,
   }, line);
@@ -1045,6 +1082,7 @@ async function enrichDailyInvoiceItems(items = []) {
         entry_date: formattedDate,
         section_sort_order: ctx.section_sort_order ?? section?.sort_order ?? next.section_sort_order ?? 999,
         section_code: ctx.section_code || next.section_code,
+        unit_snapshot: ctx.catalog_unit || next.unit_snapshot || '',
         cost_price: ctx.cost_price,
         markup_percent: ctx.markup_percent,
       }, ctx);

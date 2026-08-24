@@ -216,13 +216,13 @@ function validateMapping(mapping = {}, fieldSchema = {}) {
 
 const CATALOG_IMPORT_SCHEMA = {
   code: {
-    required: true,
+    required: false,
     label: 'الكود',
     aliases: ['code', 'item code', 'sku', 'product code', 'الكود', 'كود', 'رمز', 'الرمز'],
   },
   name: {
     required: true,
-    label: 'الاسم',
+    label: 'اسم الصنف',
     aliases: ['name', 'item name', 'product name', 'description', 'الاسم', 'اسم', 'اسم الصنف', 'الصنف'],
   },
   category: {
@@ -230,14 +230,74 @@ const CATALOG_IMPORT_SCHEMA = {
     label: 'الفئة',
     aliases: ['category', 'type', 'group', 'الفئة', 'فئة', 'القسم', 'قسم', 'التصنيف', 'تصنيف'],
   },
+  major_unit: {
+    required: false,
+    label: 'الوحدة الكبرى',
+    aliases: [
+      'major unit',
+      'major uom',
+      'pack unit',
+      'الوحدة الكبرى',
+      'وحدة كبرى',
+      'الوحدة',
+      'وحدة',
+      'unit',
+      'uom',
+      'unit of measure',
+    ],
+  },
+  minor_unit: {
+    required: false,
+    label: 'الوحدة الصغرى',
+    aliases: ['minor unit', 'minor uom', 'الوحدة الصغرى', 'وحدة صغرى', 'وحدة بيع'],
+  },
+  minor_quantity_per_major: {
+    required: false,
+    label: 'عدد الصغرى لكل كبرى',
+    aliases: [
+      'minor quantity per major',
+      'minor qty per major',
+      'qty per pack',
+      'units per pack',
+      'عدد الصغرى',
+      'عدد الوحدات الصغرى',
+      'العدد لكل وحدة كبرى',
+    ],
+  },
+  major_unit_selling_price: {
+    required: false,
+    label: 'سعر الوحدة الكبرى',
+    aliases: [
+      'major unit selling price',
+      'major unit price',
+      'major price',
+      'pack price',
+      'سعر الوحدة الكبرى',
+      'سعر الكبرى',
+      'سعر البيع للوحدة الكبرى',
+    ],
+  },
+  minor_unit_selling_price: {
+    required: false,
+    label: 'سعر الوحدة الصغرى',
+    aliases: [
+      'minor unit selling price',
+      'minor unit price',
+      'minor price',
+      'unit selling price',
+      'سعر الوحدة الصغرى',
+      'سعر الصغرى',
+      'سعر البيع للوحدة الصغرى',
+    ],
+  },
   unit: {
     required: false,
     label: 'الوحدة',
     default: 'مرة',
-    aliases: ['unit', 'uom', 'unit of measure', 'الوحدة', 'وحدة'],
+    aliases: ['unit legacy', 'legacy unit'],
   },
   price: {
-    required: true,
+    required: false,
     label: 'السعر',
     aliases: [
       'price',

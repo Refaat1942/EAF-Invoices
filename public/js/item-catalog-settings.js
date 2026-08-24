@@ -12,12 +12,26 @@ const ITEM_CATALOG_CATEGORY_LABELS = {
 
 const ITEM_IMPORT_FIELD_LABELS = {
   code: 'الكود',
-  name: 'الاسم',
+  name: 'اسم الصنف',
   category: 'الفئة',
+  major_unit: 'الوحدة الكبرى',
+  minor_unit: 'الوحدة الصغرى',
+  minor_quantity_per_major: 'عدد الصغرى لكل كبرى',
+  major_unit_selling_price: 'سعر الوحدة الكبرى',
+  minor_unit_selling_price: 'سعر الوحدة الصغرى',
   unit: 'الوحدة',
   price: 'السعر',
   cost_price: 'سعر التكلفة',
   markup_percent: 'نسبة الربح %',
+};
+
+const ITEM_IMPORT_STATUS_LABELS = {
+  insert: 'إضافة',
+  update: 'تحديث',
+  skip: 'تخطي',
+  duplicate: 'مكرر',
+  conflict: 'تعارض',
+  error: 'خطأ',
 };
 
 let itemCatalogSearchTimer = null;
@@ -69,16 +83,18 @@ function toggleItemCatalogPricingFields(mode = 'add') {
   const prefix = mode === 'edit' ? 'edit' : 'add';
   const category = document.getElementById(`item-catalog-${prefix}-category`)?.value;
   const isSupplies = category === 'Supplies';
-  const priceWrap = document.getElementById(`item-catalog-${prefix}-price-wrap`);
+  const majorPriceWrap = document.getElementById(`item-catalog-${prefix}-major-price-wrap`);
+  const minorPriceWrap = document.getElementById(`item-catalog-${prefix}-minor-price-wrap`);
   const costWrap = document.getElementById(`item-catalog-${prefix}-cost-wrap`);
   const markupWrap = document.getElementById(`item-catalog-${prefix}-markup-wrap`);
   const sellingWrap = document.getElementById(`item-catalog-${prefix}-selling-wrap`);
-  if (priceWrap) priceWrap.style.display = isSupplies ? 'none' : '';
+  if (majorPriceWrap) majorPriceWrap.style.display = isSupplies ? 'none' : '';
+  if (minorPriceWrap) minorPriceWrap.style.display = isSupplies ? 'none' : '';
   if (costWrap) costWrap.style.display = isSupplies ? '' : 'none';
   if (markupWrap) markupWrap.style.display = isSupplies ? '' : 'none';
   if (sellingWrap) sellingWrap.style.display = isSupplies ? '' : 'none';
-  const priceEl = document.getElementById(`item-catalog-${prefix}-price`);
-  if (priceEl) priceEl.required = !isSupplies;
+  const majorPriceEl = document.getElementById(`item-catalog-${prefix}-major-price`);
+  if (majorPriceEl) majorPriceEl.required = !isSupplies;
   const costEl = document.getElementById(`item-catalog-${prefix}-cost`);
   if (costEl) costEl.required = isSupplies;
   if (isSupplies) updateItemCatalogSellingPreview(mode);
@@ -100,14 +116,44 @@ function updateItemCatalogSellingPreview(mode = 'add') {
       : '';
 }
 
+function formatCatalogUnitsCell(item) {
+  const major = item.major_unit || item.unit || '';
+  const minor = item.minor_unit || major;
+  const qty = Number(item.minor_quantity_per_major) || 1;
+  if (minor === major || qty <= 1) {
+    return catalogEscapeHtml(major);
+  }
+  return `${catalogEscapeHtml(major)} / ${catalogEscapeHtml(minor)} <small class="text-muted">(${qty})</small>`;
+}
+
+function formatCatalogPricesCell(item) {
+  if (item.category === 'Supplies') {
+    return `<small class="d-block text-muted">تكلفة: ${catalogFmt(item.cost_price || 0)}</small>
+            <small class="d-block text-muted">ربح: ${catalogFmt(item.markup_percent || 0)}%</small>
+            <strong>بيع: ${catalogFmt(item.major_unit_selling_price || item.price)}</strong>`;
+  }
+  const major = catalogFmt(item.major_unit_selling_price || item.price);
+  const minor = catalogFmt(item.minor_unit_selling_price || item.price);
+  if ((item.minor_unit || item.unit) !== (item.major_unit || item.unit)) {
+    return `<small class="d-block">كبرى: ${major}</small><small class="d-block">صغرى: ${minor}</small>`;
+  }
+  return major;
+}
+
 function buildItemCatalogPayload(mode = 'add') {
   const prefix = mode === 'edit' ? 'edit' : 'add';
   const category = document.getElementById(`item-catalog-${prefix}-category`)?.value;
+  const codeRaw = document.getElementById(`item-catalog-${prefix}-code`)?.value.trim() || '';
   const base = {
-    code: document.getElementById(`item-catalog-${prefix}-code`)?.value.trim(),
+    code: codeRaw,
     name: document.getElementById(`item-catalog-${prefix}-name`)?.value.trim(),
     category,
-    unit: document.getElementById(`item-catalog-${prefix}-unit`)?.value.trim() || 'مرة',
+    major_unit:
+      document.getElementById(`item-catalog-${prefix}-major-unit`)?.value.trim() || 'مرة',
+    minor_unit: document.getElementById(`item-catalog-${prefix}-minor-unit`)?.value.trim() || '',
+    minor_quantity_per_major: catalogParseAmount(
+      document.getElementById(`item-catalog-${prefix}-minor-qty`)?.value
+    ),
   };
   if (category === 'Supplies') {
     return {
@@ -118,7 +164,12 @@ function buildItemCatalogPayload(mode = 'add') {
   }
   return {
     ...base,
-    price: catalogParseAmount(document.getElementById(`item-catalog-${prefix}-price`)?.value),
+    major_unit_selling_price: catalogParseAmount(
+      document.getElementById(`item-catalog-${prefix}-major-price`)?.value
+    ),
+    minor_unit_selling_price: catalogParseAmount(
+      document.getElementById(`item-catalog-${prefix}-minor-price`)?.value
+    ),
   };
 }
 
@@ -150,12 +201,7 @@ async function refreshItemCatalogAfterChange() {
 
 function renderItemCatalogManageRow(item) {
   const label = ITEM_CATALOG_CATEGORY_LABELS[item.category] || item.category;
-  const priceCell =
-    item.category === 'Supplies'
-      ? `<small class="d-block text-muted">تكلفة: ${catalogFmt(item.cost_price || 0)}</small>
-         <small class="d-block text-muted">ربح: ${catalogFmt(item.markup_percent || 0)}%</small>
-         <strong>بيع: ${catalogFmt(item.price)}</strong>`
-      : catalogFmt(item.price);
+  const priceCell = formatCatalogPricesCell(item);
   const statusBadge = item.is_active
     ? '<span class="badge bg-success">نشط</span>'
     : '<span class="badge bg-secondary">موقوف</span>';
@@ -169,7 +215,7 @@ function renderItemCatalogManageRow(item) {
     <td class="fw-bold">${catalogEscapeHtml(item.code)}</td>
     <td>${catalogEscapeHtml(item.name)}</td>
     <td>${catalogEscapeHtml(label)}</td>
-    <td>${catalogEscapeHtml(item.unit || '')}</td>
+    <td>${formatCatalogUnitsCell(item)}</td>
     <td>${priceCell}</td>
     <td>${statusBadge}</td>
     <td class="d-flex gap-1 flex-wrap">${actions}</td>
@@ -234,8 +280,8 @@ async function submitItemCatalogAdd(event) {
     showToast('تم إضافة الصنف', 'success');
     const form = document.getElementById('item-catalog-add-form');
     if (form) form.reset();
-    const unitEl = document.getElementById('item-catalog-add-unit');
-    if (unitEl) unitEl.value = 'مرة';
+    const majorUnitEl = document.getElementById('item-catalog-add-major-unit');
+    if (majorUnitEl) majorUnitEl.value = 'مرة';
     const filterCat = document.getElementById('item-catalog-filter-category')?.value;
     const addCat = document.getElementById('item-catalog-add-category');
     if (filterCat && addCat) addCat.value = filterCat;
@@ -256,14 +302,34 @@ async function openItemCatalogEditModal(itemId) {
     document.getElementById('item-catalog-edit-code').value = item.code || '';
     document.getElementById('item-catalog-edit-name').value = item.name || '';
     document.getElementById('item-catalog-edit-category').value = item.category || 'Medicine';
-    document.getElementById('item-catalog-edit-unit').value = item.unit || 'مرة';
-    const priceEl = document.getElementById('item-catalog-edit-price');
+    document.getElementById('item-catalog-edit-major-unit').value = item.major_unit || item.unit || 'مرة';
+    document.getElementById('item-catalog-edit-minor-unit').value =
+      item.minor_unit && item.minor_unit !== (item.major_unit || item.unit) ? item.minor_unit : '';
+    const minorQtyEl = document.getElementById('item-catalog-edit-minor-qty');
+    if (minorQtyEl) {
+      minorQtyEl.value =
+        item.minor_quantity_per_major != null && typeof formatAmountInput === 'function'
+          ? formatAmountInput(item.minor_quantity_per_major)
+          : item.minor_quantity_per_major != null
+            ? String(item.minor_quantity_per_major)
+            : '1';
+    }
+    const majorPriceEl = document.getElementById('item-catalog-edit-major-price');
+    const minorPriceEl = document.getElementById('item-catalog-edit-minor-price');
+    if (majorPriceEl) {
+      majorPriceEl.value =
+        typeof formatAmountInput === 'function'
+          ? formatAmountInput(item.major_unit_selling_price || item.price || 0)
+          : String(item.major_unit_selling_price || item.price || '');
+    }
+    if (minorPriceEl) {
+      minorPriceEl.value =
+        typeof formatAmountInput === 'function'
+          ? formatAmountInput(item.minor_unit_selling_price || item.price || 0)
+          : String(item.minor_unit_selling_price || item.price || '');
+    }
     const costEl = document.getElementById('item-catalog-edit-cost');
     const markupEl = document.getElementById('item-catalog-edit-markup');
-    if (priceEl) {
-      priceEl.value =
-        typeof formatAmountInput === 'function' ? formatAmountInput(item.price) : String(item.price || '');
-    }
     if (costEl) {
       costEl.value =
         item.cost_price != null && typeof formatAmountInput === 'function'
@@ -349,9 +415,7 @@ function renderItemCatalogImportMapping(state) {
   if (!wrap || !state) return;
   const headers = state.headers || [];
   const mapping = state.mapping || {};
-  const fields = (state.fields || []).filter((f) =>
-    ['code', 'name', 'category', 'unit', 'price'].includes(f.key)
-  );
+  const fields = state.fields || [];
 
   wrap.innerHTML = fields
     .map((field) => {
@@ -393,23 +457,50 @@ function renderItemCatalogImportMapping(state) {
   if (countEl) countEl.textContent = `${state.total_rows || 0} صف في الملف`;
 }
 
-function renderItemCatalogImportPreview(rows = []) {
+function renderImportStatusBadge(status) {
+  const label = ITEM_IMPORT_STATUS_LABELS[status] || status || '';
+  const cls =
+    status === 'conflict' || status === 'error'
+      ? 'bg-danger'
+      : status === 'duplicate'
+        ? 'bg-warning text-dark'
+        : status === 'skip'
+          ? 'bg-secondary'
+          : 'bg-success';
+  return `<span class="badge ${cls}">${catalogEscapeHtml(label)}</span>`;
+}
+
+function renderItemCatalogImportPreview(rows = [], state = {}) {
   const body = document.getElementById('item-catalog-import-preview-body');
   if (!body) return;
+  const dupCount = state.duplicate_rows?.length || 0;
+  const conflictCount = state.conflict_rows?.length || 0;
+  if (dupCount || conflictCount) {
+    const alert = document.getElementById('item-catalog-import-hint');
+    if (alert) {
+      alert.style.display = '';
+      alert.className = 'alert alert-warning py-2 mb-3';
+      alert.textContent = `تعارضات/تكرارات: ${conflictCount} تعارض · ${dupCount} مكرر — راجع قبل التأكيد`;
+    }
+  }
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="6" class="text-muted text-center">لا توجد صفوف للمعاينة</td></tr>';
+    body.innerHTML = '<tr><td colspan="10" class="text-muted text-center">لا توجد صفوف للمعاينة</td></tr>';
     return;
   }
   body.innerHTML = rows
     .map(
       (row) =>
-        `<tr>
+        `<tr class="${row.import_status === 'conflict' || row.import_status === 'error' ? 'table-danger' : row.import_status === 'duplicate' ? 'table-warning' : ''}">
           <td>${row.row_number || ''}</td>
-          <td>${catalogEscapeHtml(row.code)}</td>
+          <td>${catalogEscapeHtml(row.code || '—')}</td>
           <td>${catalogEscapeHtml(row.name)}</td>
           <td>${catalogEscapeHtml(row.category)}</td>
-          <td>${catalogEscapeHtml(row.unit)}</td>
-          <td>${catalogFmt(row.price)}</td>
+          <td>${catalogEscapeHtml(row.major_unit || row.unit || '')}</td>
+          <td>${catalogEscapeHtml(row.minor_unit || '')}</td>
+          <td>${catalogFmt(row.minor_quantity_per_major || 1)}</td>
+          <td>${catalogFmt(row.major_unit_selling_price || row.price)}</td>
+          <td>${catalogFmt(row.minor_unit_selling_price || '')}</td>
+          <td>${renderImportStatusBadge(row.import_status)}<small class="d-block text-muted">${catalogEscapeHtml(row.import_message || '')}</small></td>
         </tr>`
     )
     .join('');
@@ -437,7 +528,7 @@ async function refreshItemCatalogImportPreview() {
     if (!res.ok) throw new Error(data.error || 'فشل المعاينة');
     itemCatalogImportState = data;
     renderItemCatalogImportMapping(data);
-    renderItemCatalogImportPreview(data.preview_rows || []);
+    renderItemCatalogImportPreview(data.preview_rows || [], data);
     document.getElementById('item-catalog-import-step-preview').style.display = '';
     document.getElementById('item-catalog-import-confirm-btn').style.display = '';
   } catch (err) {
@@ -474,7 +565,7 @@ async function openItemCatalogImportModal(file) {
     if (!res.ok) throw new Error(data.error || 'فشل تحليل الملف');
     itemCatalogImportState = data;
     renderItemCatalogImportMapping(data);
-    renderItemCatalogImportPreview(data.preview_rows || []);
+    renderItemCatalogImportPreview(data.preview_rows || [], data);
     document.getElementById('item-catalog-import-step-preview').style.display = '';
     document.getElementById('item-catalog-import-confirm-btn').style.display = '';
   } catch (err) {
@@ -490,8 +581,16 @@ async function openItemCatalogImportModal(file) {
 async function confirmItemCatalogImport() {
   if (!itemCatalogImportFile) return;
   const mapping = collectItemCatalogImportMapping();
-  const required = ['code', 'name', 'category', 'price'];
+  const required = ['name', 'category'];
   const missing = required.filter((key) => !mapping[key]);
+  const hasPrice =
+    mapping.major_unit_selling_price ||
+    mapping.price ||
+    mapping.cost_price;
+  if (!hasPrice) {
+    showToast('يجب تعيين سعر الوحدة الكبرى أو سعر التكلفة للمستلزمات', 'warning');
+    return;
+  }
   if (missing.length) {
     showToast(`يجب تعيين: ${missing.map((k) => ITEM_IMPORT_FIELD_LABELS[k]).join('، ')}`, 'warning');
     return;

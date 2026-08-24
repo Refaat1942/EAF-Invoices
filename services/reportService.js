@@ -456,6 +456,8 @@ async function getSuppliesMarkupReport(filters = {}) {
            inv.status AS invoice_status,
            c.code AS item_code,
            COALESCE(c.name, l.description) AS item_name,
+           COALESCE(ii.quantity, l.quantity, 1) AS original_quantity,
+           COALESCE(ii.returned_quantity, 0) AS returned_quantity,
            l.quantity,
            COALESCE(ii.cost_price_snapshot, l.cost_price) AS cost_price,
            COALESCE(ii.markup_percent_snapshot, l.markup_percent) AS markup_percent,
@@ -500,18 +502,31 @@ async function getSuppliesMarkupReport(filters = {}) {
   let totalSelling = 0;
   let totalMargin = 0;
   for (const row of rows) {
-    const qty = Number(row.quantity) || 1;
+    const originalQty = Number(row.original_quantity ?? row.quantity) || 1;
+    const returnedQty = Number(row.returned_quantity) || 0;
+    const netQty = Math.max(0, originalQty - returnedQty);
     const cost = Number(row.cost_price) || 0;
     const selling = Number(row.selling_price) || 0;
-    totalCost += cost * qty;
-    totalSelling += selling * qty;
-    totalMargin += Number(row.margin_amount) || 0;
+    const marginSnapshot = Number(row.margin_amount) || 0;
+    const netMargin =
+      marginSnapshot > 0 && originalQty > 0
+        ? Math.round(marginSnapshot * (netQty / originalQty) * 100) / 100
+        : Math.round((selling - cost) * netQty * 100) / 100;
+    row.net_quantity = netQty;
+    row.margin_amount = netMargin;
+    row.line_total = Math.round(selling * netQty * 100) / 100;
+    totalCost += cost * netQty;
+    totalSelling += selling * netQty;
+    totalMargin += netMargin;
   }
 
   return {
     rows: rows.map((row) => ({
       ...row,
-      quantity: Number(row.quantity) || 1,
+      quantity: Number(row.net_quantity ?? row.quantity) || 1,
+      original_quantity: Number(row.original_quantity ?? row.quantity) || 1,
+      returned_quantity: Number(row.returned_quantity) || 0,
+      net_quantity: Number(row.net_quantity) || 1,
       cost_price: row.cost_price != null ? Number(row.cost_price) : null,
       markup_percent: row.markup_percent != null ? Number(row.markup_percent) : null,
       selling_price: Number(row.selling_price) || 0,

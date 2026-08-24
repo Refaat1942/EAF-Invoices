@@ -21,6 +21,48 @@ function calculateItemTotal(quantity, amount) {
   return { raw, rounded: raw, total: raw };
 }
 
+function resolveItemQuantities(item) {
+  const originalQuantity = round2(item.quantity) || 0;
+  const returnedQuantity = round2(item.returned_quantity) || 0;
+  const netQuantity = round2(Math.max(0, originalQuantity - returnedQuantity));
+  return { originalQuantity, returnedQuantity, netQuantity };
+}
+
+function prorateByNetRatio(value, originalQuantity, netQuantity) {
+  const total = round2(value);
+  if (!total || !originalQuantity) return 0;
+  return round2(total * (netQuantity / originalQuantity));
+}
+
+function prorateSuppliesFields(item, originalQuantity, netQuantity) {
+  const unitPrice = round2(item.amount) || 0;
+  const unitCost = round2(item.cost_price_snapshot ?? item.cost_price ?? 0);
+  const hasSupplies =
+    item.daily_entry_line_id ||
+    item.section_code === 'supplies' ||
+    unitCost > 0 ||
+    item.margin_amount_snapshot != null ||
+    item.supplies_cost_raw ||
+    item.supplies_margin_raw;
+
+  if (!hasSupplies) {
+    return { supplies_cost_raw: 0, supplies_margin_raw: 0, supplies_selling_raw: 0 };
+  }
+
+  const supplies_cost_raw =
+    unitCost > 0
+      ? round2(unitCost * netQuantity)
+      : prorateByNetRatio(item.supplies_cost_raw || 0, originalQuantity, netQuantity);
+  const marginSnapshot = round2(item.margin_amount_snapshot ?? item.supplies_margin_raw ?? 0);
+  const supplies_margin_raw =
+    marginSnapshot > 0 && originalQuantity > 0
+      ? round2(marginSnapshot * (netQuantity / originalQuantity))
+      : round2(unitPrice * netQuantity - supplies_cost_raw);
+  const supplies_selling_raw = round2(unitPrice * netQuantity);
+
+  return { supplies_cost_raw, supplies_margin_raw, supplies_selling_raw };
+}
+
 function normalizeArabic(text) {
   return String(text || '')
     .trim()
@@ -272,8 +314,10 @@ function calculateInvoiceTotals(data) {
   }));
 
   const manualItems = (data.items || []).map((item) => {
-    const calc = calculateItemTotal(item.quantity, item.amount);
+    const { originalQuantity, returnedQuantity, netQuantity } = resolveItemQuantities(item);
+    const calc = calculateItemTotal(netQuantity, item.amount);
     const creditRaw = round2(item.patient_credit_applied || 0);
+    const supplies = prorateSuppliesFields(item, originalQuantity, netQuantity);
     const eligibility = resolveItemEligibility(
       { ...item, total_raw: calc.raw, entity_discount_percent: discountPercent },
       exclusions,
@@ -282,6 +326,10 @@ function calculateInvoiceTotals(data) {
     const adminFeeRaw = computeItemAdminFeeRaw({ ...item, total_raw: calc.raw }, adminPercentResolved);
     return {
       ...item,
+      quantity: originalQuantity,
+      original_quantity: originalQuantity,
+      returned_quantity: returnedQuantity,
+      net_quantity: netQuantity,
       total: calc.rounded,
       total_raw: calc.raw,
       total_rounded: calc.rounded,
@@ -289,6 +337,7 @@ function calculateInvoiceTotals(data) {
       patient_credit_applied_raw: creditRaw,
       admin_fee_amount_raw: adminFeeRaw,
       admin_fee_amount: roundNearest(adminFeeRaw),
+      ...supplies,
       ...eligibility,
     };
   });
@@ -374,6 +423,10 @@ function calculateInvoiceTotals(data) {
 
   const remainingRaw = round2(finalTotalRaw - totalCollectedRaw);
   const remaining = roundNearest(remainingRaw);
+  const refundableAmountRaw = totalCollectedRaw > finalTotalRaw ? round2(totalCollectedRaw - finalTotalRaw) : 0;
+  const refundableAmount = roundNearest(refundableAmountRaw);
+  const outstandingRaw = finalTotalRaw > totalCollectedRaw ? round2(finalTotalRaw - totalCollectedRaw) : 0;
+  const outstanding = roundNearest(outstandingRaw);
   const paymentValidation = validatePaymentBalance({
     final_total_raw: finalTotalRaw,
     final_total: finalTotal,
@@ -449,6 +502,10 @@ function calculateInvoiceTotals(data) {
     total_collected_raw: totalCollectedRaw,
     remaining,
     remaining_raw: remainingRaw,
+    refundable_amount: refundableAmount,
+    refundable_amount_raw: refundableAmountRaw,
+    outstanding_amount: outstanding,
+    outstanding_amount_raw: outstandingRaw,
     payment_validation: paymentValidation,
     payments_total: paymentsTotal,
     payments_total_raw: paymentsTotalRaw,
@@ -636,10 +693,11 @@ function validateInvoiceCalculations(data, totals) {
   for (const item of totals.items || []) {
     if (item.is_stay_entry) continue;
     if (!item.description && !item.quantity && !item.amount) continue;
-    const expected = round2((Number(item.quantity) || 0) * (Number(item.amount) || 0));
+    const { netQuantity } = resolveItemQuantities(item);
+    const expected = round2(netQuantity * (Number(item.amount) || 0));
     if (!approxEqual(expected, item.total_raw)) {
       errors.push(
-        `بند "${item.description || '—'}": ${item.quantity} × ${item.amount} = ${expected} ≠ ${item.total_raw}`
+        `بند "${item.description || '—'}": صافي ${netQuantity} × ${item.amount} = ${expected} ≠ ${item.total_raw}`
       );
     }
   }
@@ -806,7 +864,9 @@ module.exports = {
   validateInvoiceCalculations,
   buildCalculationSteps,
   formatDual,
-  matchesExclusion,
+  resolveItemQuantities,
+  prorateSuppliesFields,
+  prorateByNetRatio,
   isItemAdminApplicable,
   computeItemAdminFeeRaw,
 };

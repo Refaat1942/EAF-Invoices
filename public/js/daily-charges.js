@@ -316,8 +316,61 @@ function dailyEscapeHtml(text) {
 function buildCatalogItemOptionHtml(item, selectedId) {
   const selected = String(selectedId) === String(item.id) ? 'selected' : '';
   const label = item.code ? `${item.code} — ${item.name}` : item.name;
+  const unitOpts = item.unit_options || [{ level: 'major', unit: item.unit || '', price: item.price }];
   const unitHint = item.unit ? ` (${item.unit})` : '';
-  return `<option value="${item.id}" data-name="${dailyEscapeAttr(item.name)}" data-unit="${dailyEscapeAttr(item.unit || '')}" title="${dailyEscapeAttr(item.category_name || item.category || '')}" ${selected}>${label}${unitHint}</option>`;
+  return `<option value="${item.id}" data-name="${dailyEscapeAttr(item.name)}" data-unit="${dailyEscapeAttr(item.unit || '')}" data-unit-options="${dailyEscapeAttr(JSON.stringify(unitOpts))}" title="${dailyEscapeAttr(item.category_name || item.category || '')}" ${selected}>${label}${unitHint}</option>`;
+}
+
+function populateDailyCatalogUnitSelect(tr, sectionCode, catalogItemId, preset = {}) {
+  const select = tr?.querySelector(`.daily-catalog[data-section="${sectionCode}"]`);
+  const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
+  if (!select || !unitSelect) return;
+
+  const option = select.querySelector(`option[value="${catalogItemId}"]`);
+  if (!option || !catalogItemId) {
+    unitSelect.style.display = 'none';
+    unitSelect.innerHTML = '<option value="">— وحدة —</option>';
+    return;
+  }
+
+  let unitOptions = [];
+  try {
+    unitOptions = JSON.parse(option.dataset.unitOptions || '[]');
+  } catch {
+    unitOptions = [];
+  }
+  if (!unitOptions.length) {
+    unitOptions = [{ level: 'major', unit: option.dataset.unit || '', price: 0 }];
+  }
+
+  unitSelect.innerHTML = unitOptions
+    .map((opt) => {
+      const selected =
+        preset.catalog_unit_level === opt.level ||
+        (preset.catalog_unit && preset.catalog_unit === opt.unit)
+          ? 'selected'
+          : '';
+      return `<option value="${opt.level}" data-unit="${dailyEscapeAttr(opt.unit)}" data-price="${opt.price}" ${selected}>${dailyEscapeAttr(opt.unit)} — ${dailyFmt(opt.price)}</option>`;
+    })
+    .join('');
+
+  unitSelect.style.display = unitOptions.length > 1 ? '' : 'none';
+  if (!unitSelect.value && unitOptions.length) {
+    unitSelect.value = preset.catalog_unit_level || unitOptions[0].level;
+  }
+}
+
+function applyDailyCatalogUnitPrice(tr, sectionCode) {
+  const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
+  const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
+  if (!unitSelect || !amountInput) return;
+  const opt = unitSelect.selectedOptions[0];
+  const price = Number(opt?.dataset.price) || 0;
+  if (price > 0) {
+    amountInput.value =
+      typeof formatAmountInput === 'function' ? formatAmountInput(price) : dailyFormatInput(price);
+    amountInput.dataset.manualAmount = '0';
+  }
 }
 
 function refreshCatalogSelectsInRows() {
@@ -332,6 +385,7 @@ function refreshCatalogSelectsInRows() {
       select.innerHTML = `<option value="">— صنف —</option>${options}`;
       if (currentVal && items.some((item) => String(item.id) === String(currentVal))) {
         select.value = currentVal;
+        populateDailyCatalogUnitSelect(tr, section.code, currentVal);
       }
     }
   });
@@ -379,20 +433,18 @@ function renderDailyCellHtml(section, line = {}) {
       : '';
 
   const itemOptions = (section.services || [])
-    .map((item) => {
-      const selected = String(selectedId) === String(item.id) ? 'selected' : '';
-      const label =
-        usesCatalog && item.code ? `${item.code} — ${item.name}` : item.name;
-      const unitHint = usesCatalog && item.unit ? ` (${item.unit})` : '';
-      return `<option value="${item.id}" data-name="${dailyEscapeAttr(item.name)}" data-unit="${dailyEscapeAttr(item.unit || '')}" title="${dailyEscapeAttr(item.category_name || '')}" ${selected}>${label}${unitHint}</option>`;
-    })
+    .map((item) => buildCatalogItemOptionHtml(item, selectedId))
     .join('');
 
   const selectClass = usesCatalog ? 'daily-catalog' : 'daily-service';
   const placeholder = usesCatalog ? '— صنف —' : '— خدمة —';
+  const unitSelect =
+    usesCatalog
+      ? `<select class="form-select form-select-sm mb-1 daily-catalog-unit" data-section="${section.code}" style="display:none"><option value="">— وحدة —</option></select>`
+      : '';
   const itemSelect =
     section.services?.length > 0
-      ? `<select class="form-select form-select-sm mb-1 ${selectClass}" data-section="${section.code}"><option value="">${placeholder}</option>${itemOptions}</select>`
+      ? `<select class="form-select form-select-sm mb-1 ${selectClass}" data-section="${section.code}"><option value="">${placeholder}</option>${itemOptions}</select>${unitSelect}`
       : usesCatalog
         ? `<small class="text-muted d-block mb-1">لا أصناف نشطة — راجع كتالوج الأصناف في الإعدادات</small>`
         : '';
@@ -453,7 +505,7 @@ function renderDailySectionsTable() {
 }
 
 function bindDailyRowEvents(tr) {
-  tr.querySelectorAll('.daily-field, .daily-service, .daily-catalog, .daily-row-date, .daily-row-stay-type').forEach((el) => {
+  tr.querySelectorAll('.daily-field, .daily-service, .daily-catalog, .daily-catalog-unit, .daily-row-date, .daily-row-stay-type').forEach((el) => {
     el.addEventListener('input', () => {
       if (el.classList.contains('daily-amount')) el.dataset.manualAmount = '1';
       updateRowTotal(tr);
@@ -461,6 +513,10 @@ function bindDailyRowEvents(tr) {
     });
     el.addEventListener('change', (event) => {
       if (el.classList.contains('daily-service') || el.classList.contains('daily-catalog')) onDailyServicePick(event);
+      if (el.classList.contains('daily-catalog-unit')) {
+        const section = el.dataset.section;
+        applyDailyCatalogUnitPrice(tr, section);
+      }
       if (el.classList.contains('daily-row-stay-type')) applyStayTypeRateToRow(tr);
       updateRowTotal(tr);
       updateDailyGrandTotal();
@@ -556,6 +612,16 @@ function createDailyEntryRow(entry = {}) {
   `;
 
   bindDailyRowEvents(tr);
+  for (const section of dailySectionsCache) {
+    if (!section.catalog_category && !section.uses_catalog) continue;
+    const line = getLineForSection(entry, section.code);
+    if (line.catalog_item_id) {
+      populateDailyCatalogUnitSelect(tr, section.code, line.catalog_item_id, line);
+      if (!line.unit_price && !line.amount) {
+        applyDailyCatalogUnitPrice(tr, section.code);
+      }
+    }
+  }
   updateRowTotal(tr);
   return tr;
 }
@@ -595,9 +661,13 @@ function collectDailyLinesFromRow(tr) {
     if (section.input_type === 'text') {
       return { section_code: section.code, extra_text: field?.value || '' };
     }
+    const unitSelect = tr.querySelector(`.daily-catalog-unit[data-section="${section.code}"]`);
+    const unitOpt = unitSelect?.selectedOptions?.[0];
     return {
       section_code: section.code,
       catalog_item_id: usesCatalog && catalogSelect?.value ? Number(catalogSelect.value) : null,
+      catalog_unit_level: usesCatalog && unitSelect?.value ? unitSelect.value : null,
+      catalog_unit: usesCatalog && unitOpt?.dataset?.unit ? unitOpt.dataset.unit : null,
       service_id: !usesCatalog && serviceSelect?.value ? Number(serviceSelect.value) : null,
       amount: dailyParseAmount(field?.value),
       quantity: 1,
@@ -685,6 +755,25 @@ function onDailyServicePick(event) {
   const isCatalog = select.classList.contains('daily-catalog');
   const tr = select.closest('.daily-entry-row');
   const section = select.dataset.section;
+  if (isCatalog) {
+    if (!select.value) {
+      const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${section}"]`);
+      if (unitSelect) {
+        unitSelect.style.display = 'none';
+        unitSelect.innerHTML = '<option value="">— وحدة —</option>';
+      }
+      const amountInput = tr?.querySelector(`.daily-amount[data-section="${section}"]`);
+      if (amountInput) amountInput.value = '';
+      if (tr) updateRowTotal(tr);
+      updateDailyGrandTotal();
+      return;
+    }
+    populateDailyCatalogUnitSelect(tr, section, select.value);
+    applyDailyCatalogUnitPrice(tr, section);
+    if (tr) updateRowTotal(tr);
+    updateDailyGrandTotal();
+    return;
+  }
   const service = getSectionService(section, select.value);
   const amountInput = tr?.querySelector(`.daily-amount[data-section="${section}"]`);
   if (!amountInput || !service) {

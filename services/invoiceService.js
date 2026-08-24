@@ -68,6 +68,40 @@ async function enrichItemsWithServices(items = []) {
   return sortDailyInvoiceItems([...enrichedDaily, ...enriched]);
 }
 
+async function mergeReturnedQuantitiesFromInvoice(items = [], invoiceId, client = null) {
+  if (!invoiceId || !Array.isArray(items) || !items.length) return items;
+  const run = client ? client.query.bind(client) : query;
+  const { rows } = await run(
+    `SELECT id, daily_entry_line_id, quantity, returned_quantity
+     FROM invoice_items WHERE invoice_id = $1`,
+    [Number(invoiceId)]
+  );
+  if (!rows.length) return items;
+
+  const byLineId = new Map();
+  const byItemId = new Map();
+  for (const row of rows) {
+    byItemId.set(Number(row.id), row);
+    if (row.daily_entry_line_id) byLineId.set(Number(row.daily_entry_line_id), row);
+  }
+
+  return items.map((item) => {
+    const match =
+      item.id && byItemId.has(Number(item.id))
+        ? byItemId.get(Number(item.id))
+        : item.daily_entry_line_id && byLineId.has(Number(item.daily_entry_line_id))
+          ? byLineId.get(Number(item.daily_entry_line_id))
+          : null;
+    if (!match) return item;
+    return {
+      ...item,
+      id: match.id,
+      quantity: item.quantity ?? match.quantity,
+      returned_quantity: round2(match.returned_quantity) || 0,
+    };
+  });
+}
+
 async function prepareCalculationData(data) {
   const calcData = { ...data };
   const { ensurePatientCreditMethod, getPaymentMethodIdByCode } = require('./paymentMethodService');
@@ -143,6 +177,11 @@ async function prepareCalculationData(data) {
     } else if (manualOnly.length !== (calcData.items || []).length) {
       calcData.items = manualOnly;
     }
+  }
+
+  const invoiceIdForReturns = calcData.invoice_id || calcData.id || null;
+  if (invoiceIdForReturns && Array.isArray(calcData.items)) {
+    calcData.items = await mergeReturnedQuantitiesFromInvoice(calcData.items, invoiceIdForReturns);
   }
 
   return calcData;
@@ -319,6 +358,8 @@ async function getInvoiceById(id, client = null) {
 
   const { enrichDailyInvoiceItems } = require('./dailyChargeService');
   const enrichedItems = await enrichDailyInvoiceItems(items.rows);
+  const { listInvoiceReturns } = require('./invoiceReturnService');
+  const returns = await listInvoiceReturns(id, client);
 
   return {
     ...(await attachInvoiceLabels(invoice, typeMap)),
@@ -326,6 +367,7 @@ async function getInvoiceById(id, client = null) {
     payments: payments.rows,
     method_payments: methodPayments,
     stay_entries: stayEntries,
+    returns,
   };
 }
 
@@ -512,8 +554,8 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           totals.bank_external,
           totals.total_collected,
           totals.total_collected_raw,
-          totals.remaining,
-          totals.remaining_raw,
+          totals.outstanding_amount ?? totals.remaining,
+          totals.outstanding_amount_raw ?? totals.remaining_raw,
           data.employee_name || '',
           data.auditor_name || '',
           data.captain_name || 'نقيب / عمرو صالح محمد',
@@ -587,8 +629,8 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           totals.bank_external,
           totals.total_collected,
           totals.total_collected_raw,
-          totals.remaining,
-          totals.remaining_raw,
+          totals.outstanding_amount ?? totals.remaining,
+          totals.outstanding_amount_raw ?? totals.remaining_raw,
           data.employee_name || '',
           data.auditor_name || '',
           data.captain_name || 'نقيب / عمرو صالح محمد',
@@ -617,18 +659,19 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
       );
       await client.query(
         `INSERT INTO invoice_items (
-          invoice_id, description, quantity, amount, total,
+          invoice_id, description, quantity, returned_quantity, amount, total,
           is_discount_eligible, item_discount_percent, discount_exclusion_id, sort_order,
           service_id, service_code_snapshot, service_name_snapshot, unit_snapshot, unit_price_snapshot,
           price_type_snapshot, tier_key_snapshot, discountable_snapshot, administrative_fee_applicable_snapshot,
           admin_fee_amount_snapshot, admin_fee_percent_snapshot, price_list_id_snapshot, price_list_name_snapshot,
           composite_components_snapshot, patient_credit_applied, daily_entry_id, daily_entry_line_id,
           cost_price_snapshot, markup_percent_snapshot, selling_price_snapshot, margin_amount_snapshot
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24,$25,$26,$27,$28,$29,$30)`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`,
         [
           invoiceId,
           item.description || item.service_name_snapshot || '',
           item.quantity || 0,
+          round2(item.returned_quantity) || 0,
           item.amount || item.unit_price_snapshot || 0,
           item.total || 0,
           item.is_discount_eligible !== false,
@@ -789,14 +832,162 @@ function invoiceManualItems(invoice) {
   return (invoice.items || [])
     .filter((item) => !item.daily_entry_line_id && !item.daily_entry_id && !isStaleDailyInvoiceItem(item))
     .map((item) => ({
+      id: item.id,
       description: item.description,
       quantity: item.quantity,
+      returned_quantity: item.returned_quantity || 0,
       amount: item.amount,
       service_id: item.service_id,
       patient_credit_applied: item.patient_credit_applied,
       item_discount_percent: item.item_discount_percent,
       discount_exclusion_id: item.discount_exclusion_id,
     }));
+}
+
+function buildCalcDataFromInvoice(invoice) {
+  const items = (invoice.items || []).map((item) => ({
+    id: item.id,
+    description: item.description,
+    quantity: item.quantity,
+    returned_quantity: item.returned_quantity || 0,
+    amount: item.amount,
+    unit_price_snapshot: item.unit_price_snapshot,
+    service_id: item.service_id,
+    service_code_snapshot: item.service_code_snapshot,
+    service_name_snapshot: item.service_name_snapshot,
+    unit_snapshot: item.unit_snapshot,
+    price_type_snapshot: item.price_type_snapshot,
+    tier_key_snapshot: item.tier_key_snapshot,
+    discountable_snapshot: item.discountable_snapshot,
+    administrative_fee_applicable_snapshot: item.administrative_fee_applicable_snapshot,
+    admin_fee_amount_snapshot: item.admin_fee_amount_snapshot,
+    admin_fee_percent_snapshot: item.admin_fee_percent_snapshot,
+    price_list_id_snapshot: item.price_list_id_snapshot,
+    price_list_name_snapshot: item.price_list_name_snapshot,
+    composite_components_snapshot: item.composite_components_snapshot,
+    patient_credit_applied: item.patient_credit_applied,
+    daily_entry_id: item.daily_entry_id,
+    daily_entry_line_id: item.daily_entry_line_id,
+    section_code: item.section_code,
+    cost_price_snapshot: item.cost_price_snapshot,
+    markup_percent_snapshot: item.markup_percent_snapshot,
+    selling_price_snapshot: item.selling_price_snapshot,
+    margin_amount_snapshot: item.margin_amount_snapshot,
+    is_discount_eligible: item.is_discount_eligible,
+    item_discount_percent: item.item_discount_percent,
+    discount_exclusion_id: item.discount_exclusion_id,
+    supplies_cost_raw: item.supplies_cost_raw,
+    supplies_margin_raw: item.supplies_margin_raw,
+    supplies_selling_raw: item.supplies_selling_raw,
+  }));
+
+  return {
+    invoice_id: invoice.id,
+    id: invoice.id,
+    invoice_type: invoice.invoice_type,
+    patient_name: invoice.patient_name,
+    file_number: invoice.file_number,
+    issue_date: fmtDateOnly(invoice.issue_date),
+    admission_date: fmtDateOnly(invoice.admission_date),
+    discharge_date: fmtDateOnly(invoice.discharge_date),
+    stay_days: invoice.stay_days,
+    financial_treatment: invoice.financial_treatment || '',
+    notes: invoice.notes || '',
+    stamp_duty: invoice.stamp_duty,
+    professional_fees: invoice.professional_fees,
+    balance: invoice.balance,
+    admin_expenses_percent: invoice.admin_expenses_percent,
+    contracted_entity_id: invoice.contracted_entity_id,
+    contracted_entity_name: invoice.contracted_entity_name,
+    discount_percent: invoice.discount_percent,
+    letter_from_date: invoice.letter_from_date,
+    letter_to_date: invoice.letter_to_date,
+    stay_entries: invoice.stay_entries || [],
+    payments: invoice.payments || [],
+    method_payments: (invoice.method_payments || []).map((m) => ({
+      payment_method_id: m.payment_method_id,
+      code: m.code,
+      amount: m.amount,
+    })),
+    items,
+    include_daily_charges: false,
+  };
+}
+
+async function updateInvoiceHeaderTotals(client, invoiceId, totals, patientCreditApplied) {
+  const outstanding = totals.outstanding_amount ?? totals.remaining ?? 0;
+  const outstandingRaw = totals.outstanding_amount_raw ?? totals.remaining_raw ?? 0;
+  await client.query(
+    `UPDATE invoices SET
+      stamp_duty = $2, stamp_duty_raw = $3,
+      professional_fees = $4, professional_fees_raw = $5,
+      items_subtotal = $6, items_subtotal_raw = $7,
+      stay_subtotal = $8, stay_subtotal_raw = $9,
+      admin_expenses_percent = $10, admin_expenses = $11, admin_expenses_raw = $12,
+      total_after_admin = $13, total_after_admin_raw = $14,
+      balance = $15, balance_raw = $16,
+      final_total = $17, final_total_raw = $18,
+      cash_private = $19, bank_private = $20, cash_external = $21, bank_external = $22,
+      total_collected = $23, total_collected_raw = $24,
+      remaining = $25, remaining_raw = $26,
+      patient_credit_applied = $27,
+      updated_at = NOW()
+     WHERE id = $1`,
+    [
+      invoiceId,
+      totals.stamp_duty,
+      totals.stamp_duty_raw,
+      totals.professional_fees,
+      totals.professional_fees_raw,
+      totals.items_subtotal,
+      totals.items_subtotal_raw,
+      totals.stay_subtotal,
+      totals.stay_subtotal_raw,
+      totals.admin_expenses_percent,
+      totals.admin_expenses,
+      totals.admin_expenses_raw,
+      totals.total_after_admin,
+      totals.total_after_admin_raw,
+      totals.balance,
+      totals.balance_raw,
+      totals.final_total,
+      totals.final_total_raw,
+      totals.cash_private,
+      totals.bank_private,
+      totals.cash_external,
+      totals.bank_external,
+      totals.total_collected,
+      totals.total_collected_raw,
+      outstanding,
+      outstandingRaw,
+      patientCreditApplied ?? totals.patient_credit_applied ?? 0,
+    ]
+  );
+}
+
+async function recalculateAndPersistInvoiceTotals(invoiceId, client = null) {
+  const invoice = await getInvoiceById(invoiceId, client);
+  if (!invoice) throw new Error('الفاتورة غير موجودة');
+
+  const calcData = buildCalcDataFromInvoice(invoice);
+  const prepared = await prepareCalculationData(calcData);
+  const totals = calculateInvoiceTotals(prepared);
+  const calcValidation = totals.calculation_validation || validateInvoiceCalculations(prepared, totals);
+  if (!calcValidation.is_valid) {
+    throw new Error(`خطأ في حسابات الفاتورة:\n${calcValidation.errors.join('\n')}`);
+  }
+
+  if (client) {
+    await updateInvoiceHeaderTotals(client, invoiceId, totals, invoice.patient_credit_applied);
+    await saveDiscountFields(client, invoiceId, calcData, totals);
+  } else {
+    await withTransaction(async (tx) => {
+      await updateInvoiceHeaderTotals(tx, invoiceId, totals, invoice.patient_credit_applied);
+      await saveDiscountFields(tx, invoiceId, calcData, totals);
+    });
+  }
+
+  return { invoice: await getInvoiceById(invoiceId, client), totals };
 }
 
 function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
@@ -1234,4 +1425,6 @@ module.exports = {
   verifyInvoiceDailyLineSync,
   getOpenPatientStay,
   openPatientStay,
+  buildCalcDataFromInvoice,
+  recalculateAndPersistInvoiceTotals,
 };

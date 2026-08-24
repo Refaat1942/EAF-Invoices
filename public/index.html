@@ -202,7 +202,7 @@
                       <tr class="table-light">
                         <th style="width:10%">الإجمالي</th>
                         <th style="width:9%">المبلغ</th>
-                        <th style="width:7%">عدد</th>
+                        <th style="width:7%">عدد / مرتجع</th>
                         <th style="width:7%">الخصم%</th>
                         <th style="width:26%">البيان</th>
                         <th style="width:9%">خصم رصيد</th>
@@ -256,6 +256,7 @@
                       <div class="split-item"><span>إجمالي الفاتورة</span><strong id="split-final-total">0.00</strong></div>
                       <div class="split-item"><span>مدفوع حتى الآن</span><strong id="split-paid-total">0.00</strong></div>
                       <div class="split-item split-remaining"><span>المتبقي للدفع</span><strong id="split-remaining-total">0.00</strong></div>
+                      <div class="split-item split-refundable" id="split-refundable-wrap" style="display:none"><span>مستحق إرجاع للمريض</span><strong id="split-refundable-total" class="text-danger">0.00</strong></div>
                     </div>
                     <p class="small text-muted mb-2">يمكنك تقسيم الدفع على أكثر من طريقة: أدخل جزءًا في أي طريقة، وسيظهر المتبقي تلقائيًا — ثم اضغط «الباقي» في طريقة أخرى لإكمال المبلغ.</p>
                     <div id="payment-validation-banner" class="payment-validation-banner mb-2" style="display:none"></div>
@@ -282,6 +283,7 @@
                         <tr><td class="fw-bold">1 - إجمالي الفاتورة</td><td class="fw-black" id="display_final_total">0.00</td></tr>
                         <tr><td class="fw-bold">2 - إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected2">0.00</td></tr>
                         <tr class="table-warning"><td class="fw-black">3 - المتبقي</td><td class="fw-black" id="display_remaining">0.00</td></tr>
+                        <tr id="display-refundable-row" style="display:none"><td class="fw-bold text-danger">مستحق إرجاع للمريض</td><td class="fw-black text-danger" id="display_refundable">0.00</td></tr>
                         <tr id="payment-match-row" style="display:none"><td class="fw-black">4 - حالة التطابق</td><td class="fw-black" id="display_payment_status">—</td></tr>
                       </tbody>
                     </table>
@@ -298,6 +300,7 @@
 
                 <div class="d-flex gap-2 flex-wrap align-items-center">
                   <span class="badge status-badge" id="invoice-status-badge" style="display:none"></span>
+                  <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="record-return-btn" style="display:none" title="تسجيل إرجاع بنود محفوظة">↩️ تسجيل إرجاع</button>
                   <button type="button" class="btn btn-outline-secondary btn-lg fw-black" id="save-draft-btn">💾 حفظ مؤقت</button>
                   <button type="button" class="btn btn-warning btn-lg fw-black" id="submit-review-btn" style="display:none">📤 إرسال للمراجعة</button>
                   <button type="button" class="btn btn-success btn-lg fw-black" id="approve-invoice-btn" style="display:none">✅ اعتماد نهائي</button>
@@ -321,6 +324,16 @@
               <img id="qr-image" class="img-fluid mb-2" alt="QR Code">
               <p class="fw-black text-primary" id="qr-serial"></p>
               <p class="small text-muted">امسح الكود لعرض الفاتورة وتحميلها</p>
+            </div>
+          </div>
+          <div class="card shadow-sm mb-3 sidebar-collapsible" id="invoice-returns-card" style="display:none">
+            <div class="card-header bg-danger text-white fw-black collapsed-toggle" data-bs-toggle="collapse" data-bs-target="#invoice-returns-collapse">
+              ↩️ سجل الإرجاعات <span class="toggle-icon">▼</span>
+            </div>
+            <div class="collapse" id="invoice-returns-collapse">
+              <div class="card-body p-2" id="invoice-returns-history">
+                <p class="small text-muted mb-0">لا توجد إرجاعات مسجلة.</p>
+              </div>
             </div>
           </div>
           <div class="card shadow-sm mb-3 sidebar-collapsible">
@@ -352,6 +365,7 @@
                 <div class="summary-item total"><span>الإجمالي النهائي:</span><strong id="sum_final">0</strong></div>
                 <div class="summary-item"><span>المحصل:</span><strong id="sum_collected">0</strong></div>
                 <div class="summary-item remaining"><span>المتبقي:</span><strong id="sum_remaining">0.00</strong></div>
+                <div class="summary-item" id="sum_refundable_wrap" style="display:none"><span>مستحق إرجاع:</span><strong id="sum_refundable" class="text-danger">0.00</strong></div>
               </div>
             </div>
           </div>
@@ -657,11 +671,11 @@
               </div>
               <form id="item-catalog-add-form" class="row g-2 align-items-end mb-3 border-bottom pb-3">
                 <div class="col-md-2">
-                  <label class="form-label small fw-bold">كود</label>
-                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-code" required>
+                  <label class="form-label small fw-bold">كود (7 أرقام)</label>
+                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-code" placeholder="يُولَّد تلقائيًا" maxlength="7" pattern="[0-9]{7}">
                 </div>
                 <div class="col-md-3">
-                  <label class="form-label small fw-bold">الاسم</label>
+                  <label class="form-label small fw-bold">اسم الصنف</label>
                   <input type="text" class="form-control form-control-sm" id="item-catalog-add-name" required>
                 </div>
                 <div class="col-md-2">
@@ -673,15 +687,27 @@
                   </select>
                 </div>
                 <div class="col-md-2">
-                  <label class="form-label small fw-bold">الوحدة</label>
-                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-unit" value="مرة">
+                  <label class="form-label small fw-bold">الوحدة الكبرى</label>
+                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-major-unit" value="مرة">
                 </div>
-                <div class="col-md-2" id="item-catalog-add-price-wrap">
-                  <label class="form-label small fw-bold">السعر</label>
-                  <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-price">
+                <div class="col-md-2">
+                  <label class="form-label small fw-bold">الوحدة الصغرى</label>
+                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-minor-unit" placeholder="اختياري">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small fw-bold">عدد الصغرى / كبرى</label>
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-minor-qty" placeholder="1">
+                </div>
+                <div class="col-md-2" id="item-catalog-add-major-price-wrap">
+                  <label class="form-label small fw-bold">سعر الوحدة الكبرى</label>
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-major-price">
+                </div>
+                <div class="col-md-2" id="item-catalog-add-minor-price-wrap">
+                  <label class="form-label small fw-bold">سعر الوحدة الصغرى</label>
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-minor-price">
                 </div>
                 <div class="col-md-2" id="item-catalog-add-cost-wrap" style="display:none">
-                  <label class="form-label small fw-bold">سعر التكلفة</label>
+                  <label class="form-label small fw-bold">سعر التكلفة (كبرى)</label>
                   <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-cost">
                 </div>
                 <div class="col-md-2" id="item-catalog-add-markup-wrap" style="display:none">
@@ -689,7 +715,7 @@
                   <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-add-markup">
                 </div>
                 <div class="col-md-2" id="item-catalog-add-selling-wrap" style="display:none">
-                  <label class="form-label small fw-bold">سعر البيع</label>
+                  <label class="form-label small fw-bold">سعر البيع (كبرى)</label>
                   <input type="text" class="form-control form-control-sm bg-light" id="item-catalog-add-selling" readonly tabindex="-1">
                 </div>
                 <div class="col-md-1">
@@ -703,8 +729,8 @@
                       <th>كود</th>
                       <th>الاسم</th>
                       <th>الفئة</th>
-                      <th>الوحدة</th>
-                      <th>السعر / الهامش</th>
+                      <th>الوحدات</th>
+                      <th>الأسعار</th>
                       <th>الحالة</th>
                       <th></th>
                     </tr>
@@ -894,6 +920,48 @@
     </section>
   </main>
 
+  <div class="modal fade" id="invoice-return-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title fw-black">تسجيل إرجاع بنود الفاتورة</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2">الإرجاع يحفظ الكمية الأصلية ويخصم من الإجمالي باستخدام السعر المحفوظ في الفاتورة — لا يُحذف البند من السجل.</p>
+          <div class="row g-2 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-bold">تاريخ الإرجاع</label>
+              <input type="date" class="form-control" id="invoice-return-date">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label fw-bold">ملاحظات</label>
+              <input type="text" class="form-control" id="invoice-return-notes" placeholder="اختياري">
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>البيان</th>
+                  <th>أصلي</th>
+                  <th>مرتجع</th>
+                  <th>متاح</th>
+                  <th style="width:14%">كمية الإرجاع</th>
+                </tr>
+              </thead>
+              <tbody id="invoice-return-lines-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إلغاء</button>
+          <button type="button" class="btn btn-danger fw-bold" id="invoice-return-submit-btn">تسجيل الإرجاع</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal fade" id="item-catalog-edit-modal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -904,11 +972,11 @@
         <div class="modal-body">
           <input type="hidden" id="item-catalog-edit-id">
           <div class="mb-2">
-            <label class="form-label fw-bold small">كود</label>
-            <input type="text" class="form-control form-control-sm" id="item-catalog-edit-code" required>
+            <label class="form-label fw-bold small">كود (7 أرقام)</label>
+            <input type="text" class="form-control form-control-sm" id="item-catalog-edit-code" required maxlength="7" pattern="[0-9]{7}">
           </div>
           <div class="mb-2">
-            <label class="form-label fw-bold small">الاسم</label>
+            <label class="form-label fw-bold small">اسم الصنف</label>
             <input type="text" class="form-control form-control-sm" id="item-catalog-edit-name" required>
           </div>
           <div class="mb-2">
@@ -920,12 +988,24 @@
             </select>
           </div>
           <div class="mb-2">
-            <label class="form-label fw-bold small">الوحدة</label>
-            <input type="text" class="form-control form-control-sm" id="item-catalog-edit-unit">
+            <label class="form-label fw-bold small">الوحدة الكبرى</label>
+            <input type="text" class="form-control form-control-sm" id="item-catalog-edit-major-unit">
           </div>
-          <div class="mb-2" id="item-catalog-edit-price-wrap">
-            <label class="form-label fw-bold small">السعر</label>
-            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-edit-price">
+          <div class="mb-2">
+            <label class="form-label fw-bold small">الوحدة الصغرى</label>
+            <input type="text" class="form-control form-control-sm" id="item-catalog-edit-minor-unit">
+          </div>
+          <div class="mb-2">
+            <label class="form-label fw-bold small">عدد الصغرى لكل كبرى</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-edit-minor-qty">
+          </div>
+          <div class="mb-2" id="item-catalog-edit-major-price-wrap">
+            <label class="form-label fw-bold small">سعر الوحدة الكبرى</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-edit-major-price">
+          </div>
+          <div class="mb-2" id="item-catalog-edit-minor-price-wrap">
+            <label class="form-label fw-bold small">سعر الوحدة الصغرى</label>
+            <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="item-catalog-edit-minor-price">
           </div>
           <div class="mb-2" id="item-catalog-edit-cost-wrap" style="display:none">
             <label class="form-label fw-bold small">سعر التكلفة</label>
@@ -979,8 +1059,12 @@
                     <th>الكود</th>
                     <th>الاسم</th>
                     <th>الفئة</th>
-                    <th>الوحدة</th>
-                    <th>السعر</th>
+                    <th>كبرى</th>
+                    <th>صغرى</th>
+                    <th>عدد</th>
+                    <th>سعر كبرى</th>
+                    <th>سعر صغرى</th>
+                    <th>الحالة</th>
                   </tr>
                 </thead>
                 <tbody id="item-catalog-import-preview-body"></tbody>
@@ -1087,7 +1171,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/app.js?v=20260824a"></script>
-  <script src="/js/daily-charges.js?v=20260824g"></script>
-  <script src="/js/item-catalog-settings.js?v=20260824a"></script>
+  <script src="/js/daily-charges.js?v=20260824h"></script>
+  <script src="/js/item-catalog-settings.js?v=20260824b"></script>
 </body>
 </html>
