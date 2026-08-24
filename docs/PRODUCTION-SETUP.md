@@ -65,57 +65,96 @@ Application creates schema on first start via `initDatabase()`.
 
 **Existing deployments:** If users already exist, current admin password is preserved; no silent reset.
 
-## Backup setup
+## Backup setup (VPS — `/var/www/EAF-Invoices`, PM2 as `root`)
 
-See [BACKUP-RESTORE.md](./BACKUP-RESTORE.md).
+This matches the current production VPS: application at `/var/www/EAF-Invoices`, Node/PM2 running as `root`, backups at `/var/backups/eaf-invoices`.
+
+The backup timer uses the **same user as PM2 (`root`)** so it reads the same `.env`, can run `pg_dump` with the same `DATABASE_URL`, and write to the backup directory without a separate permission migration. A dedicated non-root service account is safer long-term but would require aligning PM2, file ownership, PostgreSQL client auth, and backup directory permissions — not assumed here.
+
+**Prerequisites:** `postgresql-client` (`pg_dump`, `pg_restore`) installed:
+
+```bash
+sudo apt-get install -y postgresql-client
+which pg_dump pg_restore
+```
+
+**1. Create backup directory**
 
 ```bash
 sudo mkdir -p /var/backups/eaf-invoices
-sudo chown eaf:eaf /var/backups/eaf-invoices
+sudo chown root:root /var/backups/eaf-invoices
 sudo chmod 700 /var/backups/eaf-invoices
+```
 
+**2. Confirm production `.env`**
+
+```bash
+test -f /var/www/EAF-Invoices/.env && echo "ok"
+grep -E '^DATABASE_URL=|^BACKUP_DIR=' /var/www/EAF-Invoices/.env
+```
+
+Ensure `BACKUP_DIR=/var/backups/eaf-invoices` (or rely on the default).
+
+**3. Install systemd backup service and timer**
+
+```bash
+cd /var/www/EAF-Invoices
 sudo cp deploy/linux/eaf-invoices-backup.service /etc/systemd/system/
 sudo cp deploy/linux/eaf-invoices-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now eaf-invoices-backup.timer
+sudo systemctl status eaf-invoices-backup.timer
 ```
 
-Manual backup:
+Installed unit values (no edit needed on this VPS):
+
+| Setting | Value |
+|---------|--------|
+| `User` | `root` |
+| `Group` | `root` |
+| `WorkingDirectory` | `/var/www/EAF-Invoices` |
+| `EnvironmentFile` | `/var/www/EAF-Invoices/.env` |
+| `ExecStart` | `/usr/bin/node /var/www/EAF-Invoices/scripts/run-backup.js` |
+
+**4. Verify timer and run a test backup**
 
 ```bash
+systemctl list-timers eaf-invoices-backup.timer
+sudo systemctl start eaf-invoices-backup.service
+sudo systemctl status eaf-invoices-backup.service
+ls -lh /var/backups/eaf-invoices/
+pg_restore --list /var/backups/eaf-invoices/eaf-invoices_*.dump | head
+```
+
+**5. Manual backup (CLI)**
+
+```bash
+cd /var/www/EAF-Invoices
 node --env-file=.env scripts/run-backup.js --manual
 ```
 
-Or via Settings UI (administrator).
+Or via **الإعدادات** → **النسخ الاحتياطي** (administrator).
 
-## Systemd application service (example)
+Full restore procedure: [BACKUP-RESTORE.md](./BACKUP-RESTORE.md).
 
-```ini
-[Unit]
-Description=EAF Invoices
-After=network.target postgresql.service
+## Application runtime (this VPS)
 
-[Service]
-Type=simple
-User=eaf
-WorkingDirectory=/opt/eaf-invoices
-EnvironmentFile=/opt/eaf-invoices/.env
-Environment=NODE_ENV=production
-ExecStart=/usr/bin/node server.js
-Restart=on-failure
+The application runs under **PM2 as `root`**, not systemd:
 
-[Install]
-WantedBy=multi-user.target
+```bash
+cd /var/www/EAF-Invoices
+pm2 list
+pm2 logs
 ```
 
-## Directory permissions
+## Directory permissions (this VPS)
 
 | Path | Owner | Mode |
 |------|-------|------|
-| `/opt/eaf-invoices` | `eaf:eaf` | `750` |
-| `/opt/eaf-invoices/.env` | `eaf:eaf` | `600` |
-| `/var/backups/eaf-invoices` | `eaf:eaf` | `700` |
-| `public/assets` (logo uploads) | `eaf:eaf` | `755` |
+| `/var/www/EAF-Invoices` | `root:root` | `755` (as deployed) |
+| `/var/www/EAF-Invoices/.env` | `root:root` | `600` |
+| `/var/backups/eaf-invoices` | `root:root` | `700` |
+| `/var/www/EAF-Invoices/public/assets` | `root:root` | `755` |
 
 ## Security configuration
 

@@ -24,23 +24,25 @@ Backups are **not** stored under `public/` or any web-served directory.
 - On verification failure: backup is marked failed, invalid file is removed, previous valid backups are kept.
 - Retention: keeps backups for **14 days** (`BACKUP_RETENTION_DAYS`); never deletes the newest backup.
 
-### Install systemd timer (Linux)
+### Install systemd timer (Linux VPS)
 
-Adjust paths/user to match your server:
+Production VPS paths: app `/var/www/EAF-Invoices`, PM2 as `root`, backups `/var/backups/eaf-invoices`.
 
 ```bash
 sudo mkdir -p /var/backups/eaf-invoices
-sudo chown eaf:eaf /var/backups/eaf-invoices
+sudo chown root:root /var/backups/eaf-invoices
+sudo chmod 700 /var/backups/eaf-invoices
 
+cd /var/www/EAF-Invoices
 sudo cp deploy/linux/eaf-invoices-backup.service /etc/systemd/system/
 sudo cp deploy/linux/eaf-invoices-backup.timer /etc/systemd/system/
-
-# Edit service file if app path or user differs from /opt/eaf-invoices and user eaf
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now eaf-invoices-backup.timer
 sudo systemctl status eaf-invoices-backup.timer
 ```
+
+Service unit: `User=root`, `WorkingDirectory=/var/www/EAF-Invoices`, `EnvironmentFile=/var/www/EAF-Invoices/.env`.
 
 Verify timer schedule:
 
@@ -51,7 +53,7 @@ systemctl list-timers eaf-invoices-backup.timer
 Run backup immediately (manual via CLI):
 
 ```bash
-cd /opt/eaf-invoices
+cd /var/www/EAF-Invoices
 node --env-file=.env scripts/run-backup.js --manual
 ```
 
