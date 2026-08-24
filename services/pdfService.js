@@ -946,13 +946,13 @@ function buildDailyServiceRows(report) {
     .map(
       (row) =>
         `<tr>
-        <td>${escapeHtml(row.patient_name || '')}</td>
-        <td>${escapeHtml(row.file_number || '')}</td>
-        <td>${formatDate(row.entry_date)}</td>
-        <td class="desc">${escapeHtml(row.service_name || '')}</td>
-        <td class="num">${row.quantity ?? ''}</td>
-        <td class="num">${fmtPlain(row.unit_price)}</td>
-        <td class="num">${fmtPlain(row.total)}</td>
+        <td class="${dailyReportLatinCellClass(row.patient_name)}">${formatDailyReportTextHtml(row.patient_name)}</td>
+        <td class="${dailyReportLatinCellClass(row.file_number, 'file-cell')}">${formatDailyReportTextHtml(row.file_number)}</td>
+        <td class="date-cell">${formatDate(row.entry_date)}</td>
+        <td class="${dailyReportItemNameCellClass(row.service_name)} col-service">${formatDailyReportTextHtml(row.service_name)}</td>
+        <td class="num col-qty">${row.quantity ?? ''}</td>
+        <td class="num col-price">${fmtPlain(row.unit_price)}</td>
+        <td class="num col-total">${fmtPlain(row.total)}</td>
       </tr>`
     )
     .join('');
@@ -1023,8 +1023,40 @@ function buildDailyServiceReportHtml(report, options = {}) {
       vertical-align: middle; font-weight: 800; font-size: 9px;
     }
     table.items-table th { background: #d9d9d9; font-weight: 900; }
-    table.items-table .desc { text-align: right; }
-    table.items-table .num { font-variant-numeric: tabular-nums; }
+    table.items-table .desc,
+    table.items-table .unit {
+      text-align: right;
+      padding-right: 4px;
+      unicode-bidi: plaintext;
+      font-family: Arial, 'Cairo', sans-serif;
+      white-space: normal;
+      word-break: break-word;
+    }
+    table.items-table .ltr-cell {
+      direction: ltr;
+      text-align: right;
+      unicode-bidi: isolate;
+      white-space: nowrap;
+    }
+    table.items-table .cell-ltr {
+      white-space: nowrap;
+    }
+    table.items-table .num {
+      direction: ltr;
+      unicode-bidi: embed;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    table.items-table .date-cell {
+      white-space: nowrap;
+    }
+    .col-patient { width: 14%; }
+    .col-file { width: 12%; }
+    .col-date { width: 10%; }
+    .col-service { width: 28%; }
+    .col-qty { width: 8%; }
+    .col-price { width: 12%; }
+    .col-total { width: 12%; }
     .summary-row td { background: #fff3cd; font-weight: 900; }
   </style>
 </head>
@@ -1042,9 +1074,9 @@ function buildDailyServiceReportHtml(report, options = {}) {
     <table class="meta-table">
       <tr>
         <th>المريض</th>
-        <td>${escapeHtml(report.patient?.name || '')}</td>
+        <td class="${dailyReportLatinCellClass(report.patient?.name)}">${formatDailyReportTextHtml(report.patient?.name)}</td>
         <th>رقم الملف</th>
-        <td>${escapeHtml(report.patient?.file_number || '')}</td>
+        <td class="${dailyReportLatinCellClass(report.patient?.file_number, 'file-cell')}">${formatDailyReportTextHtml(report.patient?.file_number)}</td>
         <th>الفترة</th>
         <td>${periodLabel}</td>
       </tr>
@@ -1053,13 +1085,13 @@ function buildDailyServiceReportHtml(report, options = {}) {
     <table class="items-table">
       <thead>
         <tr>
-          <th>المريض</th>
-          <th>رقم الملف</th>
-          <th>التاريخ</th>
-          <th>اسم الخدمة</th>
-          <th>الكمية</th>
-          <th>سعر الوحدة</th>
-          <th>الإجمالي</th>
+          <th class="col-patient">المريض</th>
+          <th class="col-file">رقم الملف</th>
+          <th class="col-date">التاريخ</th>
+          <th class="col-service">اسم الخدمة</th>
+          <th class="col-qty">الكمية</th>
+          <th class="col-price">سعر الوحدة</th>
+          <th class="col-total">الإجمالي</th>
         </tr>
       </thead>
       <tbody>
