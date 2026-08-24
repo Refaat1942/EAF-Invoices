@@ -276,7 +276,7 @@ async function testMergeSplitUnitRowsIntoOneCatalogItem() {
   console.log('OK merge split unit rows into one catalog item');
 }
 
-async function testDuplicateImportDetection() {
+async function testIdenticalRowsMergedAndCodeConflictDetected() {
   const rows = [
     {
       row_number: 2,
@@ -316,11 +316,23 @@ async function testDuplicateImportDetection() {
     },
   ];
   const analysis = analyzeImportRows(rows);
-  const dup = analysis.duplicate_rows.filter((r) => r.row_number === 3);
+  const antinalRows = analysis.preview_rows.filter((r) => r.name === 'ANTINAL 200MG 24/CAP');
+  assertEq('exactly one ANTINAL preview row', antinalRows.length, 1);
+  const antinal = antinalRows[0];
+  assertEq('ANTINAL row_number is 2', antinal.row_number, 2);
+  assert('merged_from_rows contains 2', antinal.merged_from_rows?.includes(2));
+  assert('merged_from_rows contains 3', antinal.merged_from_rows?.includes(3));
+  assert(
+    'ANTINAL import_status is insert',
+    antinal.import_status === 'insert' || antinal.import_message?.includes('دُمج')
+  );
+  assert(
+    'row 3 not separate duplicate',
+    analysis.duplicate_rows.filter((r) => r.row_number === 3).length === 0
+  );
   const conflict = analysis.conflict_rows.filter((r) => r.row_number === 5);
-  assert('duplicate row detected', dup.length === 1);
   assert('code conflict detected', conflict.length === 1);
-  console.log('OK duplicate import detection');
+  console.log('OK identical rows merged and code conflict detected');
 }
 
 async function testDuplicateCodeRejected() {
@@ -532,7 +544,7 @@ async function main() {
   await testExplicitMinorPricePreserved();
   await testMinorMajorPriceConsistencyRejects();
   await testMergeSplitUnitRowsIntoOneCatalogItem();
-  await testDuplicateImportDetection();
+  await testIdenticalRowsMergedAndCodeConflictDetected();
   await testDuplicateCodeRejected();
   await testDuplicateProductRejected();
   await testImportWithoutCodeGeneratesCode();
