@@ -102,7 +102,7 @@ async function mergeReturnedQuantitiesFromInvoice(items = [], invoiceId, client 
   });
 }
 
-async function prepareCalculationData(data) {
+async function prepareCalculationData(data, client = null) {
   const calcData = { ...data };
   const { ensurePatientCreditMethod, getPaymentMethodIdByCode } = require('./paymentMethodService');
   await ensurePatientCreditMethod();
@@ -181,7 +181,7 @@ async function prepareCalculationData(data) {
 
   const invoiceIdForReturns = calcData.invoice_id || calcData.id || null;
   if (invoiceIdForReturns && Array.isArray(calcData.items)) {
-    calcData.items = await mergeReturnedQuantitiesFromInvoice(calcData.items, invoiceIdForReturns);
+    calcData.items = await mergeReturnedQuantitiesFromInvoice(calcData.items, invoiceIdForReturns, client);
   }
 
   return calcData;
@@ -970,7 +970,7 @@ async function recalculateAndPersistInvoiceTotals(invoiceId, client = null) {
   if (!invoice) throw new Error('الفاتورة غير موجودة');
 
   const calcData = buildCalcDataFromInvoice(invoice);
-  const prepared = await prepareCalculationData(calcData);
+  const prepared = await prepareCalculationData(calcData, client);
   const totals = calculateInvoiceTotals(prepared);
   const calcValidation = totals.calculation_validation || validateInvoiceCalculations(prepared, totals);
   if (!calcValidation.is_valid) {

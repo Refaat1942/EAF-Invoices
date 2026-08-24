@@ -33,6 +33,17 @@ function assertEq(actual, expected, msg) {
   }
 }
 
+async function assertInvoiceHeaderReconciles(invoice, persistedTotals, label) {
+  const { buildCalcDataFromInvoice, prepareCalculationData } = require('../services/invoiceService');
+  const prepared = await prepareCalculationData(buildCalcDataFromInvoice(invoice));
+  const totals = calculateInvoiceTotals(prepared);
+  assertEq(invoice.final_total_raw, totals.final_total_raw, `${label} header final_total_raw`);
+  if (persistedTotals) {
+    assertEq(persistedTotals.final_total_raw, totals.final_total_raw, `${label} persisted totals`);
+  }
+  return totals;
+}
+
 function assertThrows(label, fn, contains = '') {
   try {
     fn();
@@ -698,6 +709,7 @@ async function runDbIntegrationSuite() {
   const partialUpdated = partialResult.invoice.items.find((i) => Number(i.id) === Number(partialMed.id));
   assertEq(partialUpdated.quantity, 10, 'partial med original qty preserved');
   assertEq(partialUpdated.returned_quantity, 3, 'partial med returned qty');
+  await assertInvoiceHeaderReconciles(partialResult.invoice, partialResult.totals, 'partial med return');
   console.log('OK DB partial medicine return');
 
   // Full medicine return
@@ -714,6 +726,7 @@ async function runDbIntegrationSuite() {
   });
   const fullCalc = fullTotals.items.find((i) => !i.is_stay_entry);
   assertEq(fullCalc.net_quantity, 0, 'full med net qty zero');
+  await assertInvoiceHeaderReconciles(fullResult.invoice, fullResult.totals, 'full med return');
   console.log('OK DB full medicine return');
 
   // Service return
@@ -722,6 +735,7 @@ async function runDbIntegrationSuite() {
   });
   const serviceUpdated = serviceResult.invoice.items.find((i) => Number(i.id) === Number(serviceLine.id));
   assertEq(serviceUpdated.returned_quantity, 1, 'service returned qty');
+  await assertInvoiceHeaderReconciles(serviceResult.invoice, serviceResult.totals, 'service return');
   console.log('OK DB service return');
 
   // Supply return with snapshot audit
@@ -738,6 +752,7 @@ async function runDbIntegrationSuite() {
   assertEq(supplyAuditLine.selling_price_snapshot, 150, 'supply audit selling');
   assertEq(supplyAuditLine.return_amount, 600, 'supply audit return amount');
   assertEq(supplyAuditLine.margin_amount_snapshot, 200, 'supply audit margin reversal');
+  await assertInvoiceHeaderReconciles(supplyResult.invoice, supplyResult.totals, 'supply return');
   console.log('OK DB supply snapshot return audit');
 
   // Over-return rejected
@@ -810,6 +825,8 @@ async function runDbIntegrationSuite() {
   });
   assertEq(discountTotals.discount_amount_raw, 50, 'DB discounted return discount');
   assertEq(discountTotals.final_total_raw, 510, 'DB discounted return final');
+  assertEq(discountReturn.invoice.final_total_raw, 510, 'DB discounted return header final');
+  await assertInvoiceHeaderReconciles(discountReturn.invoice, discountReturn.totals, 'discounted return');
   console.log('OK DB return on discounted invoice');
 
   // Fully paid then return → refundable
@@ -926,6 +943,72 @@ async function runDbIntegrationSuite() {
   assertEq(supplyReport.returned_quantity, 6, 'report supply returned');
   assertEq(supplyReport.net_quantity, 4, 'report supply net');
   console.log('OK report quantity fields on invoice items');
+
+  // --- Return header recalculation regression (transaction-safe merge) ---
+  const pdfLikeItems = [
+    {
+      description: `${TEST_PREFIX} PDF Med`,
+      quantity: 2,
+      amount: 52,
+      administrative_fee_applicable_snapshot: true,
+    },
+    {
+      description: `${TEST_PREFIX} PDF Supply`,
+      quantity: 3,
+      amount: 84,
+      cost_price_snapshot: 60,
+      markup_percent_snapshot: 40,
+      margin_amount_snapshot: 72,
+      administrative_fee_applicable_snapshot: true,
+    },
+    {
+      description: `${TEST_PREFIX} PDF Lab`,
+      quantity: 1,
+      amount: 75,
+      administrative_fee_applicable_snapshot: false,
+    },
+    {
+      description: `${TEST_PREFIX} PDF Xray`,
+      quantity: 1,
+      amount: 120,
+      administrative_fee_applicable_snapshot: false,
+    },
+  ];
+  const pdfLikeCalc = calculateInvoiceTotals({
+    invoice_type: 'civil',
+    admin_expenses_percent: 12,
+    items: pdfLikeItems,
+  });
+  assertEq(pdfLikeCalc.final_total_raw, 593.72, 'PDF-like pre-return final');
+  const pdfLikeApproved = await createApprovedInvoice(patient, pdfLikeItems);
+  const pdfMedLine = pdfLikeApproved.items.find((i) => i.description.includes('PDF Med'));
+  const pdfLikeReturn = await recordInvoiceReturns(pdfLikeApproved.id, {
+    lines: [{ invoice_item_id: pdfMedLine.id, return_quantity: 1 }],
+    notes: 'PDF-like partial med return',
+  });
+  assertEq(pdfMedLine.quantity, 2, 'PDF-like med original qty preserved');
+  const pdfMedUpdated = pdfLikeReturn.invoice.items.find((i) => Number(i.id) === Number(pdfMedLine.id));
+  assertEq(pdfMedUpdated.returned_quantity, 1, 'PDF-like med returned qty');
+  assertEq(pdfLikeReturn.invoice.final_total_raw, 535.48, 'PDF-like post-return header final');
+  await assertInvoiceHeaderReconciles(pdfLikeReturn.invoice, pdfLikeReturn.totals, 'PDF-like partial return');
+  console.log('OK return header matches PDF E2E partial medicine scenario');
+
+  const fullOnlyItems = [
+    {
+      description: `${TEST_PREFIX} Full Only`,
+      quantity: 4,
+      amount: 50,
+      administrative_fee_applicable_snapshot: true,
+    },
+  ];
+  const fullOnlyApproved = await createApprovedInvoice(patient, fullOnlyItems);
+  const fullOnlyLine = fullOnlyApproved.items[0];
+  const fullOnlyReturn = await recordInvoiceReturns(fullOnlyApproved.id, {
+    lines: [{ invoice_item_id: fullOnlyLine.id, return_quantity: 4 }],
+  });
+  assertEq(fullOnlyReturn.invoice.final_total_raw, 0, 'full return zeroes header final');
+  await assertInvoiceHeaderReconciles(fullOnlyReturn.invoice, fullOnlyReturn.totals, 'full line return');
+  console.log('OK full return header recalculation');
 
   await cleanupTestData(query);
   console.log('OK DB invoice returns integration suite');
