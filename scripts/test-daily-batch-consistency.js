@@ -7,6 +7,7 @@
 
 const { initDatabase, query } = require('../database/db');
 const { upsertPatient } = require('../services/patientService');
+const { createCatalogItem } = require('../services/dailyEntryCatalogService');
 const {
   saveEntriesBatch,
   deleteEntry,
@@ -17,25 +18,76 @@ const { getInvoiceById } = require('../services/invoiceService');
 const invoiceService = require('../services/invoiceService');
 
 const TEST_FILE = 'DAILY-BATCH-CONSISTENCY';
+const TEST_PREFIX = 'BATCH-E2E';
+
+const CATALOG_CODES = {
+  med1: 'BATCH-E2E-MED-01',
+  med2: 'BATCH-E2E-MED-02',
+  med3: 'BATCH-E2E-MED-03',
+  med4: 'BATCH-E2E-MED-04',
+  supply: 'BATCH-E2E-SUP-01',
+};
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
 function assert(cond, msg) {
-  if (!cond) {
-    console.error('FAIL:', msg);
-    process.exit(1);
-  }
+  if (!cond) throw new Error(`FAIL: ${msg}`);
 }
 
 function assertEq(actual, expected, msg) {
   const a = round2(actual);
   const e = round2(expected);
-  if (a !== e) {
-    console.error(`FAIL ${msg}: expected ${e}, got ${a}`);
-    process.exit(1);
+  if (a !== e) throw new Error(`FAIL ${msg}: expected ${e}, got ${a}`);
+}
+
+async function cleanupTestCatalog() {
+  for (const code of Object.values(CATALOG_CODES)) {
+    await query(`DELETE FROM daily_entry_catalog_items WHERE code = $1`, [code]);
+    await query(`DELETE FROM daily_entry_catalog_code_registry WHERE code = $1`, [code]);
   }
+}
+
+async function provisionTestCatalog() {
+  const med1 = await createCatalogItem({
+    code: CATALOG_CODES.med1,
+    name: `${TEST_PREFIX} Medicine 01`,
+    category: 'Medicine',
+    unit: 'قرص',
+    price: 52,
+  });
+  const med2 = await createCatalogItem({
+    code: CATALOG_CODES.med2,
+    name: `${TEST_PREFIX} Medicine 02`,
+    category: 'Medicine',
+    unit: 'قرص',
+    price: 48,
+  });
+  const med3 = await createCatalogItem({
+    code: CATALOG_CODES.med3,
+    name: `${TEST_PREFIX} Medicine 03`,
+    category: 'Medicine',
+    unit: 'قرص',
+    price: 44,
+  });
+  const med4 = await createCatalogItem({
+    code: CATALOG_CODES.med4,
+    name: `${TEST_PREFIX} Medicine 04`,
+    category: 'Medicine',
+    unit: 'قرص',
+    price: 40,
+  });
+  const supply = await createCatalogItem({
+    code: CATALOG_CODES.supply,
+    name: `${TEST_PREFIX} Supply 01`,
+    category: 'Supplies',
+    unit: 'قطعة',
+    cost_price: 60,
+    markup_percent: 40,
+  });
+
+  return { meds: [med1, med2, med3, med4], supply };
 }
 
 async function cleanupPatientData(patientId, fileNumber) {
@@ -78,28 +130,9 @@ async function assertNoDuplicateInvoiceLines(invoiceId) {
   );
   for (const row of rows) {
     if (row.n > 1) {
-      console.error(`FAIL: duplicate invoice line for daily_entry_line_id ${row.daily_entry_line_id}`);
-      process.exit(1);
+      throw new Error(`FAIL: duplicate invoice line for daily_entry_line_id ${row.daily_entry_line_id}`);
     }
   }
-}
-
-async function loadCatalogFixtures() {
-  const meds = await query(
-    `SELECT id, name, price FROM daily_entry_catalog_items
-     WHERE category = 'Medicine' AND is_active = TRUE AND price > 0
-     ORDER BY id LIMIT 4`
-  );
-  const supplies = await query(
-    `SELECT id, name, price FROM daily_entry_catalog_items
-     WHERE category = 'Supplies' AND is_active = TRUE AND price > 0
-     ORDER BY id LIMIT 1`
-  );
-  if (meds.rows.length < 4 || !supplies.rows.length) {
-    console.error('FAIL: need 4 medicines and 1 supply in catalog');
-    process.exit(1);
-  }
-  return { meds: meds.rows, supply: supplies.rows[0] };
 }
 
 async function testBatchPartialSaveRollback(patient, today, meds, supply) {
@@ -120,10 +153,10 @@ async function testBatchPartialSaveRollback(patient, today, meds, supply) {
       patient_name: patient.name,
       entries: batch,
     });
-    console.error('FAIL: batch should throw on invalid row 3');
-    process.exit(1);
+    throw new Error('FAIL: batch should throw on invalid row 3');
   } catch (err) {
     assert(String(err.message).length > 0, 'batch failure should expose error message');
+    assert(!String(err.message).startsWith('FAIL: batch should throw'), err.message);
   }
 
   const after = await countPatientEntries(patient.id);
@@ -170,8 +203,7 @@ async function testBatchEditRollbackOnInvoiceSyncFailure(patient, today, meds) {
           },
         ],
       });
-      console.error('FAIL: edit batch should throw when invoice sync fails');
-      process.exit(1);
+      throw new Error('FAIL: edit batch should throw when invoice sync fails');
     } catch (err) {
       assert(String(err.message).includes('FORCED_INVOICE_SYNC_FAILURE'), 'forced sync error surfaced');
     }
@@ -232,8 +264,7 @@ async function testDeleteRollbackOnInvoiceSyncFailure(patient, today, meds) {
   try {
     try {
       await deleteEntry(entry.id);
-      console.error('FAIL: delete should throw when invoice sync fails');
-      process.exit(1);
+      throw new Error('FAIL: delete should throw when invoice sync fails');
     } catch (err) {
       assert(String(err.message).includes('استعادة الحركة'), 'delete failure mentions restore');
     }
@@ -284,28 +315,38 @@ async function testResaveBatchNoDuplicateInvoiceLines(patient, today, meds, supp
 async function main() {
   await initDatabase();
 
-  const patient = await upsertPatient(TEST_FILE, 'Batch Consistency Test');
-  const today = getCurrentBusinessDateString();
-  const { meds, supply } = await loadCatalogFixtures();
+  let patient = null;
+  try {
+    await cleanupTestCatalog();
+    const { meds, supply } = await provisionTestCatalog();
 
-  await cleanupPatientData(patient.id, TEST_FILE);
+    patient = await upsertPatient(TEST_FILE, 'Batch Consistency Test');
+    const today = getCurrentBusinessDateString();
 
-  await testBatchPartialSaveRollback(patient, today, meds, supply);
-  await cleanupPatientData(patient.id, TEST_FILE);
+    await cleanupPatientData(patient.id, TEST_FILE);
 
-  await testBatchEditRollbackOnInvoiceSyncFailure(patient, today, meds);
-  await cleanupPatientData(patient.id, TEST_FILE);
+    await testBatchPartialSaveRollback(patient, today, meds, supply);
+    await cleanupPatientData(patient.id, TEST_FILE);
 
-  await testDeleteWithSuccessfulInvoiceSync(patient, today, meds, supply);
-  await cleanupPatientData(patient.id, TEST_FILE);
+    await testBatchEditRollbackOnInvoiceSyncFailure(patient, today, meds);
+    await cleanupPatientData(patient.id, TEST_FILE);
 
-  await testDeleteRollbackOnInvoiceSyncFailure(patient, today, meds);
-  await cleanupPatientData(patient.id, TEST_FILE);
+    await testDeleteWithSuccessfulInvoiceSync(patient, today, meds, supply);
+    await cleanupPatientData(patient.id, TEST_FILE);
 
-  await testResaveBatchNoDuplicateInvoiceLines(patient, today, meds, supply);
-  await cleanupPatientData(patient.id, TEST_FILE);
+    await testDeleteRollbackOnInvoiceSyncFailure(patient, today, meds);
+    await cleanupPatientData(patient.id, TEST_FILE);
 
-  console.log('ALL DAILY BATCH CONSISTENCY TESTS PASSED');
+    await testResaveBatchNoDuplicateInvoiceLines(patient, today, meds, supply);
+    await cleanupPatientData(patient.id, TEST_FILE);
+
+    console.log('ALL DAILY BATCH CONSISTENCY TESTS PASSED');
+  } finally {
+    if (patient?.id) {
+      await cleanupPatientData(patient.id, TEST_FILE);
+    }
+    await cleanupTestCatalog();
+  }
 }
 
 main().catch((err) => {
