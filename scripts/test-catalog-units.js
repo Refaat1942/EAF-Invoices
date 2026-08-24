@@ -410,7 +410,7 @@ async function testImportWithoutCodeGeneratesCode() {
   const importName = `${TEST_PREFIX} IMPORT NO CODE`;
   await cleanupCatalogByName(importName);
 
-  const result = await importCatalogRowsTransactional([
+  const importRows = [
     {
       row_number: 2,
       name: importName,
@@ -421,7 +421,24 @@ async function testImportWithoutCodeGeneratesCode() {
       major_unit_selling_price: 52,
       minor_unit_selling_price: 26,
     },
-  ]);
+  ];
+  const normalizedFixture = mergeImportRowsByProduct(importRows);
+  console.log('DIAG import normalized fixture:', JSON.stringify(normalizedFixture, null, 2));
+
+  const result = await importCatalogRowsTransactional(importRows);
+  console.log(
+    JSON.stringify(
+      {
+        inserted: result.inserted,
+        skipped: result.skipped,
+        updated: result.updated,
+        conflicts: result.conflicts,
+        errors: result.errors,
+      },
+      null,
+      2
+    )
+  );
   assertEq('import inserted one', result.inserted, 1);
   const found = await findCatalogItemByProduct({ name: importName, category: 'Medicine' });
   assert('imported item found', found);
@@ -434,7 +451,23 @@ async function testRepeatedImportNoDuplicateCatalogItems() {
   const importName = 'ANTINAL 200MG 24/CAP';
   await cleanupCatalogByName(importName);
 
+  const normalizedAntinalFixture = mergeImportRowsByProduct(ANTINAL_ROWS);
+  console.log('DIAG import normalized fixture:', JSON.stringify(normalizedAntinalFixture, null, 2));
+
   const first = await importCatalogRowsTransactional(ANTINAL_ROWS);
+  console.log(
+    JSON.stringify(
+      {
+        inserted: first.inserted,
+        skipped: first.skipped,
+        updated: first.updated,
+        conflicts: first.conflicts,
+        errors: first.errors,
+      },
+      null,
+      2
+    )
+  );
   assertEq('first import inserted', first.inserted, 1);
 
   const second = await importCatalogRowsTransactional(ANTINAL_ROWS);
