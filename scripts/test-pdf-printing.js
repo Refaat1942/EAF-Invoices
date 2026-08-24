@@ -144,6 +144,29 @@ async function assertPdfBuffer(reportType, buffer, label) {
   );
 }
 
+async function cleanupTestPriceList(priceListId = null) {
+  let id = priceListId || ctx.testPriceListId;
+  if (!id) {
+    const { rows } = await query(`SELECT id FROM price_lists WHERE code = $1`, [TEST_PRICE_LIST_CODE]);
+    id = rows[0]?.id;
+  }
+  if (!id) return;
+
+  const svcRes = await query(`SELECT id FROM services WHERE price_list_id = $1`, [id]);
+  for (const row of svcRes.rows) {
+    await query(`DELETE FROM service_price_components WHERE service_id = $1`, [row.id]);
+    await query(`DELETE FROM service_price_tiers WHERE service_id = $1`, [row.id]);
+    await query(`DELETE FROM service_price_history WHERE service_id = $1`, [row.id]);
+  }
+  await query(`DELETE FROM services WHERE price_list_id = $1`, [id]);
+  await query(`DELETE FROM service_categories WHERE price_list_id = $1`, [id]);
+  await query(`DELETE FROM price_lists WHERE id = $1`, [id]);
+
+  if (ctx.testPriceListId === id) {
+    ctx.testPriceListId = null;
+  }
+}
+
 async function cleanupAll() {
   await query(
     `DELETE FROM invoice_item_returns WHERE invoice_return_id IN (
@@ -164,41 +187,53 @@ async function cleanupAll() {
     )`,
     [TEST_FILE]
   );
+  await query(
+    `DELETE FROM invoice_payments WHERE invoice_id IN (
+      SELECT id FROM invoices WHERE TRIM(file_number) = TRIM($1)
+    )`,
+    [TEST_FILE]
+  );
+  await query(
+    `DELETE FROM invoice_stay_entries WHERE invoice_id IN (
+      SELECT id FROM invoices WHERE TRIM(file_number) = TRIM($1)
+    )`,
+    [TEST_FILE]
+  );
   await query(`DELETE FROM invoices WHERE TRIM(file_number) = TRIM($1)`, [TEST_FILE]);
 
-  const { rows: patients } = await query(`SELECT id FROM patients WHERE TRIM(file_number) = TRIM($1)`, [TEST_FILE]);
-  const patientId = patients[0]?.id;
-  if (patientId) {
-    await query(
-      `DELETE FROM patient_daily_entry_lines WHERE entry_id IN (
-        SELECT id FROM patient_daily_entries WHERE patient_id = $1
-      )`,
-      [patientId]
-    );
-    await query(`DELETE FROM patient_daily_entries WHERE patient_id = $1`, [patientId]);
-    await query(`DELETE FROM patients WHERE id = $1`, [patientId]);
-  }
+  await query(
+    `DELETE FROM patient_daily_entry_lines WHERE entry_id IN (
+      SELECT id FROM patient_daily_entries WHERE patient_id IN (
+        SELECT id FROM patients WHERE TRIM(file_number) = TRIM($1)
+      )
+    )`,
+    [TEST_FILE]
+  );
+  await query(
+    `DELETE FROM patient_daily_entries WHERE patient_id IN (
+      SELECT id FROM patients WHERE TRIM(file_number) = TRIM($1)
+    )`,
+    [TEST_FILE]
+  );
+  await query(`DELETE FROM patients WHERE TRIM(file_number) = TRIM($1)`, [TEST_FILE]);
 
   for (const code of Object.values(CODES)) {
     await query(`DELETE FROM daily_entry_catalog_items WHERE code = $1`, [code]);
     await query(`DELETE FROM daily_entry_catalog_code_registry WHERE code = $1`, [code]);
-    await query(`DELETE FROM services WHERE code = $1`, [code]);
-  }
-
-  if (ctx.testPriceListId) {
-    const svcRes = await query(`SELECT id FROM services WHERE price_list_id = $1`, [ctx.testPriceListId]);
-    for (const row of svcRes.rows) {
+    const { rows: services } = await query(`SELECT id FROM services WHERE code = $1`, [code]);
+    for (const row of services) {
       await query(`DELETE FROM service_price_components WHERE service_id = $1`, [row.id]);
       await query(`DELETE FROM service_price_tiers WHERE service_id = $1`, [row.id]);
       await query(`DELETE FROM service_price_history WHERE service_id = $1`, [row.id]);
+      await query(`DELETE FROM services WHERE id = $1`, [row.id]);
     }
-    await query(`DELETE FROM services WHERE price_list_id = $1`, [ctx.testPriceListId]);
-    await query(`DELETE FROM service_categories WHERE price_list_id = $1`, [ctx.testPriceListId]);
-    await query(`DELETE FROM price_lists WHERE id = $1`, [ctx.testPriceListId]);
   }
+
+  await cleanupTestPriceList();
 }
 
 async function provisionFixtures() {
+  await cleanupTestPriceList();
   const { rows: plRows } = await query(
     `INSERT INTO price_lists (name, code, is_active, is_default, notes)
      VALUES ($1, $2, TRUE, FALSE, $3)
