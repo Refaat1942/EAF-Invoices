@@ -1,10 +1,10 @@
 const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
+const { getDatabaseConnectionString } = require('./connectionConfig');
 
 const pool = new Pool({
-  connectionString:
-    process.env.DATABASE_URL || 'postgresql://eaf:eaf2026@localhost:5432/eaf_invoices',
+  connectionString: getDatabaseConnectionString(),
   max: 20,
 });
 

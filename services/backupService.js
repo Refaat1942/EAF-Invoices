@@ -2,6 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { setSetting, getSetting } = require('./settingsService');
+const {
+  getDatabaseConnectionString,
+  isProductionEnv,
+} = require('../database/connectionConfig');
 
 const DEFAULT_BACKUP_DIR = '/var/backups/eaf-invoices';
 const RETENTION_DAYS = Number(process.env.BACKUP_RETENTION_DAYS || 14);
@@ -25,17 +29,15 @@ const STATUS_KEYS = {
 };
 
 function isProduction() {
-  return process.env.NODE_ENV === 'production';
+  return isProductionEnv();
 }
 
 function getBackupDir() {
   return process.env.BACKUP_DIR || DEFAULT_BACKUP_DIR;
 }
 
-function getDatabaseUrl() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL is not configured');
-  return url;
+function getDatabaseUrlForBackup() {
+  return getDatabaseConnectionString({ forBackup: true });
 }
 
 function formatBackupFilename(date = new Date()) {
@@ -212,7 +214,7 @@ async function runBackup(options = {}) {
   let verified = false;
 
   try {
-    const databaseUrl = getDatabaseUrl();
+    const databaseUrl = getDatabaseUrlForBackup();
     console.log(`[backup] starting (${trigger}) → ${filename}`);
 
     await runPgDump(destPath, databaseUrl);

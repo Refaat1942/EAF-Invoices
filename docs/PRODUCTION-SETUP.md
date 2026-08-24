@@ -48,6 +48,18 @@ sudo -u postgres createdb -O eaf eaf_invoices
 
 Application creates schema on first start via `initDatabase()`.
 
+### Connection resolution
+
+| Context | `DATABASE_URL` set | `NODE_ENV` | Result |
+|---------|-------------------|------------|--------|
+| App pool (`database/db.js`) | yes | any | Uses `DATABASE_URL` |
+| App pool | no | any | Uses local dev fallback (`postgresql://eaf:eaf2026@localhost:5432/eaf_invoices`) |
+| Backup (`backupService`) | yes | any | Uses `DATABASE_URL` |
+| Backup | no | not `production` | May use the same dev fallback |
+| Backup | no | `production` | **Fails** — never uses dev fallback |
+
+`server.js` and `scripts/run-backup.js` load `.env` the same way (unset keys only). PM2 may not show `DATABASE_URL` in its environment dump because `.env` is loaded inside Node.
+
 ## Session configuration
 
 - Sessions use `express-session` with `httpOnly` cookies.
@@ -92,6 +104,8 @@ sudo chmod 700 /var/backups/eaf-invoices
 test -f /var/www/EAF-Invoices/.env && echo "ok"
 grep -E '^DATABASE_URL=|^BACKUP_DIR=' /var/www/EAF-Invoices/.env
 ```
+
+`DATABASE_URL` is **required** for production backups. Without it, `NODE_ENV=production` backup runs fail instead of silently using the development database. The app pool may still start with the dev fallback if `DATABASE_URL` is missing (existing behavior), but production should always set `DATABASE_URL` explicitly.
 
 Ensure `BACKUP_DIR=/var/backups/eaf-invoices` (or rely on the default).
 

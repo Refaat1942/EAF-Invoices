@@ -4,15 +4,9 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const { loadProjectEnv } = require('./database/loadEnv');
 
-// Load .env if present
-const envPath = path.join(__dirname, '.env');
-if (fs.existsSync(envPath)) {
-  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-    const m = line.match(/^([^#=]+)=(.*)$/);
-    if (m && !process.env[m[1].trim()]) process.env[m[1].trim()] = m[2].trim();
-  }
-}
+loadProjectEnv(__dirname);
 
 const {
   validateProductionConfig,

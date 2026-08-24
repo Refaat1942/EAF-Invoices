@@ -17,6 +17,8 @@ Backups are **not** stored under `public/` or any web-served directory.
 
 - Runs daily at **03:00 local server time** via **systemd timer** (independent of the browser/UI).
 - Uses `pg_dump` with `DATABASE_URL` from the server environment (never hardcoded).
+- **Production (`NODE_ENV=production`):** backup **requires** an explicit `DATABASE_URL`. If it is missing, the backup job fails clearly and does **not** use the local development fallback connection string.
+- **Local / non-production:** when `DATABASE_URL` is unset, backup may use the same development fallback as the app pool (`postgresql://eaf:eaf2026@localhost:5432/eaf_invoices`) for convenience.
 - After each dump:
   1. Verifies the file exists and is non-empty.
   2. Verifies readability with `pg_restore --list`.
@@ -43,6 +45,12 @@ sudo systemctl status eaf-invoices-backup.timer
 ```
 
 Service unit: `User=root`, `WorkingDirectory=/var/www/EAF-Invoices`, `EnvironmentFile=/var/www/EAF-Invoices/.env`.
+
+### DATABASE_URL and PM2
+
+`server.js` loads `/var/www/EAF-Invoices/.env` at startup (only for keys not already set in the process environment). **PM2 often does not list `DATABASE_URL` in `pm2 env` or `pm2 show`** because it is injected inside Node after `.env` is read, not by PM2 itself. The app pool still connects using `DATABASE_URL` from `.env` when present.
+
+Scheduled backups should receive `DATABASE_URL` via **systemd `EnvironmentFile`**, **`node --env-file=.env`**, or an explicit process environment — not from the hardcoded development fallback. On production VPS, keep `DATABASE_URL` in `.env` and ensure the backup unit references that file.
 
 Verify timer schedule:
 

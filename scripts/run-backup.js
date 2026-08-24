@@ -4,15 +4,9 @@
  * Usage: node --env-file=.env scripts/run-backup.js
  */
 const path = require('path');
-const fs = require('fs');
+const { loadProjectEnv } = require('../database/loadEnv');
 
-const envPath = path.join(__dirname, '..', '.env');
-if (fs.existsSync(envPath)) {
-  for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-    const m = line.match(/^([^#=]+)=(.*)$/);
-    if (m && !process.env[m[1].trim()]) process.env[m[1].trim()] = m[2].trim();
-  }
-}
+loadProjectEnv(path.join(__dirname, '..'));
 
 const { initDatabase } = require('../database/db');
 const { runBackup } = require('../services/backupService');
