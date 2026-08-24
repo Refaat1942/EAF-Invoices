@@ -54,7 +54,7 @@ function lookupListHandler(listFn, viewPerm) {
     try {
       const activeOnly = req.query.all !== '1';
       const perm = activeOnly ? viewPerm : 'settings.*';
-      if (!canAccess(req.session.user.role, perm)) {
+      if (!canAccess(req.session.user, perm)) {
         return res.status(403).json({ error: 'ليس لديك صلاحية' });
       }
       res.json(await listFn(activeOnly));
@@ -72,7 +72,7 @@ router.get('/contracted-entities/tree', async (req, res) => {
   try {
     const activeOnly = req.query.all !== '1';
     const perm = activeOnly ? 'invoices.view' : 'settings.*';
-    if (!canAccess(req.session.user.role, perm)) {
+    if (!canAccess(req.session.user, perm)) {
       return res.status(403).json({ error: 'ليس لديك صلاحية' });
     }
     res.json(await listContractedEntitiesTree(activeOnly));
@@ -278,6 +278,27 @@ router.put('/general', requirePermission('settings.*'), async (req, res) => {
     res.json(settings);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+const { getBackupStatus, runBackup } = require('../services/backupService');
+
+router.get('/backup', requirePermission('settings.*'), async (req, res) => {
+  try {
+    res.json(await getBackupStatus());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/backup/run', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const result = await runBackup({ trigger: 'manual' });
+    const status = await getBackupStatus();
+    res.json({ ...result, status });
+  } catch (err) {
+    console.error('[backup] manual backup error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
