@@ -46,6 +46,19 @@ function assertThrows(label, fn, contains = '') {
   }
 }
 
+async function assertRejects(label, fn, contains = '') {
+  try {
+    await fn();
+    console.error(`FAIL ${label}: expected throw`);
+    process.exit(1);
+  } catch (err) {
+    if (contains && !String(err.message || err).includes(contains)) {
+      console.error(`FAIL ${label}: message missing «${contains}»: ${err.message}`);
+      process.exit(1);
+    }
+  }
+}
+
 const base = {
   invoice_type: 'civil',
   discount_percent: 0,
@@ -478,12 +491,18 @@ async function runDbIntegrationSuite() {
     include_daily_charges: false,
   });
   const draftLine = draftInvoice.items[0];
-  assertThrows('reject return on draft', () =>
+  assert(draftInvoice.status === 'draft', 'draft invoice status is draft');
+  await assertRejects('reject return on draft', () =>
     recordInvoiceReturns(draftInvoice.id, {
       lines: [{ invoice_item_id: draftLine.id, return_quantity: 1 }],
     }),
     'الفواتير المعتمدة'
   );
+  const { rows: draftReturnRows } = await query(
+    `SELECT COUNT(*)::int AS count FROM invoice_returns WHERE invoice_id = $1`,
+    [draftInvoice.id]
+  );
+  assertEq('no draft return persisted', draftReturnRows[0].count, 0);
 
   const submitted = await saveInvoice(
     {
@@ -503,7 +522,8 @@ async function runDbIntegrationSuite() {
     },
     draftInvoice.id
   );
-  assertThrows('reject return on pending_review', () =>
+  assert(submitted.status === 'pending_review', 'submitted invoice pending_review');
+  await assertRejects('reject return on pending_review', () =>
     recordInvoiceReturns(submitted.id, {
       lines: [{ invoice_item_id: submitted.items[0].id, return_quantity: 1 }],
     }),
@@ -601,7 +621,7 @@ async function runDbIntegrationSuite() {
   console.log('OK DB supply snapshot return audit');
 
   // Over-return rejected
-  assertThrows('reject over-return quantity', () =>
+  await assertRejects('reject over-return quantity', () =>
     recordInvoiceReturns(approved.id, {
       lines: [{ invoice_item_id: partialMed.id, return_quantity: 8 }],
     }),
@@ -626,7 +646,7 @@ async function runDbIntegrationSuite() {
     .flatMap((h) => h.lines)
     .filter((l) => Number(l.invoice_item_id) === Number(supplyLine.id));
   assertEq(supplyAfter.length, 2, 'two supply return audit lines not duplicated in one call');
-  assertThrows('reject repeat over-return on supply', () =>
+  await assertRejects('reject repeat over-return on supply', () =>
     recordInvoiceReturns(approved.id, {
       lines: [{ invoice_item_id: supplyLine.id, return_quantity: 5 }],
     }),
