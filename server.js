@@ -14,6 +14,16 @@ if (fs.existsSync(envPath)) {
   }
 }
 
+const {
+  validateProductionConfig,
+  buildCorsOptions,
+  securityHeaders,
+  errorHandler,
+} = require('./middleware/security');
+const { isProduction } = require('./services/backupService');
+
+validateProductionConfig();
+
 const { initDatabase } = require('./database/db');
 
 const authRoutes = require('./routes/auth');
@@ -26,15 +36,30 @@ const settingsRoutes = require('./routes/settings');
 const app = express();
 const PORT = process.env.PORT || 17159;
 const HOST = process.env.HOST || '0.0.0.0';
+const pkg = require('./package.json');
 
-app.use(cors({ origin: true, credentials: true }));
+if (process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
+
+app.use(cors(buildCorsOptions()));
+app.use(securityHeaders);
 app.use(cookieParser());
+
+const cookieSecure =
+  process.env.COOKIE_SECURE === 'true' || process.env.HTTPS === 'true';
+
 app.use(
   session({
     secret: process.env.SESSION_SECRET || process.env.APP_SECRET || 'eaf-session-secret',
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 8 * 60 * 60 * 1000, httpOnly: true, sameSite: 'lax' },
+    cookie: {
+      maxAge: 8 * 60 * 60 * 1000,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: cookieSecure,
+    },
   })
 );
 app.use(express.json({ limit: '10mb' }));
@@ -60,15 +85,35 @@ app.get('/api/health', async (req, res) => {
   try {
     const { query } = require('./database/db');
     await query('SELECT 1');
+    let backupSummary = null;
+    try {
+      const { getBackupStatus } = require('./services/backupService');
+      const backup = await getBackupStatus();
+      backupSummary = {
+        last_status: backup.last_status || 'unknown',
+        last_success_at: backup.last_success_at || null,
+        retained_count: backup.retained_count,
+      };
+    } catch {
+      backupSummary = { last_status: 'unknown' };
+    }
     res.json({
       status: 'ok',
-      port: PORT,
-      db: 'postgresql',
+      app: pkg.name,
+      version: pkg.version,
+      environment: isProduction() ? 'production' : process.env.NODE_ENV || 'development',
+      db: 'connected',
       time: new Date().toISOString(),
-      message: 'نظام فواتير A.R.R.C يعمل بنجاح',
+      backup: backupSummary,
     });
   } catch (err) {
-    res.status(500).json({ status: 'error', error: err.message });
+    console.error('[health] database check failed:', err.message);
+    res.status(500).json({
+      status: 'error',
+      db: 'disconnected',
+      time: new Date().toISOString(),
+      error: 'Database connection failed',
+    });
   }
 });
 
@@ -85,10 +130,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: err.message || 'خطأ في الخادم' });
-});
+app.use(errorHandler);
 
 async function start() {
   try {
@@ -103,6 +145,7 @@ async function start() {
 ║  🐘 DB:      PostgreSQL                               ║
 ╚══════════════════════════════════════════════════════╝
       `);
+      console.log(`[startup] ${pkg.name} v${pkg.version} listening on ${HOST}:${PORT}`);
     });
   } catch (err) {
     console.error('Failed to start:', err.message);
@@ -112,5 +155,11 @@ async function start() {
 
 start();
 
-process.on('SIGINT', () => process.exit(0));
-process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => {
+  console.log('[shutdown] SIGINT received');
+  process.exit(0);
+});
+process.on('SIGTERM', () => {
+  console.log('[shutdown] SIGTERM received');
+  process.exit(0);
+});

@@ -230,16 +230,42 @@ async function deleteUser(id) {
   return rowCount > 0;
 }
 
+function isProductionEnv() {
+  return process.env.NODE_ENV === 'production';
+}
+
+function resolveInitialAdminPassword() {
+  const password = String(process.env.ADMIN_PASSWORD || '').trim();
+  if (isProductionEnv()) {
+    if (!password || password.length < 12) {
+      throw new Error(
+        'First production setup requires ADMIN_PASSWORD (12+ characters) in the server environment before creating the admin user.'
+      );
+    }
+    return password;
+  }
+  if (!password) {
+    console.warn('[auth] ADMIN_PASSWORD not set — using development default. Do not use in production.');
+    return 'Admin@2026';
+  }
+  return password;
+}
+
 async function seedAdminUser() {
   const { rows } = await query('SELECT COUNT(*)::int AS c FROM users');
   if (rows[0].c > 0) return;
 
-  const hash = await bcrypt.hash(process.env.ADMIN_PASSWORD || 'Admin@2026', 10);
+  const password = resolveInitialAdminPassword();
+  const hash = await bcrypt.hash(password, 10);
   await query(
     `INSERT INTO users (username, password_hash, full_name, role, custom_permissions) VALUES ($1, $2, $3, $4, $5::jsonb)`,
     ['admin', hash, 'مدير النظام', 'admin', JSON.stringify([])]
   );
-  console.log('👤 Default admin created: admin / Admin@2026');
+  if (isProductionEnv()) {
+    console.log('👤 Initial admin user created (username: admin). Password was taken from ADMIN_PASSWORD.');
+  } else {
+    console.log('👤 Default admin created (username: admin). Set ADMIN_PASSWORD for a custom password.');
+  }
 }
 
 module.exports = {

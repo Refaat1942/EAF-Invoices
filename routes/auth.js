@@ -1,16 +1,27 @@
 const express = require('express');
 const { login, findUserById, sanitizeUser } = require('../services/authService');
 const { requireAuth } = require('../middleware/auth');
+const { loginRateLimit } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginRateLimit, async (req, res) => {
   try {
     const { username, password } = req.body;
     const user = await login(username, password);
-    if (!user) return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
-    req.session.user = user;
-    res.json({ success: true, user });
+    if (!user) {
+      console.warn(`[auth] login failed for username attempt: ${String(username || '').trim().toLowerCase()}`);
+      return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
+    }
+    const sessionUser = user;
+    req.session.regenerate((regenErr) => {
+      if (regenErr) {
+        console.error('[auth] session regenerate failed:', regenErr.message);
+        return res.status(500).json({ error: 'تعذر إنشاء الجلسة' });
+      }
+      req.session.user = sessionUser;
+      res.json({ success: true, user: sessionUser });
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
