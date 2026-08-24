@@ -8,6 +8,10 @@ const pool = new Pool({
   max: 20,
 });
 
+pool.on('error', (err) => {
+  console.error('[database] pool connection error:', err.message);
+});
+
 async function query(text, params) {
   return pool.query(text, params);
 }

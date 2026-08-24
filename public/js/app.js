@@ -293,6 +293,7 @@ function applyPermissions() {
   document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
   document.getElementById('pricing-settings-card').style.display = isAdmin ? '' : 'none';
   document.getElementById('item-catalog-settings-card').style.display = isAdmin ? '' : 'none';
+  document.getElementById('backup-settings-card').style.display = isAdmin ? '' : 'none';
 
   const createBtn = document.querySelector('[data-view="create"]');
   if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
@@ -473,6 +474,7 @@ function bindEvents() {
   });
 
   document.getElementById('upload-logo-btn').addEventListener('click', uploadLogo);
+  document.getElementById('backup-run-btn')?.addEventListener('click', runManualBackup);
   document.getElementById('add-stay-type-btn').addEventListener('click', addStayType);
   document.getElementById('add-financial-treatment-btn')?.addEventListener('click', addFinancialTreatment);
   document.getElementById('add-invoice-type-btn').addEventListener('click', addInvoiceType);
@@ -3065,9 +3067,96 @@ async function loadSettingsPage() {
     await loadContractedEntities();
     loadUsers();
     if (can('settings.*')) await loadPricingSection();
+    if (can('settings.*')) await loadBackupSection();
     if (typeof loadItemCatalogSection === 'function') await loadItemCatalogSection();
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
+  }
+}
+
+function formatBackupBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatBackupDate(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString('ar-EG');
+}
+
+async function loadBackupSection() {
+  if (!can('settings.*')) return;
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/backup`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'تعذر تحميل حالة النسخ الاحتياطي');
+
+    const set = (id, text) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    };
+
+    set('backup-last-attempt', formatBackupDate(data.last_attempt_at));
+    const statusEl = document.getElementById('backup-last-status');
+    if (statusEl) {
+      statusEl.textContent = data.last_status || '—';
+      statusEl.className = `fw-bold ${data.last_status === 'success' ? 'text-success' : data.last_status === 'failed' ? 'text-danger' : ''}`;
+    }
+    set('backup-last-success', formatBackupDate(data.last_success_at));
+    set('backup-last-size', data.last_size_bytes ? formatBackupBytes(data.last_size_bytes) : '—');
+    set('backup-dir', data.backup_dir || '—');
+    set('backup-retained-count', String(data.retained_count ?? '—'));
+    set('backup-next-scheduled', formatBackupDate(data.next_scheduled_at));
+    set('backup-last-file', data.last_file || '—');
+
+    const errEl = document.getElementById('backup-last-error');
+    if (errEl) {
+      if (data.last_failure_message) {
+        errEl.style.display = '';
+        errEl.textContent = data.last_failure_message;
+      } else {
+        errEl.style.display = 'none';
+        errEl.textContent = '';
+      }
+    }
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function runManualBackup() {
+  if (!can('settings.*')) return showToast('ليس لديك صلاحية', 'warning');
+  const btn = document.getElementById('backup-run-btn');
+  const resultEl = document.getElementById('backup-manual-result');
+  if (btn) btn.disabled = true;
+  if (resultEl) {
+    resultEl.style.display = 'none';
+    resultEl.textContent = '';
+  }
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/backup/run`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'فشل النسخ الاحتياطي');
+    await loadBackupSection();
+    if (resultEl) {
+      resultEl.style.display = '';
+      if (data.success) {
+        resultEl.className = 'col-12 text-success fw-bold';
+        resultEl.textContent = `تم النسخ بنجاح: ${data.filename || ''} (${formatBackupBytes(data.size_bytes)}) — تم التحقق`;
+      } else {
+        resultEl.className = 'col-12 text-danger fw-bold';
+        resultEl.textContent = data.error || 'فشل النسخ الاحتياطي';
+      }
+    }
+    showToast(data.success ? 'تم النسخ الاحتياطي بنجاح' : data.error || 'فشل النسخ', data.success ? 'success' : 'danger');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

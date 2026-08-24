@@ -743,6 +743,29 @@
             </div>
           </div>
         </div>
+        <div class="col-12" id="backup-settings-card" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <span>💾 النسخ الاحتياطي لقاعدة البيانات</span>
+              <button type="button" class="btn btn-sm btn-warning fw-bold" id="backup-run-btn">نسخ احتياطي الآن</button>
+            </div>
+            <div class="card-body">
+              <p class="small text-muted mb-3">نسخ احتياطي تلقائي يوميًا على السيرفر (03:00). يستخدم pg_dump بصيغة PostgreSQL المخصصة (.dump) مع التحقق بـ pg_restore.</p>
+              <div class="row g-2 small" id="backup-status-panel">
+                <div class="col-md-4"><span class="text-muted">آخر محاولة:</span> <span id="backup-last-attempt" class="fw-bold">—</span></div>
+                <div class="col-md-4"><span class="text-muted">الحالة:</span> <span id="backup-last-status" class="fw-bold">—</span></div>
+                <div class="col-md-4"><span class="text-muted">آخر نجاح:</span> <span id="backup-last-success" class="fw-bold">—</span></div>
+                <div class="col-md-4"><span class="text-muted">حجم آخر نسخ:</span> <span id="backup-last-size" class="fw-bold">—</span></div>
+                <div class="col-md-4"><span class="text-muted">مجلد النسخ:</span> <span id="backup-dir" class="fw-bold">—</span></div>
+                <div class="col-md-4"><span class="text-muted">عدد النسخ المحفوظة:</span> <span id="backup-retained-count" class="fw-bold">—</span></div>
+                <div class="col-md-4"><span class="text-muted">النسخة المجدولة القادمة:</span> <span id="backup-next-scheduled" class="fw-bold">—</span></div>
+                <div class="col-md-8"><span class="text-muted">آخر ملف:</span> <span id="backup-last-file" class="fw-bold">—</span></div>
+                <div class="col-12 text-danger fw-bold" id="backup-last-error" style="display:none"></div>
+                <div class="col-12 text-success fw-bold" id="backup-manual-result" style="display:none"></div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="col-12" id="pricing-settings-card" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-primary text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
