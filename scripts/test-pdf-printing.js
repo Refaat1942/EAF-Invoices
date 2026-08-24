@@ -19,6 +19,7 @@ const {
   getInvoiceById,
   saveInvoice,
   approveInvoice,
+  prepareCalculationData,
 } = require('../services/invoiceService');
 const { calculateInvoiceTotals, round2 } = require('../services/calculations');
 const { getDailyPrintReport } = require('../services/reportService');
@@ -266,19 +267,34 @@ async function provisionFixtures() {
 
 async function approveInvoiceWithPayment(invoiceId) {
   const invoice = await getInvoiceById(invoiceId);
-  const totals = calculateInvoiceTotals(invoice);
+  const savePayload = {
+    invoice_type: invoice.invoice_type,
+    patient_name: invoice.patient_name,
+    file_number: invoice.file_number,
+    issue_date: invoice.issue_date,
+    admission_date: invoice.admission_date,
+    discharge_date: invoice.discharge_date,
+    admin_expenses_percent: invoice.admin_expenses_percent ?? 12,
+    stamp_duty: invoice.stamp_duty ?? 0,
+    professional_fees: invoice.professional_fees ?? 0,
+    balance: invoice.balance ?? 0,
+    contracted_entity_id: invoice.contracted_entity_id || null,
+    discount_percent: invoice.discount_percent ?? 0,
+    items: (invoice.items || []).filter((i) => !i.daily_entry_line_id && !i.daily_entry_id),
+    stay_entries: invoice.stay_entries || [],
+    include_daily_charges: true,
+    save_mode: 'submit',
+    invoice_id: invoiceId,
+  };
+
+  const calcData = await prepareCalculationData(savePayload);
+  const totals = calculateInvoiceTotals(calcData);
+  const paymentAmount = money(totals.final_total_raw);
+
   await saveInvoice(
     {
-      invoice_type: invoice.invoice_type,
-      patient_name: invoice.patient_name,
-      file_number: invoice.file_number,
-      issue_date: invoice.issue_date,
-      admission_date: invoice.admission_date,
-      discharge_date: invoice.discharge_date,
-      items: (invoice.items || []).filter((i) => !i.daily_entry_line_id && !i.daily_entry_id),
-      method_payments: [{ code: 'cash', amount: totals.final_total_raw }],
-      save_mode: 'submit',
-      include_daily_charges: true,
+      ...savePayload,
+      method_payments: [{ code: 'cash', amount: paymentAmount }],
     },
     invoiceId
   );
