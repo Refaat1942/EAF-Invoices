@@ -149,6 +149,21 @@ async function assertNoDuplicateInvoiceLines(invoiceId) {
   }
 }
 
+async function testSuccessfulBatchPreservesAllRows(patient, today, meds) {
+  const save = await saveEntriesBatch({
+    file_number: TEST_FILE,
+    patient_name: patient.name,
+    entries: [
+      { entry_date: today, lines: [{ section_code: 'medicines', catalog_item_id: meds[0].id, quantity: 1 }] },
+      { entry_date: today, lines: [{ section_code: 'medicines', catalog_item_id: meds[1].id, quantity: 2 }] },
+    ],
+  });
+  assert(save.invoice_sync?.synced, 'successful batch sync');
+  assertEq(save.count, 2, 'successful batch count');
+  assertEq(await countPatientEntries(patient.id), 2, 'successful batch rows persisted');
+  console.log('OK successful batch preserves all rows');
+}
+
 async function testBatchPartialSaveRollback(patient, today, meds, supply) {
   const before = await countPatientEntries(patient.id);
   const batch = [
@@ -337,6 +352,9 @@ async function main() {
     patient = await upsertPatient(TEST_FILE, 'Batch Consistency Test');
     const today = getCurrentBusinessDateString();
 
+    await cleanupPatientData(patient.id, TEST_FILE);
+
+    await testSuccessfulBatchPreservesAllRows(patient, today, meds);
     await cleanupPatientData(patient.id, TEST_FILE);
 
     await testBatchPartialSaveRollback(patient, today, meds, supply);

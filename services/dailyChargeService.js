@@ -576,7 +576,7 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   return normalized;
 }
 
-async function saveEntry(data, user = null, options = {}) {
+async function prepareEntrySaveContext(data) {
   const patient = await resolvePatient(data.file_number, data.patient_name);
   const entryDate = resolveAllowedDailyEntryDate(data.entry_date);
 
@@ -606,129 +606,103 @@ async function saveEntry(data, user = null, options = {}) {
   }
 
   const dailyTotal = computeDailyTotal(lines, sections);
-  const userId = user?.id || null;
-  const userName = user?.full_name || user?.username || '';
   const isNewEntry = !Number(data.entry_id || data.id);
 
-  return withTransaction(async (client) => {
-    const entryIdInput = Number(data.entry_id || data.id) || null;
-    let existing = null;
-    if (entryIdInput) {
-      const { rows } = await client.query(
-        `SELECT * FROM patient_daily_entries WHERE id = $1 AND patient_id = $2`,
-        [entryIdInput, patient.id]
-      );
-      existing = rows[0] || null;
-      if (!existing) throw new Error(`الحركة #${entryIdInput} غير موجودة`);
-      assertExistingEntryDateIsToday(existing.entry_date);
+  return {
+    patient,
+    entryDate,
+    lines,
+    dailyTotal,
+    isNewEntry,
+  };
+}
+
+async function persistEntryInTransaction(client, data, user, context = null) {
+  const ctx = context || await prepareEntrySaveContext(data);
+  const { patient, entryDate, lines, dailyTotal } = ctx;
+  const userId = user?.id || null;
+  const userName = user?.full_name || user?.username || '';
+
+  const entryIdInput = Number(data.entry_id || data.id) || null;
+  let existing = null;
+  if (entryIdInput) {
+    const { rows } = await client.query(
+      `SELECT * FROM patient_daily_entries WHERE id = $1 AND patient_id = $2`,
+      [entryIdInput, patient.id]
+    );
+    existing = rows[0] || null;
+    if (!existing) throw new Error(`الحركة #${entryIdInput} غير موجودة`);
+    assertExistingEntryDateIsToday(existing.entry_date);
+  }
+
+  if (existing?.invoice_id && data.allow_invoiced_edit !== true) {
+    const invRes = await client.query('SELECT status FROM invoices WHERE id = $1', [existing.invoice_id]);
+    if (invRes.rows[0]?.status === 'approved') {
+      throw new Error('لا يمكن تعديل حركة يوم مرتبطة بفاتورة معتمدة');
+    }
+  }
+
+  let entryId = entryIdInput || existing?.id || null;
+  const action = existing ? 'update' : 'create';
+
+  if (existing) {
+    await client.query(
+      `UPDATE patient_daily_entries SET
+        stay_type_id = $1, daily_total = $2, notes = $3,
+        updated_by_user_id = $4, updated_by_name = $5, updated_at = NOW()
+       WHERE id = $6`,
+      [data.stay_type_id || null, dailyTotal, data.notes || '', userId, userName, existing.id]
+    );
+
+    const { rows: oldLines } = await client.query(
+      `SELECT id, section_code FROM patient_daily_entry_lines WHERE entry_id = $1`,
+      [existing.id]
+    );
+    const oldBySection = Object.fromEntries(oldLines.map((row) => [row.section_code, row.id]));
+    const newSectionCodes = new Set(lines.map((line) => line.section_code));
+
+    for (const oldLine of oldLines) {
+      if (!newSectionCodes.has(oldLine.section_code)) {
+        await client.query(`DELETE FROM patient_daily_entry_lines WHERE id = $1`, [oldLine.id]);
+      }
     }
 
-    if (existing?.invoice_id && data.allow_invoiced_edit !== true) {
-      const invRes = await client.query('SELECT status FROM invoices WHERE id = $1', [existing.invoice_id]);
-      if (invRes.rows[0]?.status === 'approved') {
-        throw new Error('لا يمكن تعديل حركة يوم مرتبطة بفاتورة معتمدة');
-      }
-    }
-
-    let entryId = entryIdInput || existing?.id || null;
-    let action = existing ? 'update' : 'create';
-
-    if (existing) {
-      await client.query(
-        `UPDATE patient_daily_entries SET
-          stay_type_id = $1, daily_total = $2, notes = $3,
-          updated_by_user_id = $4, updated_by_name = $5, updated_at = NOW()
-         WHERE id = $6`,
-        [data.stay_type_id || null, dailyTotal, data.notes || '', userId, userName, existing.id]
-      );
-
-      const { rows: oldLines } = await client.query(
-        `SELECT id, section_code FROM patient_daily_entry_lines WHERE entry_id = $1`,
-        [existing.id]
-      );
-      const oldBySection = Object.fromEntries(oldLines.map((row) => [row.section_code, row.id]));
-      const newSectionCodes = new Set(lines.map((line) => line.section_code));
-
-      for (const oldLine of oldLines) {
-        if (!newSectionCodes.has(oldLine.section_code)) {
-          await client.query(`DELETE FROM patient_daily_entry_lines WHERE id = $1`, [oldLine.id]);
-        }
-      }
-
-      for (let index = 0; index < lines.length; index++) {
-        const line = lines[index];
-        const existingLineId = oldBySection[line.section_code];
-        if (existingLineId) {
-          await client.query(
-            `UPDATE patient_daily_entry_lines SET
-              service_id = $1, catalog_item_id = $2, description = $3, quantity = $4,
-              unit_price = $5, amount = $6, cost_price = $7, markup_percent = $8,
-              catalog_unit = $9, catalog_unit_level = $10,
-              extra_date = $11, extra_text = $12, sort_order = $13
-             WHERE id = $14`,
-            [
-              line.service_id,
-              line.catalog_item_id || null,
-              line.description,
-              line.quantity,
-              line.unit_price,
-              line.amount,
-              line.cost_price || null,
-              line.markup_percent || null,
-              line.catalog_unit || null,
-              line.catalog_unit_level || null,
-              line.extra_date,
-              line.extra_text,
-              index,
-              existingLineId,
-            ]
-          );
-        } else {
-          await client.query(
-            `INSERT INTO patient_daily_entry_lines (
-              entry_id, section_code, service_id, catalog_item_id, description, quantity, unit_price, amount,
-              cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, sort_order
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-            [
-              existing.id,
-              line.section_code,
-              line.service_id,
-              line.catalog_item_id || null,
-              line.description,
-              line.quantity,
-              line.unit_price,
-              line.amount,
-              line.cost_price || null,
-              line.markup_percent || null,
-              line.catalog_unit || null,
-              line.catalog_unit_level || null,
-              line.extra_date,
-              line.extra_text,
-              index,
-            ]
-          );
-        }
-      }
-      entryId = existing.id;
-    } else {
-      const inserted = await client.query(
-        `INSERT INTO patient_daily_entries (
-          patient_id, entry_date, stay_type_id, daily_total, notes,
-          created_by_user_id, created_by_name, updated_by_user_id, updated_by_name
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$6,$7) RETURNING id`,
-        [patient.id, entryDate, data.stay_type_id || null, dailyTotal, data.notes || '', userId, userName]
-      );
-      entryId = inserted.rows[0].id;
-
-      for (let index = 0; index < lines.length; index++) {
-        const line = lines[index];
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      const existingLineId = oldBySection[line.section_code];
+      if (existingLineId) {
+        await client.query(
+          `UPDATE patient_daily_entry_lines SET
+            service_id = $1, catalog_item_id = $2, description = $3, quantity = $4,
+            unit_price = $5, amount = $6, cost_price = $7, markup_percent = $8,
+            catalog_unit = $9, catalog_unit_level = $10,
+            extra_date = $11, extra_text = $12, sort_order = $13
+           WHERE id = $14`,
+          [
+            line.service_id,
+            line.catalog_item_id || null,
+            line.description,
+            line.quantity,
+            line.unit_price,
+            line.amount,
+            line.cost_price || null,
+            line.markup_percent || null,
+            line.catalog_unit || null,
+            line.catalog_unit_level || null,
+            line.extra_date,
+            line.extra_text,
+            index,
+            existingLineId,
+          ]
+        );
+      } else {
         await client.query(
           `INSERT INTO patient_daily_entry_lines (
             entry_id, section_code, service_id, catalog_item_id, description, quantity, unit_price, amount,
             cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, sort_order
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
           [
-            entryId,
+            existing.id,
             line.section_code,
             line.service_id,
             line.catalog_item_id || null,
@@ -747,61 +721,126 @@ async function saveEntry(data, user = null, options = {}) {
         );
       }
     }
-
-    const saved = await getEntryById(entryId, client);
-    await client.query(
-      `INSERT INTO patient_daily_entry_history (entry_id, action, snapshot, changed_by_user_id, changed_by_name)
-       VALUES ($1, $2, $3::jsonb, $4, $5)`,
-      [entryId, action, JSON.stringify(saved), userId, userName]
+    entryId = existing.id;
+  } else {
+    const inserted = await client.query(
+      `INSERT INTO patient_daily_entries (
+        patient_id, entry_date, stay_type_id, daily_total, notes,
+        created_by_user_id, created_by_name, updated_by_user_id, updated_by_name
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$6,$7) RETURNING id`,
+      [patient.id, entryDate, data.stay_type_id || null, dailyTotal, data.notes || '', userId, userName]
     );
+    entryId = inserted.rows[0].id;
 
-    return saved;
-  }).then(async (saved) => {
-    if (options.skip_invoice_sync) return saved;
-    try {
-      const { syncDailyEntryToInvoices } = require('./invoiceService');
-      saved.invoice_sync = await syncDailyEntryToInvoices(saved, {
-        file_number: data.file_number,
-        patient_name: data.patient_name || patient.name,
-      });
-      if (!saved.invoice_sync?.synced) {
-        throw new Error(
-          saved.invoice_sync?.error || saved.invoice_sync?.reason || 'فشل ربط الفاتورة بعد حفظ الحركة اليومية'
-        );
-      }
-      return saved;
-    } catch (err) {
-      if (isNewEntry && saved?.id) {
-        await deleteDailyEntryCascade(saved.id);
-      }
-      throw err;
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index];
+      await client.query(
+        `INSERT INTO patient_daily_entry_lines (
+          entry_id, section_code, service_id, catalog_item_id, description, quantity, unit_price, amount,
+          cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, sort_order
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+        [
+          entryId,
+          line.section_code,
+          line.service_id,
+          line.catalog_item_id || null,
+          line.description,
+          line.quantity,
+          line.unit_price,
+          line.amount,
+          line.cost_price || null,
+          line.markup_percent || null,
+          line.catalog_unit || null,
+          line.catalog_unit_level || null,
+          line.extra_date,
+          line.extra_text,
+          index,
+        ]
+      );
     }
-  });
+  }
+
+  const saved = await getEntryById(entryId, client);
+  await client.query(
+    `INSERT INTO patient_daily_entry_history (entry_id, action, snapshot, changed_by_user_id, changed_by_name)
+     VALUES ($1, $2, $3::jsonb, $4, $5)`,
+    [entryId, action, JSON.stringify(saved), userId, userName]
+  );
+
+  return saved;
+}
+
+async function saveEntry(data, user = null, options = {}) {
+  const context = await prepareEntrySaveContext(data);
+  const isNewEntry = context.isNewEntry;
+
+  return withTransaction(async (client) => persistEntryInTransaction(client, data, user, context)).then(
+    async (saved) => {
+      if (options.skip_invoice_sync) return saved;
+      try {
+        const { syncDailyEntryToInvoices } = require('./invoiceService');
+        saved.invoice_sync = await syncDailyEntryToInvoices(saved, {
+          file_number: data.file_number,
+          patient_name: data.patient_name || context.patient.name,
+        });
+        if (!saved.invoice_sync?.synced) {
+          throw new Error(
+            saved.invoice_sync?.error || saved.invoice_sync?.reason || 'فشل ربط الفاتورة بعد حفظ الحركة اليومية'
+          );
+        }
+        return saved;
+      } catch (err) {
+        if (isNewEntry && saved?.id) {
+          await deleteDailyEntryCascade(saved.id);
+        }
+        throw err;
+      }
+    }
+  );
 }
 
 async function saveEntriesBatch(data, user = null) {
   const entries = Array.isArray(data.entries) ? data.entries : [];
   if (!entries.length) throw new Error('لا توجد أيام للحفظ');
-  const savedMeta = [];
-  for (const entryData of entries) {
-    const wasNew = !Number(entryData.entry_id || entryData.id);
-    const result = await saveEntry(
-      {
-        ...entryData,
-        file_number: data.file_number,
-        patient_name: data.patient_name,
-      },
-      user,
-      { skip_invoice_sync: true }
-    );
-    savedMeta.push({ result, wasNew });
-  }
 
   const fileNumber = data.file_number?.trim();
+  const batchPlan = [];
+
+  for (const entryData of entries) {
+    const merged = {
+      ...entryData,
+      file_number: data.file_number,
+      patient_name: data.patient_name,
+    };
+    const entryId = Number(entryData.entry_id || entryData.id) || 0;
+    const snapshot = entryId ? await getEntryById(entryId) : null;
+    const context = await prepareEntrySaveContext(merged);
+    batchPlan.push({
+      entryData: merged,
+      wasNew: !entryId,
+      snapshot,
+      context,
+    });
+  }
+
+  const savedResults = await withTransaction(async (client) => {
+    const results = [];
+    for (const plan of batchPlan) {
+      results.push(await persistEntryInTransaction(client, plan.entryData, user, plan.context));
+    }
+    return results;
+  });
+
+  const savedMeta = batchPlan.map((plan, index) => ({
+    result: savedResults[index],
+    wasNew: plan.wasNew,
+    snapshot: plan.snapshot,
+  }));
+
   if (!fileNumber) {
     return {
-      saved: savedMeta.map((m) => m.result),
-      count: savedMeta.length,
+      saved: savedResults,
+      count: savedResults.length,
       invoice_sync: { synced: false, reason: 'missing_file_number' },
     };
   }
@@ -814,7 +853,7 @@ async function saveEntriesBatch(data, user = null) {
         invoice_sync.error || invoice_sync.reason || 'فشل ربط الفاتورة بعد حفظ الحركة اليومية'
       );
     }
-    return { saved: savedMeta.map((m) => m.result), count: savedMeta.length, invoice_sync };
+    return { saved: savedResults, count: savedResults.length, invoice_sync };
   } catch (err) {
     await rollbackDailyEntriesOnInvoiceFailure(savedMeta, fileNumber);
     throw err;
@@ -825,65 +864,72 @@ async function deleteEntry(entryId) {
   const id = Number(entryId);
   if (!id) throw new Error('معرف الحركة غير صالح');
 
-  const { rows } = await query(
-    `SELECT e.*, p.file_number
-     FROM patient_daily_entries e
-     JOIN patients p ON p.id = e.patient_id
-     WHERE e.id = $1`,
-    [id]
-  );
-  if (!rows.length) throw new Error('الحركة غير موجودة');
-  const entry = rows[0];
-  const fileNumber = entry.file_number?.trim();
-  const linkedInvoiceId = entry.invoice_id;
+  const snapshot = await getEntryById(id);
+  if (!snapshot) throw new Error('الحركة غير موجودة');
 
-  if (entry.invoice_id) {
-    const invRes = await query(`SELECT status FROM invoices WHERE id = $1`, [entry.invoice_id]);
+  const fileNumber = snapshot.file_number?.trim();
+  const linkedInvoiceId = snapshot.invoice_id;
+
+  if (snapshot.invoice_id) {
+    const invRes = await query(`SELECT status FROM invoices WHERE id = $1`, [snapshot.invoice_id]);
     if (invRes.rows[0]?.status === 'approved') {
       throw new Error('لا يمكن حذف حركة مرتبطة بفاتورة معتمدة');
     }
   }
 
-  await query(`DELETE FROM patient_daily_entry_lines WHERE entry_id = $1`, [id]);
-  await query(`DELETE FROM patient_daily_entry_history WHERE entry_id = $1`, [id]);
-  await query(`DELETE FROM patient_daily_entries WHERE id = $1`, [id]);
+  await deleteDailyEntryCascade(id);
 
-  let invoice_sync = null;
-  if (fileNumber) {
-    try {
-      const { syncInvoiceDailyCharges } = require('./invoiceService');
-      let invoiceId = linkedInvoiceId;
-      if (!invoiceId) {
-        const openRes = await query(
-          `SELECT id FROM invoices
-           WHERE TRIM(file_number) = TRIM($1)
-             AND status IN ('draft', 'pending_review')
-           ORDER BY updated_at DESC
-           LIMIT 1`,
-          [fileNumber]
-        );
-        invoiceId = openRes.rows[0]?.id || null;
-      }
-      if (invoiceId) {
-        const { syncInvoiceAfterDailyChange } = require('./invoiceService');
-        const updated = await syncInvoiceAfterDailyChange(invoiceId, fileNumber);
-        const daily_summary = await getDailySummaryForPatient(fileNumber);
-        invoice_sync = {
-          synced: true,
-          invoice_id: invoiceId,
-          final_total: updated?.final_total,
-          items_subtotal: updated?.items_subtotal,
-          admission_date: updated?.admission_date,
-          discharge_date: updated?.discharge_date,
-          daily_summary,
-        };
-      }
-    } catch (err) {
-      invoice_sync = { synced: false, error: err.message };
-    }
+  if (!fileNumber) {
+    return { deleted: true, id, entry_date: snapshot.entry_date, invoice_sync: null };
   }
 
-  return { deleted: true, id, entry_date: entry.entry_date, invoice_sync };
+  let invoiceId = linkedInvoiceId;
+  if (!invoiceId) {
+    const openRes = await query(
+      `SELECT id FROM invoices
+       WHERE TRIM(file_number) = TRIM($1)
+         AND status IN ('draft', 'pending_review')
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [fileNumber]
+    );
+    invoiceId = openRes.rows[0]?.id || null;
+  }
+
+  if (!invoiceId) {
+    return {
+      deleted: true,
+      id,
+      entry_date: snapshot.entry_date,
+      invoice_sync: { synced: false, reason: 'no_open_invoice' },
+    };
+  }
+
+  try {
+    const { syncInvoiceAfterDailyChange } = require('./invoiceService');
+    const updated = await syncInvoiceAfterDailyChange(invoiceId, fileNumber);
+    if (!updated) {
+      throw new Error('تعذّر تحديث الفاتورة بعد حذف الحركة');
+    }
+    const daily_summary = await getDailySummaryForPatient(fileNumber);
+    return {
+      deleted: true,
+      id,
+      entry_date: snapshot.entry_date,
+      invoice_sync: {
+        synced: true,
+        invoice_id: invoiceId,
+        final_total: updated.final_total,
+        items_subtotal: updated.items_subtotal,
+        admission_date: updated.admission_date,
+        discharge_date: updated.discharge_date,
+        daily_summary,
+      },
+    };
+  } catch (err) {
+    await restoreDailyEntrySnapshot(snapshot);
+    throw new Error(`فشل تحديث الفاتورة بعد حذف الحركة — تمت استعادة الحركة: ${err.message}`);
+  }
 }
 
 function hasStoredSuppliesSnapshots(item) {
@@ -1167,10 +1213,96 @@ async function deleteDailyEntryCascade(entryId) {
   await query(`DELETE FROM patient_daily_entries WHERE id = $1`, [id]);
 }
 
+async function restoreDailyEntrySnapshot(snapshot) {
+  if (!snapshot?.id) return null;
+  const entryId = Number(snapshot.id);
+
+  return withTransaction(async (client) => {
+    const { rows: existing } = await client.query(`SELECT id FROM patient_daily_entries WHERE id = $1`, [entryId]);
+
+    if (existing.length) {
+      await client.query(`DELETE FROM patient_daily_entry_lines WHERE entry_id = $1`, [entryId]);
+      await client.query(
+        `UPDATE patient_daily_entries SET
+          patient_id = $2, entry_date = $3, stay_type_id = $4, daily_total = $5, notes = $6,
+          invoice_id = $7, updated_by_user_id = $8, updated_by_name = $9, updated_at = NOW()
+         WHERE id = $1`,
+        [
+          entryId,
+          snapshot.patient_id,
+          snapshot.entry_date,
+          snapshot.stay_type_id || null,
+          snapshot.daily_total || 0,
+          snapshot.notes || '',
+          snapshot.invoice_id || null,
+          snapshot.updated_by_user_id || snapshot.created_by_user_id || null,
+          snapshot.updated_by_name || snapshot.created_by_name || '',
+        ]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO patient_daily_entries (
+          id, patient_id, entry_date, stay_type_id, daily_total, notes, invoice_id,
+          created_by_user_id, created_by_name, updated_by_user_id, updated_by_name
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          entryId,
+          snapshot.patient_id,
+          snapshot.entry_date,
+          snapshot.stay_type_id || null,
+          snapshot.daily_total || 0,
+          snapshot.notes || '',
+          snapshot.invoice_id || null,
+          snapshot.created_by_user_id || null,
+          snapshot.created_by_name || '',
+          snapshot.updated_by_user_id || snapshot.created_by_user_id || null,
+          snapshot.updated_by_name || snapshot.created_by_name || '',
+        ]
+      );
+    }
+
+    for (const line of snapshot.lines || []) {
+      await client.query(
+        `INSERT INTO patient_daily_entry_lines (
+          id, entry_id, section_code, service_id, catalog_item_id, description, quantity, unit_price, amount,
+          cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, sort_order
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        [
+          line.id,
+          entryId,
+          line.section_code,
+          line.service_id || null,
+          line.catalog_item_id || null,
+          line.description || '',
+          line.quantity || 0,
+          line.unit_price || 0,
+          line.amount || 0,
+          line.cost_price != null ? line.cost_price : null,
+          line.markup_percent != null ? line.markup_percent : null,
+          line.catalog_unit || null,
+          line.catalog_unit_level || null,
+          line.extra_date || null,
+          line.extra_text || '',
+          line.sort_order || 0,
+        ]
+      );
+    }
+
+    await client.query(
+      `SELECT setval(pg_get_serial_sequence('patient_daily_entries', 'id'), COALESCE((SELECT MAX(id) FROM patient_daily_entries), 1))`
+    );
+    await client.query(
+      `SELECT setval(pg_get_serial_sequence('patient_daily_entry_lines', 'id'), COALESCE((SELECT MAX(id) FROM patient_daily_entry_lines), 1))`
+    );
+  }).then(() => getEntryById(entryId));
+}
+
 async function rollbackDailyEntriesOnInvoiceFailure(savedMeta, fileNumber) {
-  for (const { result, wasNew } of savedMeta) {
+  for (const { result, wasNew, snapshot } of savedMeta) {
     if (wasNew && result?.id) {
       await deleteDailyEntryCascade(result.id);
+    } else if (snapshot?.id) {
+      await restoreDailyEntrySnapshot(snapshot);
     }
   }
   const fn = fileNumber?.trim();
