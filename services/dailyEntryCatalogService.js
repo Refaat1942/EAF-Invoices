@@ -59,15 +59,24 @@ function normalizeCategory(value) {
   return exact || null;
 }
 
+function minorPriceExplicitlySupplied(data) {
+  return data.minor_unit_selling_price != null && data.minor_unit_selling_price !== '';
+}
+
+function majorPriceExplicitlySupplied(data) {
+  return (
+    (data.major_unit_selling_price != null && data.major_unit_selling_price !== '') ||
+    (data.price != null && data.price !== '')
+  );
+}
+
 function normalizeUnitFields(data) {
   const majorUnit = String(data.major_unit || data.unit || '').trim() || 'مرة';
   let minorUnit = String(data.minor_unit || '').trim();
   let minorQty = round2(data.minor_quantity_per_major);
   let majorPrice = round2(data.major_unit_selling_price ?? data.price);
-  let minorPrice =
-    data.minor_unit_selling_price != null && data.minor_unit_selling_price !== ''
-      ? round2(data.minor_unit_selling_price)
-      : null;
+  const minorPriceSupplied = minorPriceExplicitlySupplied(data);
+  let minorPrice = minorPriceSupplied ? round2(data.minor_unit_selling_price) : null;
 
   if (!minorUnit || minorUnit === majorUnit) {
     minorUnit = majorUnit;
@@ -75,7 +84,7 @@ function normalizeUnitFields(data) {
     minorPrice = majorPrice;
   } else {
     if (!minorQty || minorQty <= 0) minorQty = 1;
-    if (minorPrice == null && majorPrice > 0) {
+    if (!minorPriceSupplied && majorPrice > 0) {
       minorPrice = round2(majorPrice / minorQty);
     }
     if (!minorPrice || minorPrice <= 0) minorPrice = majorPrice;
@@ -90,6 +99,23 @@ function normalizeUnitFields(data) {
     unit: majorUnit,
     price: majorPrice,
   };
+}
+
+function validateMinorMajorPriceConsistency(data, units) {
+  const majorUnit = units.major_unit;
+  const minorUnit = units.minor_unit;
+  const minorQty = units.minor_quantity_per_major;
+  if (minorUnit === majorUnit || minorQty <= 1) return;
+
+  if (!majorPriceExplicitlySupplied(data) || !minorPriceExplicitlySupplied(data)) return;
+
+  const expectedMinor = round2(units.major_unit_selling_price / minorQty);
+  const actualMinor = round2(units.minor_unit_selling_price);
+  if (Math.abs(expectedMinor - actualMinor) > 0.01) {
+    throw new Error(
+      `سعر الوحدة الصغرى (${actualMinor}) لا يتوافق مع سعر الوحدة الكبرى (${units.major_unit_selling_price}) ÷ ${minorQty} = ${expectedMinor}`
+    );
+  }
 }
 
 function catalogItemConfigKey(payload) {
@@ -519,14 +545,28 @@ function analyzeImportRows(mappedRows = []) {
 
 async function enrichImportAnalysisWithDb(previewRows, client = null) {
   const run = client ? client.query.bind(client) : query;
+
+  function applyDbMatch(row, existing, payload) {
+    if (isSameCatalogItem(existing, payload)) {
+      if (row.import_status === 'insert') {
+        row.import_status = 'skip';
+        row.import_message = 'موجود مسبقًا بنفس الإعدادات';
+      }
+      return;
+    }
+    if (row.import_status !== 'conflict') {
+      row.import_status = 'conflict';
+      const code = String(row.code || existing.code || '').trim();
+      row.import_message = code
+        ? `تعارض مع صنف موجود (كود ${code})`
+        : 'تعارض مع صنف موجود بنفس الاسم والفئة';
+    }
+  }
+
   for (const row of previewRows) {
     if (row.import_status === 'skip' || row.import_status === 'error' || row.import_status === 'duplicate') {
       continue;
     }
-    if (!row.code) continue;
-    const { rows } = await run(`SELECT * FROM daily_entry_catalog_items WHERE code = $1`, [row.code]);
-    const existing = rows[0];
-    if (!existing) continue;
 
     try {
       const payload = validateCatalogPayload(
@@ -544,14 +584,22 @@ async function enrichImportAnalysisWithDb(previewRows, client = null) {
         },
         { allowMissingCode: true }
       );
-      if (isSameCatalogItem(existing, payload)) {
-        if (row.import_status === 'insert') {
-          row.import_status = 'skip';
-          row.import_message = 'موجود مسبقًا بنفس الإعدادات';
+
+      let existing = null;
+      if (row.code) {
+        const { rows } = await run(`SELECT * FROM daily_entry_catalog_items WHERE code = $1`, [row.code]);
+        existing = rows[0] || null;
+        if (existing && !isSameCatalogItem(existing, payload)) {
+          applyDbMatch(row, existing, payload);
+          continue;
         }
-      } else if (row.import_status !== 'conflict') {
-        row.import_status = 'conflict';
-        row.import_message = `الكود ${row.code} مستخدم لصنف مختلف`;
+      }
+
+      if (!existing && payload.name && payload.category) {
+        existing = await findCatalogItemByProduct(payload, client);
+        if (existing) {
+          applyDbMatch(row, existing, payload);
+        }
       }
     } catch (err) {
       row.import_status = 'error';
@@ -803,6 +851,7 @@ function validateCatalogPayload(data, options = {}) {
   if (units.minor_unit_selling_price <= 0) {
     throw new Error('سعر الوحدة الصغرى يجب أن يكون أكبر من صفر');
   }
+  validateMinorMajorPriceConsistency(data, units);
 
   return {
     code,
@@ -822,6 +871,11 @@ async function createCatalogItem(data) {
     if (row.code) {
       const existing = await getCatalogItemByCode(row.code, null, client);
       if (existing) throw new Error(`الكود «${row.code}» مستخدم بالفعل`);
+    }
+
+    const duplicateProduct = await findCatalogItemByProduct(row, client);
+    if (duplicateProduct) {
+      throw new Error(`الصنف «${row.name}» موجود بالفعل في فئة ${row.category}`);
     }
 
     const code = await resolveCatalogItemCode(row.code || '', null, client);
@@ -853,6 +907,11 @@ async function updateCatalogItem(id, data) {
     const row = validateCatalogPayload(data, { allowLegacyCode: unchangedLegacyCode });
     const duplicate = await getCatalogItemByCode(row.code, id, client);
     if (duplicate) throw new Error(`الكود «${row.code}» مستخدم بالفعل`);
+
+    const duplicateProduct = await findCatalogItemByProduct(row, client);
+    if (duplicateProduct && Number(duplicateProduct.id) !== Number(id)) {
+      throw new Error(`الصنف «${row.name}» موجود بالفعل في فئة ${row.category}`);
+    }
 
     if (row.code !== item.code && isValidSevenDigitCode(row.code)) {
       await reserveCatalogCode(row.code, id, client);

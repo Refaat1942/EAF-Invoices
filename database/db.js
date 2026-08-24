@@ -788,6 +788,11 @@ async function runMigrations() {
     WHERE id = 1
   `);
 
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_catalog_product_unique
+    ON daily_entry_catalog_items (category, LOWER(TRIM(name)))
+  `);
+
   const dailyInvoiceItemColumns = [
     'daily_entry_id INTEGER REFERENCES patient_daily_entries(id) ON DELETE SET NULL',
     'daily_entry_line_id INTEGER REFERENCES patient_daily_entry_lines(id) ON DELETE SET NULL',
