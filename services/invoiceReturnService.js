@@ -83,6 +83,17 @@ async function recordInvoiceReturns(invoiceId, payload = {}, user = null) {
     const invoice = await getInvoiceById(invoiceId, client);
     if (!invoice) throw new Error('الفاتورة غير موجودة');
 
+    if (invoice.status !== 'approved') {
+      const statusLabels = {
+        draft: 'مسودة',
+        pending_review: 'قيد المراجعة',
+      };
+      const statusLabel = statusLabels[invoice.status] || invoice.status || 'غير معروفة';
+      throw new Error(
+        `لا يمكن تسجيل الإرجاع — الإرجاع متاح فقط للفواتير المعتمدة (الحالة الحالية: ${statusLabel})`
+      );
+    }
+
     const itemMap = new Map((invoice.items || []).map((item) => [Number(item.id), item]));
     const normalized = [];
 

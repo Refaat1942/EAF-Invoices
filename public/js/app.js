@@ -1411,7 +1411,8 @@ function updateInvoiceActionButtons() {
   const showExports = isApproved && currentInvoiceId;
   const returnBtn = document.getElementById('record-return-btn');
   if (returnBtn) {
-    returnBtn.style.display = currentInvoiceId && can('invoices.edit') ? '' : 'none';
+    returnBtn.style.display =
+      currentInvoiceId && currentInvoiceStatus === 'approved' && can('invoices.edit') ? '' : 'none';
   }
   ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
     document.getElementById(id).style.display = showExports ? 'inline-block' : 'none';
@@ -1719,10 +1720,18 @@ async function openInvoiceReturnModal() {
     showToast('احفظ الفاتورة أولاً قبل تسجيل الإرجاع', 'warning');
     return;
   }
+  if (currentInvoiceStatus !== 'approved') {
+    showToast('تسجيل الإرجاع متاح فقط للفواتير المعتمدة', 'warning');
+    return;
+  }
   try {
     const res = await apiFetch(`${API}/${currentInvoiceId}`);
     const inv = await res.json();
     if (!res.ok) throw new Error(inv.error);
+    if (inv.status !== 'approved') {
+      showToast('تسجيل الإرجاع متاح فقط للفواتير المعتمدة', 'warning');
+      return;
+    }
 
     const tbody = document.getElementById('invoice-return-lines-tbody');
     const today = new Date().toISOString().slice(0, 10);
