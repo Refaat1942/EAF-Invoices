@@ -47,8 +47,24 @@ function assertThrows(label, fn, contains = '') {
 }
 
 async function assertRejects(label, fn, contains = '') {
+  const returned = fn();
+  if (returned && typeof returned.then === 'function') {
+    try {
+      await returned;
+      console.error(`FAIL ${label}: expected throw`);
+      process.exit(1);
+    } catch (err) {
+      if (contains && !String(err.message || err).includes(contains)) {
+        console.error(`FAIL ${label}: message missing «${contains}»: ${err.message}`);
+        process.exit(1);
+      }
+      return err;
+    }
+    return null;
+  }
+
   try {
-    await fn();
+    fn();
     console.error(`FAIL ${label}: expected throw`);
     process.exit(1);
   } catch (err) {
@@ -56,7 +72,93 @@ async function assertRejects(label, fn, contains = '') {
       console.error(`FAIL ${label}: message missing «${contains}»: ${err.message}`);
       process.exit(1);
     }
+    return err;
   }
+}
+
+async function assertDraftReturnRejected({
+  query,
+  saveInvoice,
+  recordInvoiceReturns,
+  getInvoiceById,
+  patient,
+  label = 'reject return on draft',
+  debug = false,
+}) {
+  const draftInvoice = await saveInvoice({
+    invoice_type: 'civil',
+    patient_name: patient.name,
+    file_number: TEST_FILE,
+    issue_date: new Date().toISOString().slice(0, 10),
+    admission_date: new Date().toISOString().slice(0, 10),
+    items: [{ description: `${TEST_PREFIX} Draft Med`, quantity: 2, amount: 50 }],
+    method_payments: [{ code: 'cash', amount: 112 }],
+    save_mode: 'draft',
+    include_daily_charges: false,
+  });
+  const draftLine = draftInvoice.items[0];
+  assert(draftInvoice.status === 'draft', 'draft invoice status is draft');
+
+  const dbStatus = await query(`SELECT status FROM invoices WHERE id = $1`, [draftInvoice.id]);
+  const loaded = await getInvoiceById(draftInvoice.id);
+  const returnCall = recordInvoiceReturns(draftInvoice.id, {
+    lines: [{ invoice_item_id: draftLine.id, return_quantity: 1 }],
+  });
+
+  if (debug) {
+    console.log('DEBUG draftInvoice.status:', draftInvoice.status);
+    console.log('DEBUG db status:', dbStatus.rows[0]?.status);
+    console.log('DEBUG getInvoiceById.status:', loaded?.status);
+    console.log('DEBUG typeof recordInvoiceReturns():', typeof returnCall);
+    console.log(
+      'DEBUG is Promise:',
+      Boolean(returnCall && typeof returnCall.then === 'function')
+    );
+  }
+
+  let caught = null;
+  let succeeded = false;
+  let successPayload = null;
+  try {
+    successPayload = await returnCall;
+    succeeded = true;
+  } catch (err) {
+    caught = err;
+  }
+
+  if (debug) {
+    console.log('DEBUG caught error message:', caught ? String(caught.message || caught) : null);
+    console.log('DEBUG succeeded:', succeeded);
+    if (succeeded) {
+      console.log('DEBUG success return id:', successPayload?.return?.id ?? null);
+    }
+  }
+
+  const { rows: draftReturnRows } = await query(
+    `SELECT COUNT(*)::int AS count FROM invoice_returns WHERE invoice_id = $1`,
+    [draftInvoice.id]
+  );
+  const returnCount = draftReturnRows[0]?.count ?? 0;
+
+  if (debug) {
+    console.log('DEBUG invoice_returns count for draft invoice:', returnCount);
+  }
+
+  if (succeeded) {
+    console.error(
+      `FAIL ${label}: recordInvoiceReturns succeeded for draft invoice (returns persisted: ${returnCount}). ` +
+        'Production on this server is missing the approved-only guard in services/invoiceReturnService.js.'
+    );
+    process.exit(1);
+  }
+
+  assert(
+    String(caught?.message || caught).includes('الفواتير المعتمدة'),
+    `${label}: rejection message must mention approved-only rule`
+  );
+  assertEq('no draft return persisted', returnCount, 0);
+
+  return { draftInvoice, draftLine };
 }
 
 const base = {
@@ -479,30 +581,13 @@ async function runDbIntegrationSuite() {
   const entityId = entityRes.rows[0].id;
 
   // --- Status guards: draft / pending / approved-only ---
-  const draftInvoice = await saveInvoice({
-    invoice_type: 'civil',
-    patient_name: patient.name,
-    file_number: TEST_FILE,
-    issue_date: new Date().toISOString().slice(0, 10),
-    admission_date: new Date().toISOString().slice(0, 10),
-    items: [{ description: `${TEST_PREFIX} Draft Med`, quantity: 2, amount: 50 }],
-    method_payments: [{ code: 'cash', amount: 112 }],
-    save_mode: 'draft',
-    include_daily_charges: false,
+  const { draftInvoice } = await assertDraftReturnRejected({
+    query,
+    saveInvoice,
+    recordInvoiceReturns,
+    getInvoiceById,
+    patient,
   });
-  const draftLine = draftInvoice.items[0];
-  assert(draftInvoice.status === 'draft', 'draft invoice status is draft');
-  await assertRejects('reject return on draft', () =>
-    recordInvoiceReturns(draftInvoice.id, {
-      lines: [{ invoice_item_id: draftLine.id, return_quantity: 1 }],
-    }),
-    'الفواتير المعتمدة'
-  );
-  const { rows: draftReturnRows } = await query(
-    `SELECT COUNT(*)::int AS count FROM invoice_returns WHERE invoice_id = $1`,
-    [draftInvoice.id]
-  );
-  assertEq('no draft return persisted', draftReturnRows[0].count, 0);
 
   const submitted = await saveInvoice(
     {
@@ -811,7 +896,46 @@ async function runDbIntegrationSuite() {
   console.log('OK DB invoice returns integration suite');
 }
 
+async function runDraftReturnRejectionOnly() {
+  const { initDatabase, query } = require('../database/db');
+  const { saveInvoice, getInvoiceById } = require('../services/invoiceService');
+  const { recordInvoiceReturns } = require('../services/invoiceReturnService');
+  const { upsertPatient } = require('../services/patientService');
+
+  await initDatabase();
+  await cleanupTestData(query);
+
+  const patient = await upsertPatient(TEST_FILE, 'Return E2E Patient');
+  patient.file_number = TEST_FILE;
+
+  await assertDraftReturnRejected({
+    query,
+    saveInvoice,
+    recordInvoiceReturns,
+    getInvoiceById,
+    patient,
+    debug: true,
+  });
+
+  await cleanupTestData(query);
+  console.log('OK reject return on draft (focused)');
+}
+
 async function main() {
+  if (process.argv.includes('--draft-only')) {
+    try {
+      await runDraftReturnRejectionOnly();
+      console.log('DRAFT RETURN REJECTION TEST PASSED');
+    } catch (err) {
+      if (String(err.message || err).includes('password authentication')) {
+        console.log('SKIP draft rejection test (no database)');
+      } else {
+        throw err;
+      }
+    }
+    return;
+  }
+
   testFullItemReturn();
   testPartialItemReturn();
   testServiceReturnAdminFee();
