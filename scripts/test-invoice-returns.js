@@ -46,6 +46,80 @@ function assertThrows(label, fn, contains = '') {
   }
 }
 
+function assertReturnRejectionMessage(caught, expectedStatus, label) {
+  const msg = String(caught?.message || caught || '').trim();
+  assert(msg.length > 0, `${label}: rejection message must be non-empty`);
+  const statusLabels = {
+    draft: 'مسودة',
+    pending_review: 'قيد المراجعة',
+  };
+  const statusLabel = statusLabels[expectedStatus] || expectedStatus;
+  const mentionsReturn = msg.includes('إرجاع');
+  const indicatesBlocked =
+    msg.includes('لا يمكن') || msg.includes('فقط') || msg.includes('معتمد');
+  const mentionsStatus = msg.includes(statusLabel) || msg.includes('الحالة');
+  assert(
+    mentionsReturn && indicatesBlocked && mentionsStatus,
+    `${label}: message must indicate return blocked for status «${statusLabel}»: ${msg}`
+  );
+}
+
+async function assertReturnAttemptRejected({
+  query,
+  recordInvoiceReturns,
+  invoiceId,
+  lineId,
+  expectedStatus,
+  label,
+  debug = false,
+}) {
+  const returnCall = recordInvoiceReturns(invoiceId, {
+    lines: [{ invoice_item_id: lineId, return_quantity: 1 }],
+  });
+
+  if (debug) {
+    console.log('DEBUG typeof recordInvoiceReturns():', typeof returnCall);
+    console.log(
+      'DEBUG is Promise:',
+      Boolean(returnCall && typeof returnCall.then === 'function')
+    );
+  }
+
+  let caught = null;
+  let succeeded = false;
+  try {
+    await returnCall;
+    succeeded = true;
+  } catch (err) {
+    caught = err;
+  }
+
+  if (debug) {
+    console.log('DEBUG caught error message:', caught ? String(caught.message || caught) : null);
+    console.log('DEBUG succeeded:', succeeded);
+  }
+
+  const { rows: returnRows } = await query(
+    `SELECT COUNT(*)::int AS count FROM invoice_returns WHERE invoice_id = $1`,
+    [invoiceId]
+  );
+  const returnCount = returnRows[0]?.count ?? 0;
+
+  if (debug) {
+    console.log('DEBUG invoice_returns count:', returnCount);
+  }
+
+  if (succeeded) {
+    console.error(
+      `FAIL ${label}: recordInvoiceReturns succeeded (returns persisted: ${returnCount})`
+    );
+    process.exit(1);
+  }
+
+  assertEq(`${label}: no return persisted`, returnCount, 0);
+  assertReturnRejectionMessage(caught, expectedStatus, label);
+}
+
 async function assertRejects(label, fn, contains = '') {
   const returned = fn();
   if (returned && typeof returned.then === 'function') {
@@ -99,64 +173,23 @@ async function assertDraftReturnRejected({
   const draftLine = draftInvoice.items[0];
   assert(draftInvoice.status === 'draft', 'draft invoice status is draft');
 
-  const dbStatus = await query(`SELECT status FROM invoices WHERE id = $1`, [draftInvoice.id]);
-  const loaded = await getInvoiceById(draftInvoice.id);
-  const returnCall = recordInvoiceReturns(draftInvoice.id, {
-    lines: [{ invoice_item_id: draftLine.id, return_quantity: 1 }],
-  });
-
   if (debug) {
+    const dbStatus = await query(`SELECT status FROM invoices WHERE id = $1`, [draftInvoice.id]);
+    const loaded = await getInvoiceById(draftInvoice.id);
     console.log('DEBUG draftInvoice.status:', draftInvoice.status);
     console.log('DEBUG db status:', dbStatus.rows[0]?.status);
     console.log('DEBUG getInvoiceById.status:', loaded?.status);
-    console.log('DEBUG typeof recordInvoiceReturns():', typeof returnCall);
-    console.log(
-      'DEBUG is Promise:',
-      Boolean(returnCall && typeof returnCall.then === 'function')
-    );
   }
 
-  let caught = null;
-  let succeeded = false;
-  let successPayload = null;
-  try {
-    successPayload = await returnCall;
-    succeeded = true;
-  } catch (err) {
-    caught = err;
-  }
-
-  if (debug) {
-    console.log('DEBUG caught error message:', caught ? String(caught.message || caught) : null);
-    console.log('DEBUG succeeded:', succeeded);
-    if (succeeded) {
-      console.log('DEBUG success return id:', successPayload?.return?.id ?? null);
-    }
-  }
-
-  const { rows: draftReturnRows } = await query(
-    `SELECT COUNT(*)::int AS count FROM invoice_returns WHERE invoice_id = $1`,
-    [draftInvoice.id]
-  );
-  const returnCount = draftReturnRows[0]?.count ?? 0;
-
-  if (debug) {
-    console.log('DEBUG invoice_returns count for draft invoice:', returnCount);
-  }
-
-  if (succeeded) {
-    console.error(
-      `FAIL ${label}: recordInvoiceReturns succeeded for draft invoice (returns persisted: ${returnCount}). ` +
-        'Production on this server is missing the approved-only guard in services/invoiceReturnService.js.'
-    );
-    process.exit(1);
-  }
-
-  assert(
-    String(caught?.message || caught).includes('الفواتير المعتمدة'),
-    `${label}: rejection message must mention approved-only rule`
-  );
-  assertEq('no draft return persisted', returnCount, 0);
+  await assertReturnAttemptRejected({
+    query,
+    recordInvoiceReturns,
+    invoiceId: draftInvoice.id,
+    lineId: draftLine.id,
+    expectedStatus: 'draft',
+    label,
+    debug,
+  });
 
   return { draftInvoice, draftLine };
 }
@@ -608,12 +641,14 @@ async function runDbIntegrationSuite() {
     draftInvoice.id
   );
   assert(submitted.status === 'pending_review', 'submitted invoice pending_review');
-  await assertRejects('reject return on pending_review', () =>
-    recordInvoiceReturns(submitted.id, {
-      lines: [{ invoice_item_id: submitted.items[0].id, return_quantity: 1 }],
-    }),
-    'الفواتير المعتمدة'
-  );
+  await assertReturnAttemptRejected({
+    query,
+    recordInvoiceReturns,
+    invoiceId: submitted.id,
+    lineId: submitted.items[0].id,
+    expectedStatus: 'pending_review',
+    label: 'reject return on pending_review',
+  });
 
   await query(`DELETE FROM invoice_items WHERE invoice_id = $1`, [draftInvoice.id]);
   await query(`DELETE FROM invoices WHERE id = $1`, [draftInvoice.id]);
