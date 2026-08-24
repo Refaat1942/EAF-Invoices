@@ -17,7 +17,7 @@ async function getBrowser() {
 
 async function generatePdfBuffer(invoice, baseUrl, { logoUrl } = {}) {
   const { getLogoUrl } = require('./settingsService');
-  const resolvedLogo = logoUrl || (await getLogoUrl(baseUrl));
+  const resolvedLogo = logoUrl ?? (await getLogoUrl(baseUrl));
   const downloadUrl = `${baseUrl}/download/${invoice.qr_token}`;
   const qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
   const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl: resolvedLogo, showQr: true, qrDataUrl });
@@ -25,6 +25,7 @@ async function generatePdfBuffer(invoice, baseUrl, { logoUrl } = {}) {
   const browser = await getBrowser();
   const page = await browser.newPage();
   await page.setContent(html, { waitUntil: 'networkidle0' });
+  await page.evaluate(() => document.fonts.ready);
   const pdfBytes = await page.pdf({
     format: 'A4',
     printBackground: true,
@@ -42,12 +43,13 @@ async function generateDocxBuffer(invoice) {
 
 async function generateDailyItemsPdfBuffer(report, baseUrl, { logoUrl } = {}) {
   const { getLogoUrl } = require('./settingsService');
-  const resolvedLogo = logoUrl || (await getLogoUrl(baseUrl));
+  const resolvedLogo = logoUrl ?? (await getLogoUrl(baseUrl));
   const html = buildDailyReportHtml(report, { logoUrl: resolvedLogo });
 
   const browser = await getBrowser();
   const page = await browser.newPage();
   await page.setContent(html, { waitUntil: 'networkidle0' });
+  await page.evaluate(() => document.fonts.ready);
   const pdfBytes = await page.pdf({
     format: 'A4',
     printBackground: true,

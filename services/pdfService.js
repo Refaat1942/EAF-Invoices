@@ -43,6 +43,48 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
+function isBracketDateOnlyDescription(text) {
+  return /^\[\d{2}-\d{2}-\d{4}\]\s*$/.test(String(text || '').trim());
+}
+
+function formatInvoiceLineDescription(item) {
+  const snapshotName = String(item?.service_name_snapshot || '').trim();
+  let desc = String(item?.description || '').trim();
+
+  if (!desc || isBracketDateOnlyDescription(desc)) {
+    const dateMatch = desc.match(/^\[(\d{2}-\d{2}-\d{4})\]/);
+    if (dateMatch && snapshotName) {
+      desc = `[${dateMatch[1]}] ${snapshotName}`;
+    } else if (snapshotName) {
+      desc = snapshotName;
+    }
+  }
+
+  if (!desc) {
+    desc = snapshotName || String(item?.service_code_snapshot || '').trim();
+  }
+
+  const unit = String(item?.unit_snapshot || '').trim();
+  if (unit && desc && !desc.includes(unit)) {
+    desc = `${desc} (${unit})`;
+  }
+
+  return desc;
+}
+
+function formatInvoiceLineDescriptionHtml(item) {
+  const text = formatInvoiceLineDescription(item);
+  if (!text) return '';
+  if (/[A-Za-z]/.test(text)) {
+    return `<span class="desc-ltr">${escapeHtml(text)}</span>`;
+  }
+  const dated = text.match(/^(\[\d{2}-\d{2}-\d{4}\])\s*(.+)$/);
+  if (dated) {
+    return `${escapeHtml(dated[1])}<span class="desc-name">${escapeHtml(dated[2])}</span>`;
+  }
+  return escapeHtml(text);
+}
+
 function enrichInvoice(invoice) {
   const totals = calculateInvoiceTotals({
     ...invoice,
@@ -65,14 +107,18 @@ function enrichInvoice(invoice) {
         : item.id && calcById.has(String(item.id))
           ? calcById.get(String(item.id))
           : null;
-    if (!calc) return item;
-    return {
+    if (!calc) {
+      return { ...item, description: formatInvoiceLineDescription(item) };
+    }
+    const merged = {
       ...item,
       ...calc,
       quantity: calc.original_quantity ?? item.quantity,
       total: calc.total,
       total_raw: calc.total_raw,
     };
+    merged.description = formatInvoiceLineDescription(merged);
+    return merged;
   });
 
   return {
@@ -99,7 +145,9 @@ function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
   const inv = enrichInvoice(invoice);
 
-  const realItems = (inv.items || []).filter((i) => i.description || i.quantity || i.amount);
+  const realItems = (inv.items || []).filter(
+    (i) => formatInvoiceLineDescription(i) || i.quantity || i.amount
+  );
   const realPayments = (inv.payments || []).filter((p) => p.amount || p.receipt_number || p.receipt_date);
 
   const padRows = 2;
@@ -250,7 +298,27 @@ function buildInvoiceHtml(invoice, options = {}) {
     .col-pay-amt { width: 10%; }
     .col-pay-num { width: 12%; }
     .col-pay-date { width: 13%; }
-    .desc { text-align: right !important; padding-right: 8px !important; }
+    .desc {
+      text-align: right !important;
+      padding-right: 8px !important;
+      unicode-bidi: plaintext;
+      font-family: Arial, 'Cairo', sans-serif;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .desc-ltr-cell {
+      direction: ltr;
+      text-align: right;
+      unicode-bidi: isolate;
+      white-space: nowrap;
+    }
+    .desc-ltr {
+      white-space: nowrap;
+    }
+    .desc-name {
+      unicode-bidi: isolate;
+      direction: ltr;
+    }
     .num { direction: ltr; unicode-bidi: embed; white-space: nowrap; }
     .summary-row td { font-weight: 900 !important; background: #f5f5f5; }
     .summary-label { text-align: right !important; padding-right: 8px !important; font-weight: 900; }
@@ -493,16 +561,18 @@ function buildCombinedRows(items, payments) {
   for (let i = 0; i < items.length; i++) {
     const item = items[i] || {};
     const pay = payments[i] || {};
-    const hasItem = !!(item.description || item.quantity || item.amount);
+    const lineDesc = formatInvoiceLineDescription(item);
+    const hasItem = !!(lineDesc || item.quantity || item.amount);
     const hasPay = !!(pay.amount || pay.receipt_number || pay.receipt_date);
     const rowClass = !hasItem && !hasPay ? 'empty-row' : '';
+    const descClass = hasItem && /[A-Za-z]/.test(lineDesc) ? 'desc desc-ltr-cell' : 'desc';
 
     html += `<tr class="${rowClass}">
       <td class="num">${hasItem ? fmtPlain(item.total) : ''}</td>
       <td class="num">${hasItem ? fmtPlain(item.amount) : ''}</td>
       <td class="num">${hasItem && item.quantity !== undefined && item.quantity !== '' ? formatItemQuantityDisplay(item) : ''}</td>
       <td class="num disc-pct">${hasItem ? `${item.item_discount_percent || 0}%` : ''}</td>
-      <td class="desc">${escapeHtml(item.description || '')}</td>
+      <td class="${descClass}">${hasItem ? formatInvoiceLineDescriptionHtml(item) : ''}</td>
       <td class="num">${hasPay ? fmtPlain(pay.amount) : ''}</td>
       <td>${escapeHtml(pay.receipt_number || '')}</td>
       <td>${pay.receipt_date ? formatDate(pay.receipt_date) : ''}</td>
