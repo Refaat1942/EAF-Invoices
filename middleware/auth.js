@@ -2,6 +2,7 @@ const { userHasPermission } = require('../services/authService');
 
 function requireAuth(req, res, next) {
   if (!req.session?.user) {
+    console.warn(`[auth] unauthenticated ${req.method} ${req.originalUrl}`);
     return res.status(401).json({ error: 'يجب تسجيل الدخول' });
   }
   req.user = req.session.user;
@@ -11,10 +12,14 @@ function requireAuth(req, res, next) {
 function requirePermission(permission) {
   return (req, res, next) => {
     if (!req.session?.user) {
+      console.warn(`[auth] unauthenticated ${req.method} ${req.originalUrl}`);
       return res.status(401).json({ error: 'يجب تسجيل الدخول' });
     }
     req.user = req.session.user;
     if (!userHasPermission(req.user, permission)) {
+      console.warn(
+        `[auth] forbidden ${req.method} ${req.originalUrl} user=${req.user.username} perm=${permission}`
+      );
       return res.status(403).json({ error: 'ليس لديك صلاحية لهذا الإجراء' });
     }
     next();

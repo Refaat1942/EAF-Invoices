@@ -178,6 +178,7 @@ router.post('/:id/approve', requirePermission('invoices.approve'), async (req, r
     const invoice = await approveInvoice(Number(req.params.id), req.session.user);
     res.json(invoice);
   } catch (err) {
+    console.warn(`[invoice] approval failed id=${req.params.id}: ${err.message}`);
     res.status(400).json({ error: err.message });
   }
 });
@@ -208,6 +209,7 @@ router.post('/:id/returns', requirePermission('invoices.edit'), async (req, res)
     const result = await recordInvoiceReturns(Number(req.params.id), req.body, req.user);
     res.json(result);
   } catch (err) {
+    console.warn(`[invoice] return failed id=${req.params.id}: ${err.message}`);
     res.status(400).json({ error: err.message });
   }
 });
