@@ -1,4 +1,5 @@
 const { formatDual, round2, calculateInvoiceTotals } = require('./calculations');
+const { aggregateCustomerFacingLines } = require('./invoicePresentationService');
 
 function formatNumber(n) {
   const num = Number(n) || 0;
@@ -170,10 +171,12 @@ function formatItemQuantityDisplay(item) {
 function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
   const inv = enrichInvoice(invoice);
+  const displayItems = aggregateCustomerFacingLines(inv.items || []);
 
-  const realItems = (inv.items || []).filter(
-    (i) => formatInvoiceLineDescription(i) || i.quantity || i.amount
-  );
+  const realItems = displayItems.filter((i) => {
+    if (i._customer_display_aggregate) return true;
+    return formatInvoiceLineDescription(i) || i.quantity || i.amount;
+  });
   const realPayments = (inv.payments || []).filter((p) => p.amount || p.receipt_number || p.receipt_date);
 
   const padRows = 2;
@@ -587,18 +590,22 @@ function buildCombinedRows(items, payments) {
   for (let i = 0; i < items.length; i++) {
     const item = items[i] || {};
     const pay = payments[i] || {};
-    const lineDesc = formatInvoiceLineDescription(item);
-    const hasItem = !!(lineDesc || item.quantity || item.amount);
+    const isAggregate = Boolean(item._customer_display_aggregate);
+    const lineDesc = isAggregate
+      ? String(item.description || '').trim()
+      : formatInvoiceLineDescription(item);
+    const hasItem = !!(lineDesc || item.quantity || item.amount || isAggregate);
     const hasPay = !!(pay.amount || pay.receipt_number || pay.receipt_date);
     const rowClass = !hasItem && !hasPay ? 'empty-row' : '';
     const descClass = hasItem && /[A-Za-z]/.test(lineDesc) ? 'desc desc-ltr-cell' : 'desc';
+    const dash = '—';
 
     html += `<tr class="${rowClass}">
       <td class="num">${hasItem ? fmtPlain(item.total) : ''}</td>
-      <td class="num">${hasItem ? fmtPlain(item.amount) : ''}</td>
-      <td class="num">${hasItem && item.quantity !== undefined && item.quantity !== '' ? formatItemQuantityDisplay(item) : ''}</td>
-      <td class="num disc-pct">${hasItem ? `${item.item_discount_percent || 0}%` : ''}</td>
-      <td class="${descClass}">${hasItem ? formatInvoiceLineDescriptionHtml(item) : ''}</td>
+      <td class="num">${hasItem ? (isAggregate ? dash : fmtPlain(item.amount)) : ''}</td>
+      <td class="num">${hasItem && !isAggregate && item.quantity !== undefined && item.quantity !== '' ? formatItemQuantityDisplay(item) : hasItem && isAggregate ? dash : ''}</td>
+      <td class="num disc-pct">${hasItem ? (isAggregate ? dash : `${item.item_discount_percent || 0}%`) : ''}</td>
+      <td class="${descClass}">${hasItem ? (isAggregate ? escapeHtml(lineDesc) : formatInvoiceLineDescriptionHtml(item)) : ''}</td>
       <td class="num">${hasPay ? fmtPlain(pay.amount) : ''}</td>
       <td>${escapeHtml(pay.receipt_number || '')}</td>
       <td>${pay.receipt_date ? formatDate(pay.receipt_date) : ''}</td>

@@ -24,6 +24,7 @@ const {
 const { calculateInvoiceTotals, round2 } = require('../services/calculations');
 const { getDailyPrintReport } = require('../services/reportService');
 const { buildInvoiceHtml, buildDailyReportHtml, enrichInvoice } = require('../services/pdfService');
+const { DEFAULT_SECTION_LABELS } = require('../services/invoicePresentationService');
 const {
   generatePdfBuffer,
   generateDailyItemsPdfBuffer,
@@ -374,12 +375,14 @@ async function validateFinalInvoice(reportType, invoice) {
   assertHtmlContains(reportType, html, 'patient name', invoice.patient_name);
   assertHtmlContains(reportType, html, 'file number', invoice.file_number);
   assertHtmlContains(reportType, html, 'serial number', invoice.serial_number);
-  assertHtmlContains(reportType, html, 'med item name', SPECS.med.name);
-  assertHtmlContains(reportType, html, 'supply item name', SPECS.supply.name);
+  assertHtmlContains(reportType, html, 'medicines section label', DEFAULT_SECTION_LABELS.medicines);
+  assertHtmlContains(reportType, html, 'supplies section label', DEFAULT_SECTION_LABELS.supplies);
+  assertTrue(reportType, 'med item name hidden', !htmlToText(html).includes(SPECS.med.name), SPECS.med.name);
+  assertTrue(reportType, 'supply item name hidden', !htmlToText(html).includes(SPECS.supply.name), SPECS.supply.name);
   assertHtmlContains(reportType, html, 'lab service name', SPECS.lab.name);
   assertHtmlContains(reportType, html, 'xray service name', SPECS.xray.name);
-  assertHtmlContains(reportType, html, 'med unit price', fmtAmount(SPECS.med.unitPrice));
-  assertHtmlContains(reportType, html, 'supply unit price', fmtAmount(SPECS.supply.unitPrice));
+  assertHtmlContains(reportType, html, 'aggregated med total', fmtAmount(SPECS.med.lineTotal));
+  assertHtmlContains(reportType, html, 'aggregated supply total', fmtAmount(SPECS.supply.lineTotal));
   assertHtmlContains(reportType, html, 'final total', fmtAmount(enriched.final_total));
   assertHtmlContains(reportType, html, 'total collected', fmtAmount(enriched.total_collected));
   assertHtmlContains(reportType, html, 'remaining', fmtAmount(enriched.remaining));
@@ -399,7 +402,8 @@ async function validateFinalInvoice(reportType, invoice) {
     if (pdfText) {
       assertTextContains(reportType, pdfText, 'PDF patient name', invoice.patient_name);
       assertTextContains(reportType, pdfText, 'PDF file number', invoice.file_number);
-      assertTextContains(reportType, pdfText, 'PDF med name', SPECS.med.name);
+      assertTextContains(reportType, pdfText, 'PDF medicines label', DEFAULT_SECTION_LABELS.medicines);
+      assertTrue(reportType, 'PDF med name hidden', !pdfText.includes(SPECS.med.name), SPECS.med.name);
       assertTextContains(reportType, pdfText, 'PDF final total', fmtAmount(enriched.final_total));
     }
   } catch (err) {
@@ -608,10 +612,22 @@ async function main() {
     });
     const historicalText = htmlToText(historicalHtml);
 
-    assertTextContains('historical', historicalText, 'original med name', SPECS.med.name);
-    assertTextContains('historical', historicalText, 'original med price', fmtAmount(SPECS.med.unitPrice));
-    assertTextContains('historical', historicalText, 'original supply name', SPECS.supply.name);
-    assertTextContains('historical', historicalText, 'original supply price', fmtAmount(SPECS.supply.unitPrice));
+    assertTextContains('historical', historicalText, 'medicines section label', DEFAULT_SECTION_LABELS.medicines);
+    assertTextContains('historical', historicalText, 'supplies section label', DEFAULT_SECTION_LABELS.supplies);
+    assertTextContains('historical', historicalText, 'historical med total', fmtAmount(SPECS.med.lineTotal));
+    assertTextContains('historical', historicalText, 'historical supply total', fmtAmount(SPECS.supply.lineTotal));
+    assertTrue(
+      'historical',
+      'original med name hidden',
+      !historicalText.includes(SPECS.med.name),
+      SPECS.med.name
+    );
+    assertTrue(
+      'historical',
+      'original supply name hidden',
+      !historicalText.includes(SPECS.supply.name),
+      SPECS.supply.name
+    );
     assertTrue(
       'historical',
       'changed med name absent',
@@ -639,7 +655,10 @@ async function main() {
     });
     const returnText = htmlToText(returnHtml);
 
-    assertTextContains('returns', returnText, 'med name after return', SPECS.med.name);
+    assertTextContains('returns', returnText, 'medicines section after return', DEFAULT_SECTION_LABELS.medicines);
+    const netMedTotal = SPECS.med.unitPrice * (SPECS.med.qty - 1);
+    assertHtmlContains('returns', returnHtml, 'aggregated med total after return', fmtAmount(netMedTotal));
+    assertTrue('returns', 'med name hidden after return', !returnText.includes(SPECS.med.name), SPECS.med.name);
     assertTrue('returns', 'return history exists', (afterReturn.returns || []).length >= 1, 0);
     assertTrue(
       'returns',
@@ -649,13 +668,11 @@ async function main() {
     );
     const returnedMed = afterReturn.items.find((i) => Number(i.id) === Number(medInvItem.id));
     assertEq('returns', 'returned quantity updated', returnedMed.returned_quantity, 1);
-    const returnedQty = 1;
-    const netQty = SPECS.med.qty - returnedQty;
-    assertHtmlContains(
+    assertEq(
       'returns',
-      returnHtml,
-      'return qty display',
-      fmtReturnQtyDisplay(SPECS.med.qty, returnedQty, netQty)
+      'invoice items count unchanged',
+      afterReturn.items.length,
+      historicalInvoice.items.length
     );
     console.log('OK partial return on printed invoice');
 
