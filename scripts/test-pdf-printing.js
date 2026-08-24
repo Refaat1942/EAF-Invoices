@@ -82,6 +82,14 @@ function fmtAmount(n) {
   return Number(n).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtQtyInt(n) {
+  return Number(n).toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+}
+
+function fmtReturnQtyDisplay(original, returned, net) {
+  return `${fmtQtyInt(original)} (−${fmtQtyInt(returned)} = ${fmtQtyInt(net)})`;
+}
+
 function fail(reportType, location, expected, actual) {
   console.error(`FAIL [${reportType}] ${location}`);
   console.error(`  expected: ${expected}`);
@@ -641,7 +649,14 @@ async function main() {
     );
     const returnedMed = afterReturn.items.find((i) => Number(i.id) === Number(medInvItem.id));
     assertEq('returns', 'returned quantity updated', returnedMed.returned_quantity, 1);
-    assertHtmlContains('returns', returnHtml, 'return qty display', '−1');
+    const returnedQty = 1;
+    const netQty = SPECS.med.qty - returnedQty;
+    assertHtmlContains(
+      'returns',
+      returnHtml,
+      'return qty display',
+      fmtReturnQtyDisplay(SPECS.med.qty, returnedQty, netQty)
+    );
     console.log('OK partial return on printed invoice');
 
     const recalc = calculateInvoiceTotals(enrichInvoice(afterReturn));
