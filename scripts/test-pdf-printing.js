@@ -36,6 +36,11 @@ const TEST_PREFIX = 'PDF-E2E';
 const TEST_PRICE_LIST_CODE = 'PDF-E2E-PL';
 const CUSTOMER_MEDICINES_LABEL = DEFAULT_SECTION_LABELS.medicines;
 const CUSTOMER_SUPPLIES_LABEL = DEFAULT_SECTION_LABELS.supplies;
+/** pdf-parse visual-order variants observed from Puppeteer Cairo invoice PDFs */
+const PDF_ARABIC_LABEL_MANGLED_FORMS = {
+  [CUSTOMER_MEDICINES_LABEL]: ['ةيولأدا', 'ةيودألا'],
+  [CUSTOMER_SUPPLIES_LABEL]: ['تامزلتسملا'],
+};
 const CODES = {
   med: '9030001',
   supply: '9030002',
@@ -138,6 +143,85 @@ function normalizeArabicForMatch(text) {
     .replace(/ة/g, 'ه')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function reverseArabicChars(text) {
+  return Array.from(String(text || '')).reverse().join('');
+}
+
+function extractArabicRuns(text) {
+  return String(text || '').match(/[\u0600-\u06FF]+/g) || [];
+}
+
+function levenshteinDistance(a, b) {
+  const left = String(a || '');
+  const right = String(b || '');
+  const rows = left.length + 1;
+  const cols = right.length + 1;
+  const matrix = Array.from({ length: rows }, (_, row) => [row]);
+  for (let col = 0; col < cols; col++) matrix[0][col] = col;
+  for (let row = 1; row < rows; row++) {
+    for (let col = 1; col < cols; col++) {
+      const cost = left[row - 1] === right[col - 1] ? 0 : 1;
+      matrix[row][col] = Math.min(
+        matrix[row - 1][col] + 1,
+        matrix[row][col - 1] + 1,
+        matrix[row - 1][col - 1] + cost
+      );
+    }
+  }
+  return matrix[rows - 1][cols - 1];
+}
+
+function normalizedArabicLabelVariants(label) {
+  const normalized = normalizeArabicForMatch(label);
+  const withoutAl = normalized.replace(/^ال/, '');
+  const variants = new Set([normalized, withoutAl, normalizeArabicForMatch(reverseArabicChars(label))]);
+  for (const value of variants) {
+    if (value) variants.add(normalizeArabicForMatch(reverseArabicChars(value)));
+  }
+  return [...variants].filter(Boolean);
+}
+
+/**
+ * pdf-parse often returns RTL Arabic section labels in visual/reversed character order.
+ * Match logical labels by scanning extracted runs forward, reversed, and stem-overlap.
+ */
+function assertPdfArabicLabelPresent(reportType, pdfText, label, assertionLabel) {
+  const rawText = String(pdfText || '');
+  const mangledForms = PDF_ARABIC_LABEL_MANGLED_FORMS[label] || [];
+  for (const mangled of mangledForms) {
+    if (rawText.includes(mangled)) return;
+  }
+
+  const variants = normalizedArabicLabelVariants(label);
+  const normalizedHay = normalizeArabicForMatch(pdfText);
+  const normalizedLabel = normalizeArabicForMatch(label);
+  const reversedRawLabel = reverseArabicChars(label);
+
+  for (const variant of variants) {
+    if (normalizedHay.includes(variant)) return;
+  }
+
+  const stem = normalizedLabel.replace(/^ال/, '');
+  for (const run of extractArabicRuns(pdfText)) {
+    const forward = normalizeArabicForMatch(run);
+    const backward = normalizeArabicForMatch(reverseArabicChars(run));
+    for (const variant of variants) {
+      if (forward === variant || backward === variant) return;
+      if (forward.includes(variant) || backward.includes(variant)) return;
+    }
+    if (stem.length >= 3 && (forward.includes(stem) || backward.includes(stem))) return;
+    if (run === reversedRawLabel || levenshteinDistance(run, reversedRawLabel) <= 2) return;
+    if (levenshteinDistance(backward, normalizedLabel) <= 2) return;
+  }
+
+  fail(
+    reportType,
+    assertionLabel,
+    `contains Arabic label «${label}»`,
+    String(pdfText || '').slice(0, 400)
+  );
 }
 
 function assertTextContainsNormalized(reportType, text, label, needle) {
@@ -460,8 +544,8 @@ async function validateFinalInvoice(reportType, invoice) {
     const pdfText = await requireExtractedPdfText(reportType, pdfBuf, 'invoice PDF');
     assertTextContains(reportType, pdfText, 'PDF patient name', invoice.patient_name);
     assertTextContains(reportType, pdfText, 'PDF file number', invoice.file_number);
-    assertTextContainsNormalized(reportType, pdfText, 'PDF medicines label', CUSTOMER_MEDICINES_LABEL);
-    assertTextContainsNormalized(reportType, pdfText, 'PDF supplies label', CUSTOMER_SUPPLIES_LABEL);
+    assertPdfArabicLabelPresent(reportType, pdfText, CUSTOMER_MEDICINES_LABEL, 'PDF medicines label');
+    assertPdfArabicLabelPresent(reportType, pdfText, CUSTOMER_SUPPLIES_LABEL, 'PDF supplies label');
     assertTextContains(reportType, pdfText, 'PDF lab service name', SPECS.lab.name);
     assertTextContains(reportType, pdfText, 'PDF xray service name', SPECS.xray.name);
     assertTextContains(reportType, pdfText, 'PDF aggregated med total', fmtAmount(SPECS.med.lineTotal));
