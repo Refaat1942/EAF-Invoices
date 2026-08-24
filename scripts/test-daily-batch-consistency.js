@@ -21,11 +21,27 @@ const TEST_FILE = 'DAILY-BATCH-CONSISTENCY';
 const TEST_PREFIX = 'BATCH-E2E';
 
 const CATALOG_CODES = {
-  med1: 'BATCH-E2E-MED-01',
-  med2: 'BATCH-E2E-MED-02',
-  med3: 'BATCH-E2E-MED-03',
-  med4: 'BATCH-E2E-MED-04',
-  supply: 'BATCH-E2E-SUP-01',
+  med1: '9010001',
+  med2: '9010002',
+  med3: '9010003',
+  med4: '9010004',
+  supply: '9010005',
+};
+
+const MEDICINE_FIXTURE = {
+  category: 'Medicine',
+  major_unit: 'قرص',
+  minor_unit: 'قرص',
+  minor_quantity_per_major: 1,
+};
+
+const SUPPLY_FIXTURE = {
+  category: 'Supplies',
+  major_unit: 'قطعة',
+  minor_unit: 'قطعة',
+  minor_quantity_per_major: 1,
+  cost_price: 60,
+  markup_percent: 40,
 };
 
 function round2(n) {
@@ -42,6 +58,17 @@ function assertEq(actual, expected, msg) {
   if (a !== e) throw new Error(`FAIL ${msg}: expected ${e}, got ${a}`);
 }
 
+async function createTestCatalogItem(spec) {
+  try {
+    return await createCatalogItem(spec);
+  } catch (err) {
+    const codeLabel = spec.code ? `code=${spec.code}` : 'code=auto';
+    throw new Error(
+      `Catalog provisioning failed for «${spec.name}» (${codeLabel}, category=${spec.category}): ${err.message}`
+    );
+  }
+}
+
 async function cleanupTestCatalog() {
   for (const code of Object.values(CATALOG_CODES)) {
     await query(`DELETE FROM daily_entry_catalog_items WHERE code = $1`, [code]);
@@ -50,44 +77,31 @@ async function cleanupTestCatalog() {
 }
 
 async function provisionTestCatalog() {
-  const med1 = await createCatalogItem({
-    code: CATALOG_CODES.med1,
-    name: `${TEST_PREFIX} Medicine 01`,
-    category: 'Medicine',
-    unit: 'قرص',
-    price: 52,
-  });
-  const med2 = await createCatalogItem({
-    code: CATALOG_CODES.med2,
-    name: `${TEST_PREFIX} Medicine 02`,
-    category: 'Medicine',
-    unit: 'قرص',
-    price: 48,
-  });
-  const med3 = await createCatalogItem({
-    code: CATALOG_CODES.med3,
-    name: `${TEST_PREFIX} Medicine 03`,
-    category: 'Medicine',
-    unit: 'قرص',
-    price: 44,
-  });
-  const med4 = await createCatalogItem({
-    code: CATALOG_CODES.med4,
-    name: `${TEST_PREFIX} Medicine 04`,
-    category: 'Medicine',
-    unit: 'قرص',
-    price: 40,
-  });
-  const supply = await createCatalogItem({
+  const medPrices = [52, 48, 44, 40];
+  const meds = [];
+
+  for (let i = 0; i < 4; i++) {
+    const price = medPrices[i];
+    const key = `med${i + 1}`;
+    meds.push(
+      await createTestCatalogItem({
+        code: CATALOG_CODES[key],
+        name: `${TEST_PREFIX} Medicine ${String(i + 1).padStart(2, '0')}`,
+        ...MEDICINE_FIXTURE,
+        major_unit_selling_price: price,
+        minor_unit_selling_price: price,
+        price: price,
+      })
+    );
+  }
+
+  const supply = await createTestCatalogItem({
     code: CATALOG_CODES.supply,
     name: `${TEST_PREFIX} Supply 01`,
-    category: 'Supplies',
-    unit: 'قطعة',
-    cost_price: 60,
-    markup_percent: 40,
+    ...SUPPLY_FIXTURE,
   });
 
-  return { meds: [med1, med2, med3, med4], supply };
+  return { meds, supply };
 }
 
 async function cleanupPatientData(patientId, fileNumber) {
