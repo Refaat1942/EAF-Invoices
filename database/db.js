@@ -6,6 +6,8 @@ const { getDatabaseConnectionString } = require('./connectionConfig');
 const pool = new Pool({
   connectionString: getDatabaseConnectionString(),
   max: 20,
+  connectionTimeoutMillis: 15000,
+  idleTimeoutMillis: 30000,
 });
 
 pool.on('error', (err) => {

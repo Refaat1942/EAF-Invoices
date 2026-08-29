@@ -40,5 +40,6 @@ else
   echo ""
   echo "⚠️  Readiness check failed — re-import price list DOCX from Settings, then rerun:"
   echo "   node scripts/verify-vps-daily-readiness.js"
+  echo "   (App may still be running — check: curl http://127.0.0.1:\${PORT:-17159}/api/health)"
   exit 1
 fi
