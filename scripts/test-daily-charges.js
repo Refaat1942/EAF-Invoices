@@ -85,7 +85,7 @@ if (resolveAllowedDailyEntryDate(undefined) !== allowedToday) {
   process.exit(1);
 }
 
-if (!isManualAmountSection('accommodation') || !isManualAmountSection('nursing_point')) {
+if (!isManualAmountSection('accommodation') || !isManualAmountSection('patient_assistant')) {
   console.error('FAIL manual amount section codes');
   process.exit(1);
 }

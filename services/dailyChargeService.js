@@ -8,7 +8,12 @@ function round2(n) {
 }
 
 /** إقامة / مرافق / نقطة تمريض — المبلغ يدوي فقط (لا سعر تلقائي من اللائحة). */
-const MANUAL_AMOUNT_SECTION_CODES = Object.freeze(['accommodation', 'companion', 'nursing_point']);
+const MANUAL_AMOUNT_SECTION_CODES = Object.freeze([
+  'accommodation',
+  'companion',
+  'nursing_point',
+  'patient_assistant',
+]);
 
 function isManualAmountSection(sectionOrCode) {
   const code = typeof sectionOrCode === 'string' ? sectionOrCode : sectionOrCode?.code;

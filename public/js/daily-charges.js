@@ -1,7 +1,7 @@
 const DAILY_API = '/api/daily-charges';
 
 const DAILY_TAB_GROUPS = [
-  { id: 'stay', label: 'إقامة ورعاية', codes: ['accommodation', 'companion', 'nursing_point'] },
+  { id: 'stay', label: 'إقامة ورعاية', codes: ['accommodation', 'companion', 'nursing_point', 'patient_assistant'] },
   { id: 'sessions', label: 'جلسات', codes: ['sessions_date', 'sessions_detail', 'sessions'] },
   { id: 'medicines', label: 'أدوية', codes: ['medicines'] },
   { id: 'supplies', label: 'مستلزمات', codes: ['supplies', 'cosmetics'] },
@@ -413,7 +413,7 @@ let dailyBusinessDate = null;
 let activeDailyTab = 'medicines';
 
 function isManualDailyAmountSection(section) {
-  return ['accommodation', 'companion', 'nursing_point'].includes(String(section?.code || '').trim());
+  return ['accommodation', 'companion', 'nursing_point', 'patient_assistant'].includes(String(section?.code || '').trim());
 }
 
 async function loadDailySections() {

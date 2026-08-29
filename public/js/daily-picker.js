@@ -2,7 +2,7 @@
  * Searchable Daily Entry item/service picker (catalog + price-list services).
  */
 (function () {
-  const MANUAL_AMOUNT_SECTION_CODES = Object.freeze(['accommodation', 'companion', 'nursing_point']);
+  const MANUAL_AMOUNT_SECTION_CODES = Object.freeze(['accommodation', 'companion', 'nursing_point', 'patient_assistant']);
 
   function isManualDailyAmountSection(section) {
     return MANUAL_AMOUNT_SECTION_CODES.includes(String(section?.code || '').trim());

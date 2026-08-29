@@ -110,10 +110,19 @@ router.get('/reports/supplies-markup', requirePermission('reports.view'), async 
   }
 });
 
+router.get('/reports/reconciliation', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const { getReconciliationReport } = require('../services/reportService');
+    res.json(await getReconciliationReport(reportFilters(req)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/reports/export', requirePermission('reports.export'), async (req, res) => {
   try {
     const reportType = req.query.report || 'summary';
-    const allowed = ['summary', 'invoices', 'payments', 'remaining', 'patient_status', 'supplies_markup'];
+    const allowed = ['summary', 'invoices', 'payments', 'remaining', 'patient_status', 'supplies_markup', 'reconciliation'];
     if (!allowed.includes(reportType)) {
       return res.status(400).json({ error: 'نوع التقرير غير صالح' });
     }

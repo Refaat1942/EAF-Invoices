@@ -735,6 +735,113 @@ async function getPatientStatusReport(filters = {}) {
   };
 }
 
+function roundReport(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function isBalancedAmount(diff) {
+  return Math.abs(roundReport(diff)) < 0.02;
+}
+
+/**
+ * Invoice-level reconciliation: final_total ≈ collected + remaining;
+ * method_payments sum vs total_collected; collection ledger vs cash methods (approved).
+ */
+async function getReconciliationReport(filters = {}) {
+  const invoices = await fetchInvoicesForReport({ ...filters, approved_only: false });
+  const rows = [];
+  let mismatchCount = 0;
+
+  for (const inv of invoices) {
+    const finalTotal = roundReport(inv.final_total);
+    const collected = roundReport(inv.total_collected);
+    const remaining = roundReport(inv.remaining);
+    const equationDiff = roundReport(finalTotal - (collected + remaining));
+    const equationBalanced = isBalancedAmount(equationDiff);
+
+    const { rows: methodRows } = await query(
+      `SELECT pm.code, pm.name, ipa.amount
+       FROM invoice_payment_amounts ipa
+       JOIN payment_methods pm ON pm.id = ipa.payment_method_id
+       WHERE ipa.invoice_id = $1 AND COALESCE(ipa.amount, 0) <> 0`,
+      [inv.id]
+    );
+    const methodSum = roundReport(methodRows.reduce((sum, row) => sum + Number(row.amount), 0));
+    const methodDiff = roundReport(collected - methodSum);
+    const methodBalanced = isBalancedAmount(methodDiff);
+
+    const cashMethodsSum = roundReport(
+      methodRows
+        .filter((row) => row.code && row.code !== 'patient_credit')
+        .reduce((sum, row) => sum + Number(row.amount), 0)
+    );
+
+    const { rows: ledgerRows } = await query(
+      `SELECT COALESCE(SUM(amount), 0)::numeric AS total
+       FROM patient_transactions
+       WHERE invoice_id = $1 AND transaction_kind = 'collection'`,
+      [inv.id]
+    );
+    const collectionLedger = roundReport(ledgerRows[0]?.total || 0);
+    const ledgerDiff = roundReport(collectionLedger - cashMethodsSum);
+    const ledgerBalanced = inv.status !== 'approved' || isBalancedAmount(ledgerDiff);
+
+    const issues = [];
+    if (!equationBalanced) {
+      issues.push(`معادلة الفاتورة: الإجمالي − (المحصل + المتبقي) = ${equationDiff}`);
+    }
+    if (!methodBalanced) {
+      issues.push(`طرق الدفع (${methodSum}) ≠ المحصل (${collected}) — فرق ${methodDiff}`);
+    }
+    if (inv.status === 'approved' && !ledgerBalanced) {
+      issues.push(
+        `حركة التحصيل (${collectionLedger}) ≠ طرق الدفع النقدية (${cashMethodsSum}) — فرق ${ledgerDiff}`
+      );
+    }
+
+    const hasIssues = issues.length > 0;
+    if (hasIssues) mismatchCount += 1;
+
+    rows.push({
+      invoice_id: inv.id,
+      serial_number: inv.serial_number,
+      file_number: inv.file_number,
+      patient_name: inv.patient_name,
+      status: inv.status,
+      status_label: STATUS_LABELS[inv.status] || inv.status,
+      issue_date: inv.issue_date,
+      final_total: finalTotal,
+      total_collected: collected,
+      remaining,
+      equation_diff: equationDiff,
+      equation_balanced: equationBalanced,
+      method_payments_sum: methodSum,
+      method_payments_diff: methodDiff,
+      cash_methods_sum: cashMethodsSum,
+      collection_ledger_sum: collectionLedger,
+      collection_ledger_diff: ledgerDiff,
+      ledger_balanced: ledgerBalanced,
+      is_balanced: !hasIssues,
+      issues,
+    });
+  }
+
+  const totals = {
+    invoice_count: rows.length,
+    mismatch_count: mismatchCount,
+    balanced_count: rows.length - mismatchCount,
+    grand_final: roundReport(rows.reduce((sum, row) => sum + row.final_total, 0)),
+    grand_collected: roundReport(rows.reduce((sum, row) => sum + row.total_collected, 0)),
+    grand_remaining: roundReport(rows.reduce((sum, row) => sum + row.remaining, 0)),
+    grand_equation_check: roundReport(
+      rows.reduce((sum, row) => sum + row.final_total, 0) -
+        rows.reduce((sum, row) => sum + row.total_collected + row.remaining, 0)
+    ),
+  };
+
+  return { rows, totals, filters };
+}
+
 async function buildExcelWorkbook(reportType, filters = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'EAF Invoices';
@@ -931,6 +1038,45 @@ async function buildExcelWorkbook(reportType, filters = {}) {
         row.line_total,
       ]);
     });
+  } else if (reportType === 'reconciliation') {
+    const data = await getReconciliationReport(filters);
+    sheet.addRow(['تقرير مطابقة الفواتير والتحصيل']);
+    sheet.addRow(['من', filters.from_date || '—', 'إلى', filters.to_date || '—']);
+    sheet.addRow([]);
+    sheet.addRow(['عدد الفواتير', data.totals.invoice_count]);
+    sheet.addRow(['متطابقة', data.totals.balanced_count]);
+    sheet.addRow(['بها فروق', data.totals.mismatch_count]);
+    sheet.addRow([]);
+    sheet.addRow([
+      'الفاتورة',
+      'الملف',
+      'المريض',
+      'الحالة',
+      'الإجمالي',
+      'المحصل',
+      'المتبقي',
+      'فرق المعادلة',
+      'مجموع طرق الدفع',
+      'فرق الطرق',
+      'ledger التحصيل',
+      'ملاحظات',
+    ]);
+    data.rows.forEach((row) => {
+      sheet.addRow([
+        row.serial_number || `#${row.invoice_id}`,
+        row.file_number,
+        row.patient_name,
+        row.status_label,
+        row.final_total,
+        row.total_collected,
+        row.remaining,
+        row.equation_diff,
+        row.method_payments_sum,
+        row.method_payments_diff,
+        row.collection_ledger_sum,
+        (row.issues || []).join(' | '),
+      ]);
+    });
   }
 
   sheet.getRow(1).font = { bold: true };
@@ -955,6 +1101,7 @@ module.exports = {
   getDailyServiceReport,
   getDailyPrintReport,
   getPatientStatusReport,
+  getReconciliationReport,
   exportExcelBuffer,
   STATUS_LABELS,
   DAILY_ITEMS_KINDS,

@@ -3556,6 +3556,7 @@ async function loadReports() {
     if (currentReportType === 'remaining') endpoint = `${API}/reports/remaining?${params}`;
     if (currentReportType === 'patient_status') endpoint = `${API}/reports/patient-status?${params}`;
     if (currentReportType === 'supplies_markup') endpoint = `${API}/reports/supplies-markup?${params}`;
+    if (currentReportType === 'reconciliation') endpoint = `${API}/reports/reconciliation?${params}`;
     if (currentReportType === 'doctors') endpoint = `/api/doctors/reports/summary?${params}`;
     if (currentReportType === 'invoices') {
       params.set('approved_only', 'false');
@@ -3718,6 +3719,49 @@ async function loadReports() {
               <th>هامش الوحدة</th><th>مبلغ الهامش</th><th>إجمالي البند</th>
             </tr></thead>
             <tbody>${rows || '<tr><td colspan="13" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
+          </table></div></div></div>`;
+      return;
+    }
+
+    if (currentReportType === 'reconciliation') {
+      const rows = (data.rows || [])
+        .map((row) => {
+          const rowClass = row.is_balanced ? '' : 'table-warning';
+          const issues = (row.issues || []).map((t) => escapeHtml(t)).join('<br>');
+          return `<tr class="${rowClass}">
+            <td>${escapeHtml(row.serial_number || `#${row.invoice_id}`)}</td>
+            <td>${escapeHtml(row.file_number || '—')}</td>
+            <td>${escapeHtml(row.patient_name || '—')}</td>
+            <td>${escapeHtml(row.status_label || row.status)}</td>
+            <td>${fmt(row.final_total)}</td>
+            <td>${fmt(row.total_collected)}</td>
+            <td>${fmt(row.remaining)}</td>
+            <td>${fmt(row.equation_diff)}</td>
+            <td>${fmt(row.method_payments_sum)}</td>
+            <td>${fmt(row.method_payments_diff)}</td>
+            <td>${fmt(row.collection_ledger_sum)}</td>
+            <td class="small text-danger">${issues || '✓'}</td>
+          </tr>`;
+        })
+        .join('');
+      container.innerHTML = `
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">فواتير</div><div class="report-stat">${data.totals?.invoice_count || 0}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">متطابقة</div><div class="report-stat text-success">${data.totals?.balanced_count || 0}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">بها فروق</div><div class="report-stat text-danger">${data.totals?.mismatch_count || 0}</div></div></div></div>
+        <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+          <div class="report-label">فحص المعادلة الكلي</div><div class="report-stat">${fmt(data.totals?.grand_equation_check || 0)}</div></div></div></div>
+        <div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">مطابقة الفواتير والتحصيل</div>
+          <p class="small text-muted px-3 pt-2 mb-0">المعادلة: الإجمالي = المحصل + المتبقي — وطرق الدفع = المحصل — وحركة التحصيل = الطرق النقدية (للمعتمدة)</p>
+          <div class="card-body p-0"><table class="table table-striped table-sm mb-0">
+            <thead class="table-dark"><tr>
+              <th>الفاتورة</th><th>الملف</th><th>المريض</th><th>الحالة</th>
+              <th>الإجمالي</th><th>المحصل</th><th>المتبقي</th><th>فرق المعادلة</th>
+              <th>طرق الدفع</th><th>فرق الطرق</th><th>ledger</th><th>ملاحظات</th>
+            </tr></thead>
+            <tbody>${rows || '<tr><td colspan="12" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
           </table></div></div></div>`;
       return;
     }
