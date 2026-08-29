@@ -27,6 +27,7 @@ const {
 } = require('../services/serviceCatalogService');
 const { importPriceListPayload, getPriceListStats } = require('../database/seeds/seedPriceList');
 const { parseDocxPriceList } = require('../services/docxPriceListParser');
+const { normalizeDocxImportPayload } = require('../services/priceListImportNormalizer');
 const { requireAuth, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
@@ -273,7 +274,8 @@ router.post('/import-docx', requirePermission('settings.*'), handleUpload('file'
     if (!req.file) return res.status(400).json({ error: 'الملف مطلوب' });
     const tempPath = req.file.path;
     const payload = await parseDocxPriceList(tempPath, req.body || {});
-    const result = await importPriceListPayload(payload, actor(req), { replaceExisting: req.body?.replace_existing === 'true' });
+    const normalizedPayload = normalizeDocxImportPayload(payload);
+    const result = await importPriceListPayload(normalizedPayload, actor(req), { replaceExisting: req.body?.replace_existing === 'true' });
     cleanupUploadedFile(req);
     res.json({ ...result, parse_stats: payload.parse_stats || null });
   } catch (err) {

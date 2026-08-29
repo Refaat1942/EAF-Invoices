@@ -4,6 +4,7 @@ const fs = require('fs');
 
 const { initDatabase } = require('../database/db');
 const { parseDocxPriceList } = require('../services/docxPriceListParser');
+const { normalizeDocxImportPayload } = require('../services/priceListImportNormalizer');
 const { importPriceListPayload } = require('../database/seeds/seedPriceList');
 
 async function main() {
@@ -24,7 +25,8 @@ async function main() {
     name: 'لائحة 2026-2027',
     code: 'PL-2026-2027',
   });
-  const result = await importPriceListPayload(payload, { id: null, name: 'Import Script' }, { replaceExisting: true });
+  const normalizedPayload = normalizeDocxImportPayload(payload);
+  const result = await importPriceListPayload(normalizedPayload, { id: null, name: 'Import Script' }, { replaceExisting: true });
   console.log('✅ تم الاستيراد بنجاح');
   console.log(JSON.stringify(result, null, 2));
   process.exit(0);

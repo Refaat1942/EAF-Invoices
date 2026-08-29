@@ -353,6 +353,22 @@ function extractTocCategories(table) {
   return map;
 }
 
+function isSectionHeadingTable(table) {
+  if (!table || table.length !== 1) return false;
+  const row = table[0];
+  if (!row || row.length !== 1) return false;
+  const text = String(row[0] || '').trim();
+  if (text.length < 4) return false;
+  if (parsePrice(text) != null) return false;
+  if (/^\d+$/.test(text)) return false;
+  return true;
+}
+
+function extractSectionHeading(table) {
+  if (!isSectionHeadingTable(table)) return null;
+  return normalizeCategoryName(table[0][0]) || String(table[0][0] || '').trim();
+}
+
 function addServiceFromRow({ name, price, joined, currentCategory, services, usedCodes, sortServiceRef }) {
   const trimmedName = String(name || '').trim();
   if (!trimmedName || price == null || trimmedName.length < 3) return sortServiceRef.value;
@@ -387,6 +403,7 @@ function addServiceFromRow({ name, price, joined, currentCategory, services, use
     discountable: !isNonDiscountable(trimmedName),
     administrative_fee_applicable: !isNonAdminApplicable(trimmedName),
     sort_order: sortServiceRef.value,
+    import_chapter: currentCategory.current.import_chapter || null,
   });
   return sortServiceRef.value;
 }
@@ -410,6 +427,7 @@ function ensureCategory(name, categories, usedCategoryCodes, sortCategoryRef, cu
     code,
     name: categoryName,
     sort_order: sortCategoryRef.value,
+    import_chapter: currentCategoryRef.current?.import_chapter || null,
   };
   categories.push(currentCategoryRef.current);
   return currentCategoryRef.current;
@@ -428,6 +446,9 @@ function parsePriceTableRows(table, context, categories, services, usedCodes, us
   }
 
   ensureCategory(categoryName, categories, usedCategoryCodes, sortCategoryRef, currentCategoryRef);
+  if (currentCategoryRef.current) {
+    currentCategoryRef.current.import_chapter = context.activeChapterName || currentCategoryRef.current.import_chapter;
+  }
   context.lastCategoryName = categoryName;
   context.lastHeaderRow = headerRow;
 
@@ -467,12 +488,18 @@ function mapTablesToPayload(tables, meta = {}) {
     lastNamedCategory: null,
     lastHeaderRow: null,
     tocCategories: new Map(),
+    activeChapterName: null,
   };
 
   for (const table of tables) {
     const toc = extractTocCategories(table);
     if (toc.size) {
       context.tocCategories = toc;
+      continue;
+    }
+    const sectionHeading = extractSectionHeading(table);
+    if (sectionHeading) {
+      context.activeChapterName = sectionHeading;
       continue;
     }
     if (!isPriceTable(table)) continue;
@@ -489,7 +516,10 @@ function mapTablesToPayload(tables, meta = {}) {
     );
   }
 
-  return buildPayload(categories, services, meta, tables.length);
+  return buildPayload(categories, services, meta, tables.length, 0, {
+    toc_sections: Array.from(context.tocCategories.values()),
+    activeChapterName: context.activeChapterName,
+  });
 }
 
 function mapParagraphsToPayload(lines, meta = {}) {
@@ -519,10 +549,18 @@ function mapParagraphsToPayload(lines, meta = {}) {
     });
   }
 
-  return buildPayload(categories, services, meta, 0, lines.length);
+  return buildPayload(categories, services, meta, 0, lines.length, {});
 }
 
-function buildPayload(categories, services, meta, tableCount = 0, paragraphCount = 0) {
+function buildPayload(categories, services, meta, tableCount = 0, paragraphCount = 0, importContext = {}) {
+  const normalizedCategories = categories.map((cat) => ({
+    code: cat.code,
+    name: cat.name,
+    sort_order: cat.sort_order,
+    notes: cat.notes || '',
+    import_chapter: cat.import_chapter || null,
+  }));
+
   return {
     price_list: {
       name: meta.name || 'لائحة 2026-2027',
@@ -533,12 +571,17 @@ function buildPayload(categories, services, meta, tableCount = 0, paragraphCount
       effective_to: '2027-06-30',
       notes: meta.notes || 'مستوردة من ملف DOCX',
     },
-    categories,
+    categories: normalizedCategories,
     services,
+    import_meta: {
+      source: 'docx',
+      toc_sections: importContext.toc_sections || [],
+      active_chapter: importContext.activeChapterName || null,
+    },
     parse_stats: {
       tables_found: tableCount,
       paragraphs_found: paragraphCount,
-      categories_parsed: categories.length,
+      categories_parsed: normalizedCategories.length,
       services_parsed: services.length,
     },
   };
@@ -580,4 +623,6 @@ module.exports = {
   extractTables,
   extractParagraphLines,
   collectText,
+  isSectionHeadingTable,
+  extractSectionHeading,
 };
