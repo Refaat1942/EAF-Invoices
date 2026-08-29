@@ -7,6 +7,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "import-prices": "node scripts/import-price-list.js",
+    "test:uat": "node scripts/run-uat-tests.js",
+    "verify:vps": "node scripts/verify-vps-daily-readiness.js",
     "setup": "setup-windows.bat"
   },
   "engines": {

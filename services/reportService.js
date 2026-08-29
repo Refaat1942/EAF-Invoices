@@ -2,6 +2,7 @@ const ExcelJS = require('exceljs');
 const { query } = require('../database/db');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
 const { getPatientByFileNumber } = require('./patientService');
+const { labelTransactionKind } = require('./patientTransactionKinds');
 
 const STATUS_LABELS = {
   draft: 'مسودة',
@@ -696,7 +697,10 @@ async function getPatientStatusReport(filters = {}) {
        ORDER BY pt.created_at DESC`,
       [patient.id]
     );
-    transactions = rows;
+    transactions = rows.map((row) => ({
+      ...row,
+      transaction_kind_label: labelTransactionKind(row.transaction_kind),
+    }));
   }
 
   const accountBalance = Number(patient?.account_balance) || 0;

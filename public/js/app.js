@@ -3856,6 +3856,7 @@ function renderPatientStatusReport(data) {
     .map(
       (tx) => `<tr>
       <td>${new Date(tx.created_at).toLocaleDateString('ar-EG')}</td>
+      <td><span class="badge bg-light text-dark border">${tx.transaction_kind_label || tx.transaction_kind || '—'}</span></td>
       <td class="${Number(tx.amount) < 0 ? 'text-danger' : 'text-success'} fw-bold">${fmt(tx.amount)}</td>
       <td>${fmt(tx.balance_after)}</td>
       <td>${tx.serial_number || '—'}</td>
@@ -3913,7 +3914,7 @@ function renderPatientStatusReport(data) {
       txRows
         ? `<div class="col-12"><div class="card shadow-sm"><div class="card-header bg-secondary text-white fw-black">حركة رصيد الحساب</div>
       <div class="card-body p-0 table-responsive"><table class="table table-sm mb-0">
-        <thead class="table-light"><tr><th>التاريخ</th><th>الحركة</th><th>الرصيد بعد</th><th>الفاتورة</th><th>البيان</th></tr></thead>
+        <thead class="table-light"><tr><th>التاريخ</th><th>نوع الحركة</th><th>المبلغ</th><th>الرصيد بعد</th><th>الفاتورة</th><th>البيان</th></tr></thead>
         <tbody>${txRows}</tbody>
       </table></div></div></div>`
         : ''
