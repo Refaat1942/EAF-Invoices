@@ -288,19 +288,41 @@ assertEq(
   assert(bad === null, 'login failure returns null (no user enumeration)');
 
   const { recordInvoiceReturns } = require('../services/invoiceReturnService');
-  const { saveInvoice } = require('../services/invoiceService');
+  const { saveInvoice, prepareCalculationData } = require('../services/invoiceService');
+  const { calculateInvoiceTotals } = require('../services/calculations');
 
-  async function assertReturnRejected(status, label) {
-    const invoice = await saveInvoice({
+  function roundPaymentAmount(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+  }
+
+  async function buildReturnRejectionFixture(status) {
+    const saveMode = status === 'pending_review' ? 'submit' : 'draft';
+    const base = {
       invoice_type: 'civil',
       patient_name: 'Hardening Test',
       issue_date: new Date().toISOString().slice(0, 10),
       admission_date: new Date().toISOString().slice(0, 10),
-      save_mode: status === 'pending_review' ? 'submit' : 'draft',
+      save_mode: saveMode,
       include_daily_charges: false,
       items: [{ description: 'Hardening item', quantity: 1, amount: 100 }],
-      method_payments: [{ code: 'cash', amount: 100 }],
-    });
+    };
+
+    const calcData = await prepareCalculationData(base);
+    const totals = calculateInvoiceTotals(calcData);
+    const paymentAmount =
+      saveMode === 'submit'
+        ? roundPaymentAmount(totals.final_total_raw)
+        : roundPaymentAmount(totals.items_subtotal_raw || 100);
+
+    return {
+      ...base,
+      method_payments: [{ code: 'cash', amount: paymentAmount }],
+    };
+  }
+
+  async function assertReturnRejected(status, label) {
+    const fixture = await buildReturnRejectionFixture(status);
+    const invoice = await saveInvoice(fixture);
     let threw = false;
     try {
       await recordInvoiceReturns(invoice.id, {
