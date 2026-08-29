@@ -362,100 +362,16 @@ async function loadDailySections() {
   renderDailySectionsTable();
 
   const priceSections = dailySectionsCache.filter((s) => s.category_code && !s.catalog_category);
-  const totalPriceServices = priceSections.reduce((sum, s) => sum + (s.services?.length || 0), 0);
   const statusEl = document.getElementById('daily-entry-status');
   if (dailyPriceListMeta?.name && statusEl && dailyStayContext?.invoice?.id) {
     const catalogTotal = dailySectionsCache
       .filter((s) => s.catalog_category)
-      .reduce((sum, s) => sum + (s.catalog_count || s.services?.length || 0), 0);
-    statusEl.title = `اللائحة: ${dailyPriceListMeta.name} — ${totalPriceServices} خدمة | كتالوج: ${catalogTotal} صنف`;
+      .reduce((sum, s) => sum + (s.catalog_count || 0), 0);
+    statusEl.title = `اللائحة: ${dailyPriceListMeta.name} | كتالوج: ${catalogTotal} صنف — بحث عند الاختيار`;
   }
-  if (dailyStayContext?.invoice?.id && priceSections.length && totalPriceServices === 0) {
+  if (dailyStayContext?.invoice?.id && priceSections.length && !dailyPriceListMeta?.id) {
     showToast('لم تُحمَّل خدمات من اللائحة — تأكد من استيراد اللائحة في الإعدادات', 'warning');
   }
-}
-
-function dailyEscapeHtml(text) {
-  if (typeof escapeHtml === 'function') return escapeHtml(text);
-  return String(text || '');
-}
-
-function buildCatalogItemOptionHtml(item, selectedId) {
-  const selected = String(selectedId) === String(item.id) ? 'selected' : '';
-  const label = item.code ? `${item.code} — ${item.name}` : item.name;
-  const unitOpts = item.unit_options || [{ level: 'major', unit: item.unit || '', price: item.price }];
-  const unitHint = item.unit ? ` (${item.unit})` : '';
-  return `<option value="${item.id}" data-name="${dailyEscapeAttr(item.name)}" data-unit="${dailyEscapeAttr(item.unit || '')}" data-unit-options="${dailyEscapeAttr(JSON.stringify(unitOpts))}" title="${dailyEscapeAttr(item.category_name || item.category || '')}" ${selected}>${label}${unitHint}</option>`;
-}
-
-function populateDailyCatalogUnitSelect(tr, sectionCode, catalogItemId, preset = {}) {
-  const select = tr?.querySelector(`.daily-catalog[data-section="${sectionCode}"]`);
-  const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
-  if (!select || !unitSelect) return;
-
-  const option = select.querySelector(`option[value="${catalogItemId}"]`);
-  if (!option || !catalogItemId) {
-    unitSelect.style.display = 'none';
-    unitSelect.innerHTML = '<option value="">— وحدة —</option>';
-    return;
-  }
-
-  let unitOptions = [];
-  try {
-    unitOptions = JSON.parse(option.dataset.unitOptions || '[]');
-  } catch {
-    unitOptions = [];
-  }
-  if (!unitOptions.length) {
-    unitOptions = [{ level: 'major', unit: option.dataset.unit || '', price: 0 }];
-  }
-
-  unitSelect.innerHTML = unitOptions
-    .map((opt) => {
-      const selected =
-        preset.catalog_unit_level === opt.level ||
-        (preset.catalog_unit && preset.catalog_unit === opt.unit)
-          ? 'selected'
-          : '';
-      return `<option value="${opt.level}" data-unit="${dailyEscapeAttr(opt.unit)}" data-price="${opt.price}" ${selected}>${dailyEscapeAttr(opt.unit)} — ${dailyFmt(opt.price)}</option>`;
-    })
-    .join('');
-
-  unitSelect.style.display = unitOptions.length > 1 ? '' : 'none';
-  if (!unitSelect.value && unitOptions.length) {
-    unitSelect.value = preset.catalog_unit_level || unitOptions[0].level;
-  }
-}
-
-function applyDailyCatalogUnitPrice(tr, sectionCode) {
-  const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
-  const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
-  if (!unitSelect || !amountInput) return;
-  const opt = unitSelect.selectedOptions[0];
-  const price = Number(opt?.dataset.price) || 0;
-  if (price > 0) {
-    amountInput.value =
-      typeof formatAmountInput === 'function' ? formatAmountInput(price) : dailyFormatInput(price);
-    amountInput.dataset.manualAmount = '0';
-  }
-}
-
-function refreshCatalogSelectsInRows() {
-  document.querySelectorAll('.daily-entry-row').forEach((tr) => {
-    for (const section of dailySectionsCache) {
-      if (!section.catalog_category && !section.uses_catalog) continue;
-      const select = tr.querySelector(`.daily-catalog[data-section="${section.code}"]`);
-      if (!select) continue;
-      const currentVal = select.value;
-      const items = section.services || [];
-      const options = items.map((item) => buildCatalogItemOptionHtml(item, currentVal)).join('');
-      select.innerHTML = `<option value="">— صنف —</option>${options}`;
-      if (currentVal && items.some((item) => String(item.id) === String(currentVal))) {
-        select.value = currentVal;
-        populateDailyCatalogUnitSelect(tr, section.code, currentVal);
-      }
-    }
-  });
 }
 
 function buildDailyStayTypeOptions(selectedId = '') {
@@ -489,9 +405,8 @@ function renderDailyCellHtml(section, line = {}) {
   }
 
   const usesCatalog = section.catalog_category || section.uses_catalog;
-  const selectedId = usesCatalog
-    ? line.catalog_item_id || ''
-    : line.service_id || section.default_service?.id || '';
+  const hasPicker =
+    usesCatalog || (section.category_code && section.input_type === 'amount' && !usesCatalog);
   const amountVal =
     line.amount != null && line.amount !== '' && Number(line.amount) > 0
       ? typeof formatAmountInput === 'function'
@@ -499,24 +414,14 @@ function renderDailyCellHtml(section, line = {}) {
         : dailyFormatInput(line.amount)
       : '';
 
-  const itemOptions = (section.services || [])
-    .map((item) => buildCatalogItemOptionHtml(item, selectedId))
-    .join('');
+  let pickerHtml = '';
+  if (hasPicker && window.DailyEntryPicker) {
+    pickerHtml = DailyEntryPicker.buildCellHtml(section, line);
+  } else if (usesCatalog) {
+    pickerHtml = '<small class="text-muted d-block mb-1">لا أصناف نشطة — راجع كتالوج الأصناف في الإعدادات</small>';
+  }
 
-  const selectClass = usesCatalog ? 'daily-catalog' : 'daily-service';
-  const placeholder = usesCatalog ? '— صنف —' : '— خدمة —';
-  const unitSelect =
-    usesCatalog
-      ? `<select class="form-select form-select-sm mb-1 daily-catalog-unit" data-section="${section.code}" style="display:none"><option value="">— وحدة —</option></select>`
-      : '';
-  const itemSelect =
-    section.services?.length > 0
-      ? `<select class="form-select form-select-sm mb-1 ${selectClass}" data-section="${section.code}"><option value="">${placeholder}</option>${itemOptions}</select>${unitSelect}`
-      : usesCatalog
-        ? `<small class="text-muted d-block mb-1">لا أصناف نشطة — راجع كتالوج الأصناف في الإعدادات</small>`
-        : '';
-
-  return `<td>${itemSelect}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}"></td>`;
+  return `<td>${pickerHtml}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}"></td>`;
 }
 
 function renderDailySectionsTable() {
@@ -573,23 +478,20 @@ function renderDailySectionsTable() {
 }
 
 function bindDailyRowEvents(tr) {
-  tr.querySelectorAll('.daily-field, .daily-service, .daily-catalog, .daily-catalog-unit, .daily-row-date, .daily-row-stay-type').forEach((el) => {
+  tr.querySelectorAll('.daily-field, .daily-catalog-unit, .daily-row-date, .daily-row-stay-type').forEach((el) => {
     el.addEventListener('input', () => {
       if (el.classList.contains('daily-amount')) el.dataset.manualAmount = '1';
       updateRowTotal(tr);
       updateDailyGrandTotal();
     });
-    el.addEventListener('change', (event) => {
-      if (el.classList.contains('daily-service') || el.classList.contains('daily-catalog')) onDailyServicePick(event);
-      if (el.classList.contains('daily-catalog-unit')) {
-        const section = el.dataset.section;
-        applyDailyCatalogUnitPrice(tr, section);
-      }
+    el.addEventListener('change', () => {
       if (el.classList.contains('daily-row-stay-type')) applyStayTypeRateToRow(tr);
       updateRowTotal(tr);
       updateDailyGrandTotal();
     });
   });
+
+  if (window.DailyEntryPicker) DailyEntryPicker.bindRow(tr);
 
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
 
@@ -600,68 +502,50 @@ function applyDefaultPricesForRow(tr) {
   for (const section of dailySectionsCache) {
     if (section.input_type !== 'amount') continue;
     if (section.catalog_category || section.uses_catalog) continue;
-    const select = tr.querySelector(`.daily-service[data-section="${section.code}"]`);
     const amountInput = tr.querySelector(`.daily-amount[data-section="${section.code}"]`);
     if (!amountInput || dailyParseAmount(amountInput.value) > 0) continue;
 
-    if (select && section.default_service?.id) {
-      select.value = String(section.default_service.id);
-      const price = Number(section.default_service.price) || 0;
-      if (price > 0) {
-        amountInput.value =
-          typeof formatAmountInput === 'function' ? formatAmountInput(price) : dailyFormatInput(price);
-        amountInput.dataset.manualAmount = '0';
-      }
-      continue;
-    }
-
-    if (select?.value) {
-      const price = dailyParseAmount(select.selectedOptions[0]?.dataset.price);
-      if (price > 0) {
-        amountInput.value =
-          typeof formatAmountInput === 'function' ? formatAmountInput(price) : dailyFormatInput(price);
-        amountInput.dataset.manualAmount = '0';
+    if (section.default_service?.id && window.DailyEntryPicker) {
+      const picker = tr.querySelector(`.daily-picker[data-section="${section.code}"]`);
+      if (picker) {
+        DailyEntryPicker.applyPickerSelection(tr, section, picker, section.default_service);
       }
     }
   }
 }
 
-function getSectionService(sectionCode, serviceId) {
-  const section = dailySectionsCache.find((s) => s.code === sectionCode);
-  const svc = section?.services?.find((s) => String(s.id) === String(serviceId)) || null;
-  if (!svc) return null;
-  return {
-    ...svc,
-    price: Number(svc.list_price ?? svc.price) || 0,
-    category_name: svc.category_name || '',
-  };
+async function findAccommodationServiceForStayType(stayType) {
+  if (!stayType?.name || !window.DailyEntryPicker) return null;
+  try {
+    const result = await DailyEntryPicker.searchPicker('accommodation', String(stayType.name).trim(), 1);
+    const stayName = String(stayType.name).trim();
+    return (
+      result.rows?.find((s) => String(s.name).trim() === stayName) ||
+      result.rows?.find((s) => String(s.name).includes(stayName)) ||
+      result.rows?.[0] ||
+      null
+    );
+  } catch {
+    return null;
+  }
 }
 
-function findAccommodationServiceForStayType(stayType) {
-  const accSection = dailySectionsCache.find((s) => s.code === 'accommodation');
-  if (!accSection?.services?.length || !stayType?.name) return null;
-  const stayName = String(stayType.name).trim();
-  return (
-    accSection.services.find((s) => String(s.name).trim() === stayName) ||
-    accSection.services.find((s) => String(s.name).includes(stayName)) ||
-    accSection.services.find((s) => stayName.includes(String(s.name)))
-  );
-}
-
-function applyStayTypeRateToRow(tr) {
+async function applyStayTypeRateToRow(tr) {
   const select = tr.querySelector('.daily-row-stay-type');
   const stayTypeId = select?.value;
   if (!stayTypeId) return;
   const stayType = dailyStayTypesCache.find((t) => String(t.id) === String(stayTypeId));
   const accInput = tr.querySelector('.daily-amount[data-section="accommodation"]');
-  const accSelect = tr.querySelector('.daily-service[data-section="accommodation"]');
+  const accPicker = tr.querySelector('.daily-picker[data-section="accommodation"]');
   if (!accInput || dailyParseAmount(accInput.value) > 0) return;
 
-  const match = findAccommodationServiceForStayType(stayType);
-  if (!match || !accSelect) return;
+  const match = await findAccommodationServiceForStayType(stayType);
+  if (!match || !accPicker) return;
 
-  accSelect.value = String(match.id);
-  onDailyServicePick({ target: accSelect });
+  const section = dailySectionsCache.find((s) => s.code === 'accommodation');
+  if (section && window.DailyEntryPicker) {
+    DailyEntryPicker.applyPickerSelection(tr, section, accPicker, match);
+  }
 }
 
 function createDailyEntryRow(entry = {}) {
@@ -698,14 +582,9 @@ function createDailyEntryRow(entry = {}) {
   }
 
   bindDailyRowEvents(tr);
-  for (const section of dailySectionsCache) {
-    if (!section.catalog_category && !section.uses_catalog) continue;
-    const line = getLineForSection(entry, section.code);
-    if (line.catalog_item_id) {
-      populateDailyCatalogUnitSelect(tr, section.code, line.catalog_item_id, line);
-      if (!line.unit_price && !line.amount) {
-        applyDailyCatalogUnitPrice(tr, section.code);
-      }
+  if (window.DailyEntryPicker) {
+    for (const section of dailySectionsCache) {
+      DailyEntryPicker.hydratePicker(tr, section, getLineForSection(entry, section.code));
     }
   }
   updateRowTotal(tr);
@@ -738,23 +617,19 @@ function rowHasChargeData(tr) {
 function collectDailyLinesFromRow(tr) {
   return dailySectionsCache.map((section) => {
     const field = tr.querySelector(`.daily-field[data-section="${section.code}"]`);
-    const catalogSelect = tr.querySelector(`.daily-catalog[data-section="${section.code}"]`);
-    const serviceSelect = tr.querySelector(`.daily-service[data-section="${section.code}"]`);
-    const usesCatalog = section.catalog_category || section.uses_catalog;
+    const pickerFields = window.DailyEntryPicker ? DailyEntryPicker.readPickerFields(tr, section) : {};
     if (section.input_type === 'date') {
       return { section_code: section.code, extra_date: field?.value || null };
     }
     if (section.input_type === 'text') {
       return { section_code: section.code, extra_text: field?.value || '' };
     }
-    const unitSelect = tr.querySelector(`.daily-catalog-unit[data-section="${section.code}"]`);
-    const unitOpt = unitSelect?.selectedOptions?.[0];
     return {
       section_code: section.code,
-      catalog_item_id: usesCatalog && catalogSelect?.value ? Number(catalogSelect.value) : null,
-      catalog_unit_level: usesCatalog && unitSelect?.value ? unitSelect.value : null,
-      catalog_unit: usesCatalog && unitOpt?.dataset?.unit ? unitOpt.dataset.unit : null,
-      service_id: !usesCatalog && serviceSelect?.value ? Number(serviceSelect.value) : null,
+      catalog_item_id: pickerFields.catalog_item_id ?? null,
+      catalog_unit_level: pickerFields.catalog_unit_level ?? null,
+      catalog_unit: pickerFields.catalog_unit ?? null,
+      service_id: pickerFields.service_id ?? null,
       amount: dailyParseAmount(field?.value),
       quantity: 1,
     };
@@ -836,66 +711,8 @@ async function loadDailyEntriesIntoSheet() {
   }
 }
 
-function onDailyServicePick(event) {
-  const select = event.target;
-  if (!select.classList.contains('daily-service') && !select.classList.contains('daily-catalog')) return;
-  const isCatalog = select.classList.contains('daily-catalog');
-  const tr = select.closest('.daily-entry-row');
-  const section = select.dataset.section;
-  if (isCatalog) {
-    if (!select.value) {
-      const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${section}"]`);
-      if (unitSelect) {
-        unitSelect.style.display = 'none';
-        unitSelect.innerHTML = '<option value="">— وحدة —</option>';
-      }
-      const amountInput = tr?.querySelector(`.daily-amount[data-section="${section}"]`);
-      if (amountInput) amountInput.value = '';
-      if (tr) updateRowTotal(tr);
-      updateDailyGrandTotal();
-      return;
-    }
-    populateDailyCatalogUnitSelect(tr, section, select.value);
-    applyDailyCatalogUnitPrice(tr, section);
-    if (tr) updateRowTotal(tr);
-    updateDailyGrandTotal();
-    return;
-  }
-  const service = getSectionService(section, select.value);
-  const amountInput = tr?.querySelector(`.daily-amount[data-section="${section}"]`);
-  if (!amountInput || !service) {
-    if (amountInput && !select.value) amountInput.value = '';
-    if (tr) updateRowTotal(tr);
-    updateDailyGrandTotal();
-    return;
-  }
-  const price = Number(service.price) || 0;
-  if (price > 0) {
-    amountInput.value =
-      typeof formatAmountInput === 'function' ? formatAmountInput(price) : dailyFormatInput(price);
-    amountInput.dataset.manualAmount = '0';
-    const unit = service.unit ? ` — ${service.unit}` : '';
-    if (service.category_name) {
-      amountInput.title = isCatalog
-        ? `${service.category_name}${unit} — السعر من الكتالوج`
-        : `${service.category_name} — السعر من اللائحة`;
-    }
-  } else {
-    amountInput.value = '';
-    showToast(
-      isCatalog
-        ? `الصنف «${service.name}» ليس له سعر في الكتالوج`
-        : `الخدمة «${service.name}» ليس لها سعر في اللائحة`,
-      'warning'
-    );
-  }
-  if (tr) updateRowTotal(tr);
-  updateDailyGrandTotal();
-}
-
 async function reloadDailyCatalogSectionsFromSettings() {
   await loadDailySections();
-  refreshCatalogSelectsInRows();
 }
 
 async function deleteDailyEntryById(entryId) {

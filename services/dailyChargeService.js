@@ -153,53 +153,232 @@ async function listSections() {
 
 async function getSectionsWithServices() {
   const sections = await listSections();
-  const { listCatalogItems, catalogItemToPicker } = require('./dailyEntryCatalogService');
-  const allCatalogItems = await listCatalogItems({ active_only: true });
+  const { getCatalogStats, catalogItemToPicker } = require('./dailyEntryCatalogService');
+  const stats = await getCatalogStats();
+  const countByCategory = Object.fromEntries((stats.by_category || []).map((row) => [row.category, row.count]));
   const priceList = await getDefaultPriceList();
 
-  const categoryCodes = [...new Set(sections.map((s) => s.category_code).filter(Boolean))];
-  let byCategory = {};
-  if (priceList && categoryCodes.length) {
-    const allServices = await listServices({ price_list_id: priceList.id, active_only: true });
-    const relevantServices = allServices.filter((s) => categoryCodes.includes(s.category_code));
-    const pricedServices = await enrichServicesWithResolvedPrices(relevantServices);
-    for (const service of pricedServices) {
-      const code = service.category_code || '_none';
-      if (!byCategory[code]) byCategory[code] = [];
-      byCategory[code].push(service);
-    }
-  }
+  return Promise.all(
+    sections.map(async (section) => {
+      if (section.catalog_category) {
+        return {
+          ...section,
+          uses_catalog: true,
+          catalog_count: countByCategory[section.catalog_category] || 0,
+          services: [],
+          picker_kind: 'catalog',
+          default_service: null,
+          price_list_id: priceList?.id || null,
+          price_list_name: priceList?.name || null,
+        };
+      }
 
-  return sections.map((section) => {
-    if (section.catalog_category) {
-      const items = allCatalogItems.filter((item) => item.category === section.catalog_category);
-      const services = items.map(catalogItemToPicker);
+      if (!priceList) {
+        return {
+          ...section,
+          services: [],
+          picker_kind: section.category_code ? 'service' : null,
+          default_service: null,
+          price_list_id: null,
+          price_list_name: null,
+        };
+      }
+
+      const default_service = await resolveDefaultServiceForSection(section, priceList);
       return {
         ...section,
-        uses_catalog: true,
-        catalog_count: items.length,
-        services,
-        default_service: null,
-        price_list_id: priceList?.id || null,
-        price_list_name: priceList?.name || null,
+        price_list_id: priceList.id,
+        price_list_name: priceList.name,
+        services: default_service ? [serviceToDailyPicker(default_service)] : [],
+        picker_kind: section.category_code ? 'service' : null,
+        default_service: default_service ? serviceToDailyPicker(default_service) : null,
+      };
+    })
+  );
+}
+
+function serviceToDailyPicker(service) {
+  if (!service) return null;
+  const price = Number(service.list_price ?? service.price) || 0;
+  return {
+    id: service.id,
+    code: service.code || '',
+    name: service.name || '',
+    price,
+    list_price: price,
+    unit: service.unit || '',
+    category_name: service.category_name || '',
+    category_code: service.category_code || '',
+  };
+}
+
+async function resolveDefaultServiceForSection(section, priceList) {
+  if (!priceList || !section.category_code || !section.default_service_code) return null;
+  const { rows } = await query(
+    `SELECT s.*, c.name AS category_name, c.code AS category_code
+     FROM services s
+     INNER JOIN service_categories c ON c.id = s.category_id
+     WHERE s.price_list_id = $1 AND c.code = $2 AND s.code = $3 AND s.is_active = TRUE
+     LIMIT 1`,
+    [priceList.id, section.category_code, section.default_service_code]
+  );
+  if (!rows.length) return null;
+  const enriched = await enrichServicesWithResolvedPrices(rows);
+  return enriched[0] || null;
+}
+
+async function getSectionByCode(sectionCode) {
+  const sections = await listSections();
+  const section = sections.find((s) => s.code === sectionCode);
+  if (!section) {
+    const err = new Error('القسم غير موجود');
+    err.status = 404;
+    throw err;
+  }
+  return section;
+}
+
+async function searchDailyPickerItems({ section_code, search, page = 1, limit = 20 }) {
+  const section = await getSectionByCode(section_code);
+  const pageNum = Math.max(1, Number(page) || 1);
+  const maxLimit = Math.min(50, Math.max(1, Number(limit) || 20));
+  const q = String(search || '').trim();
+
+  if (section.catalog_category) {
+    const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
+    if (q.length < 2) {
+      return {
+        rows: [],
+        total: 0,
+        page: pageNum,
+        limit: maxLimit,
+        totalPages: 1,
+        kind: 'catalog',
+        min_search: 2,
       };
     }
-
-    if (!priceList) {
-      return { ...section, services: [], default_service: null, price_list_id: null, price_list_name: null };
-    }
-
-    const services = section.category_code ? byCategory[section.category_code] || [] : [];
-    const default_service =
-      services.find((s) => s.code === section.default_service_code) || services[0] || null;
+    const result = await listCatalogItemsPaginated({
+      category: section.catalog_category,
+      search: q,
+      page: pageNum,
+      limit: maxLimit,
+      active_only: true,
+      sort: 'name',
+      order: 'asc',
+    });
     return {
-      ...section,
-      price_list_id: priceList.id,
-      price_list_name: priceList.name,
-      services,
-      default_service,
+      rows: result.rows.map(catalogItemToPicker),
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+      kind: 'catalog',
     };
-  });
+  }
+
+  if (section.input_type !== 'amount' || !section.category_code) {
+    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'none' };
+  }
+
+  const priceList = await getDefaultPriceList();
+  if (!priceList) {
+    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'service' };
+  }
+
+  if (q.length < 2) {
+    return {
+      rows: [],
+      total: 0,
+      page: pageNum,
+      limit: maxLimit,
+      totalPages: 1,
+      kind: 'service',
+      min_search: 2,
+    };
+  }
+
+  const categoryRes = await query(`SELECT id FROM service_categories WHERE code = $1`, [section.category_code]);
+  const categoryId = categoryRes.rows[0]?.id;
+  if (!categoryId) {
+    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'service' };
+  }
+
+  const searchPat = `%${q}%`;
+  const offset = (pageNum - 1) * maxLimit;
+  const countRes = await query(
+    `SELECT COUNT(*)::int AS total FROM services s
+     WHERE s.price_list_id = $1 AND s.category_id = $2 AND s.is_active = TRUE
+       AND (s.name ILIKE $3 OR s.code ILIKE $3 OR s.description ILIKE $3)`,
+    [priceList.id, categoryId, searchPat]
+  );
+  const total = countRes.rows[0]?.total || 0;
+
+  const { rows } = await query(
+    `SELECT s.*, c.name AS category_name, c.code AS category_code
+     FROM services s
+     LEFT JOIN service_categories c ON c.id = s.category_id
+     WHERE s.price_list_id = $1 AND s.category_id = $2 AND s.is_active = TRUE
+       AND (s.name ILIKE $3 OR s.code ILIKE $3 OR s.description ILIKE $3)
+     ORDER BY s.sort_order, s.name, s.id
+     LIMIT $4 OFFSET $5`,
+    [priceList.id, categoryId, searchPat, maxLimit, offset]
+  );
+  const enriched = await enrichServicesWithResolvedPrices(rows);
+
+  return {
+    rows: enriched.map(serviceToDailyPicker),
+    total,
+    page: pageNum,
+    limit: maxLimit,
+    totalPages: Math.max(1, Math.ceil(total / maxLimit)),
+    kind: 'service',
+  };
+}
+
+async function getDailyPickerItemBySection(section_code, id) {
+  const section = await getSectionByCode(section_code);
+  const itemId = Number(id);
+  if (!itemId) {
+    const err = new Error('معرّف الصنف/الخدمة غير صالح');
+    err.status = 400;
+    throw err;
+  }
+
+  if (section.catalog_category) {
+    const { getCatalogItemById, catalogItemToPicker } = require('./dailyEntryCatalogService');
+    const item = await getCatalogItemById(itemId);
+    if (!item || !item.is_active) {
+      const err = new Error('الصنف غير موجود');
+      err.status = 404;
+      throw err;
+    }
+    if (item.category !== section.catalog_category) {
+      const err = new Error('الصنف لا يطابق فئة هذا القسم');
+      err.status = 400;
+      throw err;
+    }
+    return { kind: 'catalog', item: catalogItemToPicker(item) };
+  }
+
+  if (!section.category_code) {
+    const err = new Error('هذا القسم لا يدعم اختيار خدمة');
+    err.status = 400;
+    throw err;
+  }
+
+  const service = await getServiceById(itemId);
+  if (!service || !service.is_active) {
+    const err = new Error('الخدمة غير موجودة');
+    err.status = 404;
+    throw err;
+  }
+  if (service.category_code !== section.category_code) {
+    const err = new Error('الخدمة لا تطابق فئة هذا القسم');
+    err.status = 400;
+    throw err;
+  }
+  const enriched = await enrichServicesWithResolvedPrices([service]);
+  return { kind: 'service', item: serviceToDailyPicker(enriched[0]) };
 }
 
 async function resolvePatient(fileNumber, patientName = '') {
@@ -1539,6 +1718,8 @@ async function unlinkEntriesFromInvoice(invoiceId, client = null) {
 module.exports = {
   listSections,
   getSectionsWithServices,
+  searchDailyPickerItems,
+  getDailyPickerItemBySection,
   getEntryById,
   getEntryByPatientDate,
   listEntries,

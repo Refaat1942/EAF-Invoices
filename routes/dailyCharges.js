@@ -3,6 +3,8 @@ const multer = require('multer');
 const {
   listSections,
   getSectionsWithServices,
+  searchDailyPickerItems,
+  getDailyPickerItemBySection,
   getEntryByPatientDate,
   listEntries,
   listEntryHistory,
@@ -56,6 +58,34 @@ router.get('/sections', requirePermission('daily_charges.view'), async (req, res
     res.json(withServices ? await getSectionsWithServices() : await listSections());
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/picker/search', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const section_code = String(req.query.section_code || '').trim();
+    if (!section_code) return res.status(400).json({ error: 'section_code مطلوب' });
+    res.json(
+      await searchDailyPickerItems({
+        section_code,
+        search: req.query.search || '',
+        page: req.query.page,
+        limit: req.query.limit,
+      })
+    );
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/picker/item', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const section_code = String(req.query.section_code || '').trim();
+    const id = req.query.id;
+    if (!section_code || !id) return res.status(400).json({ error: 'section_code و id مطلوبان' });
+    res.json(await getDailyPickerItemBySection(section_code, id));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
