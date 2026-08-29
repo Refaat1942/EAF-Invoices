@@ -58,9 +58,147 @@ assert(
 
   const {
     getSectionsWithServices,
+    resolveDefaultServiceForSection,
     searchDailyPickerItems,
     getDailyPickerItemBySection,
   } = require('../services/dailyChargeService');
+  const { getDefaultPriceList, setDefaultPriceList } = require('../services/priceListService');
+  const { createCategory, createService } = require('../services/serviceCatalogService');
+  const { getSetting, setSetting } = require('../services/settingsService');
+
+  async function capturePriceListState() {
+    const activePriceListIdSetting = await getSetting('active_price_list_id', '');
+    const { rows } = await query(`SELECT id FROM price_lists WHERE is_default = TRUE ORDER BY id LIMIT 1`);
+    return {
+      activePriceListIdSetting: activePriceListIdSetting || '',
+      defaultFlagListId: rows[0]?.id || null,
+    };
+  }
+
+  async function restorePriceListState(state) {
+    await query('UPDATE price_lists SET is_default = FALSE');
+    if (state.activePriceListIdSetting) {
+      await setSetting('active_price_list_id', state.activePriceListIdSetting);
+    } else {
+      await setSetting('active_price_list_id', '');
+    }
+    if (state.defaultFlagListId) {
+      await query('UPDATE price_lists SET is_default = TRUE, updated_at = NOW() WHERE id = $1', [
+        state.defaultFlagListId,
+      ]);
+    }
+  }
+
+  async function cleanupFixturePriceList(priceListId) {
+    if (!priceListId) return;
+    const svcRes = await query(`SELECT id FROM services WHERE price_list_id = $1`, [priceListId]);
+    for (const row of svcRes.rows) {
+      await query(`DELETE FROM service_price_components WHERE service_id = $1`, [row.id]);
+      await query(`DELETE FROM service_price_tiers WHERE service_id = $1`, [row.id]);
+      await query(`DELETE FROM service_price_history WHERE service_id = $1`, [row.id]);
+    }
+    await query(`DELETE FROM services WHERE price_list_id = $1`, [priceListId]);
+    await query(`DELETE FROM service_categories WHERE price_list_id = $1`, [priceListId]);
+    await query(`DELETE FROM price_lists WHERE id = $1`, [priceListId]);
+  }
+
+  const priceListState = await capturePriceListState();
+  const fixtureCode = `${TEST_PREFIX}-PL`;
+  const { rows: plRows } = await query(
+    `INSERT INTO price_lists (name, code, is_active, is_default, notes)
+     VALUES ($1, $2, TRUE, FALSE, $3) RETURNING *`,
+    ['Picker Default Service Fixture', fixtureCode, 'Issue 12 default_service regression']
+  );
+  const fixturePriceListId = plRows[0].id;
+  await setDefaultPriceList(fixturePriceListId);
+
+  const examsCategory = await createCategory(fixturePriceListId, {
+    code: 'MEDICAL_EXAMS',
+    name: `${TEST_PREFIX} Exams`,
+    sort_order: 9998,
+  });
+  const stampsCategory = await createCategory(fixturePriceListId, {
+    code: 'STAMPS',
+    name: `${TEST_PREFIX} Stamps Empty`,
+    sort_order: 9999,
+  });
+
+  const consultantSection = {
+    code: 'consultant_exam',
+    category_code: 'MEDICAL_EXAMS',
+    default_service_code: 'EXAM-CONSULTANT',
+    input_type: 'amount',
+  };
+  const stampSection = {
+    code: 'consultation_stamp',
+    category_code: 'STAMPS',
+    default_service_code: 'STAMP-CONSULT',
+    input_type: 'amount',
+  };
+  const fixturePriceList = await getDefaultPriceList();
+
+  const exactService = await createService({
+    price_list_id: fixturePriceListId,
+    category_id: examsCategory.id,
+    code: 'EXAM-CONSULTANT',
+    name: `${TEST_PREFIX} Exact Consultant`,
+    unit: 'كشف',
+    price: 500,
+    price_type: 'fixed',
+    sort_order: 5,
+  });
+  await createService({
+    price_list_id: fixturePriceListId,
+    category_id: examsCategory.id,
+    code: `${TEST_PREFIX}-OTHER`,
+    name: `${TEST_PREFIX} Other Exam`,
+    unit: 'كشف',
+    price: 300,
+    price_type: 'fixed',
+    sort_order: 1,
+  });
+
+  const exactResolved = await resolveDefaultServiceForSection(consultantSection, fixturePriceList);
+  assertEq(exactResolved?.id, exactService.id, 'exact default_service_code selects matching service');
+
+  await query(`DELETE FROM services WHERE price_list_id = $1`, [fixturePriceListId]);
+  const fallbackFirst = await createService({
+    price_list_id: fixturePriceListId,
+    category_id: examsCategory.id,
+    code: `${TEST_PREFIX}-FB-2`,
+    name: `${TEST_PREFIX} Fallback Second`,
+    unit: 'كشف',
+    price: 200,
+    price_type: 'fixed',
+    sort_order: 2,
+  });
+  const fallbackSecond = await createService({
+    price_list_id: fixturePriceListId,
+    category_id: examsCategory.id,
+    code: `${TEST_PREFIX}-FB-1`,
+    name: `${TEST_PREFIX} Fallback First`,
+    unit: 'كشف',
+    price: 100,
+    price_type: 'fixed',
+    sort_order: 1,
+  });
+
+  const fallbackResolved = await resolveDefaultServiceForSection(consultantSection, fixturePriceList);
+  assertEq(
+    fallbackResolved?.id,
+    fallbackSecond.id,
+    'missing exact code falls back to first active service in category by sort_order'
+  );
+  assert(
+    fallbackResolved?.id !== fallbackFirst.id,
+    'category fallback is deterministic and does not pick later sort_order first'
+  );
+
+  const emptyResolved = await resolveDefaultServiceForSection(stampSection, fixturePriceList);
+  assertEq(emptyResolved, null, 'empty category yields null default_service');
+
+  await cleanupFixturePriceList(fixturePriceListId);
+  await restorePriceListState(priceListState);
 
   const shortSearch = await searchDailyPickerItems({
     section_code: 'medicines',
@@ -78,6 +216,15 @@ assert(
   assertEq(medicines.services.length, 0, 'sections API does not embed full catalog list');
   assert(medicines.catalog_count >= 0, 'sections API exposes catalog_count');
   assert(consultant?.default_service?.id, 'consultant default_service resolved without full services list');
+  assert(
+    !consultant?.services?.length || consultant.services.length <= 1,
+    'sections API keeps at most one embedded service for default'
+  );
+  const totalEmbeddedServices = sections.reduce((sum, s) => sum + (s.services?.length || 0), 0);
+  assert(
+    totalEmbeddedServices <= sections.filter((s) => s.category_code && !s.catalog_category).length,
+    'sections API does not embed full category service lists'
+  );
 
   const { createCatalogItem } = require('../services/dailyEntryCatalogService');
   const catalogItem = await createCatalogItem({

@@ -213,18 +213,36 @@ function serviceToDailyPicker(service) {
 }
 
 async function resolveDefaultServiceForSection(section, priceList) {
-  if (!priceList || !section.category_code || !section.default_service_code) return null;
-  const { rows } = await query(
+  if (!priceList || !section.category_code) return null;
+
+  const enrichFirst = async (rows) => {
+    if (!rows.length) return null;
+    const enriched = await enrichServicesWithResolvedPrices(rows);
+    return enriched[0] || null;
+  };
+
+  if (section.default_service_code) {
+    const exact = await query(
+      `SELECT s.*, c.name AS category_name, c.code AS category_code
+       FROM services s
+       INNER JOIN service_categories c ON c.id = s.category_id
+       WHERE s.price_list_id = $1 AND c.code = $2 AND s.code = $3 AND s.is_active = TRUE
+       LIMIT 1`,
+      [priceList.id, section.category_code, section.default_service_code]
+    );
+    if (exact.rows.length) return await enrichFirst(exact.rows);
+  }
+
+  const fallback = await query(
     `SELECT s.*, c.name AS category_name, c.code AS category_code
      FROM services s
      INNER JOIN service_categories c ON c.id = s.category_id
-     WHERE s.price_list_id = $1 AND c.code = $2 AND s.code = $3 AND s.is_active = TRUE
+     WHERE s.price_list_id = $1 AND c.code = $2 AND s.is_active = TRUE
+     ORDER BY s.sort_order, s.name, s.id
      LIMIT 1`,
-    [priceList.id, section.category_code, section.default_service_code]
+    [priceList.id, section.category_code]
   );
-  if (!rows.length) return null;
-  const enriched = await enrichServicesWithResolvedPrices(rows);
-  return enriched[0] || null;
+  return await enrichFirst(fallback.rows);
 }
 
 async function getSectionByCode(sectionCode) {
@@ -1718,6 +1736,7 @@ async function unlinkEntriesFromInvoice(invoiceId, client = null) {
 module.exports = {
   listSections,
   getSectionsWithServices,
+  resolveDefaultServiceForSection,
   searchDailyPickerItems,
   getDailyPickerItemBySection,
   getEntryById,
