@@ -131,7 +131,7 @@ app.use(errorHandler);
 async function start() {
   try {
     await initDatabase();
-    app.listen(PORT, HOST, () => {
+    const server = app.listen(PORT, HOST, () => {
       console.log(`
 ╔══════════════════════════════════════════════════════╗
 ║     نظام فواتير A.R.R.C - مركز الطب الطبيعي والتأهيل  ║
@@ -143,6 +143,9 @@ async function start() {
       `);
       console.log(`[startup] ${pkg.name} v${pkg.version} listening on ${HOST}:${PORT}`);
     });
+    server.timeout = 15 * 60 * 1000;
+    server.keepAliveTimeout = 15 * 60 * 1000 + 5000;
+    server.headersTimeout = 15 * 60 * 1000 + 10000;
   } catch (err) {
     console.error('Failed to start:', err.message);
     process.exit(1);

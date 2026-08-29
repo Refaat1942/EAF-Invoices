@@ -4144,16 +4144,23 @@ async function importPricingFile(e) {
   if (!file) return;
   const replaceExisting = document.getElementById('pricing-import-replace')?.checked;
   const statusEl = document.getElementById('pricing-import-status');
+  const importInput = e.target;
+  const lower = file.name.toLowerCase();
+  if (!lower.endsWith('.docx') && !lower.endsWith('.json') && !lower.endsWith('.csv')) {
+    showToast('نوع الملف غير مدعوم — استخدم DOCX أو JSON أو CSV فقط (ليس Excel .xlsx)', 'warning');
+    importInput.value = '';
+    return;
+  }
   if (statusEl) {
     statusEl.style.display = '';
     statusEl.className = 'alert alert-info py-2 mb-3';
-    statusEl.textContent = `جاري استيراد ${file.name}...`;
+    statusEl.textContent = `جاري استيراد ${file.name}... قد يستغرق عدة دقائق للملفات الكبيرة — لا تغلق الصفحة`;
   }
+  importInput.disabled = true;
   const form = new FormData();
   form.append('file', file);
   form.append('replace_existing', replaceExisting ? 'true' : 'false');
   try {
-    const lower = file.name.toLowerCase();
     let res;
     if (lower.endsWith('.json')) {
       const text = await file.text();
@@ -4188,13 +4195,21 @@ async function importPricingFile(e) {
     await loadStayTypes();
     await loadCatalogCache();
   } catch (err) {
-    showToast(err.message, 'danger');
+    const isNetwork =
+      err?.category === 'network' ||
+      /تعذّر الاتصال|تعذر الاتصال/i.test(String(err.message || ''));
+    const hint = isNetwork
+      ? ' — غالباً توقّف الخادم مؤقتاً أثناء الاستيراد (ملف كبير). على VPS: pm2 logs eaf-invoices ثم جرّب: npm run import-prices "/path/to/file.docx"'
+      : '';
+    showToast(`${err.message}${hint}`, 'danger');
     if (statusEl) {
       statusEl.style.display = '';
       statusEl.className = 'alert alert-danger py-2 mb-3';
-      statusEl.textContent = `فشل الاستيراد: ${err.message}`;
+      statusEl.textContent = `فشل الاستيراد: ${err.message}${hint}`;
     }
     e.target.value = '';
+  } finally {
+    importInput.disabled = false;
   }
 }
 

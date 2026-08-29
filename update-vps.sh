@@ -24,7 +24,8 @@ fi
 npm install
 
 if command -v pm2 >/dev/null 2>&1; then
-  pm2 restart eaf-invoices || pm2 start ecosystem.config.js
+  pm2 delete eaf-invoices 2>/dev/null || true
+  pm2 start ecosystem.config.js
   pm2 save
 else
   echo "WARN: pm2 not found — start server manually: npm start"

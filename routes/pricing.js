@@ -76,6 +76,12 @@ function cleanupUploadedFile(req) {
   }
 }
 
+function longImportTimeout(req, res, next) {
+  req.setTimeout(15 * 60 * 1000);
+  res.setTimeout(15 * 60 * 1000);
+  next();
+}
+
 router.use(requireAuth);
 
 function actor(req) {
@@ -242,7 +248,7 @@ router.get('/services-export', requirePermission('settings.*'), async (req, res)
   }
 });
 
-router.post('/import-csv', requirePermission('settings.*'), handleUpload('file'), async (req, res) => {
+router.post('/import-csv', requirePermission('settings.*'), longImportTimeout, handleUpload('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'الملف مطلوب' });
     const list = req.body.price_list_id
@@ -260,7 +266,7 @@ router.post('/import-csv', requirePermission('settings.*'), handleUpload('file')
   }
 });
 
-router.post('/import-json', requirePermission('settings.*'), async (req, res) => {
+router.post('/import-json', requirePermission('settings.*'), longImportTimeout, async (req, res) => {
   try {
     const result = await importPriceListPayload(req.body, actor(req), { replaceExisting: !!req.body.replace_existing });
     res.json(result);
@@ -269,17 +275,26 @@ router.post('/import-json', requirePermission('settings.*'), async (req, res) =>
   }
 });
 
-router.post('/import-docx', requirePermission('settings.*'), handleUpload('file'), async (req, res) => {
+router.post('/import-docx', requirePermission('settings.*'), longImportTimeout, handleUpload('file'), async (req, res) => {
+  const started = Date.now();
   try {
     if (!req.file) return res.status(400).json({ error: 'الملف مطلوب' });
+    console.log(`[pricing-import] DOCX start: ${req.file.originalname} (${req.file.size} bytes)`);
     const tempPath = req.file.path;
     const payload = await parseDocxPriceList(tempPath, req.body || {});
+    console.log(
+      `[pricing-import] parsed ${payload.services?.length || 0} services, ${payload.categories?.length || 0} categories`
+    );
     const normalizedPayload = normalizeDocxImportPayload(payload);
-    const result = await importPriceListPayload(normalizedPayload, actor(req), { replaceExisting: req.body?.replace_existing === 'true' });
+    const result = await importPriceListPayload(normalizedPayload, actor(req), {
+      replaceExisting: req.body?.replace_existing === 'true',
+    });
     cleanupUploadedFile(req);
+    console.log(`[pricing-import] DOCX done in ${Math.round((Date.now() - started) / 1000)}s`);
     res.json({ ...result, parse_stats: payload.parse_stats || null });
   } catch (err) {
     cleanupUploadedFile(req);
+    console.error(`[pricing-import] DOCX failed after ${Math.round((Date.now() - started) / 1000)}s:`, err.message);
     res.status(400).json({ error: err.message });
   }
 });
