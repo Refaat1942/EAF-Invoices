@@ -8,7 +8,7 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_memory_restart: '1500M',
-      node_args: '--max-old-space-size=1536',
+      node_args: '--max-old-space-size=1536 --env-file=.env',
       env: {
         NODE_ENV: 'production',
         // PORT و DATABASE_URL يُقرآن من ملف .env — لا تثبّت رقم منfذ هنا

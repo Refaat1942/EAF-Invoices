@@ -34,12 +34,12 @@ fi
 pm2 list
 
 echo ""
-echo "3) Restart app (loads ecosystem.config.js + .env PORT)"
+echo "3) Restart app (reload .env PORT — not just pm2 restart)"
 pm2 delete eaf-invoices 2>/dev/null || true
 pm2 start ecosystem.config.js
 pm2 save
 
-sleep 2
+sleep 3
 
 echo ""
 echo "4) Listen check on port ${APP_PORT}"
