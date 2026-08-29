@@ -155,7 +155,7 @@ router.post('/', requirePermission('invoices.create'), async (req, res) => {
     if (saveMode === 'submit' && !req.body.save_mode) {
       // default POST is draft unless explicitly submit
     }
-    const invoice = await saveInvoice(req.body, null, createdBy, { save_mode: saveMode });
+    const invoice = await saveInvoice(req.body, null, createdBy, { save_mode: saveMode, actor: user });
     res.status(201).json(invoice);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -166,7 +166,7 @@ router.post('/:id/submit', requirePermission('invoices.submit'), async (req, res
   try {
     const data = req.body || {};
     data.save_mode = 'submit';
-    const invoice = await saveInvoice(data, Number(req.params.id), null, { save_mode: 'submit' });
+    const invoice = await saveInvoice(data, Number(req.params.id), null, { save_mode: 'submit', actor: req.session.user });
     res.json(invoice);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -217,7 +217,10 @@ router.post('/:id/returns', requirePermission('invoices.edit'), async (req, res)
 router.put('/:id', requirePermission('invoices.edit'), async (req, res) => {
   try {
     const saveMode = req.body.save_mode === 'submit' ? 'submit' : 'draft';
-    const invoice = await saveInvoice(req.body, Number(req.params.id), null, { save_mode: saveMode });
+    const invoice = await saveInvoice(req.body, Number(req.params.id), null, {
+      save_mode: saveMode,
+      actor: req.session.user,
+    });
     res.json(invoice);
   } catch (err) {
     res.status(500).json({ error: err.message });

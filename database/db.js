@@ -322,9 +322,13 @@ async function runMigrations() {
       invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
       payment_method_id INTEGER NOT NULL REFERENCES payment_methods(id) ON DELETE RESTRICT,
       amount NUMERIC(14,2) DEFAULT 0,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
       UNIQUE(invoice_id, payment_method_id)
     )
   `);
+  await query(
+    `ALTER TABLE invoice_payment_amounts ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`
+  );
 
   await query(`
     CREATE TABLE IF NOT EXISTS contracted_entities (
@@ -477,9 +481,13 @@ async function runMigrations() {
       amount NUMERIC(14,2) NOT NULL DEFAULT 0,
       balance_after NUMERIC(14,2) NOT NULL DEFAULT 0,
       note TEXT DEFAULT '',
+      transaction_kind VARCHAR(30) NOT NULL DEFAULT 'legacy',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await query(
+    `ALTER TABLE patient_transactions ADD COLUMN IF NOT EXISTS transaction_kind VARCHAR(30) NOT NULL DEFAULT 'legacy'`
+  );
 
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_permissions JSONB DEFAULT '[]'::jsonb`);
   await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);

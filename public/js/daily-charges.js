@@ -1,5 +1,18 @@
 const DAILY_API = '/api/daily-charges';
 
+const DAILY_TAB_GROUPS = [
+  { id: 'stay', label: 'إقامة ورعاية', codes: ['accommodation', 'companion', 'nursing_point'] },
+  { id: 'sessions', label: 'جلسات', codes: ['sessions_date', 'sessions_detail', 'sessions'] },
+  { id: 'medicines', label: 'أدوية', codes: ['medicines'] },
+  { id: 'supplies', label: 'مستلزمات', codes: ['supplies', 'cosmetics'] },
+  { id: 'exams', label: 'كشوفات', codes: ['consultant_exam', 'specialist_exam', 'consultation_stamp'] },
+  { id: 'lab', label: 'تحاليل', codes: ['analyses', 'analyses_stamp'] },
+  { id: 'radiology', label: 'أشعة', codes: ['xray_type', 'xray_total', 'xray_stamp'] },
+  { id: 'other', label: 'أخرى', codes: ['other', 'prosthetics'] },
+];
+
+const DAILY_EXAM_CODES = ['consultant_exam', 'specialist_exam', 'consultation_stamp'];
+
 let dailySectionsCache = [];
 let dailyCurrentEntryId = null;
 let dailyStayContext = null;
@@ -81,11 +94,64 @@ function fmtStayDate(value) {
 }
 
 function getLocalDateString() {
+  if (dailyBusinessDate) return dailyBusinessDate;
   const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function codesForActiveDailyTab() {
+  if (activeDailyTab === 'all') return null;
+  const group = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab);
+  return group ? group.codes : null;
+}
+
+function isSectionVisibleInActiveTab(sectionCode) {
+  const codes = codesForActiveDailyTab();
+  if (!codes) return true;
+  return codes.includes(sectionCode);
+}
+
+function applyDailyTabColumnVisibility() {
+  const codes = codesForActiveDailyTab();
+  document.querySelectorAll('.daily-section-th[data-section], .daily-section-cell[data-section]').forEach((el) => {
+    const show = !codes || codes.includes(el.dataset.section);
+    el.classList.toggle('daily-col-hidden', !show);
+  });
+  const showExams = !codes || codes.some((c) => DAILY_EXAM_CODES.includes(c));
+  document.querySelectorAll('[data-section-group="exams"]').forEach((el) => {
+    el.classList.toggle('daily-col-hidden', !showExams);
+  });
+  const hint = document.getElementById('daily-tab-hint');
+  if (hint && codes) {
+    const label = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab)?.label || '';
+    hint.textContent = `قسم «${label}» — الأعمدة المعروضة لهذا القسم فقط. احفظ الكل بعد إدخال كل الأقسام.`;
+  } else if (hint) {
+    hint.textContent = 'كل أقسام الحركة اليومية — أو اختر تبويبًا لعرض قسم واحد.';
+  }
+}
+
+function renderDailyEntryTabs() {
+  const nav = document.getElementById('daily-entry-tabs');
+  if (!nav) return;
+  const tabs = [{ id: 'all', label: 'كل الأقسام' }, ...DAILY_TAB_GROUPS];
+  nav.innerHTML = tabs
+    .map(
+      (t) =>
+        `<li class="nav-item" role="presentation"><button type="button" class="nav-link ${activeDailyTab === t.id ? 'active' : ''}" data-daily-tab="${t.id}" role="tab">${t.label}</button></li>`
+    )
+    .join('');
+  nav.querySelectorAll('[data-daily-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeDailyTab = btn.dataset.dailyTab;
+      nav.querySelectorAll('.nav-link').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      applyDailyTabColumnVisibility();
+    });
+  });
+  applyDailyTabColumnVisibility();
 }
 
 function setDailyTodayDate() {
@@ -343,6 +409,8 @@ function dailyFormatInput(n, decimals = 2) {
 let dailyPriceListMeta = null;
 let dailySectionsLoadFailed = false;
 let dailySaveInFlight = false;
+let dailyBusinessDate = null;
+let activeDailyTab = 'medicines';
 
 function isManualDailyAmountSection(section) {
   return ['accommodation', 'companion', 'nursing_point'].includes(String(section?.code || '').trim());
@@ -351,7 +419,14 @@ function isManualDailyAmountSection(section) {
 async function loadDailySections() {
   dailySectionsLoadFailed = false;
   try {
-    dailySectionsCache = await apiJson(`${DAILY_API}/sections?with_services=1`);
+    const payload = await apiJson(`${DAILY_API}/sections?with_services=1`);
+    if (Array.isArray(payload)) {
+      dailySectionsCache = payload;
+      dailyBusinessDate = null;
+    } else {
+      dailySectionsCache = payload.sections || [];
+      dailyBusinessDate = payload.business_date || null;
+    }
   } catch (err) {
     dailySectionsLoadFailed = true;
     dailySectionsCache = [];
@@ -364,6 +439,8 @@ async function loadDailySections() {
     ? { id: plSection.price_list_id, name: plSection.price_list_name }
     : null;
   renderDailySectionsTable();
+  renderDailyEntryTabs();
+  setDailyTodayDate();
 
   const priceSections = dailySectionsCache.filter((s) => s.category_code && !s.catalog_category);
   const statusEl = document.getElementById('daily-entry-status');
@@ -437,7 +514,7 @@ function renderDailyCellHtml(section, line = {}) {
       '<small class="text-muted d-block mb-1">لا أصناف نشطة — راجع كتالوج الأصناف في الإعدادات</small>';
   }
 
-  return `<td>${pickerHtml}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}"></td>`;
+  return `<td class="daily-section-cell" data-section="${section.code}">${pickerHtml}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}"></td>`;
 }
 
 function renderDailySectionsTable() {
@@ -467,9 +544,9 @@ function renderDailySectionsTable() {
     blocks
       .map((block) => {
         if (block.type === 'consultations') {
-          return '<th colspan="3" class="text-center daily-group-th">الكشوفات</th>';
+          return '<th colspan="3" class="text-center daily-group-th" data-section-group="exams">الكشوفات</th>';
         }
-        return `<th rowspan="2" class="daily-section-th" title="${block.section.category_code || ''}">${block.section.name}</th>`;
+        return `<th rowspan="2" class="daily-section-th" data-section="${block.section.code}" title="${block.section.category_code || ''}">${block.section.name}</th>`;
       })
       .join('') +
     '<th rowspan="2" class="daily-meta-th">إجمالي</th><th rowspan="2" class="daily-meta-th"></th>';
@@ -478,7 +555,9 @@ function renderDailySectionsTable() {
     subhead.innerHTML = blocks
       .map((block) => {
         if (block.type === 'consultations') {
-          return block.sections.map((s) => `<th class="daily-section-th">${s.name}</th>`).join('');
+          return block.sections
+            .map((s) => `<th class="daily-section-th" data-section="${s.code}" data-section-group="exams">${s.name}</th>`)
+            .join('');
         }
         return '';
       })
@@ -491,6 +570,7 @@ function renderDailySectionsTable() {
   const footSpacer = document.getElementById('daily-total-foot-spacer');
   if (footLabel) footLabel.colSpan = Math.max(colCount - 2, 1);
   if (footSpacer) footSpacer.colSpan = Math.max(colCount - 3, 0);
+  applyDailyTabColumnVisibility();
 }
 
 function bindDailyRowEvents(tr) {
@@ -603,6 +683,7 @@ function createDailyEntryRow(entry = {}) {
       DailyEntryPicker.hydratePicker(tr, section, getLineForSection(entry, section.code));
     }
   }
+  applyDailyTabColumnVisibility();
   updateRowTotal(tr);
   return tr;
 }

@@ -10,7 +10,13 @@ const ROLES = {
 const PERMISSION_CATALOG = [
   { key: 'invoices.view', label: 'عرض الفواتير', description: 'رؤية قائمة الفواتير وتفاصيلها', group: 'الفواتير' },
   { key: 'invoices.create', label: 'إنشاء فاتورة', description: 'إنشاء فاتورة جديدة وحفظها مؤقتًا', group: 'الفواتير' },
-  { key: 'invoices.edit', label: 'تعديل فاتورة', description: 'تعديل الفواتير غير المعتمدة', group: 'الفواتير' },
+  { key: 'invoices.edit', label: 'تعديل فاتورة', description: 'تعديل المدفوعات والمرتجعات على الفواتير غير المعتمدة', group: 'الفواتير' },
+  {
+    key: 'invoices.edit_original',
+    label: 'تعديل الفاتورة الأصلية',
+    description: 'تعديل بنود ومحتوى الفاتورة (المسؤول فقط)',
+    group: 'الفواتير',
+  },
   { key: 'invoices.delete', label: 'حذف فاتورة', description: 'حذف الفواتير (مسودة أو معتمدة)', group: 'الفواتير' },
   { key: 'invoices.approve', label: 'اعتماد فاتورة', description: 'المراجعة النهائية وإصدار الرقم التسلسلي', group: 'الفواتير' },
   { key: 'invoices.submit', label: 'إرسال للمراجعة', description: 'إرسال الفاتورة للمراجع المالي', group: 'الفواتير' },

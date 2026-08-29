@@ -55,7 +55,12 @@ router.use(requireAuth);
 router.get('/sections', requirePermission('daily_charges.view'), async (req, res) => {
   try {
     const withServices = req.query.with_services === '1';
-    res.json(withServices ? await getSectionsWithServices() : await listSections());
+    const { getCurrentBusinessDateString } = require('../services/dailyChargeService');
+    const sections = withServices ? await getSectionsWithServices() : await listSections();
+    res.json({
+      business_date: getCurrentBusinessDateString(),
+      sections,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

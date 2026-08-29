@@ -66,14 +66,58 @@ async function applyPatientCredit(client, invoice) {
     [patient.id, newBalance]
   );
   await client.query(
-    `INSERT INTO patient_transactions (patient_id, invoice_id, amount, balance_after, note)
-     VALUES ($1, $2, $3, $4, $5)`,
+    `INSERT INTO patient_transactions (patient_id, invoice_id, amount, balance_after, note, transaction_kind)
+     VALUES ($1, $2, $3, $4, $5, 'prepaid_deduct')`,
     [patient.id, invoice.id, -credit, newBalance, 'خصم من فاتورة معتمدة']
   );
   await client.query(
     'UPDATE invoices SET patient_credit_deducted = TRUE WHERE id = $1',
     [invoice.id]
   );
+}
+
+async function recordInvoiceCollections(client, invoice, totals) {
+  const invoiceId = Number(invoice.id);
+  if (!invoiceId) return;
+
+  await client.query(
+    `DELETE FROM patient_transactions WHERE invoice_id = $1 AND transaction_kind = 'collection'`,
+    [invoiceId]
+  );
+
+  const fileNumber = String(invoice.file_number || '').trim();
+  if (!fileNumber) return;
+
+  const methods = totals?.method_payments || [];
+  const hasCollection = methods.some(
+    (m) => m.code && m.code !== 'patient_credit' && Number(m.amount) > 0
+  );
+  if (!hasCollection) return;
+
+  const { rows } = await client.query('SELECT * FROM patients WHERE file_number = $1 FOR UPDATE', [fileNumber]);
+  let patient = rows[0];
+  if (!patient) {
+    const inserted = await client.query(
+      `INSERT INTO patients (file_number, name) VALUES ($1, $2) RETURNING *`,
+      [fileNumber, invoice.patient_name || '']
+    );
+    patient = inserted.rows[0];
+  }
+
+  const prepaidBalance = Math.round((Number(patient.account_balance) || 0) * 100) / 100;
+
+  for (const entry of methods) {
+    const code = String(entry.code || '').trim();
+    if (!code || code === 'patient_credit') continue;
+    const amount = Math.round((Number(entry.amount) || 0) * 100) / 100;
+    if (amount <= 0) continue;
+    const label = entry.name || code;
+    await client.query(
+      `INSERT INTO patient_transactions (patient_id, invoice_id, amount, balance_after, note, transaction_kind)
+       VALUES ($1, $2, $3, $4, $5, 'collection')`,
+      [patient.id, invoiceId, amount, prepaidBalance, `تحصيل (${label}) — فاتورة #${invoiceId}`]
+    );
+  }
 }
 
 async function listPatients() {
@@ -88,5 +132,6 @@ module.exports = {
   upsertPatient,
   setPatientBalance,
   applyPatientCredit,
+  recordInvoiceCollections,
   listPatients,
 };

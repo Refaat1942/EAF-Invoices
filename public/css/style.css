@@ -630,6 +630,20 @@ body {
   font-weight: 700;
 }
 
+.daily-entry-tabs .nav-link {
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 0.35rem 0.5rem;
+}
+
+.daily-col-hidden {
+  display: none !important;
+}
+
+.payment-meta-fields input {
+  font-size: 0.85rem;
+}
+
 .patient-stay-steps {
   display: flex;
   gap: 0.5rem;

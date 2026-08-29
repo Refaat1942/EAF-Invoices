@@ -321,8 +321,59 @@ function applyPermissions() {
     const el = document.getElementById(id);
     if (el) el.style.display = canEdit ? '' : 'none';
   });
-  setFormReadonly(!canEdit);
   updateInvoiceActionButtons();
+  applyInvoiceEditMode();
+}
+
+function setInvoiceItemsReadonly(readonly) {
+  document.querySelectorAll('#items-tbody input, #items-tbody select, #items-tbody textarea').forEach((el) => {
+    if (readonly) {
+      el.setAttribute('readonly', 'readonly');
+      if (el.tagName === 'SELECT') el.disabled = true;
+    } else {
+      el.removeAttribute('readonly');
+      if (el.tagName === 'SELECT') el.disabled = false;
+    }
+  });
+  document.querySelectorAll('#stay-entries-tbody input, #stay-entries-tbody select').forEach((el) => {
+    el.disabled = readonly;
+  });
+  ['add-row-btn', 'remove-row-btn', 'add-stay-entry-btn', 'import-daily-charges-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = readonly ? 'none' : '';
+  });
+}
+
+function applyInvoiceEditMode() {
+  const canPay = can('invoices.create') || can('invoices.edit');
+  const canItems = can('invoices.edit_original');
+  document.getElementById('save-draft-btn').style.display = canPay ? '' : 'none';
+
+  if (!canPay) {
+    setFormReadonly(true);
+    setInvoiceItemsReadonly(true);
+    return;
+  }
+
+  if (canItems) {
+    setFormReadonly(false);
+    setInvoiceItemsReadonly(false);
+    return;
+  }
+
+  setFormReadonly(true);
+  setInvoiceItemsReadonly(true);
+  document.querySelectorAll('.payment-method-input, .payment-meta-input').forEach((el) => {
+    el.removeAttribute('readonly');
+    el.disabled = false;
+  });
+  document.querySelectorAll('.pay-remaining-btn').forEach((btn) => {
+    btn.style.display = '';
+  });
+  ['pay-full-cash-btn', 'pay-full-bank-btn', 'pay-full-check-btn', 'clear-payments-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = '';
+  });
 }
 
 function setFormReadonly(readonly) {
@@ -565,6 +616,7 @@ function bindPaymentMethodHelpers() {
     input.addEventListener('focus', updatePaymentRowHints);
     input.addEventListener('input', () => {
       updatePaymentRowHints();
+      togglePaymentMetaRows();
       if (input.dataset.methodCode !== 'patient_credit') {
         recalculate({ skipAutoCredit: true, skipAutoPayments: true });
       }
@@ -1536,10 +1588,13 @@ function collectFormData() {
 function collectMethodPayments() {
   const entries = [];
   document.querySelectorAll('.payment-method-input').forEach((input) => {
+    const code = input.dataset.methodCode;
     entries.push({
       payment_method_id: Number(input.dataset.methodId),
-      code: input.dataset.methodCode,
+      code,
+      name: input.dataset.methodName || '',
       amount: parseDisplayAmount(input.value),
+      metadata: collectPaymentMetadata(code),
     });
   });
   return entries;
@@ -1992,7 +2047,8 @@ function updatePaymentValidationUI(t) {
 
   if (validation.is_balanced || Math.abs(Number(t.remaining) || 0) < 0.01) {
     banner.className = 'payment-validation-banner is-balanced';
-    banner.textContent = `✓ متطابق: مجموع طرق الدفع (${fmt(collected)}) = إجمالي الفاتورة (${fmt(finalTotal)})`;
+    const remaining = Number(t.remaining) || 0;
+    banner.textContent = `✓ متطابق: التحصيل (${fmt(collected)}) + المتبقي (${fmt(remaining)}) = الإجمالي (${fmt(finalTotal)})`;
     statusEl.textContent = '✓ متطابق';
     statusEl.className = 'fw-black text-success';
     return;
@@ -2340,16 +2396,18 @@ async function loadInvoiceForEdit(id, options = {}) {
     document.getElementById('admin_expenses_percent').value = formatAmountInput(inv.admin_expenses_percent ?? 0);
 
     const paymentValues = {};
+    const paymentMeta = {};
     if (inv.method_payments?.length) {
       inv.method_payments.forEach((m) => {
         paymentValues[m.payment_method_id] = m.amount;
+        if (m.code) paymentMeta[m.code] = m.metadata || {};
       });
     } else {
       paymentValues.cash = inv.cash_private;
       paymentValues.bank_transfer = inv.bank_private;
       paymentValues.check = inv.cash_external;
     }
-    await loadPaymentMethodsForm(paymentValues);
+    await loadPaymentMethodsForm(paymentValues, paymentMeta);
 
     document.getElementById('employee_name').value = inv.employee_name;
     document.getElementById('auditor_name').value = inv.auditor_name;
@@ -2397,7 +2455,7 @@ async function loadInvoiceForEdit(id, options = {}) {
     if (inv.status === 'approved') {
       setFormReadonly(true);
     } else {
-      setFormReadonly(!(can('invoices.create') || can('invoices.edit')));
+      applyInvoiceEditMode();
     }
 
     bindCalcTriggers();
@@ -2789,7 +2847,52 @@ async function loadFinancialTreatments(selected = {}) {
   }
 }
 
-async function loadPaymentMethodsForm(values = {}) {
+const PAYMENT_META_FIELDS = {
+  cash: [{ key: 'depositor_name', label: 'اسم المودع', placeholder: 'اسم المودع' }],
+  bank_transfer: [
+    { key: 'depositor_name', label: 'المودع', placeholder: 'اسم المودع' },
+    { key: 'transfer_ref', label: 'رقم التحويل', placeholder: 'رقم العملية أو الإيصال' },
+  ],
+  check: [
+    { key: 'cheque_number', label: 'رقم الشيك', placeholder: 'رقم الشيك' },
+    { key: 'cheque_date', label: 'تاريخ الشيك', placeholder: '', type: 'date' },
+    { key: 'cheque_drawer', label: 'الساحب', placeholder: 'اسم ساحب الشيك' },
+  ],
+};
+
+function buildPaymentMetaFieldsHtml(code, meta = {}) {
+  const fields = PAYMENT_META_FIELDS[code];
+  if (!fields?.length) return '';
+  return fields
+    .map((field) => {
+      const val = meta[field.key] || '';
+      const type = field.type || 'text';
+      const inputClass = type === 'date' ? 'form-control form-control-sm payment-meta-input' : 'form-control form-control-sm payment-meta-input comma-amount';
+      return `<div class="col-md-4"><label class="form-label small mb-0">${field.label}</label>
+        <input type="${type}" class="${inputClass}" data-meta-key="${field.key}" data-method-code="${code}" placeholder="${escapeAttr(field.placeholder || '')}" value="${escapeAttr(val)}"></div>`;
+    })
+    .join('');
+}
+
+function togglePaymentMetaRows() {
+  document.querySelectorAll('.payment-meta-row').forEach((row) => {
+    const code = row.dataset.methodCode;
+    const input = document.querySelector(`.payment-method-input[data-method-code="${code}"]`);
+    const amount = input ? parseDisplayAmount(input.value) : 0;
+    row.style.display = amount > 0 ? '' : 'none';
+  });
+}
+
+function collectPaymentMetadata(code) {
+  const meta = {};
+  document.querySelectorAll(`.payment-meta-input[data-method-code="${code}"]`).forEach((input) => {
+    const val = String(input.value || '').trim();
+    if (val) meta[input.dataset.metaKey] = val;
+  });
+  return meta;
+}
+
+async function loadPaymentMethodsForm(values = {}, metadataByCode = {}) {
   try {
     const res = await apiFetch(`${SETTINGS_API}/payment-methods`);
     const methods = await res.json();
@@ -2816,7 +2919,10 @@ async function loadPaymentMethodsForm(values = {}) {
             data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${displayVal}" placeholder="0" ${readonlyAttr}></td>
           <td class="text-center">${actionCell}</td>
         </tr>
-        <tr class="payment-row-remaining" style="display:none"><td colspan="3" class="remaining-hint-text py-1"></td></tr>`;
+        <tr class="payment-row-remaining" style="display:none"><td colspan="3" class="remaining-hint-text py-1"></td></tr>
+        <tr class="payment-meta-row" data-method-code="${m.code}" style="display:none"><td colspan="3" class="py-2 bg-light">
+          <div class="payment-meta-fields row g-2">${buildPaymentMetaFieldsHtml(m.code, metadataByCode[m.code] || {})}</div>
+        </td></tr>`;
       })
       .join('');
 
@@ -2828,6 +2934,7 @@ async function loadPaymentMethodsForm(values = {}) {
 
     tbody.innerHTML = html || '<tr><td colspan="3" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
     bindCalcTriggers();
+    togglePaymentMetaRows();
     updatePaymentRowHints();
   } catch (err) {
     console.error(err);

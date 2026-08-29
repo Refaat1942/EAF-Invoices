@@ -12,7 +12,8 @@ const { nextSerialNumber, formatFiscalYearLabel } = require('./serialService');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
 const { getContractedEntityById, getEffectiveDiscountPercent } = require('./contractedEntityService');
 const { listDiscountExclusions } = require('./discountExclusionService');
-const { upsertPatient, applyPatientCredit, setPatientBalance, getPatientByFileNumber } = require('./patientService');
+const { upsertPatient, applyPatientCredit, setPatientBalance, getPatientByFileNumber, recordInvoiceCollections } = require('./patientService');
+const { assertInvoiceStructuralEditAllowed } = require('./invoiceEditGuard');
 const { getSummaryReport, STATUS_LABELS } = require('./reportService');
 
 const { getStayTypeById } = require('./stayTypeService');
@@ -242,14 +243,17 @@ async function attachInvoiceLabels(invoice, typeMap) {
 async function loadMethodPayments(invoiceId, client = null) {
   const run = client ? client.query.bind(client) : query;
   const { rows } = await run(
-    `SELECT ipa.amount, pm.id AS payment_method_id, pm.code, pm.name, pm.accepts_amount
+    `SELECT ipa.amount, ipa.metadata, pm.id AS payment_method_id, pm.code, pm.name, pm.accepts_amount
      FROM invoice_payment_amounts ipa
      JOIN payment_methods pm ON pm.id = ipa.payment_method_id
      WHERE ipa.invoice_id = $1
      ORDER BY pm.sort_order, pm.name`,
     [invoiceId]
   );
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+  }));
 }
 
 async function saveMethodPayments(client, invoiceId, methodPayments = []) {
@@ -263,11 +267,15 @@ async function saveMethodPayments(client, invoiceId, methodPayments = []) {
       methodId = await getPaymentMethodIdByCode(entry.code, client);
     }
     if (!methodId) continue;
+    const metadata =
+      entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
     await client.query(
-      `INSERT INTO invoice_payment_amounts (invoice_id, payment_method_id, amount)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (invoice_id, payment_method_id) DO UPDATE SET amount = EXCLUDED.amount`,
-      [invoiceId, methodId, amount]
+      `INSERT INTO invoice_payment_amounts (invoice_id, payment_method_id, amount, metadata)
+       VALUES ($1, $2, $3, $4::jsonb)
+       ON CONFLICT (invoice_id, payment_method_id) DO UPDATE SET
+         amount = EXCLUDED.amount,
+         metadata = EXCLUDED.metadata`,
+      [invoiceId, methodId, amount, JSON.stringify(metadata)]
     );
   }
 }
@@ -493,6 +501,9 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
       if (current.status === 'approved') {
         throw new Error('لا يمكن تعديل فاتورة معتمدة — تواصل مع المراجع');
       }
+
+      const existingFull = await getInvoiceById(existingId, client);
+      assertInvoiceStructuralEditAllowed(options.actor, existingFull, data, totals);
 
       serialNumber = current.serial_number;
       fiscalYear = current.fiscal_year;
@@ -784,6 +795,7 @@ async function approveInvoice(id, reviewer) {
       patient_credit_deducted: invoice.patient_credit_deducted,
     };
     await applyPatientCredit(client, updated);
+    await recordInvoiceCollections(client, { ...invoice, id }, totals);
 
     return getInvoiceById(id, client);
   });
