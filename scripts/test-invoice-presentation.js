@@ -72,6 +72,51 @@ function testTwoSuppliesAggregateToOneRow() {
   console.log('OK two supply items aggregate to one row');
 }
 
+function testIdenticalClinicalServicesGrouped() {
+  const items = [
+    {
+      section_code: 'analyses',
+      section_name: 'تحاليل',
+      service_id: 101,
+      service_name_snapshot: 'CBC',
+      description: 'CBC',
+      quantity: 1,
+      amount: 75,
+      total: 75,
+      total_raw: 75,
+    },
+    {
+      section_code: 'analyses',
+      section_name: 'تحاليل',
+      service_id: 101,
+      service_name_snapshot: 'CBC',
+      description: 'CBC',
+      quantity: 1,
+      amount: 75,
+      total: 75,
+      total_raw: 75,
+    },
+    {
+      section_code: 'analyses',
+      section_name: 'تحاليل',
+      service_id: 102,
+      service_name_snapshot: 'Glucose',
+      description: 'Glucose',
+      quantity: 1,
+      amount: 40,
+      total: 40,
+      total_raw: 40,
+    },
+  ];
+  const display = aggregateCustomerFacingLines(items);
+  assertEq(display.length, 2, 'two clinical rows after grouping');
+  const cbc = display.find((r) => r.description === 'CBC');
+  assert(cbc, 'CBC row exists');
+  assertEq(cbc.total, 150, 'CBC totals summed');
+  assert(cbc._customer_display_aggregate, 'CBC grouped row flagged');
+  console.log('OK identical clinical service names grouped');
+}
+
 function testMixedSectionsStaySeparated() {
   const items = [
     makeCatalogItem('medicines', 'الأدوية', 52, { description: 'Med X' }),
@@ -217,6 +262,7 @@ function testPdfLabelsWithoutProductNames() {
 function main() {
   testThreeMedicinesAggregateToOneRow();
   testTwoSuppliesAggregateToOneRow();
+  testIdenticalClinicalServicesGrouped();
   testMixedSectionsStaySeparated();
   testGrandTotalUnchanged();
   testPartialReturnAggregatedMedicinesTotal();

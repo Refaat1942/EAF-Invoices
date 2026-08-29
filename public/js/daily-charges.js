@@ -341,8 +341,12 @@ function dailyFormatInput(n, decimals = 2) {
 }
 
 let dailyPriceListMeta = null;
-
 let dailySectionsLoadFailed = false;
+let dailySaveInFlight = false;
+
+function isManualDailyAmountSection(section) {
+  return ['accommodation', 'companion', 'nursing_point'].includes(String(section?.code || '').trim());
+}
 
 async function loadDailySections() {
   dailySectionsLoadFailed = false;
@@ -417,8 +421,20 @@ function renderDailyCellHtml(section, line = {}) {
   let pickerHtml = '';
   if (hasPicker && window.DailyEntryPicker) {
     pickerHtml = DailyEntryPicker.buildCellHtml(section, line);
+  } else if (
+    section.category_code &&
+    !usesCatalog &&
+    (section.service_count === 0 || section.service_count == null) &&
+    !isManualDailyAmountSection(section)
+  ) {
+    pickerHtml =
+      '<small class="text-muted d-block mb-1">لا توجد خدمات في اللائحة النشطة — راجع استيراد اللائحة</small>';
+  } else if (isManualDailyAmountSection(section) && section.service_count === 0) {
+    pickerHtml =
+      '<small class="text-muted d-block mb-1">لا خدمات في اللائحة — أدخل المبلغ يدوياً</small>';
   } else if (usesCatalog) {
-    pickerHtml = '<small class="text-muted d-block mb-1">لا أصناف نشطة — راجع كتالوج الأصناف في الإعدادات</small>';
+    pickerHtml =
+      '<small class="text-muted d-block mb-1">لا أصناف نشطة — راجع كتالوج الأصناف في الإعدادات</small>';
   }
 
   return `<td>${pickerHtml}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}"></td>`;
@@ -485,7 +501,6 @@ function bindDailyRowEvents(tr) {
       updateDailyGrandTotal();
     });
     el.addEventListener('change', () => {
-      if (el.classList.contains('daily-row-stay-type')) applyStayTypeRateToRow(tr);
       updateRowTotal(tr);
       updateDailyGrandTotal();
     });
@@ -502,6 +517,7 @@ function applyDefaultPricesForRow(tr) {
   for (const section of dailySectionsCache) {
     if (section.input_type !== 'amount') continue;
     if (section.catalog_category || section.uses_catalog) continue;
+    if (isManualDailyAmountSection(section)) continue;
     const amountInput = tr.querySelector(`.daily-amount[data-section="${section.code}"]`);
     if (!amountInput || dailyParseAmount(amountInput.value) > 0) continue;
 
@@ -837,6 +853,7 @@ async function loadDailyPatientHistory() {
 }
 
 async function saveDailyEntry() {
+  if (dailySaveInFlight) return;
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية تسجيل الحركة اليومية', 'warning');
     return;
@@ -853,6 +870,10 @@ async function saveDailyEntry() {
   }
 
   try {
+    dailySaveInFlight = true;
+    const saveBtn = document.getElementById('daily-save-btn');
+    if (saveBtn) saveBtn.disabled = true;
+
     const data = await apiJson(`${DAILY_API}/entries/batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -877,6 +898,10 @@ async function saveDailyEntry() {
     showToast(toastMsg, 'success');
   } catch (err) {
     showToast(err.message, 'danger');
+  } finally {
+    dailySaveInFlight = false;
+    const saveBtn = document.getElementById('daily-save-btn');
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 

@@ -8,6 +8,9 @@ const {
   entriesToInvoiceItems,
   getCurrentBusinessDateString,
   resolveAllowedDailyEntryDate,
+  isManualAmountSection,
+  MANUAL_AMOUNT_SECTION_CODES,
+  buildDailyLinesFingerprint,
 } = require('../services/dailyChargeService');
 
 const sections = [
@@ -79,6 +82,29 @@ try {
 
 if (resolveAllowedDailyEntryDate(undefined) !== allowedToday) {
   console.error('FAIL missing entry_date should use business today');
+  process.exit(1);
+}
+
+if (!isManualAmountSection('accommodation') || !isManualAmountSection('nursing_point')) {
+  console.error('FAIL manual amount section codes');
+  process.exit(1);
+}
+if (isManualAmountSection('sessions')) {
+  console.error('FAIL sessions should not be manual amount');
+  process.exit(1);
+}
+
+const fp1 = buildDailyLinesFingerprint([
+  { section_code: 'medicines', catalog_item_id: 5, amount: 100, quantity: 1 },
+]);
+const fp2 = buildDailyLinesFingerprint([
+  { section_code: 'medicines', catalog_item_id: 5, amount: 100, quantity: 1 },
+]);
+const fp3 = buildDailyLinesFingerprint([
+  { section_code: 'medicines', catalog_item_id: 6, amount: 100, quantity: 1 },
+]);
+if (fp1 !== fp2 || fp1 === fp3) {
+  console.error('FAIL buildDailyLinesFingerprint');
   process.exit(1);
 }
 

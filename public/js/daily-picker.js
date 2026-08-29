@@ -2,6 +2,12 @@
  * Searchable Daily Entry item/service picker (catalog + price-list services).
  */
 (function () {
+  const MANUAL_AMOUNT_SECTION_CODES = Object.freeze(['accommodation', 'companion', 'nursing_point']);
+
+  function isManualDailyAmountSection(section) {
+    return MANUAL_AMOUNT_SECTION_CODES.includes(String(section?.code || '').trim());
+  }
+
   const PICKER_MIN_SEARCH = 2;
   const PICKER_DEBOUNCE_MS = 300;
   const PICKER_DEFAULT_LIMIT = 25;
@@ -177,6 +183,10 @@
     if (kind === 'catalog') {
       populateCatalogUnitSelect(tr, section.code, item);
       applyCatalogUnitPrice(tr, section.code);
+    } else if (isManualDailyAmountSection(section)) {
+      if (amountInput) {
+        amountInput.title = `${item.name || section.name} — أدخل المبلغ يدوياً`;
+      }
     } else {
       const price = Number(item.price ?? item.list_price) || 0;
       if (amountInput && price > 0) {

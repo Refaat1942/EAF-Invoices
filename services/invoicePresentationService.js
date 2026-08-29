@@ -20,43 +20,86 @@ function resolveSectionLabel(item, sectionCode, sectionLabels = {}) {
   return DEFAULT_SECTION_LABELS[sectionCode] || sectionCode;
 }
 
+function normalizePresentationText(text) {
+  return String(text || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function buildServiceGroupKey(item) {
+  if (isCustomerAggregateSection(item.section_code)) return null;
+  if (item.catalog_item_id) return null;
+  if (item._customer_display_aggregate) return null;
+
+  const name = normalizePresentationText(item.service_name_snapshot || item.description);
+  if (!name) return null;
+
+  const unitPrice = round2(item.amount ?? item.unit_price_snapshot ?? item.unit_price ?? 0);
+  const serviceId = item.service_id ? String(item.service_id) : '';
+  const serviceCode = normalizePresentationText(item.service_code_snapshot || item.service_code || '');
+
+  return `${serviceId}|${serviceCode}|${name}|${unitPrice}`;
+}
+
 /**
- * Collapse catalog consumable invoice lines into one customer-facing row per section.
+ * Collapse catalog consumable lines and identical clinical service lines for customer PDF.
  * Call only after calculateInvoiceTotals + enrichInvoice so line totals include returns.
  */
 function aggregateCustomerFacingLines(items = [], options = {}) {
   const sectionLabels = options.sectionLabels || {};
-  const buckets = new Map();
-  const placedSections = new Set();
+  const catalogBuckets = new Map();
+  const serviceBuckets = new Map();
+  const placedCatalogSections = new Set();
+  const placedServiceKeys = new Set();
   const output = [];
 
   for (let index = 0; index < items.length; index++) {
     const item = items[index];
     const sectionCode = String(item.section_code || '').trim();
 
-    if (!isCustomerAggregateSection(sectionCode)) {
+    if (isCustomerAggregateSection(sectionCode)) {
+      if (!catalogBuckets.has(sectionCode)) {
+        catalogBuckets.set(sectionCode, {
+          section_code: sectionCode,
+          description: resolveSectionLabel(item, sectionCode, sectionLabels),
+          section_sort_order: item.section_sort_order ?? 999,
+          firstIndex: index,
+          total: 0,
+          total_raw: 0,
+        });
+      }
+
+      const bucket = catalogBuckets.get(sectionCode);
+      bucket.total = round2(bucket.total + (Number(item.total) || 0));
+      bucket.total_raw = round2(bucket.total_raw + (Number(item.total_raw ?? item.total) || 0));
+      if (item.section_name) {
+        bucket.description = String(item.section_name).trim();
+      }
+      if (item.section_sort_order != null) {
+        bucket.section_sort_order = item.section_sort_order;
+      }
       continue;
     }
 
-    if (!buckets.has(sectionCode)) {
-      buckets.set(sectionCode, {
-        section_code: sectionCode,
-        description: resolveSectionLabel(item, sectionCode, sectionLabels),
-        section_sort_order: item.section_sort_order ?? 999,
-        firstIndex: index,
-        total: 0,
-        total_raw: 0,
-      });
-    }
-
-    const bucket = buckets.get(sectionCode);
-    bucket.total = round2(bucket.total + (Number(item.total) || 0));
-    bucket.total_raw = round2(bucket.total_raw + (Number(item.total_raw ?? item.total) || 0));
-    if (item.section_name) {
-      bucket.description = String(item.section_name).trim();
-    }
-    if (item.section_sort_order != null) {
-      bucket.section_sort_order = item.section_sort_order;
+    const serviceKey = buildServiceGroupKey(item);
+    if (serviceKey) {
+      if (!serviceBuckets.has(serviceKey)) {
+        serviceBuckets.set(serviceKey, {
+          key: serviceKey,
+          description: normalizePresentationText(item.service_name_snapshot || item.description),
+          section_code: sectionCode,
+          section_sort_order: item.section_sort_order ?? 999,
+          firstIndex: index,
+          total: 0,
+          total_raw: 0,
+        });
+      }
+      const bucket = serviceBuckets.get(serviceKey);
+      bucket.total = round2(bucket.total + (Number(item.total) || 0));
+      bucket.total_raw = round2(bucket.total_raw + (Number(item.total_raw ?? item.total) || 0));
+      if (item.section_sort_order != null) {
+        bucket.section_sort_order = item.section_sort_order;
+      }
     }
   }
 
@@ -64,9 +107,9 @@ function aggregateCustomerFacingLines(items = [], options = {}) {
     const item = items[index];
     const sectionCode = String(item.section_code || '').trim();
 
-    if (isCustomerAggregateSection(sectionCode) && buckets.has(sectionCode)) {
-      if (!placedSections.has(sectionCode)) {
-        const bucket = buckets.get(sectionCode);
+    if (isCustomerAggregateSection(sectionCode) && catalogBuckets.has(sectionCode)) {
+      if (!placedCatalogSections.has(sectionCode)) {
+        const bucket = catalogBuckets.get(sectionCode);
         output.push({
           description: bucket.description,
           section_code: bucket.section_code,
@@ -78,7 +121,27 @@ function aggregateCustomerFacingLines(items = [], options = {}) {
           item_discount_percent: '',
           _customer_display_aggregate: true,
         });
-        placedSections.add(sectionCode);
+        placedCatalogSections.add(sectionCode);
+      }
+      continue;
+    }
+
+    const serviceKey = buildServiceGroupKey(item);
+    if (serviceKey && serviceBuckets.has(serviceKey)) {
+      if (!placedServiceKeys.has(serviceKey)) {
+        const bucket = serviceBuckets.get(serviceKey);
+        output.push({
+          description: bucket.description,
+          section_code: bucket.section_code,
+          section_sort_order: bucket.section_sort_order,
+          total: bucket.total,
+          total_raw: bucket.total_raw,
+          quantity: '',
+          amount: '',
+          item_discount_percent: '',
+          _customer_display_aggregate: true,
+        });
+        placedServiceKeys.add(serviceKey);
       }
       continue;
     }
@@ -92,6 +155,7 @@ function aggregateCustomerFacingLines(items = [], options = {}) {
 module.exports = {
   aggregateCustomerFacingLines,
   isCustomerAggregateSection,
+  buildServiceGroupKey,
   CUSTOMER_AGGREGATE_SECTION_CODES,
   DEFAULT_SECTION_LABELS,
 };

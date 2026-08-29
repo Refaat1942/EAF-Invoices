@@ -1,11 +1,36 @@
 const { query, withTransaction } = require('../database/db');
 const { getDefaultPriceList } = require('./priceListService');
 const { listServices, resolveServiceForInvoice, getServiceById, enrichServicesWithResolvedPrices } = require('./serviceCatalogService');
-const { getStayTypeById } = require('./stayTypeService');
 const { upsertPatient } = require('./patientService');
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** إقامة / مرافق / نقطة تمريض — المبلغ يدوي فقط (لا سعر تلقائي من اللائحة). */
+const MANUAL_AMOUNT_SECTION_CODES = Object.freeze(['accommodation', 'companion', 'nursing_point']);
+
+function isManualAmountSection(sectionOrCode) {
+  const code = typeof sectionOrCode === 'string' ? sectionOrCode : sectionOrCode?.code;
+  return MANUAL_AMOUNT_SECTION_CODES.includes(String(code || '').trim());
+}
+
+function buildDailyLinesFingerprint(lines = []) {
+  return (lines || [])
+    .map((line) =>
+      [
+        line.section_code,
+        line.service_id || '',
+        line.catalog_item_id || '',
+        round2(line.amount),
+        line.catalog_unit_level || '',
+        round2(line.quantity || 1),
+        line.extra_date || '',
+        String(line.extra_text || '').trim(),
+      ].join('|')
+    )
+    .sort()
+    .join(';');
 }
 
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'Africa/Cairo';
@@ -177,6 +202,7 @@ async function getSectionsWithServices() {
         return {
           ...section,
           services: [],
+          service_count: 0,
           picker_kind: section.category_code ? 'service' : null,
           default_service: null,
           price_list_id: null,
@@ -184,11 +210,20 @@ async function getSectionsWithServices() {
         };
       }
 
+      const countRes = await query(
+        `SELECT COUNT(*)::int AS n
+         FROM services s
+         INNER JOIN service_categories c ON c.id = s.category_id
+         WHERE s.price_list_id = $1 AND c.code = $2 AND s.is_active = TRUE`,
+        [priceList.id, section.category_code]
+      );
+      const service_count = countRes.rows[0]?.n || 0;
       const default_service = await resolveDefaultServiceForSection(section, priceList);
       return {
         ...section,
         price_list_id: priceList.id,
         price_list_name: priceList.name,
+        service_count,
         services: default_service ? [serviceToDailyPicker(default_service)] : [],
         picker_kind: section.category_code ? 'service' : null,
         default_service: default_service ? serviceToDailyPicker(default_service) : null,
@@ -613,36 +648,31 @@ async function validateServiceForSection(section, serviceId, sectionsWithService
   return service;
 }
 
-async function applyStayTypeToAccommodationLine(stayTypeId, section, rawLine, sectionsWithServices) {
-  if (!stayTypeId || section.code !== 'accommodation') return rawLine;
+async function normalizeManualAmountLine(section, rawLine = {}, sectionsWithServices = null) {
+  const normalized = normalizeLine(section, rawLine);
+  if (section.input_type !== 'amount') return normalized;
 
-  const stayType = await getStayTypeById(Number(stayTypeId));
-  if (!stayType) throw new Error('نوع الإقامة غير موجود');
+  const amount = round2(normalized.amount);
+  if (amount <= 0) return normalized;
 
-  const accSection = sectionsWithServices.find((s) => s.code === 'accommodation');
-  const services = accSection?.services || [];
-  const stayName = String(stayType.name || '').trim();
-  const match =
-    services.find((s) => String(s.name).trim() === stayName) ||
-    services.find((s) => String(s.name).includes(stayName)) ||
-    services.find((s) => stayName.includes(String(s.name)));
+  normalized.unit_price = amount;
+  normalized.quantity = 1;
+  normalized.amount = amount;
 
-  if (rawLine.service_id) return rawLine;
-
-  const hasAmount = round2(rawLine.amount) > 0;
-  if (!match) {
-    if (hasAmount) {
-      throw new Error(`لا توجد خدمة إقامة في اللائحة لنوع «${stayType.name}» — اختر الخدمة من القائمة`);
+  if (normalized.service_id) {
+    await validateServiceForSection(section, normalized.service_id, sectionsWithServices);
+    try {
+      const resolved = await resolveServiceForInvoice(Number(normalized.service_id));
+      normalized.description =
+        resolved.service_name_snapshot || resolved.description || normalized.description || section.name;
+    } catch {
+      normalized.description = normalized.description || section.name;
     }
-    return rawLine;
+  } else {
+    normalized.description = section.name;
   }
 
-  return {
-    ...rawLine,
-    service_id: match.id,
-    amount: 0,
-    manual_amount: false,
-  };
+  return normalized;
 }
 
 async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices = null) {
@@ -736,6 +766,10 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
     return await normalizeCatalogLine(fullSection, rawLine, sectionsWithServices);
   }
 
+  if (isManualAmountSection(section)) {
+    return await normalizeManualAmountLine(section, rawLine, sectionsWithServices);
+  }
+
   const normalized = normalizeLine(section, rawLine);
   if (section.input_type !== 'amount') return normalized;
 
@@ -783,15 +817,7 @@ async function prepareEntrySaveContext(data) {
   const lines = [];
 
   for (const section of sections) {
-    let raw = rawLines.find((line) => line.section_code === section.code) || {};
-    if (section.code === 'accommodation' && data.stay_type_id) {
-      raw = await applyStayTypeToAccommodationLine(
-        data.stay_type_id,
-        section,
-        raw,
-        sectionsWithServices
-      );
-    }
+    const raw = rawLines.find((line) => line.section_code === section.code) || {};
     const normalized = await normalizeLineWithPrice(section, raw, sectionsWithServices);
     const hasValue =
       section.input_type === 'date'
@@ -850,6 +876,27 @@ async function resolveEntryDoctorFields(data, existing = null, client = null) {
   };
 }
 
+async function findDuplicateEntryForLines(client, patientId, entryDate, lines, excludeId = null) {
+  const fingerprint = buildDailyLinesFingerprint(lines);
+  if (!fingerprint) return null;
+
+  const params = [patientId, entryDate];
+  let sql = `SELECT id FROM patient_daily_entries WHERE patient_id = $1 AND entry_date = $2::date`;
+  if (excludeId) {
+    sql += ` AND id <> $3`;
+    params.push(excludeId);
+  }
+  sql += ` ORDER BY id`;
+
+  const { rows } = await client.query(sql, params);
+  for (const row of rows) {
+    const entry = await getEntryById(row.id, client);
+    if (!entry?.lines) continue;
+    if (buildDailyLinesFingerprint(entry.lines) === fingerprint) return entry;
+  }
+  return null;
+}
+
 async function persistEntryInTransaction(client, data, user, context = null) {
   const ctx = context || await prepareEntrySaveContext(data);
   const { patient, entryDate, lines, dailyTotal } = ctx;
@@ -866,6 +913,11 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     existing = rows[0] || null;
     if (!existing) throw new Error(`الحركة #${entryIdInput} غير موجودة`);
     assertExistingEntryDateIsToday(existing.entry_date);
+  } else if (!entryIdInput && lines.length) {
+    const duplicate = await findDuplicateEntryForLines(client, patient.id, entryDate, lines);
+    if (duplicate) {
+      existing = duplicate;
+    }
   }
 
   if (existing?.invoice_id && data.allow_invoiced_edit !== true) {
@@ -1765,4 +1817,7 @@ module.exports = {
   getCurrentBusinessDateString,
   normalizeCalendarDate,
   resolveAllowedDailyEntryDate,
+  isManualAmountSection,
+  MANUAL_AMOUNT_SECTION_CODES,
+  buildDailyLinesFingerprint,
 };
