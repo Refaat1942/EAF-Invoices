@@ -39,6 +39,7 @@ if (process.env.TRUST_PROXY === 'true') {
 app.use(cors(buildCorsOptions()));
 app.use(securityHeaders);
 app.use(cookieParser());
+app.use(require('./middleware/requestLog').requestLogMiddleware);
 
 const cookieSecure =
   process.env.COOKIE_SECURE === 'true' || process.env.HTTPS === 'true';

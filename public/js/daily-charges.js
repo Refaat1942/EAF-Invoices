@@ -14,8 +14,7 @@ function dailyEscapeHtml(text) {
 
 async function loadDailyDoctorSpecialties() {
   try {
-    const res = await apiFetch('/api/doctors/specialties');
-    dailySpecialtiesCache = await res.json();
+    dailySpecialtiesCache = await apiJson('/api/doctors/specialties');
   } catch {
     dailySpecialtiesCache = [];
   }
@@ -37,8 +36,7 @@ async function populateDailyDoctorSelect(selectEl, specialty, selectedId, search
   if (search) params.set('search', search);
   params.set('limit', '100');
   try {
-    const res = await apiFetch(`/api/doctors/for-daily?${params}`);
-    const doctors = await res.json();
+    const doctors = await apiJson(`/api/doctors/for-daily?${params}`);
     let html = '<option value="">— الطبيب —</option>';
     for (const d of doctors) {
       html += `<option value="${d.id}"${String(d.id) === String(selectedId) ? ' selected' : ''}>${dailyEscapeHtml(d.name)}</option>`;
@@ -218,16 +216,14 @@ async function loadOpenPatientStay(fileNumber) {
     return null;
   }
   try {
-    const res = await apiFetch(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل البحث');
+    const data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
     applyDailyStayContext(data);
     await loadDailyStayTypes();
     if (dailySectionsCache.length) await loadDailyEntriesIntoSheet();
     await loadDailyPatientHistory();
     return data;
   } catch (err) {
-    showToast(err.message, 'danger');
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
     return null;
   }
 }
@@ -248,7 +244,7 @@ async function saveOpenPatientStay() {
   }
 
   try {
-    const res = await apiFetch(`${DAILY_API}/open-stay`, {
+    const data = await apiJson(`${DAILY_API}/open-stay`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -260,8 +256,6 @@ async function saveOpenPatientStay() {
         account_balance: dailyParseAmount(document.getElementById('daily-stay-balance')?.value),
       }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل التسجيل');
     applyDailyStayContext(data);
     await loadDailyStayTypes();
     if (dailySectionsCache.length) await loadDailyEntriesIntoSheet();
@@ -269,7 +263,7 @@ async function saveOpenPatientStay() {
     const label = data.created ? 'تم إنشاء فاتورة مسودة' : 'تم تحديث الإقامة';
     showToast(`${label} #${data.invoice?.id}`, 'success');
   } catch (err) {
-    showToast(err.message, 'danger');
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
   }
 }
 
@@ -348,9 +342,19 @@ function dailyFormatInput(n, decimals = 2) {
 
 let dailyPriceListMeta = null;
 
+let dailySectionsLoadFailed = false;
+
 async function loadDailySections() {
-  const res = await apiFetch(`${DAILY_API}/sections?with_services=1`);
-  dailySectionsCache = await res.json();
+  dailySectionsLoadFailed = false;
+  try {
+    dailySectionsCache = await apiJson(`${DAILY_API}/sections?with_services=1`);
+  } catch (err) {
+    dailySectionsLoadFailed = true;
+    dailySectionsCache = [];
+    renderDailySectionsTable();
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    return;
+  }
   const plSection = dailySectionsCache.find((s) => s.price_list_id);
   dailyPriceListMeta = plSection
     ? { id: plSection.price_list_id, name: plSection.price_list_name }
@@ -799,11 +803,9 @@ async function loadDailyEntriesIntoSheet() {
   }
 
   try {
-    const res = await apiFetch(
+    const entries = await apiJson(
       `${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&include_lines=1&limit=120`
     );
-    if (loadId !== dailyEntriesLoadSeq) return;
-    const entries = await res.json();
     if (loadId !== dailyEntriesLoadSeq) return;
     const today = getLocalDateString();
     const todayEntries = entries.filter((entry) => fmtStayDate(entry.entry_date) === today);
@@ -826,6 +828,9 @@ async function loadDailyEntriesIntoSheet() {
   } catch (err) {
     if (loadId !== dailyEntriesLoadSeq) return;
     console.error(err);
+    if (!dailySectionsLoadFailed) {
+      showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    }
     addDailyEntryRow();
     setDailyTodayDate();
   }
@@ -902,9 +907,7 @@ async function deleteDailyEntryById(entryId) {
   if (!confirm('حذف حركة هذا اليوم؟')) return false;
 
   try {
-    const res = await apiFetch(`${DAILY_API}/entries/${entryId}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل الحذف');
+    const data = await apiJson(`${DAILY_API}/entries/${entryId}`, { method: 'DELETE' });
     applyDailyInvoiceSync(data);
     showToast('تم حذف الحركة', 'success');
 
@@ -917,7 +920,7 @@ async function deleteDailyEntryById(entryId) {
     if (fileNumber) await loadOpenPatientStay(fileNumber);
     return true;
   } catch (err) {
-    showToast(err.message, 'danger');
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
     return false;
   }
 }
@@ -963,8 +966,7 @@ async function loadDailyPatientHistory() {
   }
 
   try {
-    const res = await apiFetch(`${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&limit=60`);
-    const entries = await res.json();
+    const entries = await apiJson(`${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&limit=60`);
     if (!entries.length) {
       tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">لا توجد حركة مسجلة</td></tr>';
       return;
@@ -1013,7 +1015,7 @@ async function loadDailyPatientHistory() {
       btn.addEventListener('click', () => deleteDailyEntryById(btn.dataset.id));
     });
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-danger">${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="text-danger">${dailyEscapeHtml(sanitizeApiErrorMessage(err.message))}</td></tr>`;
   }
 }
 
@@ -1034,7 +1036,7 @@ async function saveDailyEntry() {
   }
 
   try {
-    const res = await apiFetch(`${DAILY_API}/entries/batch`, {
+    const data = await apiJson(`${DAILY_API}/entries/batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1043,8 +1045,6 @@ async function saveDailyEntry() {
         entries,
       }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل الحفظ');
 
     dailyCurrentEntryId = data.saved?.[data.saved.length - 1]?.id || null;
 
@@ -1068,22 +1068,24 @@ async function showDailyEntryHistory() {
     showToast('احفظ اليوم أولًا لعرض سجل التعديلات', 'info');
     return;
   }
-  const res = await apiFetch(`${DAILY_API}/entries/${dailyCurrentEntryId}/history`);
-  const history = await res.json();
-  if (!history.length) {
-    showToast('لا يوجد سجل تعديلات', 'info');
-    return;
+  try {
+    const history = await apiJson(`${DAILY_API}/entries/${dailyCurrentEntryId}/history`);
+    if (!history.length) {
+      showToast('لا يوجد سجل تعديلات', 'info');
+      return;
+    }
+    const lines = history
+      .map((row) => `${new Date(row.created_at).toLocaleString('ar-EG')} — ${row.action} — ${row.changed_by_name || '—'}`)
+      .join('\n');
+    alert(`سجل التعديلات:\n\n${lines}`);
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
   }
-  const lines = history
-    .map((row) => `${new Date(row.created_at).toLocaleString('ar-EG')} — ${row.action} — ${row.changed_by_name || '—'}`)
-    .join('\n');
-  alert(`سجل التعديلات:\n\n${lines}`);
 }
 
 async function loadDailyStayTypes() {
   try {
-    const res = await apiFetch('/api/settings/stay-types');
-    dailyStayTypesCache = await res.json();
+    dailyStayTypesCache = await apiJson('/api/settings/stay-types');
   } catch (err) {
     console.error(err);
     dailyStayTypesCache = [];
@@ -1105,22 +1107,27 @@ function clearDailyForm() {
 
 async function initDailyChargesView() {
   if (!dailyCan('daily_charges.view')) return;
-  if (typeof loadFinancialTreatments === 'function') await loadFinancialTreatments();
-  await loadDailyDoctorSpecialties();
-  if (!dailySectionsCache.length) await loadDailySections();
-  setDailyTodayDate();
-  await loadDailyStayTypes();
-  if (typeof bindCommaAmountInputs === 'function') {
-    bindCommaAmountInputs(document.getElementById('view-daily'));
-  }
-  const savedFile = sessionStorage.getItem('dailyStayFileNumber');
-  if (savedFile) {
-    document.getElementById('daily-stay-file-number').value = savedFile;
-    await loadOpenPatientStay(savedFile);
-  } else {
-    applyDailyStayContext(null);
-    await loadDailyEntriesIntoSheet();
-    await loadDailyPatientHistory();
+  try {
+    if (typeof loadFinancialTreatments === 'function') await loadFinancialTreatments();
+    await loadDailyDoctorSpecialties();
+    if (!dailySectionsCache.length) await loadDailySections();
+    if (dailySectionsLoadFailed) return;
+    setDailyTodayDate();
+    await loadDailyStayTypes();
+    if (typeof bindCommaAmountInputs === 'function') {
+      bindCommaAmountInputs(document.getElementById('view-daily'));
+    }
+    const savedFile = sessionStorage.getItem('dailyStayFileNumber');
+    if (savedFile) {
+      document.getElementById('daily-stay-file-number').value = savedFile;
+      await loadOpenPatientStay(savedFile);
+    } else {
+      applyDailyStayContext(null);
+      await loadDailyEntriesIntoSheet();
+      await loadDailyPatientHistory();
+    }
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
   }
 }
 
@@ -1242,9 +1249,7 @@ async function importDailyChargesToInvoice() {
   try {
     const params = new URLSearchParams({ file_number, from_date, to_date });
     if (invoice_id) params.set('invoice_id', invoice_id);
-    const res = await apiFetch(`${DAILY_API}/for-invoice?${params}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل الاستيراد');
+    const data = await apiJson(`${DAILY_API}/for-invoice?${params}`);
     if (!data.items?.length) {
       showToast('لا توجد حركة يومية غير مفوترة في هذه الفترة', 'info');
       return;
@@ -1268,7 +1273,7 @@ async function importDailyChargesToInvoice() {
     await recalculate();
     showToast(`تم استيراد ${added} بند من الحركة اليومية`, 'success');
   } catch (err) {
-    showToast(err.message, 'danger');
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
   }
 }
 

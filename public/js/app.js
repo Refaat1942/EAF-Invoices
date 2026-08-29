@@ -115,7 +115,19 @@ function can(permission) {
 }
 
 async function apiFetch(url, opts = {}) {
-  return fetch(url, { credentials: 'include', ...opts });
+  return window.ApiClient.apiFetch(url, opts);
+}
+
+async function parseApiResponse(res) {
+  return window.ApiClient.parseApiResponse(res);
+}
+
+async function apiJson(url, opts = {}) {
+  return window.ApiClient.apiJson(url, opts);
+}
+
+function sanitizeApiErrorMessage(message) {
+  return window.ApiClient.sanitizeUserMessage(message);
 }
 
 function escapeAttr(text) {
@@ -2751,8 +2763,7 @@ async function loadInvoiceTypes() {
 
 async function loadFinancialTreatments(selected = {}) {
   try {
-    const res = await apiFetch(`${SETTINGS_API}/financial-treatments`);
-    const items = await res.json();
+    const items = await apiJson(`${SETTINGS_API}/financial-treatments`);
 
     const fillSelect = (selectId, value) => {
       const select = document.getElementById(selectId);
@@ -3767,11 +3778,24 @@ function selectPatientForReport(fileNumber, patientName) {
 
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
-  const id = 'toast-' + Date.now();
+  const text = sanitizeApiErrorMessage(message);
+  const now = Date.now();
+  if (
+    type === 'danger' &&
+    showToast._lastDanger &&
+    showToast._lastDanger.text === text &&
+    now - showToast._lastDanger.time < 3000
+  ) {
+    return;
+  }
+  if (type === 'danger') {
+    showToast._lastDanger = { text, time: now };
+  }
+  const id = 'toast-' + now;
   container.insertAdjacentHTML(
     'beforeend',
     `<div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">
-      <div class="d-flex"><div class="toast-body fw-bold">${message}</div>
+      <div class="d-flex"><div class="toast-body fw-bold">${escapeHtml(text)}</div>
       <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div></div>`
   );
   const toast = new bootstrap.Toast(document.getElementById(id), { delay: 4000 });
