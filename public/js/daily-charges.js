@@ -275,6 +275,10 @@ function updateSectionTabTotal() {
       document.querySelectorAll('.daily-session-row').forEach((tr) => {
         total += dailyParseAmount(tr.querySelector('.daily-session-total')?.value);
       });
+    } else if (activeDailyTab === 'stay') {
+      document.querySelectorAll('.daily-stay-row').forEach((tr) => {
+        total += dailyParseAmount(tr.querySelector('.daily-row-total')?.textContent);
+      });
     } else if (activeDailyTab === 'exams') {
       document.querySelectorAll('.daily-exam-row').forEach((tr) => {
         total += getExamRowGrandTotal(tr);
@@ -432,6 +436,7 @@ function bindOperationRowEvents(tr) {
     caseType.addEventListener('change', () => applyOperationCaseTypeStyle(caseType));
   }
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
+  bindDailyAmountRecalc(tr);
 }
 
 function addOperationRow(op = {}) {
@@ -2322,11 +2327,36 @@ function onExamTypeChange(selectEl) {
   updateSectionTabTotal();
 }
 
+const STAY_CHARGE_SECTIONS = ['accommodation', 'companion', 'nursing_point', 'patient_assistant'];
+
+function bindDailyAmountRecalc(tr) {
+  const onAmountChange = () => {
+    updateRowTotal(tr);
+    updateDailyGrandTotal();
+    updateSectionTabTotal();
+  };
+  tr.querySelectorAll(
+    '.daily-amount, .daily-session-morning, .daily-session-evening, .daily-session-qty, .daily-lab-stamp, .daily-rad-stamp, .daily-exam-stamp'
+  ).forEach((el) => {
+    if (el.dataset.dailyRecalcBound === '1') return;
+    el.dataset.dailyRecalcBound = '1';
+    el.addEventListener('input', onAmountChange);
+    el.addEventListener('change', onAmountChange);
+  });
+}
+
+function getStayAccommodationAmount(primaryTr) {
+  const hidden = primaryTr?.querySelector('.daily-amount[data-section="accommodation"]');
+  const display = primaryTr?.querySelector('.daily-stay-acc-unit-price');
+  return dailyParseAmount(hidden?.value) || dailyParseAmount(display?.value);
+}
+
 function bindStayRowEvents(tr) {
   const staySel = tr.querySelector('.daily-row-stay-type');
   if (staySel) staySel.addEventListener('change', () => onStayTypeChangeForRow(staySel));
   const companionSel = tr.querySelector('.daily-companion-kind');
   if (companionSel) companionSel.addEventListener('change', () => onCompanionKindChange(companionSel));
+  bindDailyAmountRecalc(tr);
 }
 
 function bindExamRowEvents(tr) {
@@ -2428,7 +2458,11 @@ function createStayDailyEntryRow(entry = {}) {
   tr.innerHTML = `
     <td class="daily-col-date"><input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1"></td>
     <td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeId)}</select></td>
-    <td class="daily-col-amount"><input type="text" class="form-control form-control-sm daily-stay-acc-unit-price bg-light" readonly tabindex="-1" placeholder="من اللائحة"></td>
+    <td class="daily-col-amount">
+      <input type="text" class="form-control form-control-sm daily-stay-acc-unit-price bg-light" readonly tabindex="-1" placeholder="من اللائحة">
+      ${accPickerHtml}
+      <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">
+    </td>
     <td class="daily-col-companion-kind"><select class="form-select form-select-sm daily-companion-kind">${buildCompanionKindOptions(companionServiceId)}</select></td>
     <td class="daily-col-amount">
       <div class="input-group input-group-sm">
@@ -2449,9 +2483,7 @@ function createStayDailyEntryRow(entry = {}) {
       </div>
     </td>
     <td class="daily-col-total daily-row-total fw-bold text-nowrap"></td>
-    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف اليوم">×</button></td>
-    ${accPickerHtml}
-    <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">`;
+    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف اليوم">×</button></td>`;
 
   const accHidden = tr.querySelector('.daily-amount[data-section="accommodation"]');
   if (accHidden && accLine.amount > 0) {
@@ -2684,6 +2716,7 @@ function bindSessionsRowEvents(tr) {
     const picker = tr.querySelector('.daily-picker[data-section="sessions"]');
     syncSessionsRowDisplay(tr, picker?._selectedItem, null, { skipQtyAuto: true });
   });
+  bindDailyAmountRecalc(tr);
 }
 
 function createSessionsRow(entry = {}, sessionsLine = null) {
@@ -2727,14 +2760,14 @@ function createSessionsRow(entry = {}, sessionsLine = null) {
   tr.innerHTML = `
     <td><input type="date" class="form-control form-control-sm daily-session-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-session-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
-    <td class="daily-session-type-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
+    <td class="daily-session-type-cell">${section ? buildCatalogPickerCell(section) : ''}
+      <input type="hidden" class="daily-field daily-amount" data-section="sessions" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-session-morning comma-amount" data-decimals="0" value="${dailyEscapeAttr(morningVal)}" placeholder="0" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-session-evening comma-amount" data-decimals="0" value="${dailyEscapeAttr(eveningVal)}" placeholder="0" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-session-qty comma-amount" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-session-unit bg-light" readonly value="${dailyEscapeAttr(unitVal)}" placeholder="سعر الجلسة"></td>
     <td><input type="text" class="form-control form-control-sm daily-session-total bg-light" readonly value="${dailyEscapeAttr(totalVal)}" placeholder="الإجمالي"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <input type="hidden" class="daily-field daily-amount" data-section="sessions" data-type="amount">`;
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindSessionsRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -2928,6 +2961,7 @@ function bindMedicineRowEvents(tr) {
       syncMedicineRowDisplay(tr, picker?._selectedItem, getCatalogRowUnitPrice(tr, 'medicines'));
     });
   }
+  bindDailyAmountRecalc(tr);
 }
 
 function bindSupplyRowEvents(tr) {
@@ -2952,6 +2986,7 @@ function bindSupplyRowEvents(tr) {
       syncSupplyRowDisplay(tr, { cost_price: costUnit, markup_percent: markup }, sellUnit);
     });
   }
+  bindDailyAmountRecalc(tr);
 }
 
 function buildCatalogPickerCell(section) {
@@ -2988,13 +3023,13 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
     <td><input type="text" class="form-control form-control-sm daily-med-serial bg-light" readonly value="${dailyEscapeAttr(serialVal)}" placeholder="—"></td>
     <td><input type="text" class="form-control form-control-sm daily-med-invoice bg-light" readonly value="${dailyEscapeAttr(invoiceLabel)}"></td>
     <td><input type="date" class="form-control form-control-sm daily-med-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
-    <td class="daily-med-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
+    <td class="daily-med-name-cell">${section ? buildCatalogPickerCell(section) : ''}
+      <input type="hidden" class="daily-field daily-amount" data-section="medicines" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="medicines" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-weight comma-amount" data-section="medicines" placeholder="الوزن" value="${dailyEscapeAttr(weightVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-med-unit-price bg-light" readonly placeholder="سعر الصنف"></td>
     <td><input type="text" class="form-control form-control-sm daily-med-total bg-light" readonly placeholder="الإجمالي"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <input type="hidden" class="daily-field daily-amount" data-section="medicines" data-type="amount">`;
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindMedicineRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3048,15 +3083,15 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
     <td><input type="text" class="form-control form-control-sm daily-sup-serial bg-light" readonly value="${dailyEscapeAttr(serialVal)}" placeholder="—"></td>
     <td><input type="date" class="form-control form-control-sm daily-sup-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-invoice bg-light" readonly value="${dailyEscapeAttr(invoiceLabel)}"></td>
-    <td class="daily-sup-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
+    <td class="daily-sup-name-cell">${section ? buildCatalogPickerCell(section) : ''}
+      <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-sell-unit bg-light" readonly placeholder="السعر"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-sell-total bg-light" readonly placeholder="الإجمالي"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-cost-unit bg-light" readonly placeholder="سعر المستلزم"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-cost-total bg-light" readonly placeholder="إجمالي المستلزم"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-sup-markup comma-amount bg-light" data-decimals="0" value="${dailyEscapeAttr(markupVal)}" placeholder="%" autocomplete="off"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount">`;
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindSupplyRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3168,11 +3203,13 @@ function getExamRowGrandTotal(tr) {
 function bindLabRowEvents(tr) {
   tr.querySelector('.daily-lab-stamp')?.addEventListener('input', refreshServiceRowTotals);
   tr.querySelector('.daily-lab-date')?.addEventListener('change', refreshServiceRowTotals);
+  bindDailyAmountRecalc(tr);
 }
 
 function bindRadRowEvents(tr) {
   tr.querySelector('.daily-rad-stamp')?.addEventListener('input', refreshServiceRowTotals);
   tr.querySelector('.daily-rad-date')?.addEventListener('change', refreshServiceRowTotals);
+  bindDailyAmountRecalc(tr);
 }
 
 function bindMiscRowEvents(tr) {
@@ -3185,6 +3222,7 @@ function bindMiscRowEvents(tr) {
       total: '.daily-misc-total',
     });
   });
+  bindDailyAmountRecalc(tr);
 }
 
 function createLabRow(entry = {}, analysisLine = null) {
@@ -3211,13 +3249,13 @@ function createLabRow(entry = {}, analysisLine = null) {
   tr.innerHTML = `
     <td><input type="text" class="form-control form-control-sm daily-lab-serial bg-light" readonly placeholder="—"></td>
     <td><input type="date" class="form-control form-control-sm daily-lab-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
-    <td class="daily-lab-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
+    <td class="daily-lab-name-cell">${section ? buildCatalogPickerCell(section) : ''}
+      <input type="hidden" class="daily-catalog-qty" data-section="analyses" value="${dailyEscapeAttr(qtyVal)}">
+      <input type="hidden" class="daily-field daily-amount" data-section="analyses" data-type="amount"></td>
     <td><input type="text" class="form-control form-control-sm daily-lab-unit-price bg-light" readonly placeholder="سعر التحليل"></td>
     <td><input type="text" class="form-control form-control-sm daily-lab-total bg-light" readonly placeholder="الإجمالي"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-lab-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="الدمغة" autocomplete="off"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <input type="hidden" class="daily-catalog-qty" data-section="analyses" value="${dailyEscapeAttr(qtyVal)}">
-    <input type="hidden" class="daily-field daily-amount" data-section="analyses" data-type="amount">`;
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindLabRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3268,14 +3306,14 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
   const totalVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
 
   tr.innerHTML = `
-    <td class="daily-rad-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
+    <td class="daily-rad-name-cell">${section ? buildCatalogPickerCell(section) : ''}
+      <input type="hidden" class="daily-catalog-qty" data-section="xray_total" value="${dailyEscapeAttr(qtyVal)}">
+      <input type="hidden" class="daily-field daily-amount" data-section="xray_total" data-type="amount"></td>
     <td><input type="text" class="form-control form-control-sm daily-rad-unit-price bg-light" readonly value="${dailyEscapeAttr(unitVal)}" placeholder="سعر الأشعة"></td>
     <td><input type="text" class="form-control form-control-sm daily-rad-total bg-light" readonly value="${dailyEscapeAttr(totalVal)}" placeholder="الإجمالي"></td>
     <td><input type="date" class="form-control form-control-sm daily-rad-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-rad-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="الدمغة" autocomplete="off"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <input type="hidden" class="daily-catalog-qty" data-section="xray_total" value="${dailyEscapeAttr(qtyVal)}">
-    <input type="hidden" class="daily-field daily-amount" data-section="xray_total" data-type="amount">`;
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindRadRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3316,13 +3354,12 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
 
   tr.innerHTML = `
     <td><input type="text" class="form-control form-control-sm daily-misc-serial bg-light" readonly placeholder="—"></td>
-    <td class="daily-misc-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
+    <td class="daily-misc-name-cell">${section ? buildCatalogPickerCell(section) : ''}
+      <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-misc-unit-price bg-light" readonly placeholder="السعر"></td>
     <td><input type="text" class="form-control form-control-sm daily-misc-total bg-light" readonly placeholder="الإجمالي"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <td class="daily-row-total fw-bold text-nowrap d-none"></td>
-    <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount">`;
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindMiscRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3628,18 +3665,21 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
   if (companionSel) companionSel.addEventListener('change', () => onCompanionKindChange(companionSel));
   bindStayAddonRemove(tr);
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
+  bindDailyAmountRecalc(tr);
   return tr;
 }
 
 function updateStayRowGroupTotal(primaryTr) {
-  const amountSections = new Set(
-    dailySectionsCache.filter((s) => s.input_type === 'amount').map((s) => s.code)
-  );
   let total = 0;
   getStayDayGroupRows(primaryTr).forEach((rowTr) => {
-    rowTr.querySelectorAll('.daily-amount').forEach((input) => {
-      if (amountSections.has(input.dataset.section)) total += dailyParseAmount(input.value);
-    });
+    if (rowTr.classList.contains('daily-stay-row')) {
+      total += getStayAccommodationAmount(rowTr);
+    }
+    for (const code of STAY_CHARGE_SECTIONS) {
+      if (code === 'accommodation') continue;
+      const input = rowTr.querySelector(`.daily-amount[data-section="${code}"]`);
+      if (input) total += dailyParseAmount(input.value);
+    }
   });
   const cell = primaryTr.querySelector('.daily-row-total');
   if (cell) {
@@ -3831,7 +3871,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(9, 'إجمالي الجلسات (جران توتال)');
+    configureDailyTableFooter(9, 'إجمالي الجلسات');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -3872,7 +3912,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(9, 'إجمالي الأدوية (جران توتال)');
+    configureDailyTableFooter(9, 'إجمالي الأدوية');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -3895,7 +3935,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(12, 'إجمالي المستلزمات (جران توتال)');
+    configureDailyTableFooter(12, 'إجمالي المستلزمات');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -3914,7 +3954,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(7, 'إجمالي التحاليل (جران توتال)');
+    configureDailyTableFooter(7, 'إجمالي التحاليل');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -3932,7 +3972,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(6, 'إجمالي الأشعة (جران توتال)');
+    configureDailyTableFooter(6, 'إجمالي الأشعة');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -3950,7 +3990,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(6, 'إجمالي الخدمات المتنوعة (جران توتال)');
+    configureDailyTableFooter(6, 'إجمالي الخدمات المتنوعة');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -4037,6 +4077,7 @@ function bindDailyRowEvents(tr) {
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
 
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
+  bindDailyAmountRecalc(tr);
 }
 
 function applyDefaultPricesForRow(tr) {
