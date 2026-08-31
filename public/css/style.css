@@ -872,6 +872,19 @@ body {
 .daily-sheet-table--sessions td:nth-child(7),
 .daily-sheet-table--sessions th:nth-child(8),
 .daily-sheet-table--sessions td:nth-child(8) { width: 6.75rem; }
+.daily-sheet-table--sessions th:nth-child(1),
+.daily-sheet-table--sessions td:nth-child(1) { width: 7.5rem; }
+.daily-sheet-table--sessions th:nth-child(2),
+.daily-sheet-table--sessions td:nth-child(2) { width: 9rem; min-width: 7rem; }
+.daily-sheet-table--sessions th:nth-child(4),
+.daily-sheet-table--sessions td:nth-child(4),
+.daily-sheet-table--sessions th:nth-child(5),
+.daily-sheet-table--sessions td:nth-child(5) { width: 5.5rem; }
+.daily-sheet-table--sessions th:nth-child(9),
+.daily-sheet-table--sessions td:nth-child(9) { width: 3.25rem; }
+
+.daily-sheet-table--medicines th:nth-child(8),
+.daily-sheet-table--medicines td:nth-child(8) { width: 3.25rem; }
 
 .daily-sheet-table--medicines input,
 .daily-sheet-table--supplies input,
@@ -884,8 +897,9 @@ body {
 
 .daily-sheet-table--medicines .daily-med-name-cell input,
 .daily-sheet-table--supplies .daily-sup-name-cell input,
-.daily-sheet-table--lab .daily-lab-type-cell input,
-.daily-sheet-table--radiology .daily-rad-type-cell input {
+.daily-sheet-table--lab .daily-lab-name-cell input,
+.daily-sheet-table--radiology .daily-rad-name-cell input,
+.daily-sheet-table--sessions .daily-session-type-cell input {
   text-align: start;
 }
 
@@ -893,6 +907,7 @@ body {
 .daily-sheet-table--supplies .daily-sup-total,
 .daily-sheet-table--lab .daily-lab-total,
 .daily-sheet-table--radiology .daily-rad-total,
+.daily-sheet-table--sessions .daily-session-total,
 .daily-sheet-table--sessions .daily-row-total {
   font-weight: 800;
   color: #1a5276;
