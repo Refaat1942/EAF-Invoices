@@ -19,7 +19,7 @@ const {
   listOperations,
   saveOperationsForDate,
 } = require('../services/patientOperationService');
-const { getOpenPatientStay, openPatientStay } = require('../services/invoiceService');
+const { getOpenPatientStay, openPatientStay, listFreeInvoiceItems, saveFreeInvoiceItems } = require('../services/invoiceService');
 const { getDailyPrintReport, resolveDailyPrintKind } = require('../services/reportService');
 const { buildDailyReportHtml, wrapDailyItemsPrintPage } = require('../services/pdfService');
 const { generateDailyItemsPdfBuffer } = require('../services/exportService');
@@ -331,6 +331,27 @@ router.get('/patients', requirePermission('daily_charges.view'), async (req, res
     res.json(await searchPatientsForDaily(search, limit));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/free-items', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const file_number = req.query.file_number?.trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    res.json(await listFreeInvoiceItems(file_number));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/free-items', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const file_number = req.body.file_number?.trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    const result = await saveFreeInvoiceItems(file_number, req.body.items || [], req.session?.user || null);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

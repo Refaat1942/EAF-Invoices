@@ -670,6 +670,7 @@
               <div class="col-md-3"><span class="text-muted">إجمالي الفاتورة:</span> <strong class="text-primary" id="daily-inv-final-total">0</strong></div>
             </div>
             <div id="daily-invoice-empty" class="small text-warning fw-bold mt-2" style="display:none">لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا.</div>
+            <p class="small text-muted mt-2 mb-0">كل الحركة والبنود الحرة تُحدَّث على الفاتورة الكبيرة تلقائيًا عند الحفظ.</p>
           </div>
         </div>
 
@@ -759,6 +760,40 @@
                         <tr><td colspan="7" class="fw-bold text-end">إجمالي العمليات</td><td class="fw-bold" id="daily-operations-total">0</td><td></td></tr>
                       </tfoot>
                     </table>
+                  </div>
+                </div>
+              </div>
+
+              <div id="daily-free-items-panel" class="card border mb-3" style="display:none">
+                <div class="card-header bg-light fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
+                  <span>بنود حرة على الفاتورة</span>
+                  <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-free-add-row">+ بند حر</button>
+                </div>
+                <div class="card-body">
+                  <p class="small text-muted mb-3">أضف أي بند بوصف وسعر تحدده — يُدمج مع الحركة اليومية على الفاتورة الكبيرة تلقائيًا.</p>
+                  <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                      <thead class="table-light">
+                        <tr>
+                          <th style="width:40%">البيان</th>
+                          <th style="width:12%">الكمية</th>
+                          <th style="width:18%">المبلغ (سعر الوحدة)</th>
+                          <th style="width:18%">الإجمالي</th>
+                          <th style="width:8%"></th>
+                        </tr>
+                      </thead>
+                      <tbody id="daily-free-items-tbody"></tbody>
+                      <tfoot class="table-warning">
+                        <tr>
+                          <td colspan="3" class="fw-bold text-end">إجمالي البنود الحرة</td>
+                          <td class="fw-bold" id="daily-free-items-total">0</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="button" class="btn btn-primary fw-bold" id="daily-free-save-btn">💾 حفظ البنود الحرة على الفاتورة</button>
                   </div>
                 </div>
               </div>
@@ -1731,7 +1766,7 @@
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/app.js?v=20260829b"></script>
   <script src="/js/daily-picker.js?v=20260829b"></script>
-  <script src="/js/daily-charges.js?v=20260831a"></script>
+  <script src="/js/daily-charges.js?v=20260831b"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>
 </body>

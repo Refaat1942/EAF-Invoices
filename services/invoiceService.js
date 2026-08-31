@@ -1307,6 +1307,58 @@ async function syncPatientDailyChargesToInvoice(fileNumber, patientName = '') {
   };
 }
 
+async function listFreeInvoiceItems(fileNumber) {
+  const fn = fileNumber?.trim();
+  if (!fn) return { items: [], invoice_id: null };
+  const stay = await getOpenPatientStay(fn);
+  if (!stay?.invoice?.id) return { items: [], invoice_id: null };
+  const invoice = await getInvoiceById(stay.invoice.id);
+  return {
+    invoice_id: invoice.id,
+    items: invoiceManualItems(invoice),
+    final_total: invoice.final_total,
+  };
+}
+
+async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = null) {
+  const fn = fileNumber?.trim();
+  if (!fn) throw new Error('رقم الملف مطلوب');
+
+  const stay = await getOpenPatientStay(fn);
+  if (!stay?.invoice?.id) throw new Error('لا توجد فاتورة مفتوحة لهذا المريض');
+  const invoice = await getInvoiceById(stay.invoice.id);
+  if (invoice.status === 'approved') throw new Error('الفاتورة معتمدة — لا يمكن تعديل البنود');
+
+  const manualItems = (Array.isArray(manualItemsInput) ? manualItemsInput : [])
+    .map((item) => ({
+      id: item.id ? Number(item.id) : undefined,
+      description: String(item.description || '').trim(),
+      quantity: Number(item.quantity) || 1,
+      returned_quantity: Number(item.returned_quantity) || 0,
+      amount: Math.round((Number(item.amount) || 0) * 100) / 100,
+      patient_credit_applied: Number(item.patient_credit_applied) || 0,
+      service_id: item.service_id || null,
+    }))
+    .filter((item) => item.description || item.amount > 0);
+
+  const payload = invoiceToSavePayload(invoice, manualItems);
+  payload.include_daily_charges = true;
+
+  const updated = await saveInvoice(payload, invoice.id, user, {
+    save_mode: 'draft',
+    preserve_status: true,
+  });
+
+  const refreshed = await getInvoiceById(updated.id);
+
+  return {
+    invoice_id: refreshed.id,
+    items: invoiceManualItems(refreshed),
+    final_total: refreshed.final_total,
+    items_subtotal: refreshed.items_subtotal,
+  };
+}
+
 async function getDailySummaryForStay(fileNumber, admissionDate, dischargeDate) {
   const { getDailySummaryForPatient } = require('./dailyChargeService');
   if (!admissionDate && !dischargeDate) {
@@ -1503,6 +1555,8 @@ module.exports = {
   verifyInvoiceDailyLineSync,
   getOpenPatientStay,
   openPatientStay,
+  listFreeInvoiceItems,
+  saveFreeInvoiceItems,
   buildCalcDataFromInvoice,
   recalculateAndPersistInvoiceTotals,
 };

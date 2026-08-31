@@ -10,6 +10,7 @@ const DAILY_TAB_GROUPS = [
   { id: 'radiology', label: 'أشعة', icon: '🩻', tileClass: 'hub-tile--blue', codes: ['xray_type', 'xray_total', 'xray_stamp'] },
   { id: 'other', label: 'أخرى', icon: '📎', tileClass: 'hub-tile--slate', codes: ['other', 'prosthetics'] },
   { id: 'operations', label: 'عمليات', icon: '⚕️', tileClass: 'hub-tile--red', codes: [] },
+  { id: 'free-items', label: 'بنود حرة', icon: '✏️', tileClass: 'hub-tile--indigo', codes: [] },
 ];
 
 const DAILY_EXAM_CODES = ['consultant_exam', 'specialist_exam', 'consultation_stamp'];
@@ -139,16 +140,31 @@ function applyDailyTabColumnVisibility() {
   const mainSheet = document.getElementById('daily-main-sheet-wrap');
   const opsPanel = document.getElementById('daily-operations-panel');
   const glassesPanel = document.getElementById('daily-glasses-panel');
+  const freePanel = document.getElementById('daily-free-items-panel');
   const totalBar = document.getElementById('daily-section-total-bar');
-  if (mainSheet) mainSheet.style.display = activeDailyTab === 'operations' ? 'none' : '';
+  const panelTabs = ['operations', 'free-items'];
+  if (mainSheet) mainSheet.style.display = panelTabs.includes(activeDailyTab) ? 'none' : '';
   if (opsPanel) opsPanel.style.display = activeDailyTab === 'operations' ? '' : 'none';
   if (glassesPanel) glassesPanel.style.display = activeDailyTab === 'supplies' ? '' : 'none';
-  if (totalBar) totalBar.style.display = hideMeta || activeDailyTab === 'operations' ? '' : 'none';
+  if (freePanel) freePanel.style.display = activeDailyTab === 'free-items' ? '' : 'none';
+  if (totalBar) {
+    totalBar.style.display =
+      hideMeta || activeDailyTab === 'operations' || activeDailyTab === 'free-items' ? '' : 'none';
+  }
+
+  const addRowBtn = document.getElementById('daily-add-row-btn');
+  const saveBtn = document.getElementById('daily-save-btn');
+  const clearBtn = document.getElementById('daily-clear-btn');
+  if (addRowBtn) addRowBtn.classList.toggle('d-none', panelTabs.includes(activeDailyTab));
+  if (saveBtn) saveBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
+  if (clearBtn) clearBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
 
   updateSectionTabTotal();
 
   const hint = document.getElementById('daily-tab-hint');
-  if (hint && codes) {
+  if (hint && activeDailyTab === 'free-items') {
+    hint.textContent = 'بنود حرة — أي وصف وسعر ثم احفظ لتُضاف على الفاتورة الكبيرة مع الحركة اليومية.';
+  } else if (hint && codes) {
     const label = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab)?.label || '';
     hint.textContent = `قسم «${label}» — أدخل البيانات ثم احفظ الكل.`;
   } else if (hint) {
@@ -163,6 +179,12 @@ function updateSectionTabTotal() {
   let total = 0;
   if (activeDailyTab === 'operations') {
     total = dailyParseAmount(document.getElementById('daily-operations-total')?.textContent);
+  } else if (activeDailyTab === 'free-items') {
+    document.querySelectorAll('#daily-free-items-tbody .daily-free-item-row').forEach((tr) => {
+      const qty = dailyParseAmount(tr.querySelector('.daily-free-qty')?.value) || 1;
+      const amt = dailyParseAmount(tr.querySelector('.daily-free-amount')?.value);
+      total += qty * amt;
+    });
   } else if (codes) {
     document.querySelectorAll('.daily-entry-row').forEach((tr) => {
       codes.forEach((code) => {
@@ -308,6 +330,154 @@ async function loadOperationsForToday() {
   }
 }
 
+function createFreeItemRowHtml(item = {}) {
+  const qty =
+    item.quantity != null && item.quantity !== ''
+      ? typeof dailyFormatInput === 'function'
+        ? dailyFormatInput(item.quantity, 0)
+        : String(item.quantity)
+      : '1';
+  const amt =
+    item.amount != null && item.amount !== ''
+      ? typeof dailyFormatInput === 'function'
+        ? dailyFormatInput(item.amount)
+        : String(item.amount)
+      : '';
+  const lineTotal = (Number(item.quantity) || 1) * dailyParseAmount(item.amount);
+  const totalVal = lineTotal > 0 && typeof dailyFormatInput === 'function' ? dailyFormatInput(lineTotal) : '';
+  return `
+    <td><input type="text" class="form-control form-control-sm daily-free-desc" value="${dailyEscapeHtml(item.description || '')}" placeholder="وصف البند" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-qty comma-amount" data-decimals="0" value="${qty}" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-amount comma-amount" value="${amt}" placeholder="0" autocomplete="off"></td>
+    <td><input type="text" class="form-control form-control-sm daily-free-line-total bg-light fw-bold" readonly tabindex="-1" value="${totalVal}"></td>
+    <td><button type="button" class="btn btn-sm btn-outline-danger daily-free-remove" title="حذف">×</button></td>`;
+}
+
+function bindFreeItemRowEvents(tr) {
+  const updateLine = () => {
+    const qty = dailyParseAmount(tr.querySelector('.daily-free-qty')?.value) || 1;
+    const amt = dailyParseAmount(tr.querySelector('.daily-free-amount')?.value);
+    const totalEl = tr.querySelector('.daily-free-line-total');
+    if (totalEl) {
+      totalEl.value = amt ? (typeof dailyFormatInput === 'function' ? dailyFormatInput(qty * amt) : String(qty * amt)) : '';
+    }
+    updateFreeItemsTotal();
+  };
+  tr.querySelectorAll('.daily-free-qty, .daily-free-amount').forEach((el) => {
+    el.addEventListener('input', updateLine);
+  });
+  tr.querySelector('.daily-free-remove')?.addEventListener('click', () => {
+    tr.remove();
+    updateFreeItemsTotal();
+    if (!document.querySelector('#daily-free-items-tbody .daily-free-item-row')) addFreeItemRow();
+  });
+  if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
+  updateLine();
+}
+
+function addFreeItemRow(item = {}) {
+  const tbody = document.getElementById('daily-free-items-tbody');
+  if (!tbody) return;
+  const tr = document.createElement('tr');
+  tr.className = 'daily-free-item-row';
+  if (item.id) tr.dataset.itemId = String(item.id);
+  tr.innerHTML = createFreeItemRowHtml(item);
+  tbody.appendChild(tr);
+  bindFreeItemRowEvents(tr);
+  updateFreeItemsTotal();
+}
+
+function collectFreeItemsFromTable() {
+  const rows = [];
+  document.querySelectorAll('#daily-free-items-tbody .daily-free-item-row').forEach((tr) => {
+    const description = tr.querySelector('.daily-free-desc')?.value?.trim() || '';
+    const quantity = dailyParseAmount(tr.querySelector('.daily-free-qty')?.value) || 1;
+    const amount = dailyParseAmount(tr.querySelector('.daily-free-amount')?.value);
+    const id = tr.dataset.itemId ? Number(tr.dataset.itemId) : null;
+    if (!description && amount <= 0) return;
+    rows.push({
+      id,
+      description,
+      quantity,
+      amount,
+      returned_quantity: 0,
+      patient_credit_applied: 0,
+    });
+  });
+  return rows;
+}
+
+function updateFreeItemsTotal() {
+  let total = 0;
+  document.querySelectorAll('#daily-free-items-tbody .daily-free-item-row').forEach((tr) => {
+    const qty = dailyParseAmount(tr.querySelector('.daily-free-qty')?.value) || 1;
+    const amt = dailyParseAmount(tr.querySelector('.daily-free-amount')?.value);
+    total += qty * amt;
+  });
+  const el = document.getElementById('daily-free-items-total');
+  if (el) el.textContent = total > 0 ? dailyFmt(total) : '0';
+  if (activeDailyTab === 'free-items') {
+    const sectionTotal = document.getElementById('daily-section-total');
+    if (sectionTotal) sectionTotal.textContent = total > 0 ? dailyFmt(total) : '0';
+  }
+}
+
+async function loadFreeItemsPanel() {
+  const tbody = document.getElementById('daily-free-items-tbody');
+  if (!tbody) return;
+  const fileNumber = getStayFileNumber();
+  if (!fileNumber || !dailyStayContext?.invoice?.id) {
+    tbody.innerHTML = '';
+    updateFreeItemsTotal();
+    return;
+  }
+  try {
+    const data = await apiJson(`${DAILY_API}/free-items?file_number=${encodeURIComponent(fileNumber)}`);
+    tbody.innerHTML = '';
+    const items = data.items || [];
+    if (items.length) items.forEach((item) => addFreeItemRow(item));
+    else addFreeItemRow();
+    updateFreeItemsTotal();
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    tbody.innerHTML = '';
+    addFreeItemRow();
+  }
+}
+
+async function saveFreeItems() {
+  if (!dailyCan('daily_charges.manage')) {
+    showToast('ليس لديك صلاحية', 'warning');
+    return;
+  }
+  const file_number = getStayFileNumber();
+  if (!file_number || !dailyStayContext?.invoice?.id) {
+    showToast('لا توجد فاتورة مفتوحة', 'warning');
+    return;
+  }
+  const items = collectFreeItemsFromTable();
+  if (!items.length) {
+    showToast('أضف بندًا واحدًا على الأقل', 'warning');
+    return;
+  }
+  const btn = document.getElementById('daily-free-save-btn');
+  try {
+    if (btn) btn.disabled = true;
+    const data = await apiJson(`${DAILY_API}/free-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_number, items }),
+    });
+    await loadOpenPatientStay(file_number);
+    await loadFreeItemsPanel();
+    showToast(`تم حفظ البنود الحرة — إجمالي الفاتورة ${dailyFmt(data.final_total)}`, 'success');
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function renderDailySectionTiles() {
   const grid = document.getElementById('daily-section-tiles-grid');
   if (!grid) return;
@@ -331,7 +501,10 @@ function showDailySection(sectionId) {
     if (sectionId) sectionWorkspace.classList.remove('d-none');
     else sectionWorkspace.classList.add('d-none');
   }
-  if (sectionId) applyDailyTabColumnVisibility();
+  if (sectionId) {
+    applyDailyTabColumnVisibility();
+    if (sectionId === 'free-items') void loadFreeItemsPanel();
+  }
 }
 
 function showDailyPatientPicker() {
@@ -2205,6 +2378,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-clear-btn')?.addEventListener('click', clearDailyForm);
   document.getElementById('daily-add-row-btn')?.addEventListener('click', () => addDailyEntryRow());
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
+  document.getElementById('daily-free-add-row')?.addEventListener('click', () => addFreeItemRow());
+  document.getElementById('daily-free-save-btn')?.addEventListener('click', saveFreeItems);
   document.getElementById('daily-glasses-price')?.addEventListener('input', updateGlassesFinalAmount);
   document.getElementById('daily-glasses-discount')?.addEventListener('input', updateGlassesFinalAmount);
   document.getElementById('import-daily-charges-btn')?.addEventListener('click', importDailyChargesToInvoice);
