@@ -14,7 +14,7 @@ const {
   getEntriesForInvoice,
   getInvoiceItemsFromDailyCharges,
 } = require('../services/dailyChargeService');
-const { upsertPatient, getPatientByFileNumber } = require('../services/patientService');
+const { upsertPatient, getPatientByFileNumber, searchPatientsForDaily } = require('../services/patientService');
 const {
   listOperations,
   saveOperationsForDate,
@@ -319,6 +319,16 @@ router.get('/open-stay', requirePermission('daily_charges.view'), async (req, re
       invoice: null,
       daily_summary: { entry_count: 0, daily_total_sum: 0 },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/patients', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const search = req.query.search || '';
+    const limit = req.query.limit || 40;
+    res.json(await searchPatientsForDaily(search, limit));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

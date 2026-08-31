@@ -63,8 +63,8 @@
         </button>
         <button type="button" class="hub-tile hub-tile--teal" data-view="daily" id="hub-tile-daily">
           <span class="hub-tile-icon">📋</span>
-          <span class="hub-tile-title">إقامة المريض</span>
-          <span class="hub-tile-desc">الحركة اليومية والخدمات</span>
+          <span class="hub-tile-title">الحركة اليومية</span>
+          <span class="hub-tile-desc">مدخلات المريض المسجّل</span>
         </button>
         <button type="button" class="hub-tile hub-tile--blue" data-view="create" id="hub-tile-invoice">
           <span class="hub-tile-icon">📄</span>
@@ -262,8 +262,8 @@
             </div>
             <div class="card-body">
               <div class="alert alert-info border fw-bold mb-3" id="invoice-followup-banner" style="display:none">
-                📋 <strong>متابعة فاتورة</strong> — البيانات والبنود تُجلب تلقائيًا من إقامة المريض والحركة اليومية. راجع المبالغ والمدفوعات ثم أرسل للاعتماد.
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold ms-2" id="goto-daily-from-invoice-btn">← العودة لإقامة المريض</button>
+                📋 <strong>متابعة فاتورة</strong> — البيانات والبنود تُجلب تلقائيًا من الحركة اليومية. راجع المبالغ والمدفوعات ثم أرسل للاعتماد.
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold ms-2" id="goto-daily-from-invoice-btn">← العودة للحركة اليومية</button>
               </div>
               <form id="invoice-form">
                 <input type="hidden" id="invoice-id">
@@ -618,195 +618,94 @@
       </div>
     </section>
 
-    <!-- Patient Stay Workflow: register → daily entries → open invoice -->
+    <!-- Daily movement: pick registered patient → section tiles → entry -->
     <section id="view-daily" class="view-section" style="display:none">
-      <div class="view-page-header mb-3 d-flex flex-wrap gap-2 align-items-center">
+      <div class="view-page-header mb-3 d-flex flex-wrap gap-2 align-items-center justify-content-between">
         <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
-      </div>
-      <div class="patient-stay-steps mb-3">
-        <div class="patient-stay-step active" data-step="1"><span>①</span> بيانات المريض</div>
-        <div class="patient-stay-step" data-step="2"><span>②</span> الحركة اليومية</div>
-        <div class="patient-stay-step" data-step="3"><span>③</span> الفاتورة المفتوحة</div>
+        <button type="button" class="btn btn-outline-primary fw-bold d-none" id="daily-change-patient-btn">↩ اختيار مريض آخر</button>
       </div>
 
-      <div class="row g-3">
-        <div class="col-12">
-          <!-- Step 1: Patient registration -->
-          <div class="card shadow-sm mb-3" id="daily-step-1-card">
-            <div class="card-header bg-primary text-white fw-black">① تسجيل / فتح إقامة المريض</div>
-            <div class="card-body">
-              <div class="row g-3">
-                <div class="col-md-2">
-                  <label class="form-label fw-bold">نوع المريض</label>
-                  <div class="form-control fw-bold bg-light" id="daily-stay-type-display">—</div>
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">رقم الملف *</label>
-                  <input type="text" class="form-control fw-bold" id="daily-stay-file-number" autocomplete="off" autocorrect="off" spellcheck="false">
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label fw-bold">اسم المريض *</label>
-                  <input type="text" class="form-control fw-bold" id="daily-stay-patient-name" autocomplete="off" autocorrect="off" spellcheck="false">
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">رقم التليفون</label>
-                  <input type="text" class="form-control fw-bold" id="daily-stay-phone" autocomplete="off" inputmode="tel">
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">الجنسية</label>
-                  <input type="text" class="form-control fw-bold" id="daily-stay-nationality" autocomplete="off" autocorrect="off" spellcheck="false">
-                </div>
-                <div class="col-md-2">
-                  <label class="form-label fw-bold">الجنس</label>
-                  <select class="form-select fw-bold" id="daily-stay-gender" autocomplete="off">
-                    <option value="">-- اختر --</option>
-                    <option value="male">ذكر</option>
-                    <option value="female">أنثى</option>
-                  </select>
-                </div>
-                <div class="col-md-2">
-                  <label class="form-label fw-bold">السن</label>
-                  <input type="text" inputmode="numeric" class="form-control fw-bold" id="daily-stay-age" autocomplete="off">
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">درجة الإعاقة</label>
-                  <input type="text" class="form-control fw-bold" id="daily-stay-disability-degree" autocomplete="off">
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">نوع الإعاقة</label>
-                  <input type="text" class="form-control fw-bold" id="daily-stay-disability-type" autocomplete="off">
-                </div>
-                <div class="col-md-2">
-                  <label class="form-label fw-bold">تاريخ الدخول *</label>
-                  <input type="date" class="form-control fw-bold" id="daily-stay-admission" autocomplete="off">
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">تاريخ الخروج</label>
-                  <input type="date" class="form-control fw-bold" id="daily-stay-discharge" autocomplete="off">
-                </div>
-                <div class="col-md-4">
-                  <label class="form-label fw-bold">التأمين / المعاملة المالية</label>
-                  <select class="form-select fw-bold" id="daily-stay-financial" autocomplete="off">
-                    <option value="">-- اختر --</option>
-                  </select>
-                </div>
-                <div class="col-md-3" id="daily-stay-balance-wrap">
-                  <label class="form-label fw-bold">رصيد أول المدة</label>
-                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-balance" placeholder="0" autocomplete="off">
-                </div>
+      <div id="daily-patient-picker-wrap">
+        <div class="hub-hero py-2 mb-3">
+          <h2 class="hub-title fw-black mb-1">الحركة اليومية</h2>
+          <p class="hub-subtitle mb-0">اختر مريضًا مُسجَّلًا من تسجيل المريض</p>
+        </div>
+        <div class="card shadow-sm mb-3">
+          <div class="card-body">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-8">
+                <label class="form-label fw-bold small mb-1" for="daily-patient-search">بحث برقم الملف أو الاسم</label>
+                <input type="search" class="form-control fw-bold" id="daily-patient-search" placeholder="رقم الملف أو اسم المريض..." autocomplete="off">
               </div>
+              <div class="col-md-4">
+                <button type="button" class="btn btn-primary fw-bold w-100" id="daily-patient-search-btn">بحث</button>
+              </div>
+            </div>
+            <p class="small text-muted mt-2 mb-0">المريض غير موجود؟ <button type="button" class="btn btn-link btn-sm fw-bold p-0 align-baseline" id="daily-goto-register-btn">تسجيل مريض جديد</button></p>
+          </div>
+        </div>
+        <div class="hub-grid daily-patient-grid" id="daily-patient-grid">
+          <p class="text-muted text-center col-12 py-4">جاري تحميل المرضى...</p>
+        </div>
+      </div>
 
-              <div id="daily-stay-internal-wrap" class="mt-3 border-top pt-3" style="display:none">
-                <h6 class="fw-black mb-3">بيانات الإقامة الداخلية</h6>
-                <div class="row g-3 align-items-end">
-                  <div class="col-md-4">
-                    <label class="form-label fw-bold">الغرفة / الجناح</label>
-                    <select class="form-select fw-bold" id="daily-stay-room" autocomplete="off">
-                      <option value="">-- اختر الغرفة أو الجناح --</option>
-                    </select>
-                  </div>
-                  <div class="col-md-2">
-                    <label class="form-label fw-bold">الدور</label>
-                    <input type="text" class="form-control fw-bold" id="daily-stay-floor" autocomplete="off">
-                  </div>
-                  <div class="col-md-2">
-                    <label class="form-label fw-bold">مرافق</label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-companion" placeholder="0" autocomplete="off">
-                  </div>
-                  <div class="col-md-2">
-                    <label class="form-label fw-bold">نقطة التمريض</label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-nursing" placeholder="0" autocomplete="off">
-                  </div>
-                  <div class="col-md-2">
-                    <label class="form-label fw-bold">التمريض المساعد</label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-assistant" placeholder="0" autocomplete="off">
-                  </div>
-                  <div class="col-md-3">
-                    <label class="form-label fw-bold">تأمين الغرفة</label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-room-insurance" placeholder="0" autocomplete="off">
-                  </div>
-                  <div class="col-md-3">
-                    <label class="form-label fw-bold">نوع التعامل</label>
-                    <select class="form-select fw-bold" id="daily-stay-invoice-type" autocomplete="off">
-                      <option value="civil">مدني (خاص)</option>
-                      <option value="contracted">جهات متعاقدة</option>
-                      <option value="non_contracted">جهات غير متعاقدة</option>
-                      <option value="military">عسكري</option>
-                      <option value="hospital">حالة مستشفى</option>
-                      <option value="special">حالة خاصة</option>
-                    </select>
-                  </div>
-                  <div class="col-md-4" id="daily-stay-entity-wrap" style="display:none">
-                    <label class="form-label fw-bold">الجهة</label>
-                    <select class="form-select fw-bold" id="daily-stay-entity" autocomplete="off">
-                      <option value="">-- اختر الجهة --</option>
-                    </select>
-                  </div>
-                  <div class="col-md-2" id="daily-stay-letter-from-wrap" style="display:none">
-                    <label class="form-label fw-bold">جواب التعاقد — من</label>
-                    <input type="date" class="form-control fw-bold" id="daily-stay-letter-from" autocomplete="off">
-                  </div>
-                  <div class="col-md-2" id="daily-stay-letter-to-wrap" style="display:none">
-                    <label class="form-label fw-bold">جواب التعاقد — إلى</label>
-                    <input type="date" class="form-control fw-bold" id="daily-stay-letter-to" autocomplete="off">
-                  </div>
-                  <div class="col-md-2" id="daily-stay-military-from-wrap" style="display:none">
-                    <label class="form-label fw-bold">تأمين عسكري — من</label>
-                    <input type="date" class="form-control fw-bold" id="daily-stay-military-from" autocomplete="off">
-                  </div>
-                  <div class="col-md-2" id="daily-stay-military-to-wrap" style="display:none">
-                    <label class="form-label fw-bold">تأمين عسكري — إلى</label>
-                    <input type="date" class="form-control fw-bold" id="daily-stay-military-to" autocomplete="off">
-                  </div>
-                  <div class="col-md-12">
-                    <button type="button" class="btn btn-outline-warning fw-bold" id="daily-change-room-btn" style="display:none">🔄 تغيير الغرفة</button>
-                  </div>
-                </div>
+      <div id="daily-patient-workspace" class="d-none">
+        <div class="card shadow-sm mb-3 daily-patient-header-card">
+          <div class="card-body py-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+              <div>
+                <h5 class="fw-black mb-1" id="daily-header-patient-name">—</h5>
+                <p class="small text-muted mb-0" id="daily-header-patient-meta">—</p>
               </div>
-              <div class="d-flex gap-2 flex-wrap mt-3">
-                <button type="button" class="btn btn-success fw-bold" id="daily-stay-open-btn">✅ تسجيل المريض وفتح الإقامة</button>
-                <button type="button" class="btn btn-outline-primary fw-bold" id="daily-stay-lookup-btn">🔍 بحث</button>
+              <div class="d-flex flex-wrap gap-2 align-items-center">
+                <span class="badge bg-light text-dark fw-bold" id="daily-entry-status">—</span>
+                <button type="button" class="btn btn-sm btn-outline-warning fw-bold d-none" id="daily-change-room-btn">🔄 تغيير الغرفة</button>
+                <button type="button" class="btn btn-sm btn-primary fw-bold" id="daily-open-invoice-btn">📄 الفاتورة</button>
               </div>
-              <p class="small text-muted mt-2 mb-0">سجّل بيانات المريض أولًا — تُنشأ فاتورة مسودة تلقائيًا ويتم تحديثها مع كل حركة يومية حتى الاعتماد.</p>
+            </div>
+            <div class="row g-2 mt-2 small" id="daily-invoice-info" style="display:none">
+              <div class="col-md-3"><span class="text-muted">فاتورة:</span> <strong id="daily-inv-number">#—</strong></div>
+              <div class="col-md-3"><span class="text-muted">الحالة:</span> <span class="badge bg-secondary" id="daily-inv-status">—</span></div>
+              <div class="col-md-3"><span class="text-muted">الفترة:</span> <span id="daily-inv-period">—</span></div>
+              <div class="col-md-3"><span class="text-muted">إجمالي الفاتورة:</span> <strong class="text-primary" id="daily-inv-final-total">0</strong></div>
+            </div>
+            <div id="daily-invoice-empty" class="small text-warning fw-bold mt-2" style="display:none">لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا.</div>
+          </div>
+        </div>
+
+        <div id="daily-section-tiles-wrap">
+          <p class="fw-bold mb-2">اختر قسم الحركة</p>
+          <div class="hub-grid daily-section-grid" id="daily-section-tiles-grid"></div>
+        </div>
+
+        <div id="daily-section-workspace" class="d-none">
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+            <button type="button" class="btn btn-outline-secondary fw-bold" id="daily-section-back">← كل الأقسام</button>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              <span class="small fw-bold text-muted">تاريخ اليوم:</span>
+              <input type="date" class="form-control form-control-sm fw-bold bg-light" id="daily-entry-date" readonly tabindex="-1" style="width:auto">
+              <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-add-row-btn">+ صف</button>
+              <button type="button" class="btn btn-sm btn-primary fw-bold" id="daily-save-btn">💾 حفظ</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" id="daily-clear-btn">مسح</button>
+              <div class="dropdown">
+                <button type="button" class="btn btn-sm btn-outline-dark fw-bold dropdown-toggle" data-bs-toggle="dropdown">🖨️ طباعة</button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><button type="button" class="dropdown-item fw-bold" id="daily-print-medicines-btn">أدوية</button></li>
+                  <li><button type="button" class="dropdown-item fw-bold" id="daily-print-supplies-btn">مستلزمات</button></li>
+                  <li><button type="button" class="dropdown-item fw-bold" id="daily-print-both-btn">أدوية + مستلزمات</button></li>
+                  <li><button type="button" class="dropdown-item fw-bold" id="daily-print-radiology-btn">أشعة</button></li>
+                  <li><button type="button" class="dropdown-item fw-bold" id="daily-print-laboratory-btn">تحاليل</button></li>
+                </ul>
+              </div>
             </div>
           </div>
 
-          <!-- Step 2: Daily charges -->
-          <div class="card shadow-sm daily-charges-card daily-step-locked" id="daily-step-2-panel">
-            <div class="card-header bg-info text-dark d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <h5 class="mb-0 fw-black">② الحركة اليومية</h5>
-              <span class="badge bg-light text-dark fw-bold" id="daily-entry-status">أكمل تسجيل المريض أولًا</span>
-            </div>
-            <div class="card-body">
-              <div class="alert alert-light border mb-3 py-2" id="daily-patient-summary" style="display:none">
-                <strong id="daily-patient-summary-text"></strong>
-              </div>
-              <div class="row g-3 mb-3 align-items-end">
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">تاريخ اليوم</label>
-                  <input type="date" class="form-control fw-bold bg-light" id="daily-entry-date" readonly tabindex="-1" title="تاريخ اليوم من جهازك — للقراءة فقط">
-                </div>
-                <div class="col-md-9 d-flex gap-2 flex-wrap align-items-center">
-                  <button type="button" class="btn btn-outline-primary fw-bold" id="daily-add-row-btn">+ إضافة يوم</button>
-                  <button type="button" class="btn btn-primary fw-bold" id="daily-save-btn">💾 حفظ الكل</button>
-                  <button type="button" class="btn btn-outline-secondary fw-bold" id="daily-clear-btn">مسح الكل</button>
-                  <button type="button" class="btn btn-outline-dark fw-bold" id="daily-history-btn">📜 سجل التعديلات</button>
-                  <div class="btn-group">
-                    <button type="button" class="btn btn-outline-danger fw-bold" id="daily-print-medicines-btn" title="طباعة الأدوية">🖨️ أدوية</button>
-                    <button type="button" class="btn btn-outline-danger fw-bold" id="daily-print-supplies-btn" title="طباعة المستلزمات">🖨️ مستلزمات</button>
-                    <button type="button" class="btn btn-outline-danger fw-bold" id="daily-print-both-btn" title="طباعة الأدوية والمستلزمات">🖨️ أدوية + مستلزمات</button>
-                    <button type="button" class="btn btn-outline-primary fw-bold" id="daily-print-radiology-btn" title="طباعة الأشعة">🖨️ أشعة</button>
-                    <button type="button" class="btn btn-outline-primary fw-bold" id="daily-print-laboratory-btn" title="طباعة التحاليل">🖨️ تحاليل</button>
-                  </div>
-                </div>
-              </div>
+          <p class="small text-muted mb-2" id="daily-tab-hint"></p>
+          <div id="daily-section-total-bar" class="alert alert-warning fw-bold py-2 mb-2" style="display:none">
+            إجمالي القسم: <span id="daily-section-total">0</span>
+          </div>
 
-              <ul class="nav nav-tabs nav-fill daily-entry-tabs flex-wrap mb-2" id="daily-entry-tabs" role="tablist"></ul>
-              <p class="small text-muted mb-2" id="daily-tab-hint">اختر قسمًا لتسجيل الحركة — يمكن التبديل بين الأقسام قبل الحفظ</p>
-
-              <div id="daily-section-total-bar" class="alert alert-warning fw-bold py-2 mb-2" style="display:none">
-                إجمالي القسم: <span id="daily-section-total">0</span>
-              </div>
+          <ul class="nav nav-tabs daily-entry-tabs d-none" id="daily-entry-tabs" role="tablist"></ul>
 
               <div id="daily-glasses-panel" class="card border mb-3" style="display:none">
                 <div class="card-header bg-light fw-bold">نظارات / بصريات</div>
@@ -882,60 +781,52 @@
           </div>
 
           <div class="mb-3">
-            <label class="form-label fw-bold">ملاحظات (اختياري — تُطبَّق على الصفوف الجديدة)</label>
-            <textarea class="form-control" id="daily-notes" rows="2"></textarea>
-          </div>
-
-          <h6 class="fw-black mb-2">سجل الحركة للمريض</h6>
-          <div class="table-responsive">
-            <table class="table table-bordered table-sm">
-              <thead class="table-light">
-                <tr>
-                  <th>التاريخ</th>
-                  <th>الإجمالي</th>
-                  <th>نوع الإقامة</th>
-                  <th>الفاتورة</th>
-                  <th>آخر تحديث</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="daily-history-tbody">
-                <tr><td colspan="6" class="text-muted text-center">اختر مريضًا لعرض السجل</td></tr>
-              </tbody>
-            </table>
-          </div>
-            </div>
+            <label class="form-label fw-bold small">ملاحظات (اختياري)</label>
+            <textarea class="form-control form-control-sm" id="daily-notes" rows="2"></textarea>
           </div>
         </div>
+      </div>
 
-        <div class="col-12">
-          <div class="card shadow-sm" id="daily-step-3-panel">
-            <div class="card-header bg-warning fw-black">③ الفاتورة المفتوحة</div>
-            <div class="card-body">
-              <div class="row align-items-center g-3">
-                <div class="col-lg-8">
-                  <div id="daily-invoice-empty" class="text-muted text-center py-3">
-                    <p class="mb-0">سجّل المريض في الخطوة ① لإنشاء فاتورة مسودة.</p>
-                  </div>
-                  <div id="daily-invoice-info" style="display:none">
-                    <div class="row g-2 small">
-                      <div class="col-md-3"><span class="text-muted">فاتورة:</span> <strong id="daily-inv-number">#—</strong></div>
-                      <div class="col-md-3"><span class="text-muted">الحالة:</span> <span class="badge bg-secondary" id="daily-inv-status">—</span></div>
-                      <div class="col-md-3"><span class="text-muted">الفترة:</span> <span id="daily-inv-period">—</span></div>
-                      <div class="col-md-3"><span class="text-muted">أيام مسجّلة:</span> <strong id="daily-inv-days">0</strong></div>
-                      <div class="col-md-4"><span class="text-muted">إجمالي الحركة:</span> <strong id="daily-inv-daily-total">0</strong></div>
-                      <div class="col-md-4"><span class="text-muted">إجمالي الفاتورة:</span> <strong class="fs-5 text-primary" id="daily-inv-final-total">0</strong></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-lg-4">
-                  <button type="button" class="btn btn-primary w-100 fw-bold mb-2" id="daily-open-invoice-btn">📄 فتح الفاتورة للمراجعة</button>
-                  <p class="small text-muted mb-0">تُحدَّث الفاتورة تلقائيًا مع كل حفظ للحركة اليومية حتى يتم اعتمادها.</p>
-                </div>
-              </div>
-            </div>
-          </div>
+      <div id="daily-stay-hidden-fields" class="d-none" aria-hidden="true">
+        <span id="daily-stay-type-display"></span>
+        <input type="hidden" id="daily-stay-file-number">
+        <input type="hidden" id="daily-stay-patient-name">
+        <input type="hidden" id="daily-stay-phone">
+        <input type="hidden" id="daily-stay-nationality">
+        <select id="daily-stay-gender"><option value=""></option><option value="male">ذكر</option><option value="female">أنثى</option></select>
+        <input type="hidden" id="daily-stay-age">
+        <input type="hidden" id="daily-stay-disability-degree">
+        <input type="hidden" id="daily-stay-disability-type">
+        <input type="hidden" id="daily-stay-admission">
+        <input type="hidden" id="daily-stay-discharge">
+        <select id="daily-stay-financial"><option value=""></option></select>
+        <div id="daily-stay-balance-wrap"><input type="hidden" id="daily-stay-balance"></div>
+        <div id="daily-stay-internal-wrap">
+          <select id="daily-stay-room"><option value=""></option></select>
+          <input type="hidden" id="daily-stay-floor">
+          <input type="hidden" id="daily-stay-companion">
+          <input type="hidden" id="daily-stay-nursing">
+          <input type="hidden" id="daily-stay-assistant">
+          <input type="hidden" id="daily-stay-room-insurance">
+          <select id="daily-stay-invoice-type">
+            <option value="civil">مدني</option>
+            <option value="contracted">جهات متعاقدة</option>
+            <option value="non_contracted">جهات غير متعاقدة</option>
+            <option value="military">عسكري</option>
+            <option value="hospital">حالة مستشفى</option>
+            <option value="special">حالة خاصة</option>
+          </select>
+          <div id="daily-stay-entity-wrap"><select id="daily-stay-entity"><option value=""></option></select></div>
+          <div id="daily-stay-letter-from-wrap"><input type="hidden" id="daily-stay-letter-from"></div>
+          <div id="daily-stay-letter-to-wrap"><input type="hidden" id="daily-stay-letter-to"></div>
+          <div id="daily-stay-military-from-wrap"><input type="hidden" id="daily-stay-military-from"></div>
+          <div id="daily-stay-military-to-wrap"><input type="hidden" id="daily-stay-military-to"></div>
         </div>
+        <button type="button" id="daily-stay-open-btn"></button>
+        <button type="button" id="daily-stay-lookup-btn"></button>
+        <div id="daily-patient-summary"><span id="daily-patient-summary-text"></span></div>
+        <span id="daily-inv-days"></span>
+        <span id="daily-inv-daily-total"></span>
       </div>
 
       <div class="modal fade" id="change-room-modal" tabindex="-1" aria-hidden="true">
@@ -1840,7 +1731,7 @@
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/app.js?v=20260829b"></script>
   <script src="/js/daily-picker.js?v=20260829b"></script>
-  <script src="/js/daily-charges.js?v=20260829b"></script>
+  <script src="/js/daily-charges.js?v=20260831a"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>
 </body>

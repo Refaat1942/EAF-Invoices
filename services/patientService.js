@@ -225,6 +225,40 @@ async function listPatients() {
   return rows;
 }
 
+async function searchPatientsForDaily(search = '', limit = 50) {
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
+  const term = String(search || '').trim();
+  const openInvoiceSql = `
+    EXISTS (
+      SELECT 1 FROM invoices i
+      WHERE TRIM(i.file_number) = TRIM(p.file_number)
+        AND i.status IN ('draft', 'pending_review')
+      LIMIT 1
+    ) AS has_open_invoice`;
+  if (!term) {
+    const { rows } = await query(
+      `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
+              ${openInvoiceSql}
+       FROM patients p
+       ORDER BY p.updated_at DESC NULLS LAST, p.file_number
+       LIMIT $1`,
+      [lim]
+    );
+    return rows;
+  }
+  const pattern = `%${term.replace(/%/g, '')}%`;
+  const { rows } = await query(
+    `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
+            ${openInvoiceSql}
+     FROM patients p
+     WHERE p.file_number ILIKE $1 OR p.name ILIKE $1
+     ORDER BY p.updated_at DESC NULLS LAST, p.file_number
+     LIMIT $2`,
+    [pattern, lim]
+  );
+  return rows;
+}
+
 module.exports = {
   getPatientByFileNumber,
   upsertPatient,
@@ -232,6 +266,7 @@ module.exports = {
   applyPatientCredit,
   recordInvoiceCollections,
   listPatients,
+  searchPatientsForDaily,
   normalizePatientType,
   normalizeUpsertData,
 };

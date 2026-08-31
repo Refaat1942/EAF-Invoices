@@ -286,7 +286,7 @@ function lockDailyInvoiceRows() {
 async function openInvoiceFollowUpView() {
   const fileNumber = sessionStorage.getItem('dailyStayFileNumber');
   if (!fileNumber) {
-    showToast('ابدأ من إقامة المريض — سجّل المريض والحركة اليومية أولًا', 'info');
+    showToast('ابدأ من الحركة اليومية — سجّل المريض أولًا من تسجيل مريض جديد', 'info');
     switchView('daily');
     return;
   }
@@ -298,7 +298,7 @@ async function openInvoiceFollowUpView() {
       await loadInvoiceForEdit(data.invoice.id, { followUp: true });
       return;
     }
-    showToast('لا توجد فاتورة مفتوحة — سجّل المريض من إقامة المريض أولًا', 'warning');
+    showToast('لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا', 'warning');
     switchView('daily');
   } catch (err) {
     showToast(err.message, 'danger');

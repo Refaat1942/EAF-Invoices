@@ -893,6 +893,20 @@ body {
   max-width: 1200px;
 }
 
+.daily-patient-grid,
+.daily-section-grid {
+  max-width: 1200px;
+}
+
+.daily-patient-header-card {
+  border-left: 4px solid #1a5276;
+}
+
+.hub-tile--red {
+  background: linear-gradient(145deg, #fde8e8, #fff);
+  border-color: #c62828;
+}
+
 .view-page-header {
   max-width: 1400px;
 }

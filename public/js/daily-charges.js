@@ -1,15 +1,15 @@
 const DAILY_API = '/api/daily-charges';
 
 const DAILY_TAB_GROUPS = [
-  { id: 'stay', label: 'إقامة ورعاية', codes: ['accommodation', 'companion', 'nursing_point', 'patient_assistant'] },
-  { id: 'sessions', label: 'جلسات', codes: ['sessions_date', 'sessions_detail', 'sessions'] },
-  { id: 'medicines', label: 'أدوية', codes: ['medicines'] },
-  { id: 'supplies', label: 'مستلزمات', codes: ['supplies', 'cosmetics'] },
-  { id: 'exams', label: 'كشوفات', codes: ['consultant_exam', 'specialist_exam', 'consultation_stamp'] },
-  { id: 'lab', label: 'تحاليل', codes: ['analyses', 'analyses_stamp'] },
-  { id: 'radiology', label: 'أشعة', codes: ['xray_type', 'xray_total', 'xray_stamp'] },
-  { id: 'other', label: 'أخرى', codes: ['other', 'prosthetics'] },
-  { id: 'operations', label: 'عمليات', codes: [] },
+  { id: 'stay', label: 'إقامة ورعاية', icon: '🏨', tileClass: 'hub-tile--teal', codes: ['accommodation', 'companion', 'nursing_point', 'patient_assistant'] },
+  { id: 'sessions', label: 'جلسات', icon: '📅', tileClass: 'hub-tile--indigo', codes: ['sessions_date', 'sessions_detail', 'sessions'] },
+  { id: 'medicines', label: 'أدوية', icon: '💊', tileClass: 'hub-tile--blue', codes: ['medicines'] },
+  { id: 'supplies', label: 'مستلزمات', icon: '🧴', tileClass: 'hub-tile--green', codes: ['supplies', 'cosmetics'] },
+  { id: 'exams', label: 'كشوفات', icon: '🩺', tileClass: 'hub-tile--primary', codes: ['consultant_exam', 'specialist_exam', 'consultation_stamp'] },
+  { id: 'lab', label: 'تحاليل', icon: '🔬', tileClass: 'hub-tile--slate', codes: ['analyses', 'analyses_stamp'] },
+  { id: 'radiology', label: 'أشعة', icon: '🩻', tileClass: 'hub-tile--blue', codes: ['xray_type', 'xray_total', 'xray_stamp'] },
+  { id: 'other', label: 'أخرى', icon: '📎', tileClass: 'hub-tile--slate', codes: ['other', 'prosthetics'] },
+  { id: 'operations', label: 'عمليات', icon: '⚕️', tileClass: 'hub-tile--red', codes: [] },
 ];
 
 const DAILY_EXAM_CODES = ['consultant_exam', 'specialist_exam', 'consultation_stamp'];
@@ -104,7 +104,7 @@ function getLocalDateString() {
 }
 
 function codesForActiveDailyTab() {
-  if (activeDailyTab === 'all') return null;
+  if (!activeDailyTab) return null;
   const group = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab);
   return group ? group.codes : null;
 }
@@ -308,25 +308,132 @@ async function loadOperationsForToday() {
   }
 }
 
-function renderDailyEntryTabs() {
-  const nav = document.getElementById('daily-entry-tabs');
-  if (!nav) return;
-  const tabs = [{ id: 'all', label: 'كل الأقسام' }, ...DAILY_TAB_GROUPS];
-  nav.innerHTML = tabs
+function renderDailySectionTiles() {
+  const grid = document.getElementById('daily-section-tiles-grid');
+  if (!grid) return;
+  grid.innerHTML = DAILY_TAB_GROUPS
     .map(
-      (t) =>
-        `<li class="nav-item" role="presentation"><button type="button" class="nav-link ${activeDailyTab === t.id ? 'active' : ''}" data-daily-tab="${t.id}" role="tab">${t.label}</button></li>`
+      (g) =>
+        `<button type="button" class="hub-tile ${g.tileClass || 'hub-tile--slate'} daily-section-tile" data-daily-tab="${g.id}">
+          <span class="hub-tile-icon">${g.icon || '📋'}</span>
+          <span class="hub-tile-title">${dailyEscapeHtml(g.label)}</span>
+        </button>`
     )
     .join('');
-  nav.querySelectorAll('[data-daily-tab]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      activeDailyTab = btn.dataset.dailyTab;
-      nav.querySelectorAll('.nav-link').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      applyDailyTabColumnVisibility();
+}
+
+function showDailySection(sectionId) {
+  activeDailyTab = sectionId || '';
+  const tilesWrap = document.getElementById('daily-section-tiles-wrap');
+  const sectionWorkspace = document.getElementById('daily-section-workspace');
+  if (tilesWrap) tilesWrap.classList.toggle('d-none', !!sectionId);
+  if (sectionWorkspace) {
+    if (sectionId) sectionWorkspace.classList.remove('d-none');
+    else sectionWorkspace.classList.add('d-none');
+  }
+  if (sectionId) applyDailyTabColumnVisibility();
+}
+
+function showDailyPatientPicker() {
+  document.getElementById('daily-patient-picker-wrap')?.classList.remove('d-none');
+  document.getElementById('daily-patient-workspace')?.classList.add('d-none');
+  document.getElementById('daily-change-patient-btn')?.classList.add('d-none');
+  sessionStorage.removeItem('dailyStayFileNumber');
+  dailyStayContext = null;
+}
+
+function showDailyPatientWorkspace() {
+  document.getElementById('daily-patient-picker-wrap')?.classList.add('d-none');
+  document.getElementById('daily-patient-workspace')?.classList.remove('d-none');
+  document.getElementById('daily-change-patient-btn')?.classList.remove('d-none');
+  showDailySection('');
+  renderDailySectionTiles();
+}
+
+function updateDailyPatientHeader(ctx) {
+  const p = ctx?.patient;
+  const nameEl = document.getElementById('daily-header-patient-name');
+  const metaEl = document.getElementById('daily-header-patient-meta');
+  if (nameEl) nameEl.textContent = p?.name || ctx?.invoice?.patient_name || '—';
+  if (metaEl) {
+    const typeLabel = p?.patient_type === 'external' ? 'خارجي' : 'داخلي';
+    const parts = [`ملف ${p?.file_number || '—'}`, typeLabel];
+    if (p?.nationality) parts.push(p.nationality);
+    if (p?.phone) parts.push(p.phone);
+    metaEl.textContent = parts.join(' · ');
+  }
+  const changeRoomBtn = document.getElementById('daily-change-room-btn');
+  if (changeRoomBtn) {
+    const showRoom = Boolean(ctx?.invoice?.id) && p?.patient_type !== 'external';
+    changeRoomBtn.classList.toggle('d-none', !showRoom);
+  }
+}
+
+async function loadDailyPatientGrid(search = '') {
+  const grid = document.getElementById('daily-patient-grid');
+  if (!grid) return;
+  grid.innerHTML = '<p class="text-muted text-center col-12 py-3">جاري التحميل...</p>';
+  try {
+    const params = new URLSearchParams({ limit: '40' });
+    if (search.trim()) params.set('search', search.trim());
+    const patients = await apiJson(`${DAILY_API}/patients?${params}`);
+    if (!patients.length) {
+      grid.innerHTML =
+        '<p class="text-muted text-center col-12 py-4 mb-0">لا يوجد مرضى مطابقين — سجّل مريضًا جديدًا أولًا</p>';
+      return;
+    }
+    grid.innerHTML = patients
+      .map(
+        (p) =>
+          `<button type="button" class="hub-tile hub-tile--teal daily-patient-tile" data-file-number="${dailyEscapeHtml(p.file_number)}">
+            <span class="hub-tile-icon">${p.patient_type === 'external' ? '🩺' : '🏥'}</span>
+            <span class="hub-tile-title">${dailyEscapeHtml(p.name)}</span>
+            <span class="hub-tile-desc">ملف ${dailyEscapeHtml(p.file_number)}</span>
+          </button>`
+      )
+      .join('');
+  } catch (err) {
+    grid.innerHTML = `<p class="text-danger text-center col-12 py-3">${dailyEscapeHtml(sanitizeApiErrorMessage(err.message))}</p>`;
+  }
+}
+
+async function selectDailyPatient(fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return;
+  const fileInput = document.getElementById('daily-stay-file-number');
+  if (fileInput) fileInput.value = fn;
+  sessionStorage.setItem('dailyStayFileNumber', fn);
+  await loadOpenPatientStay(fn);
+}
+
+async function ensureOpenStayInvoice(ctx) {
+  if (ctx?.invoice?.id) return ctx;
+  const p = ctx?.patient;
+  if (!p?.file_number?.trim() || !p?.name?.trim()) return ctx;
+  if (!dailyCan('daily_charges.manage')) return ctx;
+  try {
+    const data = await apiJson(`${DAILY_API}/open-stay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_number: p.file_number.trim(),
+        patient_name: p.name.trim(),
+        admission_date: getLocalDateString(),
+        patient_type: p.patient_type || 'internal',
+        phone: p.phone || '',
+        nationality: p.nationality || '',
+        gender: p.gender || '',
+        financial_treatment: '',
+      }),
     });
-  });
-  applyDailyTabColumnVisibility();
+    return data;
+  } catch {
+    return ctx;
+  }
+}
+
+function renderDailyEntryTabs() {
+  renderDailySectionTiles();
 }
 
 function setDailyTodayDate() {
@@ -339,12 +446,6 @@ function setDailyTodayDate() {
 }
 
 function setDailyWorkflowSteps(hasStay) {
-  document.querySelectorAll('.patient-stay-step').forEach((el) => {
-    const step = Number(el.dataset.step);
-    el.classList.toggle('active', !hasStay && step === 1);
-    el.classList.toggle('done', hasStay && step <= 3);
-    if (hasStay && step === 2) el.classList.add('active');
-  });
   const panel = document.getElementById('daily-step-2-panel');
   if (panel) panel.classList.toggle('daily-step-locked', !hasStay);
 }
@@ -408,7 +509,7 @@ function applyDailyPatientTypeUI(patientType) {
   const internalWrap = document.getElementById('daily-stay-internal-wrap');
   if (internalWrap) internalWrap.style.display = type === 'internal' ? '' : 'none';
   const changeBtn = document.getElementById('daily-change-room-btn');
-  if (changeBtn) changeBtn.style.display = type === 'internal' ? '' : 'none';
+  if (changeBtn && type === 'external') changeBtn.classList.add('d-none');
   const regInternal = document.getElementById('patient-reg-internal-wrap');
   if (regInternal) regInternal.style.display = patientRegSelectedType === 'internal' ? '' : 'none';
 }
@@ -875,7 +976,11 @@ async function savePatientRegistration(event) {
     const label = data.created ? 'تم تسجيل المريض وإنشاء فاتورة مسودة' : 'تم تحديث بيانات المريض';
     showToast(`${label} — ملف ${file_number}`, 'success');
     clearPatientRegisterForm();
-    showPatientRegisterTypePicker();
+    if (typeof switchView === 'function') {
+      switchView('daily');
+    } else {
+      showPatientRegisterTypePicker();
+    }
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
   }
@@ -973,10 +1078,16 @@ function applyDailyStayContext(ctx) {
 
   const statusEl = document.getElementById('daily-entry-status');
   if (statusEl) {
-    statusEl.textContent = hasOpenInvoice ? 'جاهز للتسجيل' : 'أكمل تسجيل المريض أولًا';
+    statusEl.textContent = hasOpenInvoice ? 'جاهز للتسجيل' : 'لا توجد فاتورة مفتوحة';
   }
 
   updateDailyInvoicePanel(ctx);
+  updateDailyPatientHeader(ctx);
+  if (ctx?.patient?.file_number && ctx?.patient?.name) {
+    showDailyPatientWorkspace();
+  } else {
+    showDailyPatientPicker();
+  }
   if (typeof bindCommaAmountInputs === 'function') {
     bindCommaAmountInputs(document.getElementById('view-daily'));
   }
@@ -989,10 +1100,14 @@ async function loadOpenPatientStay(fileNumber) {
   const fn = (fileNumber || getStayFileNumber()).trim();
   if (!fn) {
     applyDailyStayContext(null);
+    showDailyPatientPicker();
     return null;
   }
   try {
-    const data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
+    let data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
+    if (!data?.invoice?.id && data?.patient?.name) {
+      data = await ensureOpenStayInvoice(data);
+    }
     applyDailyStayContext(data);
     await loadDailyStayTypes();
     if (dailySectionsCache.length) await loadDailyEntriesIntoSheet();
@@ -1139,7 +1254,7 @@ let dailyPriceListMeta = null;
 let dailySectionsLoadFailed = false;
 let dailySaveInFlight = false;
 let dailyBusinessDate = null;
-let activeDailyTab = 'medicines';
+let activeDailyTab = '';
 
 function isManualDailyAmountSection(section) {
   return ['accommodation', 'companion', 'nursing_point', 'patient_assistant'].includes(String(section?.code || '').trim());
@@ -1734,7 +1849,7 @@ async function saveDailyEntry() {
     return;
   }
   if (!dailyStayContext?.invoice?.id) {
-    showToast('سجّل المريض وفتح الإقامة في الخطوة ① أولًا', 'warning');
+    showToast('لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا', 'warning');
     return;
   }
   const file_number = getStayFileNumber();
@@ -1855,14 +1970,14 @@ async function initDailyChargesView() {
     if (typeof bindCommaAmountInputs === 'function') {
       bindCommaAmountInputs(document.getElementById('view-daily'));
     }
+    await loadDailyPatientGrid();
     const savedFile = sessionStorage.getItem('dailyStayFileNumber');
     if (savedFile) {
-      document.getElementById('daily-stay-file-number').value = savedFile;
-      await loadOpenPatientStay(savedFile);
+      await selectDailyPatient(savedFile);
     } else {
       applyDailyStayContext(null);
+      showDailyPatientPicker();
       await loadDailyEntriesIntoSheet();
-      await loadDailyPatientHistory();
     }
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
@@ -2037,8 +2152,40 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('change-room-submit-btn')?.addEventListener('click', submitChangeRoom);
   document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
-  document.getElementById('daily-stay-file-number')?.addEventListener('blur', () => loadOpenPatientStay());
   document.getElementById('daily-open-invoice-btn')?.addEventListener('click', openDailyStayInvoice);
+  document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
+    const q = document.getElementById('daily-patient-search')?.value || '';
+    void loadDailyPatientGrid(q);
+  });
+  document.getElementById('daily-patient-search')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const q = document.getElementById('daily-patient-search')?.value || '';
+      void loadDailyPatientGrid(q);
+    }
+  });
+  document.getElementById('daily-patient-grid')?.addEventListener('click', (e) => {
+    const tile = e.target.closest('.daily-patient-tile');
+    if (!tile) return;
+    void selectDailyPatient(tile.dataset.fileNumber);
+  });
+  document.getElementById('daily-section-tiles-grid')?.addEventListener('click', (e) => {
+    const tile = e.target.closest('.daily-section-tile');
+    if (!tile) return;
+    if (!dailyStayContext?.invoice?.id) {
+      showToast('لا توجد فاتورة مفتوحة لهذا المريض', 'warning');
+      return;
+    }
+    showDailySection(tile.dataset.dailyTab);
+  });
+  document.getElementById('daily-section-back')?.addEventListener('click', () => showDailySection(''));
+  document.getElementById('daily-change-patient-btn')?.addEventListener('click', () => {
+    showDailyPatientPicker();
+    void loadDailyPatientGrid();
+  });
+  document.getElementById('daily-goto-register-btn')?.addEventListener('click', () => {
+    if (typeof switchView === 'function') switchView('patient-register');
+  });
   document.getElementById('daily-print-medicines-btn')?.addEventListener('click', () =>
     openDailyItemsPrint('medicines')
   );
@@ -2056,7 +2203,6 @@ document.addEventListener('DOMContentLoaded', () => {
   );
   document.getElementById('daily-save-btn')?.addEventListener('click', saveDailyEntry);
   document.getElementById('daily-clear-btn')?.addEventListener('click', clearDailyForm);
-  document.getElementById('daily-history-btn')?.addEventListener('click', showDailyEntryHistory);
   document.getElementById('daily-add-row-btn')?.addEventListener('click', () => addDailyEntryRow());
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
   document.getElementById('daily-glasses-price')?.addEventListener('input', updateGlassesFinalAmount);
