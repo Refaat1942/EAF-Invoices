@@ -391,8 +391,34 @@ router.post('/change-room', requirePermission('daily_charges.manage'), async (re
     if (patient.floor && req.body.floor) {
       await upsertPatient(file_number, { floor: req.body.floor, name: patient.name });
     }
+    let backfill = null;
+    if (req.body.backfill_stay === true) {
+      const { batchPostStayCharges } = require('../services/stayBatchPostingService');
+      backfill = await batchPostStayCharges(file_number, {
+        from_date: req.body.effective_from,
+        skip_existing: true,
+        include_today: false,
+      }, req.session?.user || null);
+    }
     const stay = await getOpenPatientStay(file_number);
-    res.json({ assignment, ...stay });
+    res.json({ assignment, backfill, ...stay });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/stay/batch-post', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const file_number = String(req.body.file_number || '').trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    const { batchPostStayCharges } = require('../services/stayBatchPostingService');
+    const result = await batchPostStayCharges(file_number, {
+      from_date: req.body.from_date,
+      to_date: req.body.to_date,
+      skip_existing: req.body.skip_existing !== false,
+      include_today: req.body.include_today === true,
+    }, req.session?.user || null);
+    res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

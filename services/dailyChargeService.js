@@ -478,6 +478,7 @@ function normalizeLine(section, rawLine = {}) {
   if (!unitPrice && amount && quantity) unitPrice = round2(amount / quantity);
 
   return {
+    id: Number(rawLine.id || rawLine.line_id) || null,
     section_code: section.code,
     service_id: serviceId,
     catalog_item_id: rawLine.catalog_item_id || null,
@@ -491,6 +492,24 @@ function normalizeLine(section, rawLine = {}) {
     extra_text: rawLine.extra_text || '',
     weight: rawLine.weight != null && rawLine.weight !== '' ? Number(rawLine.weight) : null,
   };
+}
+
+const DAILY_STAMP_LINE_CODES = ['consultation_stamp', 'analyses_stamp', 'xray_stamp'];
+
+async function computeDailyStampLinesTotal(fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return { raw: 0, rounded: 0 };
+  const { rows } = await query(
+    `SELECT COALESCE(SUM(l.amount), 0) AS total
+     FROM patient_daily_entry_lines l
+     JOIN patient_daily_entries e ON e.id = l.entry_id
+     JOIN patients p ON p.id = e.patient_id
+     WHERE TRIM(p.file_number) = TRIM($1)
+       AND l.section_code = ANY($2::text[])`,
+    [fn, DAILY_STAMP_LINE_CODES]
+  );
+  const raw = round2(rows[0]?.total);
+  return { raw, rounded: round2(raw) };
 }
 
 function computeDailyTotal(lines, sections) {
@@ -815,7 +834,10 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
 
 async function prepareEntrySaveContext(data) {
   const patient = await resolvePatient(data.file_number, data.patient_name);
-  const entryDate = resolveAllowedDailyEntryDate(data.entry_date);
+  const allowBackfill = data.allow_backfill === true;
+  const entryDate = allowBackfill
+    ? normalizeCalendarDate(data.entry_date) || getCurrentBusinessDateString()
+    : resolveAllowedDailyEntryDate(data.entry_date);
 
   const sections = await listSections();
   const sectionsWithServices = await getSectionsWithServices();
@@ -823,15 +845,22 @@ async function prepareEntrySaveContext(data) {
   const lines = [];
 
   for (const section of sections) {
-    const raw = rawLines.find((line) => line.section_code === section.code) || {};
-    const normalized = await normalizeLineWithPrice(section, raw, sectionsWithServices);
-    const hasValue =
-      section.input_type === 'date'
-        ? Boolean(normalized.extra_date)
-        : section.input_type === 'text'
-          ? Boolean(normalized.extra_text)
-          : Number(normalized.amount) > 0;
-    if (hasValue) lines.push(normalized);
+    const matching = rawLines.filter((line) => line.section_code === section.code);
+    if (!matching.length) continue;
+    for (const raw of matching) {
+      const normalized = await normalizeLineWithPrice(section, raw, sectionsWithServices);
+      const hasValue =
+        section.input_type === 'date'
+          ? Boolean(normalized.extra_date)
+          : section.input_type === 'text'
+            ? Boolean(normalized.extra_text)
+            : Number(normalized.amount) > 0;
+      if (hasValue) lines.push(normalized);
+    }
+  }
+
+  if (data.stay_type_id) {
+    await enrichStayLinesFromStayType(lines, data.stay_type_id, sections);
   }
 
   const dailyTotal = computeDailyTotal(lines, sections);
@@ -843,7 +872,40 @@ async function prepareEntrySaveContext(data) {
     lines,
     dailyTotal,
     isNewEntry,
+    allowBackfill,
   };
+}
+
+async function enrichStayLinesFromStayType(lines, stayTypeId, sections) {
+  const stayId = Number(stayTypeId);
+  if (!stayId) return lines;
+  const accSection = sections.find((s) => s.code === 'accommodation');
+  if (!accSection) return lines;
+
+  let accLine = lines.find((l) => l.section_code === 'accommodation');
+  if (accLine && round2(accLine.amount) > 0) return lines;
+
+  const grades = await listAccommodationStayGrades();
+  const grade = grades.find((g) => Number(g.stay_type_id) === stayId);
+  const rate = round2(grade?.daily_rate) || 0;
+  if (rate <= 0) return lines;
+
+  if (!accLine) {
+    accLine = {
+      section_code: 'accommodation',
+      amount: rate,
+      quantity: 1,
+      unit_price: rate,
+      description: accSection.name,
+    };
+    lines.push(accLine);
+  } else {
+    accLine.amount = rate;
+    accLine.unit_price = rate;
+    accLine.quantity = 1;
+  }
+  if (grade?.service_id) accLine.service_id = grade.service_id;
+  return lines;
 }
 
 async function getSupplementalInvoiceItems(fileNumber, fromDate, toDate) {
@@ -975,7 +1037,7 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     );
     existing = rows[0] || null;
     if (!existing) throw new Error(`الحركة #${entryIdInput} غير موجودة`);
-    assertExistingEntryDateIsToday(existing.entry_date);
+    if (!data.allow_backfill) assertExistingEntryDateIsToday(existing.entry_date);
   } else if (!entryIdInput && lines.length) {
     const duplicate = await findDuplicateEntryForLines(client, patient.id, entryDate, lines);
     if (duplicate) {
@@ -1019,19 +1081,19 @@ async function persistEntryInTransaction(client, data, user, context = null) {
       `SELECT id, section_code FROM patient_daily_entry_lines WHERE entry_id = $1`,
       [existing.id]
     );
-    const oldBySection = Object.fromEntries(oldLines.map((row) => [row.section_code, row.id]));
-    const newSectionCodes = new Set(lines.map((line) => line.section_code));
+    const oldById = Object.fromEntries(oldLines.map((row) => [row.id, row]));
+    const incomingIds = new Set(lines.map((line) => Number(line.id)).filter(Boolean));
 
     for (const oldLine of oldLines) {
-      if (!newSectionCodes.has(oldLine.section_code)) {
+      if (!incomingIds.has(oldLine.id)) {
         await client.query(`DELETE FROM patient_daily_entry_lines WHERE id = $1`, [oldLine.id]);
       }
     }
 
     for (let index = 0; index < lines.length; index++) {
       const line = lines[index];
-      const existingLineId = oldBySection[line.section_code];
-      if (existingLineId) {
+      const existingLineId = Number(line.id) || 0;
+      if (existingLineId && oldById[existingLineId]) {
         await client.query(
           `UPDATE patient_daily_entry_lines SET
             service_id = $1, catalog_item_id = $2, description = $3, quantity = $4,
@@ -2005,4 +2067,6 @@ module.exports = {
   isManualAmountSection,
   MANUAL_AMOUNT_SECTION_CODES,
   buildDailyLinesFingerprint,
+  computeDailyStampLinesTotal,
+  DAILY_STAMP_LINE_CODES,
 };

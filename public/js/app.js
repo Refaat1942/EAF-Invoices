@@ -13,6 +13,27 @@ let followUpPatientSnapshot = null;
 let currentInvoiceReturns = [];
 let invoiceReturnModal = null;
 let rowCount = 12;
+const INVOICE_SECTION_LABELS = {
+  accommodation: 'الإقامة',
+  companion: 'مرافق',
+  nursing_point: 'نقطة تمريض',
+  patient_assistant: 'مساعد تمريض',
+  sessions: 'الجلسات',
+  medicines: 'الأدوية',
+  supplies: 'المستلزمات',
+  cosmetics: 'مستحضرات تجميل',
+  consultant_exam: 'كشف استشاري',
+  specialist_exam: 'كشف أخصائي',
+  consultation_stamp: 'دمغة كشف',
+  analyses: 'التحاليل',
+  analyses_stamp: 'دمغة تحاليل',
+  xray_total: 'الأشعة',
+  xray_stamp: 'دمغة أشعة',
+  other: 'خدمات متنوعة',
+  prosthetics: 'أطراف صناعية',
+  operations: 'العمليات',
+  glasses: 'النظارات',
+};
 let invoiceTypeLabels = {};
 let paymentMethodsCache = [];
 let contractedEntitiesCache = [];
@@ -408,6 +429,10 @@ function applyInvoiceFollowUpMode(enabled) {
 
 function lockDailyInvoiceRows() {
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
+    if (row.dataset.sectionHeader) {
+      row.style.display = '';
+      return;
+    }
     const isDaily = Boolean(row.dataset.dailyLineId);
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
     const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
@@ -594,6 +619,129 @@ function createRow(index) {
     <td><input type="date" class="pay-date calc-trigger" data-field="receipt_date"></td>
   `;
   return tr;
+}
+
+function getInvoiceSectionLabel(item) {
+  const fromItem = String(item?.section_name || '').trim();
+  if (fromItem) return fromItem;
+  const code = String(item?.section_code || '').trim();
+  if (!code) return 'بنود أخرى';
+  return INVOICE_SECTION_LABELS[code] || code;
+}
+
+function estimateInvoiceItemLineTotal(item) {
+  const qty = Number(item?.quantity) || 0;
+  const amt = Number(item?.amount) || 0;
+  if (item?.total != null && item.total !== '') return Number(item.total) || 0;
+  return Math.round(qty * amt * 100) / 100;
+}
+
+function inferInvoiceItemSectionKey(item) {
+  const code = String(item?.section_code || '').trim();
+  if (code) return code;
+  const desc = String(item?.description || '');
+  if (desc.includes('عملية')) return 'operations';
+  if (desc.includes('بصريات') || desc.includes('نظارات')) return 'glasses';
+  return '__manual__';
+}
+
+function buildInvoiceItemsRenderPlan(items = []) {
+  const sorted = [...items].sort((a, b) => {
+    const sa = a.section_sort_order ?? 999;
+    const sb = b.section_sort_order ?? 999;
+    if (sa !== sb) return sa - sb;
+    const ea = String(a.entry_date || a.daily_entry_date || '');
+    const eb = String(b.entry_date || b.daily_entry_date || '');
+    if (ea !== eb) return ea.localeCompare(eb);
+    return (Number(a.id) || 0) - (Number(b.id) || 0);
+  });
+
+  const groups = new Map();
+  const groupOrder = [];
+  for (const item of sorted) {
+    const key = inferInvoiceItemSectionKey(item);
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      groupOrder.push(key);
+    }
+    groups.get(key).push(item);
+  }
+
+  const plan = [];
+  for (const key of groupOrder) {
+    const groupItems = groups.get(key) || [];
+    if (!groupItems.length) continue;
+    const label = key === '__manual__' ? 'بنود يدوية' : getInvoiceSectionLabel(groupItems[0]);
+    plan.push({ type: 'header', label, count: groupItems.length });
+    for (const item of groupItems) {
+      plan.push({ type: 'item', item });
+    }
+  }
+  return plan;
+}
+
+function createInvoiceSectionHeaderRow(label, count = 0) {
+  const tr = document.createElement('tr');
+  tr.className = 'invoice-section-header-row';
+  tr.dataset.sectionHeader = '1';
+  const countBadge =
+    count > 1 ? `<span class="badge rounded-pill bg-primary-subtle text-primary ms-2">${count}</span>` : '';
+  tr.innerHTML = `<td colspan="9" class="invoice-section-header-cell"><span class="invoice-section-header-label fw-black">${label}${countBadge}</span></td>`;
+  return tr;
+}
+
+function fillInvoiceItemRow(row, item = {}, pay = {}) {
+  if (!row || row.dataset.sectionHeader) return;
+  row.querySelector('[data-field="description"]').value = item.description || '';
+  const itemIdEl = row.querySelector('[data-field="invoice_item_id"]');
+  if (itemIdEl) itemIdEl.value = item.id || '';
+  const serviceIdEl = row.querySelector('[data-field="service_id"]');
+  if (serviceIdEl) serviceIdEl.value = item.service_id || '';
+  if (item.discountable_snapshot === false) row.dataset.discountOverride = 'false';
+  else if (item.discountable_snapshot === true) row.dataset.discountOverride = 'true';
+  else delete row.dataset.discountOverride;
+  row.querySelector('[data-field="quantity"]').value = item.quantity ? formatAmountInput(item.quantity, 0) : '';
+  row.querySelector('[data-field="amount"]').value = item.amount ? formatAmountInput(item.amount) : '';
+  const creditField = row.querySelector('[data-field="patient_credit_applied"]');
+  if (creditField) {
+    creditField.value = item.patient_credit_applied ? formatAmountInput(item.patient_credit_applied) : '';
+  }
+  const pctField = row.querySelector('[data-field="discount_percent"]');
+  if (pctField) pctField.value = `${item.item_discount_percent || 0}%`;
+  row.querySelector('[data-field="receipt_date"]').value = pay.receipt_date || '';
+  row.querySelector('[data-field="receipt_number"]').value = pay.receipt_number || '';
+  row.querySelector('[data-field="pay_amount"]').value = pay.amount ? formatAmountInput(pay.amount) : '';
+  if (item.daily_entry_line_id) row.dataset.dailyLineId = item.daily_entry_line_id;
+  else delete row.dataset.dailyLineId;
+  if (item.daily_entry_id) row.dataset.dailyEntryId = item.daily_entry_id;
+  else delete row.dataset.dailyEntryId;
+  if (item.section_code) row.dataset.sectionCode = item.section_code;
+  else delete row.dataset.sectionCode;
+  updateInvoiceReturnHint(row, item);
+}
+
+function populateInvoiceItemsGrouped(items = [], payments = []) {
+  const tbody = document.getElementById('items-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+  const plan = buildInvoiceItemsRenderPlan(items);
+  let rowIndex = 0;
+  let paymentIndex = 0;
+  for (const part of plan) {
+    if (part.type === 'header') {
+      tbody.appendChild(createInvoiceSectionHeaderRow(part.label, part.count));
+      continue;
+    }
+    const tr = createRow(rowIndex++);
+    tbody.appendChild(tr);
+    fillInvoiceItemRow(tr, part.item, payments[paymentIndex++] || {});
+  }
+  const minRows = isInvoiceFollowUpLocked() ? rowIndex : Math.max(rowIndex, 12);
+  while (rowIndex < minRows) {
+    tbody.appendChild(createRow(rowIndex++));
+  }
+  rowCount = rowIndex;
+  bindCalcTriggers();
 }
 
 function bindEvents() {
@@ -1407,7 +1555,7 @@ function getPatientAccountBalance() {
 function sumBillableLineTotals() {
   let total = 0;
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.staySync) return;
+    if (row.dataset.staySync || row.dataset.sectionHeader) return;
     const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
     const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
@@ -1452,7 +1600,7 @@ function computeInvoicePatientCredit(finalTotal, otherPaid = null) {
 function distributePatientCreditAcrossRows(creditPool) {
   let remaining = creditPool;
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.staySync) return;
+    if (row.dataset.staySync || row.dataset.sectionHeader) return;
     const creditInput = row.querySelector('[data-field="patient_credit_applied"]');
     if (!creditInput) return;
 
@@ -1693,7 +1841,7 @@ function collectFormData() {
   const payments = [];
 
   rows.forEach((row) => {
-    if (row.dataset.staySync) return;
+    if (row.dataset.staySync || row.dataset.sectionHeader) return;
     const desc = row.querySelector('[data-field="description"]').value.trim();
     const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]').value);
     const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]').value);
@@ -1841,7 +1989,7 @@ async function recalculate(options = {}) {
 }
 
 function updateInvoiceRowLineTotal(row) {
-  if (!row || row.dataset.staySync) return;
+  if (!row || row.dataset.staySync || row.dataset.sectionHeader) return;
   const qtyEl = row.querySelector('[data-field="quantity"]');
   const amtEl = row.querySelector('[data-field="amount"]');
   const totalEl = row.querySelector('[data-field="total"]');
@@ -1861,7 +2009,7 @@ function syncInvoiceRowsFromCalculatedItems(items = []) {
   const manualItems = billable.filter((item) => !item.daily_entry_line_id);
 
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.staySync) return;
+    if (row.dataset.staySync || row.dataset.sectionHeader) return;
     const lineId = row.dataset.dailyLineId;
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
     const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
@@ -1934,7 +2082,7 @@ function updateInvoiceReturnHintsFromItems(items = []) {
   const byId = new Map(billable.filter((item) => item.id).map((item) => [String(item.id), item]));
 
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.staySync) return;
+    if (row.dataset.staySync || row.dataset.sectionHeader) return;
     const lineId = row.dataset.dailyLineId;
     const itemId = row.querySelector('[data-field="invoice_item_id"]')?.value;
     const item =
@@ -2615,35 +2763,19 @@ async function loadInvoiceForEdit(id, options = {}) {
     document.getElementById('captain_name').value = inv.captain_name;
     document.getElementById('manager_name').value = inv.manager_name;
 
-    const maxLen = Math.max((inv.items || []).length, (inv.payments || []).length, 12);
-    initRows(maxLen);
+    const invItems = inv.items || [];
+    const invPayments = inv.payments || [];
+    const shouldGroupInvoice = invItems.some((item) => item.section_code || item.daily_entry_line_id);
 
-    const rows = document.querySelectorAll('#items-tbody tr');
-    for (let i = 0; i < maxLen; i++) {
-      const item = inv.items[i] || {};
-      const pay = inv.payments[i] || {};
-      const row = rows[i];
-      if (!row) continue;
-      row.querySelector('[data-field="description"]').value = item.description || '';
-      const itemIdEl = row.querySelector('[data-field="invoice_item_id"]');
-      if (itemIdEl) itemIdEl.value = item.id || '';
-      const serviceIdEl = row.querySelector('[data-field="service_id"]');
-      if (serviceIdEl) serviceIdEl.value = item.service_id || '';
-      if (item.discountable_snapshot === false) row.dataset.discountOverride = 'false';
-      else if (item.discountable_snapshot === true) row.dataset.discountOverride = 'true';
-      else delete row.dataset.discountOverride;
-      row.querySelector('[data-field="quantity"]').value = item.quantity ? formatAmountInput(item.quantity, 0) : '';
-      row.querySelector('[data-field="amount"]').value = item.amount ? formatAmountInput(item.amount) : '';
-      const creditField = row.querySelector('[data-field="patient_credit_applied"]');
-      if (creditField) creditField.value = item.patient_credit_applied ? formatAmountInput(item.patient_credit_applied) : '';
-      const pctField = row.querySelector('[data-field="discount_percent"]');
-      if (pctField) pctField.value = `${item.item_discount_percent || 0}%`;
-      row.querySelector('[data-field="receipt_date"]').value = pay.receipt_date || '';
-      row.querySelector('[data-field="receipt_number"]').value = pay.receipt_number || '';
-      row.querySelector('[data-field="pay_amount"]').value = pay.amount ? formatAmountInput(pay.amount) : '';
-      if (item.daily_entry_line_id) row.dataset.dailyLineId = item.daily_entry_line_id;
-      if (item.daily_entry_id) row.dataset.dailyEntryId = item.daily_entry_id;
-      updateInvoiceReturnHint(row, item);
+    if (shouldGroupInvoice) {
+      populateInvoiceItemsGrouped(invItems, invPayments);
+    } else {
+      const maxLen = Math.max(invItems.length, invPayments.length, 12);
+      initRows(maxLen);
+      const rows = document.querySelectorAll('#items-tbody tr');
+      for (let i = 0; i < maxLen; i++) {
+        fillInvoiceItemRow(rows[i], invItems[i] || {}, invPayments[i] || {});
+      }
     }
 
     currentInvoiceReturns = inv.returns || [];

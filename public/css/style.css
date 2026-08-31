@@ -648,8 +648,9 @@ body {
 }
 
 .daily-sheet-table .daily-row-total {
-  min-width: 90px;
+  min-width: 0;
   text-align: center;
+  background: #f8fafc;
 }
 
 .daily-sheet-table .daily-section-th {
@@ -660,8 +661,262 @@ body {
 }
 
 .daily-sheet-table td {
-  min-width: 100px;
+  min-width: 0;
   vertical-align: middle;
+}
+
+.daily-sheet-table .daily-col-date {
+  width: 7.5rem;
+}
+
+.daily-sheet-table .daily-col-stay-type {
+  width: 26%;
+  min-width: 11rem;
+}
+
+.daily-sheet-table .daily-col-companion-kind {
+  width: 10rem;
+}
+
+.daily-sheet-table .daily-col-amount {
+  width: 6.75rem;
+  max-width: 7.25rem;
+}
+
+.daily-sheet-table .daily-col-total {
+  width: 7.25rem;
+}
+
+.daily-sheet-table .daily-col-action {
+  width: 3.25rem;
+  padding-left: 0.25rem !important;
+  padding-right: 0.25rem !important;
+}
+
+.daily-sheet-table--stay {
+  table-layout: fixed;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.daily-sheet-table--stay td.daily-col-amount input,
+.daily-sheet-table--stay .daily-stay-acc-unit-price,
+.daily-sheet-table--stay .daily-row-total {
+  text-align: center;
+  font-weight: 700;
+}
+
+.daily-sheet-table--stay .daily-stay-acc-unit-price {
+  color: #1a5276;
+  font-weight: 800;
+}
+
+.daily-sheet-table--stay .daily-stay-addon-row td {
+  background: #f8fafc;
+  border-top: none;
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+}
+
+.daily-sheet-table--stay .daily-stay-addon-spacer {
+  background: transparent;
+}
+
+.daily-sheet-table--stay .daily-stay-addon-add {
+  min-width: 1.65rem;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.daily-sheet-table--stay .daily-row-stay-type,
+.daily-sheet-table--stay .daily-companion-kind {
+  font-size: 0.84rem;
+}
+
+.daily-sheet-table--stay .daily-meta-th.daily-col-amount,
+.daily-sheet-table--stay .daily-meta-th.daily-col-total,
+.daily-sheet-table--stay .daily-meta-th.daily-col-action {
+  min-width: 0;
+}
+
+.daily-sheet-table tfoot td {
+  background: #fffbeb;
+  border-top: 2px solid #d97706;
+  padding: 0.75rem 0.85rem;
+  vertical-align: middle;
+}
+
+.daily-total-foot-label {
+  color: #92400e;
+}
+
+#daily-total-display {
+  text-align: center;
+  font-size: 1.05rem;
+  color: #1a5276;
+  font-weight: 900;
+}
+
+.daily-total-foot-action {
+  background: #fffbeb;
+}
+
+.daily-sheet-table .daily-row-delete {
+  min-width: 2rem;
+  padding: 0.15rem 0.35rem;
+  line-height: 1.2;
+}
+
+.daily-main-sheet-wrap.daily-sheet-wrap,
+#daily-main-sheet-wrap.daily-sheet-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.daily-sheet-table:not(.daily-sheet-table--stay) td {
+  min-width: 88px;
+}
+
+.daily-sheet-table--medicines,
+.daily-sheet-table--supplies,
+.daily-sheet-table--lab,
+.daily-sheet-table--radiology,
+.daily-sheet-table--exams,
+.daily-sheet-table--sessions,
+.daily-sheet-table--other {
+  table-layout: fixed;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.daily-sheet-table--medicines th:nth-child(1),
+.daily-sheet-table--medicines td:nth-child(1) { width: 4.5rem; }
+.daily-sheet-table--medicines th:nth-child(2),
+.daily-sheet-table--medicines td:nth-child(2) { width: 6.5rem; }
+.daily-sheet-table--medicines th:nth-child(3),
+.daily-sheet-table--medicines td:nth-child(3) { width: 7.5rem; }
+.daily-sheet-table--medicines th:nth-child(4),
+.daily-sheet-table--medicines td:nth-child(4) { width: 28%; min-width: 11rem; }
+.daily-sheet-table--medicines th:nth-child(5),
+.daily-sheet-table--medicines td:nth-child(5),
+.daily-sheet-table--medicines th:nth-child(6),
+.daily-sheet-table--medicines td:nth-child(6),
+.daily-sheet-table--medicines th:nth-child(7),
+.daily-sheet-table--medicines td:nth-child(7) { width: 6.75rem; }
+
+.daily-sheet-table--supplies th:nth-child(1),
+.daily-sheet-table--supplies td:nth-child(1) { width: 3.5rem; }
+.daily-sheet-table--supplies th:nth-child(2),
+.daily-sheet-table--supplies td:nth-child(2) { width: 7.5rem; }
+.daily-sheet-table--supplies th:nth-child(3),
+.daily-sheet-table--supplies td:nth-child(3) { width: 6.5rem; }
+.daily-sheet-table--supplies th:nth-child(4),
+.daily-sheet-table--supplies td:nth-child(4) { width: 18%; min-width: 9rem; }
+.daily-sheet-table--supplies th:nth-child(5),
+.daily-sheet-table--supplies td:nth-child(5),
+.daily-sheet-table--supplies th:nth-child(6),
+.daily-sheet-table--supplies td:nth-child(6),
+.daily-sheet-table--supplies th:nth-child(7),
+.daily-sheet-table--supplies td:nth-child(7),
+.daily-sheet-table--supplies th:nth-child(8),
+.daily-sheet-table--supplies td:nth-child(8),
+.daily-sheet-table--supplies th:nth-child(9),
+.daily-sheet-table--supplies td:nth-child(9),
+.daily-sheet-table--supplies th:nth-child(10),
+.daily-sheet-table--supplies td:nth-child(10) { width: 6.75rem; }
+
+.daily-sheet-table--lab th:nth-child(1),
+.daily-sheet-table--lab td:nth-child(1) { width: 3.5rem; }
+.daily-sheet-table--lab th:nth-child(2),
+.daily-sheet-table--lab td:nth-child(2) { width: 8rem; }
+.daily-sheet-table--lab th:nth-child(3),
+.daily-sheet-table--lab td:nth-child(3) { width: 24%; min-width: 10rem; }
+.daily-sheet-table--lab th:nth-child(4),
+.daily-sheet-table--lab td:nth-child(4),
+.daily-sheet-table--lab th:nth-child(5),
+.daily-sheet-table--lab td:nth-child(5),
+.daily-sheet-table--lab th:nth-child(6),
+.daily-sheet-table--lab td:nth-child(6) { width: 6.75rem; }
+
+.daily-sheet-table--radiology th:nth-child(1),
+.daily-sheet-table--radiology td:nth-child(1) { width: 24%; min-width: 10rem; }
+.daily-sheet-table--radiology th:nth-child(2),
+.daily-sheet-table--radiology td:nth-child(2),
+.daily-sheet-table--radiology th:nth-child(3),
+.daily-sheet-table--radiology td:nth-child(3),
+.daily-sheet-table--radiology th:nth-child(5),
+.daily-sheet-table--radiology td:nth-child(5),
+.daily-sheet-table--radiology th:nth-child(6),
+.daily-sheet-table--radiology td:nth-child(6) { width: 6.75rem; }
+.daily-sheet-table--radiology th:nth-child(4),
+.daily-sheet-table--radiology td:nth-child(4) { width: 8rem; }
+
+.daily-sheet-table--exams th:nth-child(4),
+.daily-sheet-table--exams td:nth-child(4),
+.daily-sheet-table--exams th:nth-child(7),
+.daily-sheet-table--exams td:nth-child(7) { width: 6.75rem; }
+.daily-sheet-table--exams th:nth-child(2),
+.daily-sheet-table--exams td:nth-child(2) { width: 16%; min-width: 9rem; }
+.daily-sheet-table--exams th:nth-child(3),
+.daily-sheet-table--exams td:nth-child(3) { width: 14%; min-width: 8rem; }
+.daily-sheet-table--exams th:nth-child(5),
+.daily-sheet-table--exams td:nth-child(5) { width: 8rem; }
+
+.daily-sheet-table--sessions th:nth-child(3),
+.daily-sheet-table--sessions td:nth-child(3) { width: 18%; min-width: 9rem; }
+.daily-sheet-table--sessions th:nth-child(6),
+.daily-sheet-table--sessions td:nth-child(6),
+.daily-sheet-table--sessions th:nth-child(7),
+.daily-sheet-table--sessions td:nth-child(7),
+.daily-sheet-table--sessions th:nth-child(8),
+.daily-sheet-table--sessions td:nth-child(8) { width: 6.75rem; }
+
+.daily-sheet-table--medicines input,
+.daily-sheet-table--supplies input,
+.daily-sheet-table--lab input,
+.daily-sheet-table--radiology input,
+.daily-sheet-table--exams input,
+.daily-sheet-table--sessions input {
+  text-align: center;
+}
+
+.daily-sheet-table--medicines .daily-med-name-cell input,
+.daily-sheet-table--supplies .daily-sup-name-cell input,
+.daily-sheet-table--lab .daily-lab-type-cell input,
+.daily-sheet-table--radiology .daily-rad-type-cell input {
+  text-align: start;
+}
+
+.daily-sheet-table--medicines .daily-med-total,
+.daily-sheet-table--supplies .daily-sup-total,
+.daily-sheet-table--lab .daily-lab-total,
+.daily-sheet-table--radiology .daily-rad-total,
+.daily-sheet-table--sessions .daily-row-total {
+  font-weight: 800;
+  color: #1a5276;
+}
+
+.invoice-section-header-row td {
+  background: #f0f7ff;
+  border-top: 2px solid #1a5276;
+  border-bottom: 1px solid #dbe4ee;
+  padding: 0.55rem 0.85rem;
+}
+
+.invoice-section-header-label {
+  color: #1a5276;
+  font-size: 0.95rem;
+}
+
+#items-tbody tr.daily-invoice-row td {
+  background-color: #fafcff;
+}
+
+#items-tbody tr[data-section-code="medicines"] td:first-child .row-total,
+#items-tbody tr[data-section-code="supplies"] td:first-child .row-total {
+  font-weight: 800;
 }
 
 .daily-charges-card .daily-amount {

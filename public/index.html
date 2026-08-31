@@ -6,7 +6,7 @@
   <title>نظام الفواتير — مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-  <link href="/css/style.css?v=20260831f" rel="stylesheet">
+  <link href="/css/style.css?v=20260831t" rel="stylesheet">
 </head>
 <body>
   <!-- Login Screen -->
@@ -131,6 +131,10 @@
                   <label class="form-label fw-bold">رقم التليفون</label>
                   <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-phone" autocomplete="off" inputmode="tel">
                 </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">تليفون آخر</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-other-phone" autocomplete="off" inputmode="tel">
+                </div>
                 <div class="col-md-4">
                   <label class="form-label fw-bold">الجنسية</label>
                   <select class="form-select fw-bold patient-reg-field" id="patient-reg-nationality" autocomplete="off">
@@ -212,6 +216,7 @@
                       <option value="military">عسكري</option>
                       <option value="hospital">حالة مستشفى</option>
                       <option value="special">حالة خاصة</option>
+                      <option value="operations">عمليات</option>
                     </select>
                   </div>
                   <div class="col-md-4" id="patient-reg-entity-wrap" style="display:none">
@@ -227,6 +232,10 @@
                   <div class="col-md-2" id="patient-reg-letter-wrap-end" style="display:none">
                     <label class="form-label fw-bold">جواب التعاقد — إلى</label>
                     <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-to" autocomplete="off">
+                  </div>
+                  <div class="col-md-2" id="patient-reg-letter-days-wrap" style="display:none">
+                    <label class="form-label fw-bold">عدد أيام الجواب</label>
+                    <input type="text" class="form-control fw-bold bg-light" id="patient-reg-letter-days" readonly tabindex="-1" placeholder="—">
                   </div>
                   <div class="col-md-2" id="patient-reg-military-wrap" style="display:none">
                     <label class="form-label fw-bold">تصديق عسكري — من</label>
@@ -704,6 +713,7 @@
             <div class="d-flex flex-wrap gap-2 align-items-center">
               <span class="badge bg-light text-dark fw-bold" id="daily-entry-status">—</span>
               <button type="button" class="btn btn-sm btn-outline-warning fw-bold d-none" id="daily-change-room-btn">🔄 تغيير الغرفة</button>
+              <button type="button" class="btn btn-sm btn-outline-primary fw-bold d-none" id="daily-batch-stay-btn">📅 ترحيل أيام الإقامة</button>
             </div>
           </div>
           <div class="table-responsive">
@@ -759,6 +769,7 @@
           <ul class="nav nav-tabs daily-entry-tabs flex-wrap mb-3" id="daily-entry-tabs" role="tablist"></ul>
 
           <p class="small text-muted mb-2" id="daily-tab-hint"></p>
+          <div class="alert alert-secondary py-2 mb-2 small fw-bold d-none" id="daily-clinical-context-bar" role="status"></div>
           <h5 class="fw-black text-primary mb-2 d-none" id="daily-focused-section-title"></h5>
           <div id="daily-section-total-bar" class="alert alert-warning fw-bold py-2 mb-2" style="display:none">
             إجمالي القسم: <span id="daily-section-total">0</span>
@@ -865,11 +876,11 @@
                 <tr id="daily-sections-subhead"></tr>
               </thead>
               <tbody id="daily-sections-body"></tbody>
-              <tfoot class="table-warning">
-                <tr>
-                  <td id="daily-total-foot-label" colspan="2" class="fw-black text-end">إجمالي الكل</td>
-                  <td class="fw-black" id="daily-total-display"></td>
-                  <td id="daily-total-foot-spacer" colspan="20"></td>
+              <tfoot>
+                <tr class="daily-sheet-tfoot-row">
+                  <td id="daily-total-foot-label" colspan="2" class="fw-black text-end daily-total-foot-label">إجمالي الكل</td>
+                  <td class="fw-black text-center daily-total-foot-value" id="daily-total-display"></td>
+                  <td id="daily-total-foot-spacer" class="daily-total-foot-action"></td>
                 </tr>
               </tfoot>
             </table>
@@ -909,6 +920,7 @@
             <option value="military">عسكري</option>
             <option value="hospital">حالة مستشفى</option>
             <option value="special">حالة خاصة</option>
+            <option value="operations">عمليات</option>
           </select>
           <div id="daily-stay-entity-wrap"><select id="daily-stay-entity"><option value=""></option></select></div>
           <div id="daily-stay-letter-from-wrap"><input type="hidden" id="daily-stay-letter-from"></div>
@@ -921,6 +933,40 @@
         <button type="button" id="daily-stay-lookup-btn"></button>
         <div id="daily-patient-summary"><span id="daily-patient-summary-text"></span></div>
         <span id="daily-inv-days"></span>
+      </div>
+
+      <div class="modal fade" id="batch-stay-modal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+              <h5 class="modal-title fw-black">📅 ترحيل أيام الإقامة</h5>
+              <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <p class="small text-muted mb-3">يُنشئ حركة إقامة يومية لكل يوم في الفترة (سعر الإقامة من اللائحة + مرافق/تمريض من تعيين الغرفة). الأيام المسجّلة مسبقاً تُتخطى.</p>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label fw-bold">من تاريخ</label>
+                  <input type="date" class="form-control fw-bold" id="batch-stay-from" autocomplete="off">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-bold">إلى تاريخ</label>
+                  <input type="date" class="form-control fw-bold" id="batch-stay-to" autocomplete="off">
+                </div>
+                <div class="col-12">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="batch-stay-include-today">
+                    <label class="form-check-label fw-bold" for="batch-stay-include-today">يشمل اليوم الحالي</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إلغاء</button>
+              <button type="button" class="btn btn-primary fw-bold" id="batch-stay-submit-btn">ترحيل وتسميع الفاتورة</button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="modal fade" id="change-room-modal" tabindex="-1" aria-hidden="true">
@@ -958,8 +1004,14 @@
                   <label class="form-label fw-bold">التمريض المساعد</label>
                   <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-assistant" placeholder="0">
                 </div>
+                <div class="col-12">
+                  <div class="form-check mt-1">
+                    <input class="form-check-input" type="checkbox" id="change-room-backfill" checked>
+                    <label class="form-check-label fw-bold" for="change-room-backfill">ترحيل حركة الإقامة من تاريخ الغرفة الجديدة حتى أمس (تخطي الأيام المسجّلة)</label>
+                  </div>
+                </div>
               </div>
-              <p class="small text-muted mt-3 mb-0">سيُسجَّل الإقامة تلقائيًا يوميًا من التاريخ المحدد وفق الغرفة الجديدة.</p>
+              <p class="small text-muted mt-3 mb-0">يُحدَّث تعيين الغرفة ثم يُرحَّل الإقامة تلقائياً وفق اللائحة إن اخترت الترحيل.</p>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إلغاء</button>
@@ -1845,9 +1897,9 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
-  <script src="/js/app.js?v=20260831f"></script>
+  <script src="/js/app.js?v=20260831t"></script>
   <script src="/js/daily-picker.js?v=20260831f"></script>
-  <script src="/js/daily-charges.js?v=20260831k"></script>
+  <script src="/js/daily-charges.js?v=20260831t"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>
 </body>

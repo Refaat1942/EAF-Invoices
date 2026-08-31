@@ -226,6 +226,7 @@ async function initDatabase() {
       { code: 'military', name: 'عسكري' },
       { code: 'hospital', name: 'حالة مستشفى' },
       { code: 'special', name: 'حالة خاصة' },
+      { code: 'operations', name: 'عمليات' },
     ];
     for (let i = 0; i < invoiceTypes.length; i++) {
       await query(
@@ -275,6 +276,7 @@ async function runMigrations() {
     'issue_date DATE DEFAULT CURRENT_DATE',
     'file_number TEXT DEFAULT \'\'',
     'stay_type_ids JSONB DEFAULT \'[]\'',
+    'patient_id INTEGER REFERENCES patients(id) ON DELETE SET NULL',
   ];
   for (const col of alterColumns) {
     const name = col.split(' ')[0];
@@ -294,6 +296,24 @@ async function runMigrations() {
 
   await query(`UPDATE invoices SET file_password = '' WHERE COALESCE(file_password, '') <> ''`);
   await query(`DELETE FROM app_settings WHERE key = 'default_file_password'`);
+
+  await query(`
+    UPDATE invoices i
+    SET patient_id = p.id
+    FROM patients p
+    WHERE TRIM(p.file_number) = TRIM(i.file_number)
+      AND i.patient_id IS NULL
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_invoices_patient_id ON invoices(patient_id)`);
+
+  await query(`
+    INSERT INTO invoice_types (code, name, sort_order, is_active)
+    VALUES ('operations', 'عمليات', 8, TRUE)
+    ON CONFLICT (code) DO UPDATE SET
+      name = EXCLUDED.name,
+      sort_order = EXCLUDED.sort_order,
+      is_active = TRUE
+  `);
 
   await query(`ALTER TABLE invoices DROP CONSTRAINT IF EXISTS invoices_invoice_type_check`);
 
@@ -477,6 +497,7 @@ async function runMigrations() {
     )
   `);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT ''`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS other_phone TEXT DEFAULT ''`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS nationality TEXT DEFAULT ''`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT ''`);
   await query(

@@ -29,6 +29,7 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
       file_number: String(fileNumber || '').trim(),
       name: dataOrName || '',
       phone: '',
+      other_phone: '',
       nationality: '',
       gender: '',
       patient_type: 'internal',
@@ -52,6 +53,7 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
     file_number: String(fileNumber || data.file_number || '').trim(),
     name: String(data.name || '').trim(),
     phone: String(data.phone || '').trim(),
+    other_phone: String(data.other_phone || '').trim(),
     nationality: String(data.nationality || '').trim(),
     gender: String(data.gender || '').trim(),
     patient_type: normalizePatientType(data.patient_type || data.patientType),
@@ -83,15 +85,16 @@ async function upsertPatient(fileNumber, dataOrName = '') {
 
   const { rows } = await query(
     `INSERT INTO patients (
-       file_number, name, phone, nationality, gender, patient_type, floor,
+       file_number, name, phone, other_phone, nationality, gender, patient_type, floor,
        age, disability_degree, disability_type, stay_grade_id, room_insurance_amount,
        military_auth_from, military_auth_to, military_auth_amount,
        glasses_lens_type, glasses_start_date, glasses_price, glasses_discount_percent,
        updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
      ON CONFLICT (file_number) DO UPDATE SET
        name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE patients.name END,
        phone = CASE WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone ELSE patients.phone END,
+       other_phone = CASE WHEN EXCLUDED.other_phone <> '' THEN EXCLUDED.other_phone ELSE patients.other_phone END,
        nationality = CASE WHEN EXCLUDED.nationality <> '' THEN EXCLUDED.nationality ELSE patients.nationality END,
        gender = CASE WHEN EXCLUDED.gender <> '' THEN EXCLUDED.gender ELSE patients.gender END,
        patient_type = EXCLUDED.patient_type,
@@ -114,6 +117,7 @@ async function upsertPatient(fileNumber, dataOrName = '') {
       data.file_number,
       data.name || '',
       data.phone || '',
+      data.other_phone || '',
       data.nationality || '',
       data.gender || '',
       data.patient_type,

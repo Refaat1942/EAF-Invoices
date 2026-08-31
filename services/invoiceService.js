@@ -390,7 +390,8 @@ async function getInvoiceById(id, client = null) {
             pde.entry_date AS daily_entry_date,
             l.section_code,
             l.extra_text AS daily_extra_text,
-            dcs.sort_order AS section_sort_order
+            dcs.sort_order AS section_sort_order,
+            dcs.name AS section_name
      FROM invoice_items ii
      LEFT JOIN patient_daily_entry_lines l ON l.id = ii.daily_entry_line_id
      LEFT JOIN patient_daily_entries pde ON pde.id = ii.daily_entry_id
@@ -550,6 +551,11 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
   if (data.file_number?.trim() && !skipPatientUpsert) {
     await upsertPatient(data.file_number, data.patient_name || '');
   }
+  let patientId = null;
+  if (data.file_number?.trim()) {
+    const linkedPatient = await getPatientByFileNumber(data.file_number.trim());
+    patientId = linkedPatient?.id || null;
+  }
 
   return withTransaction(async (client) => {
     let serialNumber = null;
@@ -606,6 +612,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           file_password = $41, notes = $42,
           status = $43, submitted_at = CASE WHEN $46 = 'pending_review' THEN NOW() ELSE submitted_at END,
           patient_credit_applied = $44,
+          patient_id = COALESCE($47, patient_id),
           updated_at = NOW()
         WHERE id = $45`,
         [
@@ -655,6 +662,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           patientCreditApplied,
           existingId,
           invoiceStatus,
+          patientId,
         ]
       );
 
@@ -668,7 +676,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
 
       const inserted = await client.query(
         `INSERT INTO invoices (
-          serial_number, fiscal_year, serial_sequence, issue_date, invoice_type, patient_name, file_number, admission_date, discharge_date,
+          serial_number, fiscal_year, serial_sequence, issue_date, invoice_type, patient_name, file_number, patient_id, admission_date, discharge_date,
           stay_days, financial_treatment, stay_type, stay_type_id, stay_type_ids,
           stamp_duty, stamp_duty_raw, professional_fees, professional_fees_raw,
           items_subtotal, items_subtotal_raw, stay_subtotal, stay_subtotal_raw, admin_expenses_percent,
@@ -678,7 +686,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           total_collected, total_collected_raw, remaining, remaining_raw,
           employee_name, auditor_name, captain_name, manager_name, qr_token, file_password, notes,
           status, submitted_at, patient_credit_applied
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,$47,$48,$49,$50)
         RETURNING id`,
         [
           serialNumber,
@@ -688,6 +696,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           data.invoice_type,
           data.patient_name || '',
           data.file_number || '',
+          patientId,
           data.admission_date || null,
           data.discharge_date || null,
           stayDays,
@@ -1212,10 +1221,20 @@ async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) 
   const maxDate = fmtDateOnly(rangeRows[0]?.max_date);
 
   const manualItems = invoiceManualItems(invoice);
-  const payload = invoiceToSavePayload(invoice, manualItems, {
+  const dateOverrides = {
     admission_date: minDate || fmtDateOnly(invoice.admission_date),
     discharge_date: maxDate || null,
-  });
+  };
+  const headerStampZero =
+    !Number(invoice.stamp_duty) && !Number(invoice.stamp_duty_raw);
+  if (headerStampZero) {
+    const { computeDailyStampLinesTotal } = require('./dailyChargeService');
+    const stampTotals = await computeDailyStampLinesTotal(fileNumber);
+    if (stampTotals.rounded > 0) {
+      dateOverrides.stamp_duty = stampTotals.rounded;
+    }
+  }
+  const payload = invoiceToSavePayload(invoice, manualItems, dateOverrides);
   payload.include_daily_charges = true;
 
   return saveInvoice(payload, invoiceId, null, {
@@ -1522,6 +1541,7 @@ async function openPatientStay(data, user = null) {
   await upsertPatient(fileNumber, {
     name: patientName,
     phone: data.phone || '',
+    other_phone: data.other_phone || '',
     nationality: data.nationality || '',
     gender: data.gender || '',
     patient_type: patientType,
