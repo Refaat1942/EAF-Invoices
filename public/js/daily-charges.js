@@ -265,7 +265,7 @@ function updateSectionTabTotal() {
       });
     }
   }
-  display.textContent = total > 0 ? dailyFmt(total) : '0';
+  display.textContent = dailyFmt(total);
 }
 
 function updateGlassesFinalAmount() {
@@ -324,7 +324,7 @@ function updateOperationsTotal() {
     total += dailyParseAmount(input.value);
   });
   const cell = document.getElementById('daily-operations-total');
-  if (cell) cell.textContent = total > 0 ? dailyFmt(total) : '0';
+  if (cell) cell.textContent = dailyFmt(total);
   updateSectionTabTotal();
   updateDailyGrandTotal();
 }
@@ -558,10 +558,10 @@ function updateFreeItemsTotal() {
     total += qty * amt;
   });
   const el = document.getElementById('daily-free-items-total');
-  if (el) el.textContent = total > 0 ? dailyFmt(total) : '0';
+  if (el) el.textContent = dailyFmt(total);
   if (activeDailyTab === 'free-items') {
     const sectionTotal = document.getElementById('daily-section-total');
-    if (sectionTotal) sectionTotal.textContent = total > 0 ? dailyFmt(total) : '0';
+    if (sectionTotal) sectionTotal.textContent = dailyFmt(total);
   }
 }
 
@@ -1847,8 +1847,10 @@ function dailyCan(view) {
 }
 
 function dailyFormatNumber(n, decimals = 2) {
+  if (typeof formatPlainNumber === 'function') return formatPlainNumber(n, decimals);
   const num = Number(n) || 0;
   return num.toLocaleString('ar-EG', {
+    useGrouping: true,
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
   });

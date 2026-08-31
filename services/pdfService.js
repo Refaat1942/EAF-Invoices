@@ -2,14 +2,14 @@ const { formatDual, round2, calculateInvoiceTotals } = require('./calculations')
 const { aggregateCustomerFacingLines } = require('./invoicePresentationService');
 const { CENTER_NAME } = require('../config/branding');
 
+const { formatAmountAr } = require('./amountFormat');
+
 function formatNumber(n) {
-  const num = Number(n) || 0;
-  return num.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatAmountAr(n, 2);
 }
 
 function formatNumberInt(n) {
-  const num = Number(n) || 0;
-  return num.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+  return formatAmountAr(n, 0);
 }
 
 function fmtDual(raw, rounded) {

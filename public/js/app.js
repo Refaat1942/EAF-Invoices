@@ -50,10 +50,15 @@ const REPORT_TILES = [
 
 function formatPlainNumber(n, maxDecimals = 2) {
   const num = Number(n) || 0;
+  const grouping = { useGrouping: true };
   if (maxDecimals === 0) {
-    return num.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+    return Math.round(num).toLocaleString('ar-EG', { ...grouping, maximumFractionDigits: 0 });
   }
-  return num.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: maxDecimals });
+  return num.toLocaleString('ar-EG', {
+    ...grouping,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  });
 }
 
 function normalizeDigitsForParse(text) {
@@ -1543,7 +1548,7 @@ function updatePatientCreditSummary(totals) {
     ? computeInvoicePatientCredit(Number(totals?.final_total) || 0)
     : Number(totals?.patient_credit_applied ?? sumLinePatientCredits()) || 0;
   const display = document.getElementById('patient_credit_total_display');
-  if (display) display.value = creditTotal ? fmt(creditTotal) : '0';
+  if (display) display.value = fmt(creditTotal);
 
   const afterHint = document.getElementById('patient-balance-after-hint');
   const afterDisplay = document.getElementById('patient-balance-after-display');

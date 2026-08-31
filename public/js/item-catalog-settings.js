@@ -62,8 +62,13 @@ function catalogParseAmount(text) {
 }
 
 function catalogFmt(n) {
+  if (typeof fmt === 'function') return fmt(n);
   const num = Number(n) || 0;
-  return num.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  return num.toLocaleString('ar-EG', {
+    useGrouping: true,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
 }
 
 function catalogEscapeHtml(text) {

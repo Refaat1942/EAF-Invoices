@@ -27,7 +27,13 @@
 
   function fmtAmount(n) {
     if (typeof dailyFmt === 'function') return dailyFmt(n);
-    return Number(n || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (typeof fmt === 'function') return fmt(n);
+    if (typeof formatPlainNumber === 'function') return formatPlainNumber(n, 2);
+    return Number(n || 0).toLocaleString('ar-EG', {
+      useGrouping: true,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
   }
 
   function formatInputAmount(n) {

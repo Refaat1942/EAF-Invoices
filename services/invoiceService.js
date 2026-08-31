@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const { formatAmountAr } = require('./amountFormat');
 const { query, withTransaction } = require('../database/db');
 const {
   calculateInvoiceTotals,
@@ -518,10 +519,10 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
       const diff = Math.abs(paymentValidation.difference_raw);
       const direction =
         paymentValidation.status === 'overpaid'
-          ? `زيادة ${diff.toLocaleString('ar-EG')}`
-          : `نقص ${diff.toLocaleString('ar-EG')}`;
+          ? `زيادة ${formatAmountAr(diff)}`
+          : `نقص ${formatAmountAr(diff)}`;
       throw new Error(
-        `مجموع طرق الدفع (${paymentValidation.total_collected_raw.toLocaleString('ar-EG')}) لا يساوي إجمالي الفاتورة (${paymentValidation.final_total_raw.toLocaleString('ar-EG')}) — ${direction}`
+        `مجموع طرق الدفع (${formatAmountAr(paymentValidation.total_collected_raw)}) لا يساوي إجمالي الفاتورة (${formatAmountAr(paymentValidation.final_total_raw)}) — ${direction}`
       );
     }
   }

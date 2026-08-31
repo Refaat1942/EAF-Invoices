@@ -1,3 +1,5 @@
+const { formatAmountAr } = require('./amountFormat');
+
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -845,7 +847,7 @@ function calculateStayDays(admissionDate, dischargeDate) {
 }
 
 function formatDual(raw, rounded, formatter) {
-  const fmt = formatter || ((n) => Number(n).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  const fmt = formatter || ((n) => formatAmountAr(n, 2));
   const rawVal = round2(raw);
   const roundedVal = round2(rounded);
   if (rawVal === roundedVal) return fmt(roundedVal);
