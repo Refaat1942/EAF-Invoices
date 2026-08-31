@@ -37,6 +37,17 @@ const STATUS_BADGES = {
   approved: { text: 'معتمدة', class: 'bg-success' },
 };
 
+const REPORT_TILES = [
+  { id: 'summary', label: 'ملخص عام', icon: '📊', tileClass: 'hub-tile--primary', desc: 'إجماليات الفواتير' },
+  { id: 'invoices', label: 'الفواتير', icon: '📑', tileClass: 'hub-tile--blue', desc: 'تفاصيل كل فاتورة' },
+  { id: 'payments', label: 'المدفوعات', icon: '💰', tileClass: 'hub-tile--green', desc: 'المحصل والمتبقي' },
+  { id: 'remaining', label: 'المتبقي', icon: '⚠️', tileClass: 'hub-tile--red', desc: 'غير المسدد' },
+  { id: 'patient_status', label: 'موقف مريض', icon: '👤', tileClass: 'hub-tile--teal', desc: 'حركة مريض كاملة' },
+  { id: 'supplies_markup', label: 'هامش مستلزمات', icon: '🧴', tileClass: 'hub-tile--green', desc: 'ربح المستلزمات' },
+  { id: 'reconciliation', label: 'مطابقة', icon: '✓', tileClass: 'hub-tile--slate', desc: 'تطابق المدفوعات' },
+  { id: 'doctors', label: 'الأطباء', icon: '🩺', tileClass: 'hub-tile--indigo', desc: 'تقرير الأطباء' },
+];
+
 function formatPlainNumber(n, maxDecimals = 2) {
   const num = Number(n) || 0;
   if (maxDecimals === 0) {
@@ -671,11 +682,13 @@ function bindEvents() {
     clearReportFilters();
     loadReports();
   });
+  document.getElementById('report-tiles-grid')?.addEventListener('click', (e) => {
+    const tile = e.target.closest('.report-type-tile');
+    if (!tile) return;
+    selectReportType(tile.dataset.reportType, { load: true });
+  });
   document.getElementById('report-type-select')?.addEventListener('change', (e) => {
-    currentReportType = e.target.value || 'summary';
-    selectedPatientFileNumber = '';
-    updateReportFiltersUI();
-    loadReports();
+    selectReportType(e.target.value || 'summary', { load: true });
   });
   document.getElementById('report-search')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
@@ -2666,10 +2679,11 @@ function switchView(view, options = {}) {
     loadInvoicesList();
   }
   if (view === 'reports') {
+    renderReportTiles();
     populateReportTypeFilter();
     initReportDefaultDates();
+    selectReportType(currentReportType || 'summary', { load: false });
     updateReportFiltersUI();
-    loadReports();
   }
   if (view === 'settings') {
     currentSettingsSection = '';
@@ -2678,6 +2692,34 @@ function switchView(view, options = {}) {
   }
   if (view === 'patient-register' && typeof initPatientRegistration === 'function') initPatientRegistration();
   if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView();
+}
+
+function renderReportTiles() {
+  const grid = document.getElementById('report-tiles-grid');
+  if (!grid) return;
+  grid.innerHTML = REPORT_TILES
+    .map(
+      (t) =>
+        `<button type="button" class="hub-tile ${t.tileClass || 'hub-tile--slate'} report-type-tile${currentReportType === t.id ? ' report-tile-active' : ''}" data-report-type="${t.id}">
+          <span class="hub-tile-icon">${t.icon || '📋'}</span>
+          <span class="hub-tile-title">${escapeHtml(t.label)}</span>
+          <span class="hub-tile-desc">${escapeHtml(t.desc || '')}</span>
+        </button>`
+    )
+    .join('');
+}
+
+function selectReportType(typeId, options = {}) {
+  const tile = REPORT_TILES.find((t) => t.id === typeId);
+  currentReportType = tile ? typeId : 'summary';
+  selectedPatientFileNumber = '';
+  const titleEl = document.getElementById('report-active-title');
+  if (titleEl) titleEl.textContent = tile?.label || 'التقرير';
+  const hidden = document.getElementById('report-type-select');
+  if (hidden) hidden.value = currentReportType;
+  renderReportTiles();
+  updateReportFiltersUI();
+  if (options.load) loadReports();
 }
 
 function populateReportTypeFilter() {
@@ -2710,8 +2752,16 @@ function clearReportFilters() {
   selectedPatientFileNumber = '';
   const search = document.getElementById('report-search');
   if (search) search.value = '';
+  const fileNum = document.getElementById('report-file-number');
+  if (fileNum) fileNum.value = '';
   const typeFilter = document.getElementById('report-type-filter');
   if (typeFilter) typeFilter.value = '';
+  const patientType = document.getElementById('report-patient-type');
+  if (patientType) patientType.value = '';
+  const nationality = document.getElementById('report-nationality');
+  if (nationality) nationality.value = '';
+  const statusFilter = document.getElementById('report-status-filter');
+  if (statusFilter) statusFilter.value = '';
   const dept = document.getElementById('report-doctor-department');
   if (dept) dept.value = '';
   const spec = document.getElementById('report-doctor-specialty');
@@ -2739,8 +2789,13 @@ function updateReportFiltersUI() {
     'patient_status',
   ].includes(currentReportType);
   const isDoctorReport = currentReportType === 'doctors';
+  const isPatientStatus = currentReportType === 'patient_status';
   const invoiceWrap = document.getElementById('report-invoice-type-wrap');
-  if (invoiceWrap) invoiceWrap.style.display = showInvoiceType ? '' : 'none';
+  if (invoiceWrap) invoiceWrap.style.display = showInvoiceType && !isPatientStatus ? '' : 'none';
+  const patientRow = document.getElementById('report-patient-filters-row');
+  if (patientRow) patientRow.style.display = isDoctorReport ? 'none' : '';
+  const statusWrap = document.getElementById('report-status-wrap');
+  if (statusWrap) statusWrap.style.display = isDoctorReport || isPatientStatus ? 'none' : '';
   const doctorRow = document.getElementById('report-doctor-filters-row');
   if (doctorRow) doctorRow.style.display = isDoctorReport ? '' : 'none';
   const typeSelect = document.getElementById('report-type-select');
@@ -2753,20 +2808,30 @@ function getReportQueryParams() {
   const from = document.getElementById('report-from')?.value;
   const to = document.getElementById('report-to')?.value;
   const type = document.getElementById('report-type-filter')?.value;
+  const fileNumber = document.getElementById('report-file-number')?.value?.trim();
+  const patientType = document.getElementById('report-patient-type')?.value;
+  const nationality = document.getElementById('report-nationality')?.value?.trim();
+  const statusFilter = document.getElementById('report-status-filter')?.value;
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   if (type) params.set('type', type);
+  if (fileNumber) params.set('file_number', fileNumber);
+  if (patientType) params.set('patient_type', patientType);
+  if (nationality) params.set('nationality', nationality);
+  if (statusFilter === 'all') params.set('approved_only', 'false');
+  else if (statusFilter) params.set('status', statusFilter);
 
   const rawSearch = document.getElementById('report-search')?.value?.trim() || '';
 
   if (currentReportType === 'patient_status') {
-    const fileNumber =
-      selectedPatientFileNumber || (rawSearch?.includes('—') ? rawSearch.split('—')[0].trim() : rawSearch);
-    if (fileNumber) {
-      if (/[\u0600-\u06FF]/.test(fileNumber) && !selectedPatientFileNumber) {
-        params.set('patient_search', fileNumber);
+    const fileFromField = fileNumber || selectedPatientFileNumber;
+    const fileNumberResolved =
+      fileFromField || (rawSearch?.includes('—') ? rawSearch.split('—')[0].trim() : rawSearch);
+    if (fileNumberResolved) {
+      if (/[\u0600-\u06FF]/.test(fileNumberResolved) && !selectedPatientFileNumber && !fileNumber) {
+        params.set('patient_search', fileNumberResolved);
       } else {
-        params.set('file_number', fileNumber);
+        params.set('file_number', fileNumberResolved);
       }
     } else if (rawSearch) {
       params.set('patient_search', rawSearch);
@@ -3847,11 +3912,13 @@ async function deleteInvoice(id) {
 
 async function loadReports() {
   const container = document.getElementById('reports-content');
+  if (!container) return;
   container.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
   if (currentReportType === 'patient_status') {
+    const fileNum = document.getElementById('report-file-number')?.value?.trim();
     const search = document.getElementById('report-search')?.value.trim();
-    if (!search && !selectedPatientFileNumber) {
+    if (!search && !selectedPatientFileNumber && !fileNum) {
       container.innerHTML = `
         <div class="col-12">
           <div class="card shadow-sm patient-report-empty">

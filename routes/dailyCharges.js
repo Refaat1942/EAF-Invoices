@@ -3,6 +3,7 @@ const multer = require('multer');
 const {
   listSections,
   getSectionsWithServices,
+  listAccommodationStayGrades,
   searchDailyPickerItems,
   getDailyPickerItemBySection,
   getEntryByPatientDate,
@@ -65,6 +66,14 @@ router.get('/sections', requirePermission('daily_charges.view'), async (req, res
       business_date: getCurrentBusinessDateString(),
       sections,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/stay-grades', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    res.json(await listAccommodationStayGrades());
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

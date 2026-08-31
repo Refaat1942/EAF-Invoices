@@ -33,10 +33,17 @@ function reportFilters(req) {
     to_date: req.query.to,
     search: req.query.search,
     status: req.query.status,
-    approved_only: req.query.approved_only !== 'false',
+    approved_only:
+      req.query.approved_only === 'true'
+        ? true
+        : req.query.approved_only === 'false'
+          ? false
+          : undefined,
     file_number: req.query.file_number,
     patient_search: req.query.patient_search,
     pick_file_number: req.query.pick_file_number,
+    patient_type: req.query.patient_type,
+    nationality: req.query.nationality,
   };
 }
 

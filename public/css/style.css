@@ -341,8 +341,19 @@ body {
   font-size: 0.9rem;
 }
 
-.reports-hub-card .card-header h5 {
-  font-size: 1.15rem;
+.report-tiles-grid {
+  max-width: 1200px;
+}
+
+.report-type-tile.report-tile-active {
+  outline: 3px solid #0d6efd;
+  outline-offset: 2px;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(13, 110, 253, 0.25);
+}
+
+.report-type-tile.report-tile-active .hub-tile-title {
+  text-decoration: underline;
 }
 
 .settings-hub-card .card-header h5 {
@@ -656,7 +667,14 @@ body {
 .daily-entry-tabs .nav-link {
   font-size: 0.82rem;
   font-weight: 800;
-  padding: 0.35rem 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.35rem 0.35rem 0 0;
+}
+
+.daily-entry-tabs .nav-link.active {
+  background: var(--bs-primary);
+  color: #fff;
+  border-color: var(--bs-primary);
 }
 
 .daily-section-cell .form-label.text-primary {

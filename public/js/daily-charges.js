@@ -20,6 +20,7 @@ let dailyCurrentEntryId = null;
 let dailyStayContext = null;
 let dailyEntriesLoadSeq = 0;
 let dailyStayTypesCache = [];
+let dailyStayGradesCache = [];
 let dailySpecialtiesCache = [];
 
 function dailyEscapeHtml(text) {
@@ -192,10 +193,11 @@ function applyDailyTabColumnVisibility() {
     hint.textContent = 'بنود حرة — أي وصف وسعر ثم احفظ لتُضاف على الفاتورة الكبيرة مع الحركة اليومية.';
   } else if (hint && codes) {
     const label = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab)?.label || '';
-    hint.textContent = `قسم «${label}» — أدخل البيانات ثم احفظ الكل.`;
+    hint.textContent = `قسم «${label}» — ابحث واختر البند، السعر من اللائحة تلقائياً. احفظ لتُضاف على الفاتورة الكبيرة.`;
   } else if (hint) {
-    hint.textContent = 'كل أقسام الحركة اليومية — أو اختر تبويبًا لعرض قسم واحد.';
+    hint.textContent = 'اختر قسماً من التبويبات أعلاه.';
   }
+  renderDailySectionTabs();
 }
 
 function updateSectionTabTotal() {
@@ -496,7 +498,7 @@ async function saveFreeItems() {
     });
     await loadOpenPatientStay(file_number);
     await loadFreeItemsPanel();
-    showToast(`تم حفظ البنود الحرة — إجمالي الفاتورة ${dailyFmt(data.final_total)}`, 'success');
+    showToast(`تم الحفظ — أُضيف على الفاتورة الكبيرة (${dailyFmt(data.final_total)})`, 'success');
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
   } finally {
@@ -504,37 +506,43 @@ async function saveFreeItems() {
   }
 }
 
-function renderDailySectionTiles() {
-  const grid = document.getElementById('daily-section-tiles-grid');
-  if (!grid) return;
-  grid.innerHTML = DAILY_TAB_GROUPS
-    .map(
-      (g) =>
-        `<button type="button" class="hub-tile ${g.tileClass || 'hub-tile--slate'} daily-section-tile" data-daily-tab="${g.id}">
-          <span class="hub-tile-icon">${g.icon || '📋'}</span>
-          <span class="hub-tile-title">${dailyEscapeHtml(g.label)}</span>
-        </button>`
-    )
+function renderDailySectionTabs() {
+  const tabsEl = document.getElementById('daily-entry-tabs');
+  if (!tabsEl) return;
+  tabsEl.innerHTML = DAILY_TAB_GROUPS
+    .map((g) => {
+      const active = activeDailyTab === g.id ? ' active' : '';
+      return `<li class="nav-item" role="presentation">
+        <button type="button" class="nav-link daily-section-tab fw-bold${active}" data-daily-tab="${g.id}" role="tab">
+          ${g.icon || ''} ${dailyEscapeHtml(g.label)}
+        </button>
+      </li>`;
+    })
     .join('');
 }
 
+function defaultDailyTabForPatient(ctx) {
+  const pType = ctx?.patient?.patient_type || 'internal';
+  return pType === 'external' ? 'medicines' : 'stay';
+}
+
+function renderDailySectionTiles() {
+  renderDailySectionTabs();
+}
+
 function showDailySection(sectionId) {
-  activeDailyTab = sectionId || '';
-  const tilesWrap = document.getElementById('daily-section-tiles-wrap');
+  if (sectionId) activeDailyTab = sectionId;
+  if (!activeDailyTab) activeDailyTab = 'medicines';
   const sectionWorkspace = document.getElementById('daily-section-workspace');
-  if (tilesWrap) tilesWrap.classList.toggle('d-none', !!sectionId);
-  if (sectionWorkspace) {
-    if (sectionId) sectionWorkspace.classList.remove('d-none');
-    else sectionWorkspace.classList.add('d-none');
-  }
+  if (sectionWorkspace) sectionWorkspace.classList.remove('d-none');
   updateFocusedSectionTitle();
   renderDailySectionsTable();
   applyDailyTabColumnVisibility();
   if (sectionId === 'free-items') void loadFreeItemsPanel();
   if (
-    sectionId &&
+    activeDailyTab &&
     dailyStayContext?.invoice?.id &&
-    !['operations', 'free-items'].includes(sectionId)
+    !['operations', 'free-items'].includes(activeDailyTab)
   ) {
     void loadDailyEntriesIntoSheet();
   }
@@ -544,16 +552,21 @@ function showDailyPatientPicker() {
   document.getElementById('daily-patient-picker-wrap')?.classList.remove('d-none');
   document.getElementById('daily-patient-workspace')?.classList.add('d-none');
   document.getElementById('daily-change-patient-btn')?.classList.add('d-none');
+  document.getElementById('daily-simple-flow-hint')?.classList.add('d-none');
   sessionStorage.removeItem('dailyStayFileNumber');
   dailyStayContext = null;
+  activeDailyTab = '';
 }
 
-function showDailyPatientWorkspace() {
+function showDailyPatientWorkspace(ctx = dailyStayContext) {
   document.getElementById('daily-patient-picker-wrap')?.classList.add('d-none');
   document.getElementById('daily-patient-workspace')?.classList.remove('d-none');
   document.getElementById('daily-change-patient-btn')?.classList.remove('d-none');
-  showDailySection('');
-  renderDailySectionTiles();
+  const hintEl = document.getElementById('daily-simple-flow-hint');
+  if (hintEl) hintEl.classList.remove('d-none');
+  const tab = defaultDailyTabForPatient(ctx);
+  showDailySection(tab);
+  renderDailySectionTabs();
 }
 
 function updateDailyPatientHeader(ctx) {
@@ -578,14 +591,17 @@ function updateDailyPatientHeader(ctx) {
 async function loadDailyPatientGrid(search = '') {
   const list = document.getElementById('daily-patient-list');
   if (!list) return;
-  list.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">جاري التحميل...</td></tr>';
+  list.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">جاري التحميل...</td></tr>';
   try {
     const params = new URLSearchParams({ limit: '80' });
     if (search.trim()) params.set('search', search.trim());
     const patients = await apiJson(`${DAILY_API}/patients?${params}`);
     if (!patients.length) {
       list.innerHTML =
-        '<tr><td colspan="5" class="text-center text-muted py-4 mb-0">لا يوجد مرضى مطابقين — سجّل مريضًا جديدًا أولًا</td></tr>';
+        '<tr><td colspan="4" class="text-center text-muted py-4 mb-0">لا يوجد مرضى — <button type="button" class="btn btn-link btn-sm fw-bold p-0" id="daily-empty-register-btn">سجّل مريض جديد</button></td></tr>';
+      document.getElementById('daily-empty-register-btn')?.addEventListener('click', () => {
+        if (typeof switchView === 'function') switchView('patient-register');
+      });
       return;
     }
     list.innerHTML = patients
@@ -603,14 +619,11 @@ async function loadDailyPatientGrid(search = '') {
           <td>${dailyEscapeHtml(p.name)}${openBadge}</td>
           <td><span class="badge ${typeBadge}">${typeLabel}</span></td>
           <td>${dailyEscapeHtml(p.phone || '—')}</td>
-          <td class="text-end">
-            <button type="button" class="btn btn-sm btn-primary fw-bold daily-patient-open-btn">فتح</button>
-          </td>
         </tr>`;
       })
       .join('');
   } catch (err) {
-    list.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">${dailyEscapeHtml(sanitizeApiErrorMessage(err.message))}</td></tr>`;
+    list.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">${dailyEscapeHtml(sanitizeApiErrorMessage(err.message))}</td></tr>`;
   }
 }
 
@@ -662,9 +675,19 @@ function setDailyTodayDate() {
   });
 }
 
-function setDailyWorkflowSteps(hasStay) {
-  const panel = document.getElementById('daily-step-2-panel');
-  if (panel) panel.classList.toggle('daily-step-locked', !hasStay);
+function setDailyWorkflowSteps(_hasStay) {
+  /* legacy — workflow is always one screen with tabs */
+}
+
+function openDailyInvoiceFromDaily() {
+  const invId = dailyStayContext?.invoice?.id;
+  if (!invId) {
+    showToast('لا توجد فاتورة مفتوحة — سجّل المريض أولًا', 'warning');
+    return;
+  }
+  if (typeof loadInvoiceForEdit === 'function') {
+    void loadInvoiceForEdit(invId, { followUp: true });
+  }
 }
 
 function updateDailyInvoicePanel(ctx) {
@@ -794,9 +817,8 @@ function collectPatientDemographics(mode = 'register') {
   )?.value || 'civil';
   const payload = {
     age: document.getElementById(isDaily ? 'daily-stay-age' : 'patient-reg-age')?.value?.trim() || null,
-    disability_degree: document.getElementById(
-      isDaily ? 'daily-stay-disability-degree' : 'patient-reg-disability-degree'
-    )?.value?.trim() || '',
+    stay_grade_id:
+      document.getElementById(isDaily ? 'daily-stay-stay-grade-id' : 'patient-reg-stay-grade')?.value || null,
     disability_type: document.getElementById(
       isDaily ? 'daily-stay-disability-type' : 'patient-reg-disability-type'
     )?.value?.trim() || '',
@@ -855,6 +877,45 @@ function populateStayTypeSelects(selectedId = '') {
     el.innerHTML = html;
     if (cur) el.value = String(cur);
   });
+}
+
+async function loadDailyStayGrades() {
+  try {
+    dailyStayGradesCache = await apiJson(`${DAILY_API}/stay-grades`);
+  } catch (err) {
+    console.error(err);
+    dailyStayGradesCache = [];
+  }
+}
+
+function populateStayGradeSelect(selectedId = '') {
+  const el = document.getElementById('patient-reg-stay-grade');
+  if (!el) return;
+  const fallback = dailyStayTypesCache.map((st) => ({
+    stay_type_id: st.id,
+    name: st.name,
+    daily_rate: Number(st.daily_rate) || 0,
+  }));
+  const grades = dailyStayGradesCache.length ? dailyStayGradesCache : fallback;
+  el.innerHTML =
+    '<option value="">-- اختر من اللائحة --</option>' +
+    grades
+      .filter((g) => g.stay_type_id)
+      .map((g) => {
+        const rate =
+          Number(g.daily_rate) > 0
+            ? ` — ${typeof dailyFmt === 'function' ? dailyFmt(g.daily_rate) : g.daily_rate} / يوم`
+            : '';
+        return `<option value="${g.stay_type_id}"${String(selectedId) === String(g.stay_type_id) ? ' selected' : ''}>${dailyEscapeHtml(g.name)}${rate}</option>`;
+      })
+      .join('');
+  if (selectedId) el.value = String(selectedId);
+}
+
+function syncStayGradeToRoom() {
+  const gradeSel = document.getElementById('patient-reg-stay-grade');
+  const roomSel = document.getElementById('patient-reg-room');
+  if (gradeSel?.value && roomSel) roomSel.value = gradeSel.value;
 }
 
 function setDailySectionAmount(tr, sectionCode, amount) {
@@ -1114,7 +1175,11 @@ function showPatientRegisterForm(patientType) {
   const regInternal = document.getElementById('patient-reg-internal-wrap');
   if (regInternal) regInternal.style.display = type === 'internal' ? '' : 'none';
   clearPatientRegisterForm({ keepType: true });
-  populateStayTypeSelects();
+  void loadDailyStayTypes().then(async () => {
+    await loadDailyStayGrades();
+    populateStayTypeSelects();
+    populateStayGradeSelect();
+  });
   togglePatientRegEntityFields();
   void loadPatientEntitySelects();
   if (typeof loadFinancialTreatments === 'function') loadFinancialTreatments();
@@ -1135,7 +1200,6 @@ function clearPatientRegisterForm(options = {}) {
     'patient-reg-admission',
     'patient-reg-balance',
     'patient-reg-age',
-    'patient-reg-disability-degree',
     'patient-reg-disability-type',
     'patient-reg-room-insurance',
     'patient-reg-military-from',
@@ -1149,6 +1213,8 @@ function clearPatientRegisterForm(options = {}) {
   if (genderEl) genderEl.value = '';
   const financialEl = document.getElementById('patient-reg-financial');
   if (financialEl) financialEl.value = '';
+  const stayGradeEl = document.getElementById('patient-reg-stay-grade');
+  if (stayGradeEl) stayGradeEl.value = '';
   if (!keepType) {
     patientRegSelectedType = null;
     const typeInput = document.getElementById('patient-reg-type');
@@ -1191,6 +1257,10 @@ async function savePatientRegistration(event) {
   };
   if (patient_type !== 'external') {
     payload.account_balance = dailyParseAmount(balanceRaw);
+    if (!document.getElementById('patient-reg-stay-grade')?.value) {
+      showToast('اختر درجة الإقامة من اللائحة', 'warning');
+      return;
+    }
     if (!document.getElementById('patient-reg-room')?.value) {
       showToast('اختر الغرفة أو الجناح للمريض الداخلي', 'warning');
       return;
@@ -1211,10 +1281,12 @@ async function savePatientRegistration(event) {
     sessionStorage.setItem('dailyStayFileNumber', file_number);
     dailyStayContext = data;
     const label = data.created ? 'تم تسجيل المريض وإنشاء فاتورة مسودة' : 'تم تحديث بيانات المريض';
-    showToast(`${label} — ملف ${file_number}`, 'success');
+    showToast(`${label} — ملف ${file_number} — ابدأ بإدخال البنود`, 'success');
     clearPatientRegisterForm();
     if (typeof switchView === 'function') {
       switchView('daily');
+      await selectDailyPatient(file_number);
+      showDailySection(defaultDailyTabForPatient(data));
     } else {
       showPatientRegisterTypePicker();
     }
@@ -1226,7 +1298,11 @@ async function savePatientRegistration(event) {
 function initPatientRegistration() {
   showPatientRegisterTypePicker();
   clearPatientRegisterForm();
-  void loadDailyStayTypes().then(() => populateStayTypeSelects());
+  void loadDailyStayTypes().then(async () => {
+    await loadDailyStayGrades();
+    populateStayTypeSelects();
+    populateStayGradeSelect();
+  });
   void loadPatientEntitySelects();
   if (typeof loadFinancialTreatments === 'function') loadFinancialTreatments();
 }
@@ -1247,8 +1323,13 @@ function applyDailyStayContext(ctx) {
     if (genderEl) genderEl.value = ctx.patient.gender || '';
     const ageEl = document.getElementById('daily-stay-age');
     if (ageEl && ctx.patient.age != null) ageEl.value = String(ctx.patient.age);
-    const disDeg = document.getElementById('daily-stay-disability-degree');
-    if (disDeg) disDeg.value = ctx.patient.disability_degree || '';
+    const stayGradeEl = document.getElementById('daily-stay-stay-grade-id');
+    if (stayGradeEl) {
+      stayGradeEl.value =
+        ctx.patient.stay_grade_id != null && ctx.patient.stay_grade_id !== ''
+          ? String(ctx.patient.stay_grade_id)
+          : '';
+    }
     const disType = document.getElementById('daily-stay-disability-type');
     if (disType) disType.value = ctx.patient.disability_type || '';
     const roomIns = document.getElementById('daily-stay-room-insurance');
@@ -1323,7 +1404,7 @@ function applyDailyStayContext(ctx) {
   const reviewPanel = document.getElementById('daily-invoice-review-panel');
   if (reviewPanel) reviewPanel.classList.add('d-none');
   if (ctx?.patient?.file_number && ctx?.patient?.name) {
-    showDailyPatientWorkspace();
+    showDailyPatientWorkspace(ctx);
   } else {
     showDailyPatientPicker();
   }
@@ -2170,6 +2251,9 @@ async function loadDailyPatientHistory() {
 
 async function saveDailyEntry() {
   if (dailySaveInFlight) return;
+  if (activeDailyTab === 'free-items') {
+    return saveFreeItems();
+  }
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية تسجيل الحركة اليومية', 'warning');
     return;
@@ -2212,7 +2296,7 @@ async function saveDailyEntry() {
     dailyCurrentEntryId = data.saved?.[data.saved.length - 1]?.id || null;
 
     const invLabel = data.invoice_sync.created ? 'تم إنشاء فاتورة مسودة' : 'تم تحديث الفاتورة';
-    const toastMsg = `تم حفظ ${data.count} صف — ${invLabel} #${data.invoice_sync.invoice_id}`;
+    const toastMsg = `تم الحفظ — أُضيف تلقائياً على الفاتورة الكبيرة (#${data.invoice_sync.invoice_id})`;
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
     await loadOpenPatientStay(file_number);
     await loadDailyEntriesIntoSheet();
@@ -2303,7 +2387,6 @@ async function initDailyChargesView() {
     } else {
       applyDailyStayContext(null);
       showDailyPatientPicker();
-      await loadDailyEntriesIntoSheet();
     }
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
@@ -2472,6 +2555,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clearPatientRegisterForm();
   });
   document.getElementById('patient-register-form')?.addEventListener('submit', savePatientRegistration);
+  document.getElementById('patient-reg-stay-grade')?.addEventListener('change', syncStayGradeToRoom);
   document.getElementById('patient-reg-invoice-type')?.addEventListener('change', togglePatientRegEntityFields);
   document.getElementById('daily-stay-invoice-type')?.addEventListener('change', toggleDailyStayEntityFields);
   document.getElementById('daily-change-room-btn')?.addEventListener('click', openChangeRoomModal);
@@ -2495,20 +2579,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-patient-list')?.addEventListener('click', (e) => {
     const row = e.target.closest('.daily-patient-row');
     if (!row) return;
-    if (e.target.closest('.daily-patient-open-btn') || e.target.closest('.daily-patient-row')) {
+    if (e.target.closest('.daily-patient-row')) {
       void selectDailyPatient(row.dataset.fileNumber);
     }
   });
-  document.getElementById('daily-section-tiles-grid')?.addEventListener('click', (e) => {
-    const tile = e.target.closest('.daily-section-tile');
-    if (!tile) return;
+  document.getElementById('daily-open-invoice-btn')?.addEventListener('click', openDailyInvoiceFromDaily);
+  document.getElementById('daily-entry-tabs')?.addEventListener('click', (e) => {
+    const tab = e.target.closest('.daily-section-tab');
+    if (!tab) return;
     if (!dailyStayContext?.invoice?.id) {
       showToast('لا توجد فاتورة مفتوحة لهذا المريض', 'warning');
       return;
     }
-    showDailySection(tile.dataset.dailyTab);
+    showDailySection(tab.dataset.dailyTab);
   });
-  document.getElementById('daily-section-back')?.addEventListener('click', () => showDailySection(''));
   document.getElementById('daily-change-patient-btn')?.addEventListener('click', () => {
     showDailyPatientPicker();
     void loadDailyPatientGrid();

@@ -1522,6 +1522,7 @@ async function openPatientStay(data, user = null) {
     age: data.age,
     disability_degree: data.disability_degree || '',
     disability_type: data.disability_type || '',
+    stay_grade_id: data.stay_grade_id || null,
     room_insurance_amount: data.room_insurance_amount,
     military_auth_from: data.military_auth_from,
     military_auth_to: data.military_auth_to,

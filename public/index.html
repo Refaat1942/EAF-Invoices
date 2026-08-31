@@ -59,12 +59,12 @@
         <button type="button" class="hub-tile hub-tile--primary" data-view="patient-register" data-hub-action="new-patient" id="hub-tile-new-patient">
           <span class="hub-tile-icon">🆕</span>
           <span class="hub-tile-title">تسجيل مريض جديد</span>
-          <span class="hub-tile-desc">فتح ملف وإقامة جديدة</span>
+          <span class="hub-tile-desc">فتح ملف → حركة يومية → فاتورة تلقائية</span>
         </button>
         <button type="button" class="hub-tile hub-tile--teal" data-view="daily" id="hub-tile-daily">
           <span class="hub-tile-icon">📋</span>
-          <span class="hub-tile-title">الحركة اليومية</span>
-          <span class="hub-tile-desc">مدخلات المريض المسجّل</span>
+          <span class="hub-tile-title">حركة المريض</span>
+          <span class="hub-tile-desc">أدوية · مستلزمات · كشوفات · إقامة</span>
         </button>
         <button type="button" class="hub-tile hub-tile--blue" data-view="list" id="hub-tile-list">
           <span class="hub-tile-icon">📑</span>
@@ -148,8 +148,11 @@
                   <input type="text" inputmode="numeric" class="form-control fw-bold patient-reg-field" id="patient-reg-age" autocomplete="off" placeholder="0">
                 </div>
                 <div class="col-md-3">
-                  <label class="form-label fw-bold">درجة الإعاقة</label>
-                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-disability-degree" autocomplete="off" placeholder="مثال: 50%">
+                  <label class="form-label fw-bold">درجة الإقامة</label>
+                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-stay-grade" autocomplete="off">
+                    <option value="">-- اختر من اللائحة --</option>
+                  </select>
+                  <small class="text-muted">من لائحة الإقامات والرعاية المركزة</small>
                 </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold">نوع الإعاقة</label>
@@ -647,8 +650,8 @@
 
       <div id="daily-patient-picker-wrap">
         <div class="hub-hero py-2 mb-3">
-          <h2 class="hub-title fw-black mb-1">الحركة اليومية</h2>
-          <p class="hub-subtitle mb-0">اختر مريضًا مُسجَّلًا من تسجيل المريض</p>
+          <h2 class="hub-title fw-black mb-1">حركة المريض</h2>
+          <p class="hub-subtitle mb-0">اختر مريضًا مسجّلًا — أدخل البنود بأسعار اللائحة — تُسمع تلقائياً في الفاتورة</p>
         </div>
         <div class="card shadow-sm mb-3">
           <div class="card-body">
@@ -673,15 +676,14 @@
                   <th>اسم المريض</th>
                   <th style="width:12%">النوع</th>
                   <th style="width:14%">الهاتف</th>
-                  <th style="width:10%" class="text-end">إجراء</th>
                 </tr>
               </thead>
               <tbody id="daily-patient-list">
-                <tr><td colspan="5" class="text-center text-muted py-4">جاري تحميل المرضى...</td></tr>
+                <tr><td colspan="4" class="text-center text-muted py-4">جاري تحميل المرضى...</td></tr>
               </tbody>
             </table>
           </div>
-          <div class="card-footer small text-muted py-2">انقر على الصف أو «فتح» لبدء الحركة اليومية للمريض</div>
+          <div class="card-footer small text-muted py-2">انقر على الصف لفتح حركة المريض</div>
         </div>
       </div>
 
@@ -712,7 +714,8 @@
         </div>
 
         <div id="daily-invoice-actions" class="d-flex flex-wrap gap-2 mb-3 d-none">
-          <button type="button" class="btn btn-outline-primary fw-bold" id="daily-toggle-review-btn">📄 مراجعة بيانات المريض</button>
+          <button type="button" class="btn btn-primary fw-bold" id="daily-open-invoice-btn">💰 الفاتورة الكبيرة — مدفوعات</button>
+          <button type="button" class="btn btn-outline-primary fw-bold" id="daily-toggle-review-btn">بيانات المريض</button>
           <button type="button" class="btn btn-outline-secondary fw-bold d-none" id="daily-invoice-pdf-btn">🖨️ طباعة PDF</button>
         </div>
         <div id="daily-invoice-review-panel" class="card shadow-sm mb-3 d-none">
@@ -723,20 +726,18 @@
           <div class="card-body" id="daily-invoice-review-body"></div>
         </div>
 
-        <div id="daily-section-tiles-wrap">
-          <p class="fw-bold mb-2">اختر قسم الحركة</p>
-          <div class="hub-grid daily-section-grid" id="daily-section-tiles-grid"></div>
+        <div class="alert alert-info py-2 mb-3 small fw-bold" id="daily-simple-flow-hint">
+          ① اختر القسم (أدوية، مستلزمات، …) → ② ابحث عن البند — السعر من اللائحة تلقائياً → ③ احفظ → يُضاف على الفاتورة الكبيرة مباشرة
         </div>
 
-        <div id="daily-section-workspace" class="d-none">
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-            <button type="button" class="btn btn-outline-secondary fw-bold" id="daily-section-back">← كل الأقسام</button>
+        <div id="daily-section-workspace">
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <div class="d-flex flex-wrap gap-2 align-items-center">
               <span class="small fw-bold text-muted">تاريخ اليوم:</span>
               <input type="date" class="form-control form-control-sm fw-bold bg-light" id="daily-entry-date" readonly tabindex="-1" style="width:auto">
               <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-add-row-btn">+ صف</button>
-              <button type="button" class="btn btn-sm btn-primary fw-bold" id="daily-save-btn">💾 حفظ</button>
-              <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" id="daily-clear-btn">مسح</button>
+              <button type="button" class="btn btn-sm btn-success fw-bold px-3" id="daily-save-btn">💾 حفظ — يُسمع في الفاتورة</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" id="daily-clear-btn">مسح الصفوف</button>
               <div class="dropdown">
                 <button type="button" class="btn btn-sm btn-outline-dark fw-bold dropdown-toggle" data-bs-toggle="dropdown">🖨️ طباعة</button>
                 <ul class="dropdown-menu dropdown-menu-end">
@@ -750,13 +751,13 @@
             </div>
           </div>
 
+          <ul class="nav nav-tabs daily-entry-tabs flex-wrap mb-3" id="daily-entry-tabs" role="tablist"></ul>
+
           <p class="small text-muted mb-2" id="daily-tab-hint"></p>
           <h5 class="fw-black text-primary mb-2 d-none" id="daily-focused-section-title"></h5>
           <div id="daily-section-total-bar" class="alert alert-warning fw-bold py-2 mb-2" style="display:none">
             إجمالي القسم: <span id="daily-section-total">0</span>
           </div>
-
-          <ul class="nav nav-tabs daily-entry-tabs d-none" id="daily-entry-tabs" role="tablist"></ul>
 
               <div id="daily-glasses-panel" class="card border mb-3" style="display:none">
                 <div class="card-header bg-light fw-bold">نظارات / بصريات</div>
@@ -843,7 +844,7 @@
                     </table>
                   </div>
                   <div class="d-flex flex-wrap gap-2 mt-3">
-                    <button type="button" class="btn btn-primary fw-bold" id="daily-free-save-btn">💾 حفظ البنود الحرة على الفاتورة</button>
+                    <button type="button" class="btn btn-primary fw-bold d-none" id="daily-free-save-btn" aria-hidden="true">حفظ</button>
                   </div>
                 </div>
               </div>
@@ -880,7 +881,7 @@
         <input type="hidden" id="daily-stay-nationality">
         <select id="daily-stay-gender"><option value=""></option><option value="male">ذكر</option><option value="female">أنثى</option></select>
         <input type="hidden" id="daily-stay-age">
-        <input type="hidden" id="daily-stay-disability-degree">
+        <input type="hidden" id="daily-stay-stay-grade-id">
         <input type="hidden" id="daily-stay-disability-type">
         <input type="hidden" id="daily-stay-admission">
         <input type="hidden" id="daily-stay-discharge">
@@ -911,7 +912,6 @@
         <button type="button" id="daily-stay-lookup-btn"></button>
         <div id="daily-patient-summary"><span id="daily-patient-summary-text"></span></div>
         <span id="daily-inv-days"></span>
-        <span id="daily-inv-daily-total"></span>
       </div>
 
       <div class="modal fade" id="change-room-modal" tabindex="-1" aria-hidden="true">
@@ -1459,29 +1459,18 @@
     <section id="view-reports" class="view-section" style="display:none">
       <div class="view-page-header mb-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
         <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
-        <span class="text-muted small fw-bold">المصري: أسعار اللائحة — الأجنبي: ×2 (للمسار المحاسبي)</span>
+        <span class="text-muted small fw-bold">التقارير — اختر نوع التقرير، حدّد الفترة والمريض، ثم صدّر Excel</span>
       </div>
 
-      <div class="card shadow-sm mb-3 reports-hub-card">
+      <div class="hub-grid report-tiles-grid mb-3" id="report-tiles-grid"></div>
+
+      <div class="card shadow-sm mb-3 reports-hub-card" id="report-filters-card">
         <div class="card-header bg-primary text-white py-3">
-          <h5 class="mb-0 fw-black">التقارير</h5>
-          <p class="small mb-0 opacity-90">اختر التقرير، حدّد الفترة، وابحث باسم المريض أو رقم الملف أو رقم الفاتورة</p>
+          <h5 class="mb-0 fw-black" id="report-active-title">ملخص عام</h5>
+          <p class="small mb-0 opacity-90">حدّد الفترة وبيانات المريض ثم اعرض التقرير أو صدّره Excel</p>
         </div>
         <div class="card-body">
           <div class="row g-3 align-items-end">
-            <div class="col-lg-3 col-md-6">
-              <label class="form-label fw-bold small mb-1">نوع التقرير</label>
-              <select class="form-select form-select-sm fw-bold" id="report-type-select">
-                <option value="summary">ملخص عام</option>
-                <option value="invoices">الفواتير</option>
-                <option value="payments">المدفوعات</option>
-                <option value="remaining">المتبقي</option>
-                <option value="supplies_markup">هامش المستلزمات</option>
-                <option value="patient_status">موقف مريض</option>
-                <option value="reconciliation">مطابقة الفواتير</option>
-                <option value="doctors">تقرير الأطباء</option>
-              </select>
-            </div>
             <div class="col-lg-2 col-md-4">
               <label class="form-label fw-bold small mb-1">من تاريخ</label>
               <input type="date" class="form-control form-control-sm fw-bold" id="report-from">
@@ -1490,13 +1479,42 @@
               <label class="form-label fw-bold small mb-1">إلى تاريخ</label>
               <input type="date" class="form-control form-control-sm fw-bold" id="report-to">
             </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label fw-bold small mb-1">رقم الملف</label>
+              <input type="text" class="form-control form-control-sm fw-bold" id="report-file-number" placeholder="رقم الملف" autocomplete="off">
+            </div>
             <div class="col-lg-3 col-md-6">
-              <label class="form-label fw-bold small mb-1">بحث</label>
-              <input type="search" class="form-control form-control-sm fw-bold" id="report-search" placeholder="رقم ملف، اسم مريض، رقم فاتورة..." autocomplete="off">
+              <label class="form-label fw-bold small mb-1">بحث (اسم / فاتورة)</label>
+              <input type="search" class="form-control form-control-sm fw-bold" id="report-search" placeholder="اسم مريض أو رقم فاتورة..." autocomplete="off">
             </div>
             <div class="col-lg-2 col-md-4" id="report-invoice-type-wrap">
               <label class="form-label fw-bold small mb-1">نوع الفاتورة</label>
               <select class="form-select form-select-sm fw-bold" id="report-type-filter"><option value="">الكل</option></select>
+            </div>
+          </div>
+
+          <div class="row g-3 align-items-end mt-1" id="report-patient-filters-row">
+            <div class="col-md-3">
+              <label class="form-label fw-bold small mb-1">نوع المريض</label>
+              <select class="form-select form-select-sm fw-bold" id="report-patient-type">
+                <option value="">كل الأنواع</option>
+                <option value="internal">داخلي</option>
+                <option value="external">خارجي</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label fw-bold small mb-1">الجنسية</label>
+              <input type="text" class="form-control form-control-sm fw-bold" id="report-nationality" placeholder="مصري، أجنبي..." autocomplete="off">
+            </div>
+            <div class="col-md-3" id="report-status-wrap">
+              <label class="form-label fw-bold small mb-1">حالة الفاتورة</label>
+              <select class="form-select form-select-sm fw-bold" id="report-status-filter">
+                <option value="">معتمدة فقط</option>
+                <option value="all">كل الحالات</option>
+                <option value="draft">مسودة</option>
+                <option value="pending_review">قيد المراجعة</option>
+                <option value="approved">معتمدة</option>
+              </select>
             </div>
           </div>
 
@@ -1515,20 +1533,24 @@
             </div>
             <div class="col-md-3">
               <label class="form-label fw-bold small mb-1">رقم الملف (اختياري)</label>
-              <input type="text" class="form-control form-control-sm" id="report-doctor-file" placeholder="تصفية إضافية بالملف">
+              <input type="text" class="form-control form-control-sm" id="report-doctor-file" placeholder="تصفية بالملف">
             </div>
           </div>
 
           <div class="d-flex flex-wrap gap-2 mt-3">
-            <button type="button" class="btn btn-success btn-sm fw-bold" id="report-refresh-btn">🔄 تحديث التقرير</button>
-            <button type="button" class="btn btn-outline-success btn-sm fw-bold" id="report-export-btn" style="display:none">📥 تصدير Excel</button>
-            <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="report-clear-filters-btn">مسح الفلاتر</button>
+            <button type="button" class="btn btn-primary fw-bold" id="report-refresh-btn">📊 عرض التقرير</button>
+            <button type="button" class="btn btn-success fw-bold" id="report-export-btn" style="display:none">📥 تصدير Excel</button>
+            <button type="button" class="btn btn-outline-secondary fw-bold" id="report-clear-filters-btn">مسح الفلاتر</button>
           </div>
         </div>
       </div>
 
+      <select class="d-none" id="report-type-select" aria-hidden="true">
+        <option value="summary">ملخص عام</option>
+      </select>
+
       <div class="row g-3" id="reports-content">
-        <div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>
+        <div class="col-12 text-center py-5 text-muted fw-bold">اختر نوع التقرير من البلاطات أعلاه</div>
       </div>
     </section>
   </main>

@@ -72,11 +72,23 @@ async function fetchInvoicesForReport(filters = {}) {
     sql += ` AND invoice_type = $${i++}`;
     params.push(filters.invoice_type);
   }
-  if (filters.status) {
+  if (filters.status && filters.status !== 'all') {
     sql += ` AND status = $${i++}`;
     params.push(filters.status);
-  } else if (filters.approved_only !== false) {
+  } else if (filters.approved_only === true || filters.approved_only === undefined) {
     sql += ` AND status = 'approved'`;
+  }
+  if (filters.file_number) {
+    sql += ` AND file_number ILIKE $${i++}`;
+    params.push(`%${String(filters.file_number).trim()}%`);
+  }
+  if (filters.patient_type) {
+    sql += ` AND EXISTS (SELECT 1 FROM patients pt WHERE pt.file_number = invoices.file_number AND pt.patient_type = $${i++})`;
+    params.push(filters.patient_type);
+  }
+  if (filters.nationality) {
+    sql += ` AND EXISTS (SELECT 1 FROM patients pt WHERE pt.file_number = invoices.file_number AND COALESCE(pt.nationality, '') ILIKE $${i++})`;
+    params.push(`%${String(filters.nationality).trim()}%`);
   }
   if (filters.search) {
     sql += ` AND (patient_name ILIKE $${i} OR serial_number ILIKE $${i} OR file_number ILIKE $${i})`;
@@ -542,8 +554,16 @@ async function getSuppliesMarkupReport(filters = {}) {
     params.push(filters.to_date);
   }
   if (filters.file_number) {
-    sql += ` AND p.file_number = $${i++}`;
-    params.push(filters.file_number.trim());
+    sql += ` AND p.file_number ILIKE $${i++}`;
+    params.push(`%${String(filters.file_number).trim()}%`);
+  }
+  if (filters.patient_type) {
+    sql += ` AND p.patient_type = $${i++}`;
+    params.push(filters.patient_type);
+  }
+  if (filters.nationality) {
+    sql += ` AND COALESCE(p.nationality, '') ILIKE $${i++}`;
+    params.push(`%${String(filters.nationality).trim()}%`);
   }
   if (filters.search) {
     sql += ` AND (p.name ILIKE $${i} OR p.file_number ILIKE $${i} OR inv.serial_number ILIKE $${i})`;

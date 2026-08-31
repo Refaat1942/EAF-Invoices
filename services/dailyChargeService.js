@@ -1877,9 +1877,94 @@ async function unlinkEntriesFromInvoice(invoiceId, client = null) {
   return result.rowCount || 0;
 }
 
+function normalizeStayGradeName(name) {
+  return String(name || '')
+    .replace(/\u0640/g, '')
+    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/\s+/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .trim()
+    .toLowerCase();
+}
+
+async function listAccommodationStayGrades() {
+  const { listStayTypes } = require('./stayTypeService');
+  const stayTypes = await listStayTypes(true);
+  const priceList = await getDefaultPriceList();
+  if (!priceList) {
+    return stayTypes.map((st) => ({
+      stay_type_id: st.id,
+      service_id: null,
+      name: st.name,
+      daily_rate: Number(st.daily_rate) || 0,
+      price_list_name: null,
+    }));
+  }
+
+  const { rows } = await query(
+    `SELECT s.id AS service_id, s.name, s.price, s.sort_order
+     FROM services s
+     INNER JOIN service_categories c ON c.id = s.category_id
+     WHERE s.price_list_id = $1 AND c.code = 'ACCOMMODATION' AND s.is_active = TRUE
+     ORDER BY s.sort_order, s.name, s.id`,
+    [priceList.id]
+  );
+  const enriched = await enrichServicesWithResolvedPrices(rows);
+  const stayByName = new Map();
+  for (const st of stayTypes) {
+    const key = normalizeStayGradeName(st.name);
+    if (key) stayByName.set(key, st);
+  }
+
+  const grades = [];
+  const seen = new Set();
+  for (const svc of enriched) {
+    const key = normalizeStayGradeName(svc.name);
+    const st =
+      stayByName.get(key) ||
+      stayTypes.find(
+        (t) =>
+          normalizeStayGradeName(t.name) === key ||
+          normalizeStayGradeName(t.name).includes(key) ||
+          key.includes(normalizeStayGradeName(t.name))
+      );
+    if (!st?.id) continue;
+    if (seen.has(st.id)) continue;
+    seen.add(st.id);
+    const daily_rate = round2(svc.list_price ?? svc.price) || Number(st.daily_rate) || 0;
+    grades.push({
+      stay_type_id: st.id,
+      service_id: svc.id,
+      name: svc.name || st.name,
+      daily_rate,
+      price_list_name: priceList.name,
+    });
+  }
+
+  for (const st of stayTypes) {
+    if (seen.has(st.id)) continue;
+    grades.push({
+      stay_type_id: st.id,
+      service_id: null,
+      name: st.name,
+      daily_rate: Number(st.daily_rate) || 0,
+      price_list_name: priceList.name,
+    });
+  }
+
+  return grades.sort((a, b) => {
+    const ao = stayTypes.find((t) => t.id === a.stay_type_id)?.sort_order || 0;
+    const bo = stayTypes.find((t) => t.id === b.stay_type_id)?.sort_order || 0;
+    return ao - bo || String(a.name).localeCompare(String(b.name), 'ar');
+  });
+}
+
 module.exports = {
   listSections,
   getSectionsWithServices,
+  listAccommodationStayGrades,
   resolveDefaultServiceForSection,
   searchDailyPickerItems,
   getDailyPickerItemBySection,

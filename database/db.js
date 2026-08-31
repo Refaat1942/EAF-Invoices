@@ -487,6 +487,9 @@ async function runMigrations() {
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS disability_degree TEXT DEFAULT ''`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS disability_type TEXT DEFAULT ''`);
   await query(
+    `ALTER TABLE patients ADD COLUMN IF NOT EXISTS stay_grade_id INTEGER REFERENCES stay_types(id) ON DELETE SET NULL`
+  );
+  await query(
     `ALTER TABLE patients ADD COLUMN IF NOT EXISTS room_insurance_amount NUMERIC(14,2) NOT NULL DEFAULT 0`
   );
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS military_auth_from DATE`);
