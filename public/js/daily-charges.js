@@ -668,10 +668,25 @@ function showDailyPatientPicker() {
   document.getElementById('daily-patient-workspace')?.classList.add('d-none');
   document.getElementById('daily-change-patient-btn')?.classList.add('d-none');
   document.getElementById('daily-simple-flow-hint')?.classList.add('d-none');
+  document.getElementById('daily-patient-results-wrap')?.classList.add('d-none');
+  document.getElementById('daily-patient-picker-hint')?.classList.remove('d-none');
+  const searchInput = document.getElementById('daily-patient-search');
+  if (searchInput) searchInput.value = '';
+  resetDailyPatientPickerList();
   sessionStorage.removeItem('dailyStayFileNumber');
   dailyStayContext = null;
   activeDailyTab = '';
   updateDailyMilitaryAuthBanner(null);
+}
+
+function resetDailyPatientPickerList() {
+  const list = document.getElementById('daily-patient-list');
+  if (list) list.innerHTML = '';
+}
+
+function showDailyPatientResults() {
+  document.getElementById('daily-patient-results-wrap')?.classList.remove('d-none');
+  document.getElementById('daily-patient-picker-hint')?.classList.add('d-none');
 }
 
 function showDailyPatientWorkspace(ctx = dailyStayContext) {
@@ -686,31 +701,99 @@ function showDailyPatientWorkspace(ctx = dailyStayContext) {
 }
 
 function updateDailyPatientHeader(ctx) {
-  const p = ctx?.patient;
-  const nameEl = document.getElementById('daily-header-patient-name');
-  const metaEl = document.getElementById('daily-header-patient-meta');
-  if (nameEl) nameEl.textContent = p?.name || ctx?.invoice?.patient_name || '—';
-  if (metaEl) {
-    const typeLabel = p?.patient_type === 'external' ? 'خارجي' : 'داخلي';
-    const parts = [`ملف ${p?.file_number || '—'}`, typeLabel];
-    if (p?.nationality) parts.push(p.nationality);
-    if (p?.phone) parts.push(p.phone);
-    metaEl.textContent = parts.join(' · ');
-  }
   const changeRoomBtn = document.getElementById('daily-change-room-btn');
   if (changeRoomBtn) {
+    const p = ctx?.patient;
     const showRoom = Boolean(ctx?.invoice?.id) && p?.patient_type !== 'external';
     changeRoomBtn.classList.toggle('d-none', !showRoom);
   }
+  updateDailyPatientSummaryTable(ctx);
+}
+
+function updateDailyPatientSummaryTable(ctx) {
+  const body = document.getElementById('daily-patient-summary-body');
+  if (!body) return;
+  const p = ctx?.patient || {};
+  const inv = ctx?.invoice || {};
+  const typeLabel = p.patient_type === 'external' ? 'خارجي' : 'داخلي';
+  const genderLabel =
+    p.gender === 'male' ? 'ذكر' : p.gender === 'female' ? 'أنثى' : p.gender || '—';
+  const balance = p.account_balance ?? 0;
+  const remaining = inv.remaining ?? inv.outstanding_amount ?? 0;
+  const collected = inv.total_collected ?? 0;
+  const finalTotal = inv.final_total ?? 0;
+  const dailyTotal = ctx?.daily_summary?.daily_total_sum ?? 0;
+  const invLabel = inv.serial_number ? inv.serial_number : inv.id ? `#${inv.id}` : '—';
+  const statusLabel = inv.status_label || inv.status || '—';
+  const statusClass =
+    inv.status === 'pending_review'
+      ? 'bg-warning text-dark'
+      : inv.status === 'approved'
+        ? 'bg-success'
+        : 'bg-secondary';
+  const period =
+    inv.admission_date
+      ? `${fmtStayDate(inv.admission_date) || '—'} → ${fmtStayDate(inv.discharge_date) || '—'}`
+      : '—';
+  const financial = inv.financial_treatment || p.financial_treatment || '—';
+
+  body.innerHTML = `
+    <tr>
+      <th class="bg-light text-nowrap">اسم المريض</th>
+      <td class="fw-bold">${dailyEscapeHtml(p.name || inv.patient_name || '—')}</td>
+      <th class="bg-light text-nowrap">رقم الملف</th>
+      <td class="fw-bold">${dailyEscapeHtml(p.file_number || inv.file_number || '—')}</td>
+      <th class="bg-light text-nowrap">النوع</th>
+      <td>${dailyEscapeHtml(typeLabel)}</td>
+      <th class="bg-light text-nowrap">الجنسية</th>
+      <td>${dailyEscapeHtml(p.nationality || '—')}</td>
+    </tr>
+    <tr>
+      <th class="bg-light text-nowrap">الهاتف</th>
+      <td>${dailyEscapeHtml(p.phone || '—')}</td>
+      <th class="bg-light text-nowrap">الجنس</th>
+      <td>${dailyEscapeHtml(genderLabel)}</td>
+      <th class="bg-light text-nowrap">المعاملة المالية</th>
+      <td>${dailyEscapeHtml(financial)}</td>
+      <th class="bg-light text-nowrap">فترة الفاتورة</th>
+      <td>${dailyEscapeHtml(period)}</td>
+    </tr>
+    <tr>
+      <th class="bg-light text-nowrap">رقم الفاتورة</th>
+      <td class="fw-bold">${dailyEscapeHtml(invLabel)}</td>
+      <th class="bg-light text-nowrap">حالة الفاتورة</th>
+      <td><span class="badge ${statusClass}">${dailyEscapeHtml(statusLabel)}</span></td>
+      <th class="bg-light text-nowrap">إجمالي الحركة</th>
+      <td class="fw-bold amount-total">${dailyFmt(dailyTotal)}</td>
+      <th class="bg-light text-nowrap">إجمالي الفاتورة</th>
+      <td class="fw-bold text-primary amount-total">${dailyFmt(finalTotal)}</td>
+    </tr>
+    <tr class="table-warning">
+      <th class="bg-light text-nowrap">رصيد الحساب</th>
+      <td class="fw-bold text-success amount-total">${dailyFmt(balance)}</td>
+      <th class="bg-light text-nowrap">المحصل</th>
+      <td class="fw-bold amount-total">${dailyFmt(collected)}</td>
+      <th class="bg-light text-nowrap">المتبقي</th>
+      <td class="fw-bold text-danger amount-total">${dailyFmt(remaining)}</td>
+      <th class="bg-light text-nowrap"></th>
+      <td></td>
+    </tr>`;
 }
 
 async function loadDailyPatientGrid(search = '') {
   const list = document.getElementById('daily-patient-list');
   if (!list) return;
-  list.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">جاري التحميل...</td></tr>';
+  const q = String(search || '').trim();
+  if (!q) {
+    document.getElementById('daily-patient-results-wrap')?.classList.add('d-none');
+    document.getElementById('daily-patient-picker-hint')?.classList.remove('d-none');
+    resetDailyPatientPickerList();
+    return;
+  }
+  showDailyPatientResults();
+  list.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">جاري البحث...</td></tr>';
   try {
-    const params = new URLSearchParams({ limit: '80' });
-    if (search.trim()) params.set('search', search.trim());
+    const params = new URLSearchParams({ limit: '80', search: q });
     const patients = await apiJson(`${DAILY_API}/patients?${params}`);
     if (!patients.length) {
       list.innerHTML =
@@ -808,20 +891,18 @@ function openDailyInvoiceFromDaily() {
 
 function updateDailyInvoicePanel(ctx) {
   const empty = document.getElementById('daily-invoice-empty');
-  const info = document.getElementById('daily-invoice-info');
   const actionsWrap = document.getElementById('daily-invoice-actions');
   const reviewPanel = document.getElementById('daily-invoice-review-panel');
   const pdfBtn = document.getElementById('daily-invoice-pdf-btn');
   const inv = ctx?.invoice;
+  updateDailyPatientSummaryTable(ctx);
   if (!inv?.id) {
     if (empty) empty.style.display = '';
-    if (info) info.style.display = 'none';
     if (actionsWrap) actionsWrap.classList.add('d-none');
     if (reviewPanel) reviewPanel.classList.add('d-none');
     return;
   }
   if (empty) empty.style.display = 'none';
-  if (info) info.style.display = '';
   if (actionsWrap) actionsWrap.classList.remove('d-none');
   if (pdfBtn) {
     const showPdf =
@@ -830,26 +911,6 @@ function updateDailyInvoicePanel(ctx) {
       inv.status === 'approved';
     pdfBtn.classList.toggle('d-none', !showPdf);
   }
-
-  const numEl = document.getElementById('daily-inv-number');
-  if (numEl) numEl.textContent = inv.serial_number ? inv.serial_number : `#${inv.id}`;
-  const statusEl = document.getElementById('daily-inv-status');
-  if (statusEl) {
-    statusEl.textContent = inv.status_label || inv.status || '—';
-    statusEl.className = `badge ${inv.status === 'pending_review' ? 'bg-warning text-dark' : inv.status === 'approved' ? 'bg-success' : 'bg-secondary'}`;
-  }
-  const periodEl = document.getElementById('daily-inv-period');
-  if (periodEl) {
-    periodEl.textContent = `${fmtStayDate(inv.admission_date) || '—'} → ${fmtStayDate(inv.discharge_date) || '—'}`;
-  }
-  const dailyTotalEl = document.getElementById('daily-inv-daily-total');
-  if (dailyTotalEl) dailyTotalEl.textContent = dailyFmt(ctx.daily_summary?.daily_total_sum ?? 0);
-  const collectedEl = document.getElementById('daily-inv-collected');
-  if (collectedEl) collectedEl.textContent = dailyFmt(inv.total_collected ?? 0);
-  const remainingEl = document.getElementById('daily-inv-remaining');
-  if (remainingEl) remainingEl.textContent = dailyFmt(inv.remaining ?? inv.outstanding_amount ?? 0);
-  const finalEl = document.getElementById('daily-inv-final-total');
-  if (finalEl) finalEl.textContent = dailyFmt(inv.final_total ?? 0);
 }
 
 function applyDailyInvoiceSync(data) {
@@ -1512,9 +1573,7 @@ async function savePatientRegistration(event) {
     showToast(`${label} — ملف ${file_number} — ابدأ بإدخال البنود`, 'success');
     clearPatientRegisterForm();
     if (typeof switchView === 'function') {
-      switchView('daily');
-      await selectDailyPatient(file_number);
-      showDailySection(defaultDailyTabForPatient(data));
+      switchView('daily', { openFileNumber: file_number });
     } else {
       showPatientRegisterTypePicker();
     }
@@ -2949,7 +3008,10 @@ function renderDailySectionsTable() {
     const colCount = 9;
     const footLabel = document.getElementById('daily-total-foot-label');
     const footSpacer = document.getElementById('daily-total-foot-spacer');
-    if (footLabel) footLabel.colSpan = Math.max(colCount - 2, 1);
+    if (footLabel) {
+      footLabel.colSpan = Math.max(colCount - 2, 1);
+      footLabel.textContent = 'إجمالي الإقامة';
+    }
     if (footSpacer) footSpacer.colSpan = Math.max(colCount - 3, 0);
     applyDailyTabColumnVisibility();
     return;
@@ -3849,7 +3911,7 @@ function clearDailyForm() {
   updateDailyGrandTotal();
 }
 
-async function initDailyChargesView() {
+async function initDailyChargesView(options = {}) {
   if (!dailyCan('daily_charges.view')) return;
   try {
     if (typeof loadFinancialTreatments === 'function') await loadFinancialTreatments();
@@ -3863,13 +3925,10 @@ async function initDailyChargesView() {
     if (typeof bindCommaAmountInputs === 'function') {
       bindCommaAmountInputs(document.getElementById('view-daily'));
     }
-    await loadDailyPatientGrid();
-    const savedFile = sessionStorage.getItem('dailyStayFileNumber');
-    if (savedFile) {
-      await selectDailyPatient(savedFile);
-    } else {
-      applyDailyStayContext(null);
-      showDailyPatientPicker();
+    showDailyPatientPicker();
+    const openFile = String(options.openFileNumber || '').trim();
+    if (openFile) {
+      await selectDailyPatient(openFile);
     }
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');

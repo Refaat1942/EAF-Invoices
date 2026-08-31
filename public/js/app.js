@@ -629,7 +629,10 @@ function bindEvents() {
   document.getElementById('submit-review-btn').addEventListener('click', () => saveInvoiceWithMode('submit'));
   document.getElementById('approve-invoice-btn').addEventListener('click', approveCurrentInvoice);
   document.getElementById('reset-form-btn').addEventListener('click', () => switchView('home'));
-  document.getElementById('goto-daily-from-invoice-btn')?.addEventListener('click', () => switchView('daily', { keepForm: true }));
+  document.getElementById('goto-daily-from-invoice-btn')?.addEventListener('click', () => {
+    const fn = document.getElementById('file_number')?.value?.trim() || '';
+    switchView('daily', { openFileNumber: fn || undefined });
+  });
   document.getElementById('add-row-btn').addEventListener('click', () => {
     document.getElementById('items-tbody').appendChild(createRow(rowCount++));
     bindCalcTriggers();
@@ -2697,7 +2700,7 @@ function switchView(view, options = {}) {
     loadSettingsPage();
   }
   if (view === 'patient-register' && typeof initPatientRegistration === 'function') initPatientRegistration();
-  if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView();
+  if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView(options);
 }
 
 function renderReportTiles() {

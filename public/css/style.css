@@ -1109,6 +1109,47 @@ body {
   background-color: #f0f7ff;
 }
 
+#view-daily .daily-patient-summary-table th {
+  width: 11%;
+  min-width: 7rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+#view-daily .daily-patient-summary-table td {
+  vertical-align: middle;
+}
+
+.daily-picker-hero {
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+.daily-picker-icon {
+  font-size: 2.5rem;
+  line-height: 1;
+}
+
+.daily-picker-search-card {
+  max-width: 920px;
+  margin-inline: auto;
+  border: 1px solid #e2e8f0;
+}
+
+#daily-patient-picker-hint {
+  max-width: 520px;
+  margin-inline: auto;
+}
+
+#daily-patient-results-wrap {
+  max-width: 960px;
+  margin-inline: auto;
+}
+
+.daily-patient-summary-card {
+  border-left: 4px solid #1a5276;
+}
+
 .view-page-header {
   max-width: 1400px;
 }
