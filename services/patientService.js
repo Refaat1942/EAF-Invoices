@@ -139,17 +139,35 @@ async function upsertPatient(fileNumber, dataOrName = '') {
   return rows[0];
 }
 
-async function setPatientBalance(fileNumber, balance, name = '') {
+async function setPatientBalance(fileNumber, balance, name = '', actor = null) {
   const patient = await upsertPatient(fileNumber, typeof name === 'string' ? name : name || {});
   if (!patient) throw new Error('رقم الملف مطلوب');
 
-  const amount = Math.round((Number(balance) || 0) * 100) / 100;
-  const { rows } = await query(
-    `UPDATE patients SET account_balance = $2, account_balance_raw = $2, updated_at = NOW()
-     WHERE id = $1 RETURNING *`,
-    [patient.id, amount]
-  );
-  return rows[0];
+  const newBalance = Math.round((Number(balance) || 0) * 100) / 100;
+  const previousBalance = Math.round((Number(patient.account_balance) || 0) * 100) / 100;
+  const delta = Math.round((newBalance - previousBalance) * 100) / 100;
+
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      `UPDATE patients SET account_balance = $2, account_balance_raw = $2, updated_at = NOW()
+       WHERE id = $1 RETURNING *`,
+      [patient.id, newBalance]
+    );
+    if (delta !== 0) {
+      const actorName = actor?.full_name || actor?.username || 'مستخدم';
+      await client.query(
+        `INSERT INTO patient_transactions (patient_id, amount, balance_after, note, transaction_kind)
+         VALUES ($1, $2, $3, $4, 'manual_adjustment')`,
+        [
+          patient.id,
+          delta,
+          newBalance,
+          `تعديل يدوي للرصيد بواسطة ${actorName}: ${previousBalance} ← ${newBalance}`,
+        ]
+      );
+    }
+    return rows[0];
+  });
 }
 
 async function applyPatientCredit(client, invoice) {

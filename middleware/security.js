@@ -26,6 +26,12 @@ function validateProductionConfig() {
   if (!rawOrigins || !rawOrigins.trim()) {
     throw new Error('Production requires ALLOWED_ORIGINS (comma-separated browser origins).');
   }
+
+  if (!String(process.env.DATABASE_URL || '').trim()) {
+    throw new Error(
+      'Production requires DATABASE_URL in the server environment — refusing to silently fall back to the shared development database credentials.'
+    );
+  }
 }
 
 function parseAllowedOrigins() {
