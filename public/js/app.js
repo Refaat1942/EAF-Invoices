@@ -539,7 +539,14 @@ function bindEvents() {
   document.getElementById('invoice-return-submit-btn')?.addEventListener('click', submitInvoiceReturns);
 
   document.getElementById('list-refresh').addEventListener('click', loadInvoicesList);
+  document.getElementById('list-clear-filters')?.addEventListener('click', clearInvoicesListFilters);
   document.getElementById('list-search').addEventListener('input', debounce(loadInvoicesList, 300));
+  document.getElementById('list-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      loadInvoicesList();
+    }
+  });
   document.getElementById('list-type-filter').addEventListener('change', loadInvoicesList);
   document.getElementById('list-status-filter').addEventListener('change', loadInvoicesList);
   document.getElementById('list-from').addEventListener('change', loadInvoicesList);
@@ -2527,7 +2534,10 @@ function switchView(view, options = {}) {
   if (section) section.style.display = 'block';
 
   if (view === 'home') return;
-  if (view === 'list') loadInvoicesList();
+  if (view === 'list') {
+    initInvoicesListDefaultDates();
+    loadInvoicesList();
+  }
   if (view === 'reports') {
     populateReportTypeFilter();
     initReportDefaultDates();
@@ -3600,11 +3610,40 @@ async function addPaymentMethod() {
   }
 }
 
+function initInvoicesListDefaultDates() {
+  const fromEl = document.getElementById('list-from');
+  const toEl = document.getElementById('list-to');
+  if (!fromEl || !toEl) return;
+  if (!fromEl.value || !toEl.value) {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const fmt = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    if (!fromEl.value) fromEl.value = fmt(start);
+    if (!toEl.value) toEl.value = fmt(today);
+  }
+}
+
+function clearInvoicesListFilters() {
+  const search = document.getElementById('list-search');
+  if (search) search.value = '';
+  const typeFilter = document.getElementById('list-type-filter');
+  if (typeFilter) typeFilter.value = '';
+  const statusFilter = document.getElementById('list-status-filter');
+  if (statusFilter) statusFilter.value = '';
+  initInvoicesListDefaultDates();
+  loadInvoicesList();
+}
+
 async function loadInvoicesList() {
   const params = new URLSearchParams();
   const type = document.getElementById('list-type-filter').value;
   const status = document.getElementById('list-status-filter').value;
-  const search = document.getElementById('list-search').value;
+  const search = document.getElementById('list-search').value.trim();
   const from = document.getElementById('list-from').value;
   const to = document.getElementById('list-to').value;
   if (type) params.set('type', type);
@@ -3633,6 +3672,7 @@ async function loadInvoicesList() {
           <td>${serialCell}<br><span class="badge ${statusInfo.class}">${statusInfo.text}</span></td>
           <td class="fw-bold">${inv.file_number || '-'}</td>
           <td>${inv.patient_name || '-'}</td>
+          <td class="small">${inv.patient_phone || '-'}</td>
           <td><span class="badge bg-secondary">${inv.invoice_type_label || invoiceTypeLabels[inv.invoice_type] || inv.invoice_type}</span></td>
           <td class="fw-bold">${fmtDual(inv.final_total_raw ?? inv.final_total, inv.final_total)}</td>
           <td>${fmtDual(inv.total_collected_raw ?? inv.total_collected, inv.total_collected)}</td>

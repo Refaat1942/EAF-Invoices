@@ -392,33 +392,55 @@ async function getInvoiceByToken(token) {
 }
 
 async function listInvoices(filters = {}) {
-  let sql = 'SELECT * FROM invoices WHERE 1=1';
+  let sql = `
+    SELECT i.*,
+           p.phone AS patient_phone,
+           p.nationality AS patient_nationality
+    FROM invoices i
+    LEFT JOIN patients p ON TRIM(p.file_number) = TRIM(i.file_number)
+    WHERE 1=1`;
   const params = [];
   let i = 1;
 
   if (filters.invoice_type) {
-    sql += ` AND invoice_type = $${i++}`;
+    sql += ` AND i.invoice_type = $${i++}`;
     params.push(filters.invoice_type);
   }
-  if (filters.from_date) {
-    sql += ` AND COALESCE(issue_date, created_at::date) >= $${i++}::date`;
-    params.push(filters.from_date);
+  const fromDate = filters.from_date ? String(filters.from_date).trim() : '';
+  const toDate = filters.to_date ? String(filters.to_date).trim() : '';
+  if (fromDate) {
+    sql += ` AND COALESCE(i.issue_date, i.admission_date, i.created_at::date) >= $${i++}::date`;
+    params.push(fromDate);
   }
-  if (filters.to_date) {
-    sql += ` AND COALESCE(issue_date, created_at::date) <= $${i++}::date`;
-    params.push(filters.to_date);
+  if (toDate) {
+    sql += ` AND COALESCE(i.issue_date, i.admission_date, i.created_at::date) <= $${i++}::date`;
+    params.push(toDate);
   }
-  if (filters.search) {
-    sql += ` AND (patient_name ILIKE $${i} OR serial_number ILIKE $${i} OR file_number ILIKE $${i})`;
-    params.push(`%${filters.search}%`);
+  const search = String(filters.search || '').trim();
+  if (search) {
+    const pattern = `%${search.replace(/%/g, '')}%`;
+    sql += ` AND (
+      i.patient_name ILIKE $${i}
+      OR i.serial_number ILIKE $${i}
+      OR TRIM(COALESCE(i.file_number, '')) ILIKE $${i}
+      OR COALESCE(p.phone, '') ILIKE $${i}
+      OR COALESCE(p.nationality, '') ILIKE $${i}
+      OR COALESCE(p.name, '') ILIKE $${i}
+      OR COALESCE(p.gender, '') ILIKE $${i}
+      OR COALESCE(p.disability_degree, '') ILIKE $${i}
+      OR COALESCE(p.disability_type, '') ILIKE $${i}
+      OR COALESCE(p.floor, '') ILIKE $${i}
+      OR CAST(i.id AS TEXT) ILIKE $${i}
+    )`;
+    params.push(pattern);
     i++;
   }
   if (filters.status) {
-    sql += ` AND status = $${i++}`;
+    sql += ` AND i.status = $${i++}`;
     params.push(filters.status);
   }
 
-  sql += ' ORDER BY created_at DESC';
+  sql += ' ORDER BY i.created_at DESC';
 
   if (filters.limit) {
     sql += ` LIMIT $${i++}`;

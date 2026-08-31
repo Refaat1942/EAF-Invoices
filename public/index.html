@@ -577,23 +577,44 @@
         <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
       </div>
       <div class="card shadow-sm">
-        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="card-header bg-dark text-white py-3">
           <h5 class="mb-0 fw-black">قائمة الفواتير</h5>
-          <div class="d-flex gap-2 flex-wrap">
-            <input type="text" class="form-control form-control-sm" id="list-search" placeholder="بحث..." style="width:150px">
-            <select class="form-select form-select-sm" id="list-type-filter" style="width:160px">
-              <option value="">كل الأنواع</option>
-            </select>
-            <select class="form-select form-select-sm" id="list-status-filter" style="width:140px">
-              <option value="">كل الحالات</option>
-              <option value="draft">مسودة</option>
-              <option value="pending_review">قيد المراجعة</option>
-              <option value="approved">معتمدة</option>
-            </select>
-            <input type="date" class="form-control form-control-sm" id="list-from" style="width:140px">
-            <input type="date" class="form-control form-control-sm" id="list-to" style="width:140px">
-            <button class="btn btn-light btn-sm fw-bold" id="list-refresh">🔄</button>
+        </div>
+        <div class="card-body border-bottom">
+          <div class="row g-2 align-items-end">
+            <div class="col-lg-3 col-md-6">
+              <label class="form-label fw-bold small mb-1" for="list-from">من تاريخ</label>
+              <input type="date" class="form-control form-control-sm fw-bold" id="list-from">
+            </div>
+            <div class="col-lg-3 col-md-6">
+              <label class="form-label fw-bold small mb-1" for="list-to">إلى تاريخ</label>
+              <input type="date" class="form-control form-control-sm fw-bold" id="list-to">
+            </div>
+            <div class="col-lg-4 col-md-8">
+              <label class="form-label fw-bold small mb-1" for="list-search">بحث</label>
+              <input type="search" class="form-control form-control-sm fw-bold" id="list-search" placeholder="رقم ملف، اسم مريض، تليفون، رقم فاتورة، رقم مسلسل..." autocomplete="off">
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label fw-bold small mb-1" for="list-type-filter">نوع الفاتورة</label>
+              <select class="form-select form-select-sm fw-bold" id="list-type-filter">
+                <option value="">كل الأنواع</option>
+              </select>
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label fw-bold small mb-1" for="list-status-filter">الحالة</label>
+              <select class="form-select form-select-sm fw-bold" id="list-status-filter">
+                <option value="">كل الحالات</option>
+                <option value="draft">مسودة</option>
+                <option value="pending_review">قيد المراجعة</option>
+                <option value="approved">معتمدة</option>
+              </select>
+            </div>
+            <div class="col-lg-2 col-md-4 d-flex gap-2">
+              <button type="button" class="btn btn-primary btn-sm fw-bold flex-grow-1" id="list-refresh">بحث</button>
+              <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="list-clear-filters" title="مسح الفلاتر">مسح</button>
+            </div>
           </div>
+          <p class="small text-muted mt-2 mb-0">البحث يشمل رقم الملف، اسم المريض، التليفون، الجنسية، رقم الفاتورة، والرقم المسلسل.</p>
         </div>
         <div class="card-body p-0">
           <div class="table-responsive">
@@ -603,6 +624,7 @@
                   <th>الرقم / الحالة</th>
                   <th>رقم الملف</th>
                   <th>المريض</th>
+                  <th>التليفون</th>
                   <th>النوع</th>
                   <th>الإجمالي</th>
                   <th>المحصل</th>
