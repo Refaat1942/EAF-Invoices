@@ -1399,6 +1399,16 @@ async function openPatientStay(data, user = null) {
     gender: data.gender || '',
     patient_type: patientType,
     floor: patientType === 'internal' ? data.floor || '' : '',
+    age: data.age,
+    disability_degree: data.disability_degree || '',
+    disability_type: data.disability_type || '',
+    room_insurance_amount: data.room_insurance_amount,
+    military_auth_from: data.military_auth_from,
+    military_auth_to: data.military_auth_to,
+    glasses_lens_type: data.glasses_lens_type || '',
+    glasses_start_date: data.glasses_start_date,
+    glasses_price: data.glasses_price,
+    glasses_discount_percent: data.glasses_discount_percent,
   });
   if (patientType === 'internal') {
     if (data.account_balance !== undefined && data.account_balance !== null && data.account_balance !== '') {
@@ -1443,6 +1453,10 @@ async function openPatientStay(data, user = null) {
     payload.contracted_entity_id = data.contracted_entity_id ? Number(data.contracted_entity_id) : null;
     payload.letter_from_date = data.letter_from_date || null;
     payload.letter_to_date = data.letter_to_date || null;
+  }
+  if (data.invoice_type === 'military') {
+    payload.letter_from_date = data.military_auth_from || data.letter_from_date || null;
+    payload.letter_to_date = data.military_auth_to || data.letter_to_date || null;
   }
 
   const updated = await saveInvoice(payload, invoiceId, user, {

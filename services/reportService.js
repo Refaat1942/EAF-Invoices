@@ -3,6 +3,12 @@ const { query } = require('../database/db');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
 const { getPatientByFileNumber } = require('./patientService');
 const { labelTransactionKind } = require('./patientTransactionKinds');
+const {
+  getNationalityPriceMultiplier,
+  getNationalityLabel,
+  getPricePathLabel,
+  applyNationalityToAmount,
+} = require('./nationalityPricing');
 
 const STATUS_LABELS = {
   draft: 'مسودة',
@@ -21,6 +27,32 @@ function daysBetween(fromDate, toDate) {
 function formatDateLabel(value) {
   if (!value) return '—';
   return new Date(value).toLocaleDateString('ar-EG');
+}
+
+async function loadNationalityMapByFileNumbers(fileNumbers = []) {
+  const nums = [...new Set(fileNumbers.map((n) => String(n || '').trim()).filter(Boolean))];
+  if (!nums.length) return {};
+  const { rows } = await query(`SELECT file_number, nationality FROM patients WHERE file_number = ANY($1::text[])`, [
+    nums,
+  ]);
+  return Object.fromEntries(rows.map((row) => [row.file_number, row.nationality || '']));
+}
+
+function withNationalityMeta(row, nationalityMap = {}) {
+  const nationality = nationalityMap[row.file_number] || row.nationality || '';
+  const multiplier = getNationalityPriceMultiplier(nationality);
+  return {
+    ...row,
+    nationality,
+    nationality_label: getNationalityLabel(nationality),
+    price_path_label: getPricePathLabel(nationality),
+    nationality_multiplier: multiplier,
+  };
+}
+
+async function enrichInvoiceList(invoices = []) {
+  const nationalityMap = await loadNationalityMapByFileNumbers(invoices.map((inv) => inv.file_number));
+  return invoices.map((inv) => withNationalityMeta(inv, nationalityMap));
 }
 
 async function fetchInvoicesForReport(filters = {}) {
@@ -125,7 +157,7 @@ async function getSummaryReport(filters = {}) {
     patient_credit_total: Math.round(patientCreditTotal * 100) / 100,
     by_type: byType,
     monthly: monthlyResult.rows,
-    recent: invoices.slice(0, 15).map((inv) => ({
+    recent: (await enrichInvoiceList(invoices.slice(0, 15))).map((inv) => ({
       ...inv,
       invoice_type_label: typeMap[inv.invoice_type] || inv.invoice_type,
       status_label: STATUS_LABELS[inv.status] || inv.status,
@@ -136,11 +168,14 @@ async function getSummaryReport(filters = {}) {
 }
 
 async function getPaymentsReport(filters = {}) {
-  const invoices = await fetchInvoicesForReport(filters);
+  const invoices = await enrichInvoiceList(await fetchInvoicesForReport(filters));
   return invoices.map((inv) => ({
     serial_number: inv.serial_number || '—',
     file_number: inv.file_number,
     patient_name: inv.patient_name,
+    nationality: inv.nationality,
+    nationality_label: inv.nationality_label,
+    price_path_label: inv.price_path_label,
     issue_date: inv.issue_date,
     final_total: inv.final_total,
     cash_private: inv.cash_private,
@@ -154,18 +189,33 @@ async function getPaymentsReport(filters = {}) {
 }
 
 async function getRemainingReport(filters = {}) {
-  const invoices = await fetchInvoicesForReport(filters);
+  const invoices = await enrichInvoiceList(await fetchInvoicesForReport(filters));
   return invoices
     .filter((inv) => Number(inv.remaining) > 0)
     .map((inv) => ({
       serial_number: inv.serial_number || '—',
       file_number: inv.file_number,
       patient_name: inv.patient_name,
+      nationality: inv.nationality,
+      nationality_label: inv.nationality_label,
+      price_path_label: inv.price_path_label,
       issue_date: inv.issue_date,
       final_total: inv.final_total,
       total_collected: inv.total_collected,
       remaining: inv.remaining,
     }));
+}
+
+async function getInvoicesReport(filters = {}) {
+  const invoices = await enrichInvoiceList(
+    await fetchInvoicesForReport({ ...filters, approved_only: false })
+  );
+  const typeMap = await getInvoiceTypesMap();
+  return invoices.map((inv) => ({
+    ...inv,
+    invoice_type_label: typeMap[inv.invoice_type] || inv.invoice_type,
+    status_label: STATUS_LABELS[inv.status] || inv.status,
+  }));
 }
 
 const DAILY_ITEMS_KINDS = {
@@ -453,6 +503,7 @@ async function getSuppliesMarkupReport(filters = {}) {
     SELECT e.entry_date,
            p.file_number,
            p.name AS patient_name,
+           p.nationality,
            inv.serial_number,
            inv.status AS invoice_status,
            c.code AS item_code,
@@ -494,6 +545,11 @@ async function getSuppliesMarkupReport(filters = {}) {
     sql += ` AND p.file_number = $${i++}`;
     params.push(filters.file_number.trim());
   }
+  if (filters.search) {
+    sql += ` AND (p.name ILIKE $${i} OR p.file_number ILIKE $${i} OR inv.serial_number ILIKE $${i})`;
+    params.push(`%${String(filters.search).trim()}%`);
+    i++;
+  }
 
   sql += ` ORDER BY e.entry_date DESC, e.id DESC, l.sort_order, l.id`;
 
@@ -502,6 +558,7 @@ async function getSuppliesMarkupReport(filters = {}) {
   let totalCost = 0;
   let totalSelling = 0;
   let totalMargin = 0;
+  let totalAccountingSelling = 0;
   for (const row of rows) {
     const originalQty = Number(row.original_quantity ?? row.quantity) || 1;
     const returnedQty = Number(row.returned_quantity) || 0;
@@ -513,11 +570,20 @@ async function getSuppliesMarkupReport(filters = {}) {
       marginSnapshot > 0 && originalQty > 0
         ? Math.round(marginSnapshot * (netQty / originalQty) * 100) / 100
         : Math.round((selling - cost) * netQty * 100) / 100;
+    const mult = getNationalityPriceMultiplier(row.nationality);
+    const listLineTotal = Math.round(selling * netQty * 100) / 100;
+    const accountingLineTotal = applyNationalityToAmount(listLineTotal, row.nationality);
     row.net_quantity = netQty;
     row.margin_amount = netMargin;
-    row.line_total = Math.round(selling * netQty * 100) / 100;
+    row.list_line_total = listLineTotal;
+    row.line_total = accountingLineTotal;
+    row.list_unit_price = selling;
+    row.accounting_unit_price = applyNationalityToAmount(selling, row.nationality);
+    row.nationality_label = getNationalityLabel(row.nationality);
+    row.price_path_label = getPricePathLabel(row.nationality);
     totalCost += cost * netQty;
-    totalSelling += selling * netQty;
+    totalSelling += listLineTotal;
+    totalAccountingSelling += accountingLineTotal;
     totalMargin += netMargin;
   }
 
@@ -530,15 +596,20 @@ async function getSuppliesMarkupReport(filters = {}) {
       net_quantity: Number(row.net_quantity) || 1,
       cost_price: row.cost_price != null ? Number(row.cost_price) : null,
       markup_percent: row.markup_percent != null ? Number(row.markup_percent) : null,
-      selling_price: Number(row.selling_price) || 0,
+      selling_price: Number(row.list_unit_price) || 0,
+      accounting_unit_price: Number(row.accounting_unit_price) || 0,
       unit_margin: Number(row.unit_margin) || 0,
       margin_amount: Number(row.margin_amount) || 0,
+      list_line_total: Number(row.list_line_total) || 0,
       line_total: Number(row.line_total) || 0,
+      nationality_label: row.nationality_label,
+      price_path_label: row.price_path_label,
     })),
     totals: {
       row_count: rows.length,
       total_cost: Math.round(totalCost * 100) / 100,
       total_selling: Math.round(totalSelling * 100) / 100,
+      total_accounting_selling: Math.round(totalAccountingSelling * 100) / 100,
       total_margin: Math.round(totalMargin * 100) / 100,
     },
     filters,
@@ -710,6 +781,9 @@ async function getPatientStatusReport(filters = {}) {
       file_number: targetFileNumber,
       name: patientName,
       account_balance: accountBalance,
+      nationality: patient?.nationality || '',
+      nationality_label: getNationalityLabel(patient?.nationality),
+      price_path_label: getPricePathLabel(patient?.nationality),
     },
     stay: {
       earliest_admission: earliestAdmission,
@@ -752,7 +826,9 @@ function isBalancedAmount(diff) {
  * method_payments sum vs total_collected; collection ledger vs cash methods (approved).
  */
 async function getReconciliationReport(filters = {}) {
-  const invoices = await fetchInvoicesForReport({ ...filters, approved_only: false });
+  const invoices = await enrichInvoiceList(
+    await fetchInvoicesForReport({ ...filters, approved_only: false })
+  );
   const rows = [];
   let mismatchCount = 0;
 
@@ -811,6 +887,9 @@ async function getReconciliationReport(filters = {}) {
       serial_number: inv.serial_number,
       file_number: inv.file_number,
       patient_name: inv.patient_name,
+      nationality: inv.nationality,
+      nationality_label: inv.nationality_label,
+      price_path_label: inv.price_path_label,
       status: inv.status,
       status_label: STATUS_LABELS[inv.status] || inv.status,
       issue_date: inv.issue_date,
@@ -877,11 +956,13 @@ async function buildExcelWorkbook(reportType, filters = {}) {
       sheet.addRow([m.month, m.count, Number(m.total), Number(m.collected), Number(m.remaining)]);
     });
   } else if (reportType === 'invoices') {
-    const invoices = await fetchInvoicesForReport(filters);
+    const invoices = await enrichInvoiceList(await fetchInvoicesForReport(filters));
     sheet.addRow([
       'الرقم التسلسلي',
       'رقم الملف',
       'المريض',
+      'الجنسية',
+      'مسار السعر',
       'نوع الفاتورة',
       'الحالة',
       'تاريخ الإصدار',
@@ -895,6 +976,8 @@ async function buildExcelWorkbook(reportType, filters = {}) {
         inv.serial_number || 'مسودة',
         inv.file_number,
         inv.patient_name,
+        inv.nationality_label || inv.nationality || '—',
+        inv.price_path_label || '—',
         typeMap[inv.invoice_type] || inv.invoice_type,
         STATUS_LABELS[inv.status] || inv.status,
         inv.issue_date,
@@ -1007,39 +1090,48 @@ async function buildExcelWorkbook(reportType, filters = {}) {
     sheet.addRow([]);
     sheet.addRow(['عدد البنود', data.totals.row_count]);
     sheet.addRow(['إجمالي التكلفة', data.totals.total_cost]);
-    sheet.addRow(['إجمالي البيع', data.totals.total_selling]);
+    sheet.addRow(['إجمالي البيع (لائحة)', data.totals.total_selling]);
+    sheet.addRow(['إجمالي البيع (بمسار الجنسية)', data.totals.total_accounting_selling || data.totals.total_selling]);
     sheet.addRow(['إجمالي الهامش', data.totals.total_margin]);
     sheet.addRow([]);
     sheet.addRow([
       'التاريخ',
       'رقم الملف',
       'المريض',
+      'الجنسية',
+      'مسار السعر',
       'الفاتورة',
       'كود الصنف',
       'الصنف',
       'الكمية',
       'سعر التكلفة',
       'نسبة الربح %',
-      'سعر البيع',
+      'سعر اللائحة',
+      'سعر بعد الجنسية',
       'هامش الوحدة',
       'مبلغ الهامش',
-      'إجمالي البند',
+      'إجمالي اللائحة',
+      'إجمالي بمسار الجنسية',
     ]);
     data.rows.forEach((row) => {
       sheet.addRow([
         row.entry_date,
         row.file_number,
         row.patient_name,
+        row.nationality_label || row.nationality || '—',
+        row.price_path_label || '—',
         row.serial_number || '—',
         row.item_code || '',
         row.item_name || '',
         row.quantity,
-        row.cost_price != null ? row.cost_price : '',
-        row.markup_percent != null ? row.markup_percent : '',
-        row.selling_price,
-        row.unit_margin,
-        row.margin_amount,
-        row.line_total,
+        row.cost_price != null ? Number(row.cost_price) : '',
+        row.markup_percent != null ? Number(row.markup_percent) : '',
+        Number(row.selling_price),
+        Number(row.accounting_unit_price || row.selling_price),
+        Number(row.unit_margin),
+        Number(row.margin_amount),
+        Number(row.list_line_total || row.selling_price * row.quantity),
+        Number(row.line_total),
       ]);
     });
   } else if (reportType === 'reconciliation') {
@@ -1100,6 +1192,7 @@ module.exports = {
   getSummaryReport,
   getPaymentsReport,
   getRemainingReport,
+  getInvoicesReport,
   getSuppliesMarkupReport,
   getDailyItemsReport,
   getDailyServiceReport,

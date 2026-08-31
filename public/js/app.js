@@ -327,11 +327,7 @@ function applyPermissions() {
 
   document.getElementById('import-daily-charges-btn').style.display =
     can('invoices.create') || can('invoices.edit') ? '' : 'none';
-  document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
-  document.getElementById('pricing-settings-card').style.display = isAdmin ? '' : 'none';
-  document.getElementById('item-catalog-settings-card').style.display = isAdmin ? '' : 'none';
-  document.getElementById('backup-settings-card').style.display = isAdmin ? '' : 'none';
-  document.getElementById('doctors-settings-card').style.display = isAdmin ? '' : 'none';
+  applySettingsSectionPermissions();
 
   const canEdit = can('invoices.create') || can('invoices.edit');
   document.getElementById('save-draft-btn').style.display = canEdit ? '' : 'none';
@@ -550,21 +546,17 @@ function bindEvents() {
 
   document.getElementById('report-refresh-btn').addEventListener('click', loadReports);
   document.getElementById('report-export-btn').addEventListener('click', exportCurrentReport);
-  document.querySelectorAll('.report-tab').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.report-tab').forEach((b) => {
-        b.classList.toggle('active', b === btn);
-        b.classList.toggle('btn-primary', b === btn);
-        b.classList.toggle('btn-outline-primary', b !== btn);
-      });
-      currentReportType = btn.dataset.report;
-      selectedPatientFileNumber = '';
-      updateReportFiltersUI();
-      loadReports();
-    });
+  document.getElementById('report-clear-filters-btn')?.addEventListener('click', () => {
+    clearReportFilters();
+    loadReports();
   });
-
-  document.getElementById('report-patient-search')?.addEventListener('keydown', (e) => {
+  document.getElementById('report-type-select')?.addEventListener('change', (e) => {
+    currentReportType = e.target.value || 'summary';
+    selectedPatientFileNumber = '';
+    updateReportFiltersUI();
+    loadReports();
+  });
+  document.getElementById('report-search')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       selectedPatientFileNumber = '';
@@ -595,6 +587,10 @@ function bindEvents() {
   });
   document.getElementById('add-entity-btn').addEventListener('click', addContractedEntity);
   document.getElementById('add-exclusion-btn').addEventListener('click', addDiscountExclusion);
+
+  document.getElementById('settings-section-select')?.addEventListener('change', (e) => {
+    showSettingsSection(e.target.value);
+  });
 
   document.getElementById('pricing-refresh-btn')?.addEventListener('click', loadPricingSection);
   document.getElementById('pricing-search')?.addEventListener('input', debounce(loadPricingServices, 300));
@@ -2526,10 +2522,14 @@ function switchView(view, options = {}) {
   if (view === 'list') loadInvoicesList();
   if (view === 'reports') {
     populateReportTypeFilter();
+    initReportDefaultDates();
     updateReportFiltersUI();
     loadReports();
   }
-  if (view === 'settings') loadSettingsPage();
+  if (view === 'settings') {
+    applySettingsSectionPermissions();
+    loadSettingsPage();
+  }
   if (view === 'patient-register' && typeof initPatientRegistration === 'function') initPatientRegistration();
   if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView();
 }
@@ -2542,15 +2542,63 @@ function populateReportTypeFilter() {
   });
 }
 
+function initReportDefaultDates() {
+  const fromEl = document.getElementById('report-from');
+  const toEl = document.getElementById('report-to');
+  if (!fromEl || !toEl) return;
+  if (!fromEl.value || !toEl.value) {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const fmt = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    if (!fromEl.value) fromEl.value = fmt(start);
+    if (!toEl.value) toEl.value = fmt(today);
+  }
+}
+
+function clearReportFilters() {
+  selectedPatientFileNumber = '';
+  const search = document.getElementById('report-search');
+  if (search) search.value = '';
+  const typeFilter = document.getElementById('report-type-filter');
+  if (typeFilter) typeFilter.value = '';
+  const dept = document.getElementById('report-doctor-department');
+  if (dept) dept.value = '';
+  const spec = document.getElementById('report-doctor-specialty');
+  if (spec) spec.value = '';
+  const docId = document.getElementById('report-doctor-id');
+  if (docId) docId.value = '';
+  const docFile = document.getElementById('report-doctor-file');
+  if (docFile) docFile.value = '';
+  initReportDefaultDates();
+}
+
+function reportNationalityHtml(row) {
+  const label = escapeHtml(row.nationality_label || row.nationality || '—');
+  const path = escapeHtml(row.price_path_label || '');
+  return `<span class="badge bg-light text-dark border">${label}</span>${path ? `<br><small class="text-muted">${path}</small>` : ''}`;
+}
+
 function updateReportFiltersUI() {
-  const isPatientReport = currentReportType === 'patient_status';
+  const showInvoiceType = [
+    'summary',
+    'invoices',
+    'payments',
+    'remaining',
+    'supplies_markup',
+    'patient_status',
+  ].includes(currentReportType);
   const isDoctorReport = currentReportType === 'doctors';
-  document.getElementById('report-patient-wrap').style.display = isPatientReport ? '' : 'none';
-  document.getElementById('report-invoice-type-wrap').style.display = isPatientReport ? '' : 'none';
-  document.getElementById('report-doctor-filters-wrap').style.display = isDoctorReport ? '' : 'none';
-  document.getElementById('report-doctor-specialty-wrap').style.display = isDoctorReport ? '' : 'none';
-  document.getElementById('report-doctor-id-wrap').style.display = isDoctorReport ? '' : 'none';
-  document.getElementById('report-doctor-file-wrap').style.display = isDoctorReport ? '' : 'none';
+  const invoiceWrap = document.getElementById('report-invoice-type-wrap');
+  if (invoiceWrap) invoiceWrap.style.display = showInvoiceType ? '' : 'none';
+  const doctorRow = document.getElementById('report-doctor-filters-row');
+  if (doctorRow) doctorRow.style.display = isDoctorReport ? '' : 'none';
+  const typeSelect = document.getElementById('report-type-select');
+  if (typeSelect && typeSelect.value !== currentReportType) typeSelect.value = currentReportType;
   if (isDoctorReport && typeof loadDoctorReportFilters === 'function') loadDoctorReportFilters();
 }
 
@@ -2563,9 +2611,11 @@ function getReportQueryParams() {
   if (to) params.set('to', to);
   if (type) params.set('type', type);
 
+  const rawSearch = document.getElementById('report-search')?.value?.trim() || '';
+
   if (currentReportType === 'patient_status') {
-    const rawSearch = document.getElementById('report-patient-search')?.value.trim();
-    const fileNumber = selectedPatientFileNumber || (rawSearch?.includes('—') ? rawSearch.split('—')[0].trim() : rawSearch);
+    const fileNumber =
+      selectedPatientFileNumber || (rawSearch?.includes('—') ? rawSearch.split('—')[0].trim() : rawSearch);
     if (fileNumber) {
       if (/[\u0600-\u06FF]/.test(fileNumber) && !selectedPatientFileNumber) {
         params.set('patient_search', fileNumber);
@@ -2575,11 +2625,7 @@ function getReportQueryParams() {
     } else if (rawSearch) {
       params.set('patient_search', rawSearch);
     }
-  }
-
-  if (currentReportType === 'doctors') {
-    const from = document.getElementById('report-from')?.value;
-    const to = document.getElementById('report-to')?.value;
+  } else if (currentReportType === 'doctors') {
     if (from) params.set('from_date', from);
     if (to) params.set('to_date', to);
     const dept = document.getElementById('report-doctor-department')?.value;
@@ -2590,7 +2636,11 @@ function getReportQueryParams() {
     if (spec) params.set('specialty', spec);
     if (docId) params.set('doctor_id', docId);
     if (file) params.set('file_number', file);
+    if (rawSearch) params.set('search', rawSearch);
+  } else if (rawSearch) {
+    params.set('search', rawSearch);
   }
+
   return params;
 }
 
@@ -3249,6 +3299,7 @@ async function addDiscountExclusion() {
 
 async function loadSettingsPage() {
   try {
+    const section = document.getElementById('settings-section-select')?.value || '';
     const [settingsRes, stayRes, invoiceRes, paymentRes, entityRes, exclusionRes, financialRes] =
       await Promise.all([
       apiFetch(SETTINGS_API),
@@ -3290,13 +3341,57 @@ async function loadSettingsPage() {
     await loadPaymentMethodsForm();
     await loadContractedEntities();
     loadUsers();
-    if (can('settings.*')) await loadPricingSection();
-    if (can('settings.*')) await loadBackupSection();
-    if (typeof loadDoctorsSection === 'function') await loadDoctorsSection();
-    if (typeof loadItemCatalogSection === 'function') await loadItemCatalogSection();
+
+    if (section === 'pricing' && can('settings.*')) await loadPricingSection();
+    if (section === 'backup' && can('settings.*')) await loadBackupSection();
+    if (section === 'doctors' && typeof loadDoctorsSection === 'function') await loadDoctorsSection();
+    if (section === 'item-catalog' && typeof loadItemCatalogSection === 'function') await loadItemCatalogSection();
+
+    showSettingsSection(section);
   } catch (err) {
     showToast('خطأ في تحميل الإعدادات', 'danger');
   }
+}
+
+function applySettingsSectionPermissions() {
+  const select = document.getElementById('settings-section-select');
+  if (!select) return;
+
+  select.querySelectorAll('option').forEach((opt) => {
+    if (!opt.value) return;
+    const needsAdmin = opt.dataset.admin === '1';
+    const perm = opt.dataset.perm;
+    let allowed = true;
+    if (needsAdmin && !can('settings.*')) allowed = false;
+    if (perm && !can(perm)) allowed = false;
+    opt.hidden = !allowed;
+    opt.disabled = !allowed;
+  });
+
+  const current = select.value;
+  if (!current) return;
+  const currentOpt = select.querySelector(`option[value="${CSS.escape(current)}"]`);
+  if (currentOpt && (currentOpt.hidden || currentOpt.disabled)) {
+    select.value = '';
+    showSettingsSection('');
+  }
+}
+
+function showSettingsSection(section) {
+  document.querySelectorAll('.settings-panel').forEach((el) => {
+    const key = el.dataset.settingsSection;
+    el.style.display = section && key === section ? '' : 'none';
+  });
+
+  const hint = document.getElementById('settings-section-hint');
+  if (hint) hint.style.display = section ? 'none' : '';
+
+  if (!section) return;
+
+  if (section === 'pricing' && can('settings.*')) loadPricingSection();
+  if (section === 'backup' && can('settings.*')) loadBackupSection();
+  if (section === 'doctors' && typeof loadDoctorsSection === 'function') loadDoctorsSection();
+  if (section === 'item-catalog' && typeof loadItemCatalogSection === 'function') loadItemCatalogSection();
 }
 
 function formatBackupBytes(bytes) {
@@ -3577,14 +3672,14 @@ async function loadReports() {
   container.innerHTML = '<div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>';
 
   if (currentReportType === 'patient_status') {
-    const search = document.getElementById('report-patient-search')?.value.trim();
+    const search = document.getElementById('report-search')?.value.trim();
     if (!search && !selectedPatientFileNumber) {
       container.innerHTML = `
         <div class="col-12">
           <div class="card shadow-sm patient-report-empty">
             <div class="card-body text-center py-5">
               <h5 class="fw-black mb-2">تقرير موقف مريض</h5>
-              <p class="text-muted mb-0">أدخل رقم الملف أو اسم المريض في الأعلى ثم اضغط تحديث</p>
+              <p class="text-muted mb-0">ابحث باسم المريض أو رقم الملف في خانة البحث ثم اضغط تحديث</p>
             </div>
           </div>
         </div>`;
@@ -3602,10 +3697,7 @@ async function loadReports() {
     if (currentReportType === 'supplies_markup') endpoint = `${API}/reports/supplies-markup?${params}`;
     if (currentReportType === 'reconciliation') endpoint = `${API}/reports/reconciliation?${params}`;
     if (currentReportType === 'doctors') endpoint = `/api/doctors/reports/summary?${params}`;
-    if (currentReportType === 'invoices') {
-      params.set('approved_only', 'false');
-      endpoint = `${API}?${params}`;
-    }
+    if (currentReportType === 'invoices') endpoint = `${API}/reports/invoices?${params}`;
 
     const res = await apiFetch(endpoint);
     const data = await res.json();
@@ -3733,6 +3825,7 @@ async function loadReports() {
           <td>${row.entry_date ? new Date(row.entry_date).toLocaleDateString('ar-EG') : '—'}</td>
           <td class="fw-bold">${escapeHtml(row.file_number || '')}</td>
           <td>${escapeHtml(row.patient_name || '')}</td>
+          <td>${reportNationalityHtml(row)}</td>
           <td>${escapeHtml(row.serial_number || '—')}</td>
           <td>${escapeHtml(row.item_code || '')}</td>
           <td>${escapeHtml(row.item_name || '')}</td>
@@ -3740,9 +3833,11 @@ async function loadReports() {
           <td>${row.cost_price != null ? fmt(row.cost_price) : '—'}</td>
           <td>${row.markup_percent != null ? fmt(row.markup_percent) + '%' : '—'}</td>
           <td>${fmt(row.selling_price)}</td>
+          <td class="fw-bold">${fmt(row.accounting_unit_price || row.selling_price)}</td>
           <td>${fmt(row.unit_margin)}</td>
           <td class="text-success fw-bold">${fmt(row.margin_amount)}</td>
-          <td>${fmt(row.line_total)}</td>
+          <td>${fmt(row.list_line_total || row.selling_price * row.quantity)}</td>
+          <td class="fw-bold text-primary">${fmt(row.line_total)}</td>
         </tr>`
         )
         .join('');
@@ -3750,19 +3845,19 @@ async function loadReports() {
         <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
           <div class="report-label">عدد البنود</div><div class="report-stat">${data.totals?.row_count || 0}</div></div></div></div>
         <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
-          <div class="report-label">إجمالي التكلفة</div><div class="report-stat">${fmt(data.totals?.total_cost || 0)}</div></div></div></div>
+          <div class="report-label">إجمالي اللائحة</div><div class="report-stat">${fmt(data.totals?.total_selling || 0)}</div></div></div></div>
         <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
-          <div class="report-label">إجمالي البيع</div><div class="report-stat text-primary">${fmt(data.totals?.total_selling || 0)}</div></div></div></div>
+          <div class="report-label">إجمالي بمسار الجنسية</div><div class="report-stat text-primary">${fmt(data.totals?.total_accounting_selling || data.totals?.total_selling || 0)}</div></div></div></div>
         <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
           <div class="report-label">إجمالي الهامش</div><div class="report-stat text-success">${fmt(data.totals?.total_margin || 0)}</div></div></div></div>
         <div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">تقرير هامش المستلزمات</div>
-          <div class="card-body p-0"><table class="table table-striped table-sm mb-0">
+          <div class="card-body p-0"><table class="table table-striped table-sm mb-0 reports-data-table">
             <thead class="table-dark"><tr>
-              <th>التاريخ</th><th>الملف</th><th>المريض</th><th>الفاتورة</th><th>كود</th><th>الصنف</th>
-              <th>الكمية</th><th>سعر التكلفة</th><th>نسبة الربح %</th><th>سعر البيع</th>
-              <th>هامش الوحدة</th><th>مبلغ الهامش</th><th>إجمالي البند</th>
+              <th>التاريخ</th><th>الملف</th><th>المريض</th><th>الجنسية</th><th>الفاتورة</th><th>كود</th><th>الصنف</th>
+              <th>الكمية</th><th>سعر التكلفة</th><th>نسبة الربح %</th><th>سعر اللائحة</th><th>بعد الجنسية</th>
+              <th>هامش الوحدة</th><th>مبلغ الهامش</th><th>إجمالي اللائحة</th><th>إجمالي الجنسية</th>
             </tr></thead>
-            <tbody>${rows || '<tr><td colspan="13" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
+            <tbody>${rows || '<tr><td colspan="16" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
           </table></div></div></div>`;
       return;
     }
@@ -3776,6 +3871,7 @@ async function loadReports() {
             <td>${escapeHtml(row.serial_number || `#${row.invoice_id}`)}</td>
             <td>${escapeHtml(row.file_number || '—')}</td>
             <td>${escapeHtml(row.patient_name || '—')}</td>
+            <td>${reportNationalityHtml(row)}</td>
             <td>${escapeHtml(row.status_label || row.status)}</td>
             <td>${fmt(row.final_total)}</td>
             <td>${fmt(row.total_collected)}</td>
@@ -3799,13 +3895,13 @@ async function loadReports() {
           <div class="report-label">فحص المعادلة الكلي</div><div class="report-stat">${fmt(data.totals?.grand_equation_check || 0)}</div></div></div></div>
         <div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">مطابقة الفواتير والتحصيل</div>
           <p class="small text-muted px-3 pt-2 mb-0">المعادلة: الإجمالي = المحصل + المتبقي — وطرق الدفع = المحصل — وحركة التحصيل = الطرق النقدية (للمعتمدة)</p>
-          <div class="card-body p-0"><table class="table table-striped table-sm mb-0">
+          <div class="card-body p-0"><table class="table table-striped table-sm mb-0 reports-data-table">
             <thead class="table-dark"><tr>
-              <th>الفاتورة</th><th>الملف</th><th>المريض</th><th>الحالة</th>
+              <th>الفاتورة</th><th>الملف</th><th>المريض</th><th>الجنسية</th><th>الحالة</th>
               <th>الإجمالي</th><th>المحصل</th><th>المتبقي</th><th>فرق المعادلة</th>
               <th>طرق الدفع</th><th>فرق الطرق</th><th>ledger</th><th>ملاحظات</th>
             </tr></thead>
-            <tbody>${rows || '<tr><td colspan="12" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
+            <tbody>${rows || '<tr><td colspan="13" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
           </table></div></div></div>`;
       return;
     }
@@ -3819,6 +3915,7 @@ async function loadReports() {
             <td><span class="badge ${st.class}">${st.text}</span></td>
             <td>${inv.file_number || '-'}</td>
             <td>${inv.patient_name || '-'}</td>
+            <td>${reportNationalityHtml(inv)}</td>
             <td>${inv.invoice_type_label || invoiceTypeLabels[inv.invoice_type] || inv.invoice_type}</td>
             <td>${fmt(inv.final_total)}</td>
             <td>${fmt(inv.total_collected)}</td>
@@ -3827,9 +3924,9 @@ async function loadReports() {
         })
         .join('');
       container.innerHTML = `<div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">تقرير الفواتير</div>
-        <div class="card-body p-0"><table class="table table-striped mb-0">
-          <thead class="table-dark"><tr><th>الرقم</th><th>الحالة</th><th>الملف</th><th>المريض</th><th>النوع</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="8" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
+        <div class="card-body p-0"><table class="table table-striped mb-0 reports-data-table">
+          <thead class="table-dark"><tr><th>الرقم</th><th>الحالة</th><th>الملف</th><th>المريض</th><th>الجنسية</th><th>النوع</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="9" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
         </table></div></div></div>`;
       return;
     }
@@ -3839,10 +3936,12 @@ async function loadReports() {
       .map((r) =>
         isPayments
           ? `<tr><td>${r.serial_number}</td><td>${r.file_number || '-'}</td><td>${r.patient_name || '-'}</td>
+             <td>${reportNationalityHtml(r)}</td>
              <td>${r.issue_date || '-'}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.cash_private)}</td>
              <td>${fmt(r.bank_private)}</td><td>${fmt(r.cash_external)}</td><td>${fmt(r.patient_credit_applied)}</td>
              <td>${fmt(r.total_collected)}</td><td class="text-danger">${fmt(r.remaining)}</td></tr>`
           : `<tr><td>${r.serial_number}</td><td>${r.file_number || '-'}</td><td>${r.patient_name || '-'}</td>
+             <td>${reportNationalityHtml(r)}</td>
              <td>${r.issue_date || '-'}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.total_collected)}</td>
              <td class="text-danger fw-bold">${fmt(r.remaining)}</td></tr>`
       )
@@ -3850,13 +3949,13 @@ async function loadReports() {
 
     const title = isPayments ? 'تقرير المدفوعات' : 'تقرير المتبقي';
     const head = isPayments
-      ? '<th>الرقم</th><th>الملف</th><th>المريض</th><th>التاريخ</th><th>الإجمالي</th><th>نقدي</th><th>تحويل</th><th>شيك</th><th>خصم رصيد</th><th>المحصل</th><th>المتبقي</th>'
-      : '<th>الرقم</th><th>الملف</th><th>المريض</th><th>التاريخ</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th>';
+      ? '<th>الرقم</th><th>الملف</th><th>المريض</th><th>الجنسية</th><th>التاريخ</th><th>الإجمالي</th><th>نقدي</th><th>تحويل</th><th>شيك</th><th>خصم رصيد</th><th>المحصل</th><th>المتبقي</th>'
+      : '<th>الرقم</th><th>الملف</th><th>المريض</th><th>الجنسية</th><th>التاريخ</th><th>الإجمالي</th><th>المحصل</th><th>المتبقي</th>';
 
     container.innerHTML = `<div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">${title}</div>
-      <div class="card-body p-0"><table class="table table-striped mb-0">
+      <div class="card-body p-0"><table class="table table-striped mb-0 reports-data-table">
         <thead class="table-dark"><tr>${head}</tr></thead>
-        <tbody>${rows || '<tr><td colspan="11" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="12" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
       </table></div></div></div>`;
   } catch (err) {
     container.innerHTML = `<div class="col-12 text-center text-danger py-5">${err.message || 'خطأ في تحميل التقارير'}</div>`;
@@ -3919,6 +4018,7 @@ function renderPatientStatusReport(data) {
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-3"><div class="patient-stat-box"><span>رقم الملف</span><strong>${data.patient.file_number}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>الجنسية</span><strong>${escapeHtml(data.patient.nationality_label || data.patient.nationality || '—')}</strong><br><small class="text-muted">${escapeHtml(data.patient.price_path_label || '')}</small></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الدخول</span><strong>${data.stay.earliest_admission ? new Date(data.stay.earliest_admission).toLocaleDateString('ar-EG') : '—'}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الخروج</span><strong>${data.stay.latest_discharge ? new Date(data.stay.latest_discharge).toLocaleDateString('ar-EG') : '—'}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>مدة الإقامة</span><strong>${data.stay.duration_label}</strong></div></div>
@@ -3967,7 +4067,7 @@ function renderPatientStatusReport(data) {
 
 function selectPatientForReport(fileNumber, patientName) {
   selectedPatientFileNumber = fileNumber;
-  const input = document.getElementById('report-patient-search');
+  const input = document.getElementById('report-search');
   if (input) input.value = `${fileNumber}${patientName ? ` — ${patientName}` : ''}`;
   loadReports();
 }

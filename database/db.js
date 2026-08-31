@@ -224,6 +224,8 @@ async function initDatabase() {
       { code: 'contracted', name: 'جهات متعاقدة' },
       { code: 'non_contracted', name: 'جهات غير متعاقدة' },
       { code: 'military', name: 'عسكري' },
+      { code: 'hospital', name: 'حالة مستشفى' },
+      { code: 'special', name: 'حالة خاصة' },
     ];
     for (let i = 0; i < invoiceTypes.length; i++) {
       await query(
@@ -481,6 +483,20 @@ async function runMigrations() {
     `ALTER TABLE patients ADD COLUMN IF NOT EXISTS patient_type VARCHAR(20) NOT NULL DEFAULT 'internal'`
   );
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS floor TEXT DEFAULT ''`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS age INTEGER`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS disability_degree TEXT DEFAULT ''`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS disability_type TEXT DEFAULT ''`);
+  await query(
+    `ALTER TABLE patients ADD COLUMN IF NOT EXISTS room_insurance_amount NUMERIC(14,2) NOT NULL DEFAULT 0`
+  );
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS military_auth_from DATE`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS military_auth_to DATE`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS glasses_lens_type TEXT DEFAULT ''`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS glasses_start_date DATE`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS glasses_price NUMERIC(14,2) NOT NULL DEFAULT 0`);
+  await query(
+    `ALTER TABLE patients ADD COLUMN IF NOT EXISTS glasses_discount_percent NUMERIC(8,2) NOT NULL DEFAULT 0`
+  );
 
   await query(`
     CREATE TABLE IF NOT EXISTS patient_room_assignments (
@@ -793,9 +809,38 @@ async function runMigrations() {
          minor_unit_selling_price = COALESCE(minor_unit_selling_price, price)
      WHERE major_unit IS NULL OR major_unit_selling_price IS NULL`
   );
+  await query(
+    `UPDATE daily_entry_catalog_items
+     SET major_unit = 'قطعة', minor_unit = 'قطعة', unit = 'قطعة'
+     WHERE TRIM(COALESCE(major_unit, unit, '')) = 'مرة'
+       AND TRIM(COALESCE(minor_unit, major_unit, unit, '')) = 'مرة'`
+  );
 
   await query(`ALTER TABLE patient_daily_entry_lines ADD COLUMN IF NOT EXISTS catalog_unit VARCHAR(50)`);
   await query(`ALTER TABLE patient_daily_entry_lines ADD COLUMN IF NOT EXISTS catalog_unit_level VARCHAR(10)`);
+  await query(`ALTER TABLE patient_daily_entry_lines ADD COLUMN IF NOT EXISTS weight NUMERIC(14,3)`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS patient_operations (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      entry_date DATE NOT NULL,
+      daily_entry_id INTEGER REFERENCES patient_daily_entries(id) ON DELETE SET NULL,
+      operation_name TEXT DEFAULT '',
+      duration_hours NUMERIC(10,2) NOT NULL DEFAULT 0,
+      surgeon_name TEXT DEFAULT '',
+      doctor_name TEXT DEFAULT '',
+      anesthesia_doctor TEXT DEFAULT '',
+      assistant_surgeon TEXT DEFAULT '',
+      case_type VARCHAR(40) NOT NULL DEFAULT 'civil',
+      amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_patient_operations_patient_date ON patient_operations(patient_id, entry_date)`
+  );
 
   await query(`
     CREATE TABLE IF NOT EXISTS daily_entry_catalog_code_registry (
@@ -931,6 +976,9 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_doctors_specialty ON doctors(specialty)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_doctors_department ON doctors(department)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_doctors_active ON doctors(is_active)`);
+  await query(
+    `ALTER TABLE doctors ADD COLUMN IF NOT EXISTS consultation_price NUMERIC(14,2) NOT NULL DEFAULT 0`
+  );
 
   await query(
     `ALTER TABLE patient_daily_entries ADD COLUMN IF NOT EXISTS doctor_id INTEGER REFERENCES doctors(id) ON DELETE SET NULL`

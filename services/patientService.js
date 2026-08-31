@@ -5,6 +5,24 @@ function normalizePatientType(type) {
   return t === 'external' || t === 'خارجي' ? 'external' : 'internal';
 }
 
+function parseOptionalInt(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = parseInt(String(value).trim(), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseOptionalDate(value) {
+  if (!value) return null;
+  const s = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+function parseAmount(value) {
+  const n = Number(String(value ?? '').replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 function normalizeUpsertData(fileNumber, dataOrName = '') {
   if (typeof dataOrName === 'string') {
     return {
@@ -14,6 +32,17 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
       nationality: '',
       gender: '',
       patient_type: 'internal',
+      floor: '',
+      age: null,
+      disability_degree: '',
+      disability_type: '',
+      room_insurance_amount: 0,
+      military_auth_from: null,
+      military_auth_to: null,
+      glasses_lens_type: '',
+      glasses_start_date: null,
+      glasses_price: 0,
+      glasses_discount_percent: 0,
     };
   }
   const data = dataOrName || {};
@@ -22,18 +51,25 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
     name: String(data.name || '').trim(),
     phone: String(data.phone || '').trim(),
     nationality: String(data.nationality || '').trim(),
-      gender: String(data.gender || '').trim(),
-      patient_type: normalizePatientType(data.patient_type || data.patientType),
-      floor: String(data.floor || '').trim(),
-    };
+    gender: String(data.gender || '').trim(),
+    patient_type: normalizePatientType(data.patient_type || data.patientType),
+    floor: String(data.floor || '').trim(),
+    age: parseOptionalInt(data.age),
+    disability_degree: String(data.disability_degree || '').trim(),
+    disability_type: String(data.disability_type || '').trim(),
+    room_insurance_amount: parseAmount(data.room_insurance_amount),
+    military_auth_from: parseOptionalDate(data.military_auth_from),
+    military_auth_to: parseOptionalDate(data.military_auth_to),
+    glasses_lens_type: String(data.glasses_lens_type || '').trim(),
+    glasses_start_date: parseOptionalDate(data.glasses_start_date),
+    glasses_price: parseAmount(data.glasses_price),
+    glasses_discount_percent: parseAmount(data.glasses_discount_percent),
+  };
 }
 
 async function getPatientByFileNumber(fileNumber) {
   if (!fileNumber?.trim()) return null;
-  const { rows } = await query(
-    'SELECT * FROM patients WHERE file_number = $1',
-    [fileNumber.trim()]
-  );
+  const { rows } = await query('SELECT * FROM patients WHERE file_number = $1', [fileNumber.trim()]);
   return rows[0] || null;
 }
 
@@ -42,8 +78,13 @@ async function upsertPatient(fileNumber, dataOrName = '') {
   if (!data.file_number) return null;
 
   const { rows } = await query(
-    `INSERT INTO patients (file_number, name, phone, nationality, gender, patient_type, floor, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    `INSERT INTO patients (
+       file_number, name, phone, nationality, gender, patient_type, floor,
+       age, disability_degree, disability_type, room_insurance_amount,
+       military_auth_from, military_auth_to,
+       glasses_lens_type, glasses_start_date, glasses_price, glasses_discount_percent,
+       updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
      ON CONFLICT (file_number) DO UPDATE SET
        name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE patients.name END,
        phone = CASE WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone ELSE patients.phone END,
@@ -51,6 +92,16 @@ async function upsertPatient(fileNumber, dataOrName = '') {
        gender = CASE WHEN EXCLUDED.gender <> '' THEN EXCLUDED.gender ELSE patients.gender END,
        patient_type = EXCLUDED.patient_type,
        floor = CASE WHEN EXCLUDED.floor <> '' THEN EXCLUDED.floor ELSE patients.floor END,
+       age = COALESCE(EXCLUDED.age, patients.age),
+       disability_degree = CASE WHEN EXCLUDED.disability_degree <> '' THEN EXCLUDED.disability_degree ELSE patients.disability_degree END,
+       disability_type = CASE WHEN EXCLUDED.disability_type <> '' THEN EXCLUDED.disability_type ELSE patients.disability_type END,
+       room_insurance_amount = CASE WHEN EXCLUDED.room_insurance_amount > 0 THEN EXCLUDED.room_insurance_amount ELSE patients.room_insurance_amount END,
+       military_auth_from = COALESCE(EXCLUDED.military_auth_from, patients.military_auth_from),
+       military_auth_to = COALESCE(EXCLUDED.military_auth_to, patients.military_auth_to),
+       glasses_lens_type = CASE WHEN EXCLUDED.glasses_lens_type <> '' THEN EXCLUDED.glasses_lens_type ELSE patients.glasses_lens_type END,
+       glasses_start_date = COALESCE(EXCLUDED.glasses_start_date, patients.glasses_start_date),
+       glasses_price = CASE WHEN EXCLUDED.glasses_price > 0 THEN EXCLUDED.glasses_price ELSE patients.glasses_price END,
+       glasses_discount_percent = CASE WHEN EXCLUDED.glasses_discount_percent > 0 THEN EXCLUDED.glasses_discount_percent ELSE patients.glasses_discount_percent END,
        updated_at = NOW()
      RETURNING *`,
     [
@@ -61,6 +112,16 @@ async function upsertPatient(fileNumber, dataOrName = '') {
       data.gender || '',
       data.patient_type,
       data.floor || '',
+      data.age,
+      data.disability_degree || '',
+      data.disability_type || '',
+      data.room_insurance_amount,
+      data.military_auth_from,
+      data.military_auth_to,
+      data.glasses_lens_type || '',
+      data.glasses_start_date,
+      data.glasses_price,
+      data.glasses_discount_percent,
     ]
   );
   return rows[0];
@@ -86,10 +147,7 @@ async function applyPatientCredit(client, invoice) {
   const fileNumber = String(invoice.file_number || '').trim();
   if (!fileNumber) throw new Error('رقم الملف مطلوب لخصم رصيد المريض');
 
-  const { rows } = await client.query(
-    'SELECT * FROM patients WHERE file_number = $1 FOR UPDATE',
-    [fileNumber]
-  );
+  const { rows } = await client.query('SELECT * FROM patients WHERE file_number = $1 FOR UPDATE', [fileNumber]);
   let patient = rows[0];
   if (!patient) {
     const inserted = await client.query(
@@ -111,10 +169,7 @@ async function applyPatientCredit(client, invoice) {
      VALUES ($1, $2, $3, $4, $5, 'prepaid_deduct')`,
     [patient.id, invoice.id, -credit, newBalance, 'خصم من فاتورة معتمدة']
   );
-  await client.query(
-    'UPDATE invoices SET patient_credit_deducted = TRUE WHERE id = $1',
-    [invoice.id]
-  );
+  await client.query('UPDATE invoices SET patient_credit_deducted = TRUE WHERE id = $1', [invoice.id]);
 }
 
 async function recordInvoiceCollections(client, invoice, totals) {
@@ -163,7 +218,8 @@ async function recordInvoiceCollections(client, invoice, totals) {
 
 async function listPatients() {
   const { rows } = await query(
-    `SELECT id, file_number, name, phone, nationality, gender, patient_type, account_balance, updated_at
+    `SELECT id, file_number, name, phone, nationality, gender, patient_type, age,
+            disability_degree, disability_type, account_balance, updated_at
      FROM patients ORDER BY file_number`
   );
   return rows;
@@ -177,4 +233,5 @@ module.exports = {
   recordInvoiceCollections,
   listPatients,
   normalizePatientType,
+  normalizeUpsertData,
 };

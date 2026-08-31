@@ -17,8 +17,22 @@ function doctorEscape(text) {
   return String(text || '');
 }
 
+function doctorFmtPrice(value) {
+  const n = Number(value) || 0;
+  if (typeof fmt === 'function') return fmt(n);
+  return n.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function doctorParsePrice(value) {
+  if (typeof parseDisplayAmount === 'function') return parseDisplayAmount(value);
+  return Number(String(value || '').replace(/,/g, '').trim()) || 0;
+}
+
 async function loadDoctorsSection() {
   if (!doctorsCanManage()) return;
+  if (typeof bindCommaAmountInputs === 'function') {
+    bindCommaAmountInputs(document.getElementById('doctors-settings-card'));
+  }
   await loadDoctorsTable();
   await loadDoctorFilterOptions();
 }
@@ -97,7 +111,7 @@ async function loadDoctorsTable(page = doctorPage) {
   if (active) params.set('active', active);
   if (search) params.set('search', search);
 
-  tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">جاري التحميل...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">جاري التحميل...</td></tr>';
 
   try {
     const res = await apiFetch(`${DOCTORS_API}?${params}`);
@@ -105,7 +119,7 @@ async function loadDoctorsTable(page = doctorPage) {
     if (!res.ok) throw new Error(data.error || 'فشل التحميل');
     const doctors = data.rows || [];
     if (!doctors.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">لا يوجد أطباء</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center">لا يوجد أطباء</td></tr>';
     } else {
       tbody.innerHTML = doctors
         .map(
@@ -114,6 +128,7 @@ async function loadDoctorsTable(page = doctorPage) {
         <td>${doctorEscape(d.department)}</td>
         <td>${doctorEscape(d.specialty)}</td>
         <td class="fw-bold">${doctorEscape(d.name)}</td>
+        <td class="fw-bold text-primary">${doctorFmtPrice(d.consultation_price)}</td>
         <td>${doctorEscape(d.code || '—')}</td>
         <td>${d.is_active ? '<span class="badge bg-success">نشط</span>' : '<span class="badge bg-secondary">غير نشط</span>'}</td>
         <td class="text-nowrap">
@@ -140,7 +155,7 @@ async function loadDoctorsTable(page = doctorPage) {
       (p) => loadDoctorsTable(p)
     );
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-danger">${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-danger">${doctorEscape(err.message)}</td></tr>`;
   }
 }
 
@@ -151,6 +166,7 @@ async function submitDoctorAdd(e) {
     department: document.getElementById('doctor-add-department')?.value.trim(),
     specialty: document.getElementById('doctor-add-specialty')?.value.trim(),
     name: document.getElementById('doctor-add-name')?.value.trim(),
+    consultation_price: doctorParsePrice(document.getElementById('doctor-add-price')?.value),
     code: document.getElementById('doctor-add-code')?.value.trim() || null,
   };
   try {
@@ -179,6 +195,13 @@ async function openDoctorEditModal(id) {
     document.getElementById('doctor-edit-department').value = d.department || '';
     document.getElementById('doctor-edit-specialty').value = d.specialty || '';
     document.getElementById('doctor-edit-name').value = d.name || '';
+    const priceEl = document.getElementById('doctor-edit-price');
+    if (priceEl) {
+      priceEl.value =
+        typeof formatAmountInput === 'function'
+          ? formatAmountInput(d.consultation_price || 0)
+          : String(d.consultation_price || 0);
+    }
     document.getElementById('doctor-edit-code').value = d.code || '';
     document.getElementById('doctor-edit-modal')?.classList.add('show');
     document.getElementById('doctor-edit-modal').style.display = 'block';
@@ -195,6 +218,7 @@ async function submitDoctorEdit(e) {
     department: document.getElementById('doctor-edit-department')?.value.trim(),
     specialty: document.getElementById('doctor-edit-specialty')?.value.trim(),
     name: document.getElementById('doctor-edit-name')?.value.trim(),
+    consultation_price: doctorParsePrice(document.getElementById('doctor-edit-price')?.value),
     code: document.getElementById('doctor-edit-code')?.value.trim() || null,
   };
   try {

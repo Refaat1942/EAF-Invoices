@@ -489,6 +489,7 @@ function normalizeLine(section, rawLine = {}) {
     amount,
     extra_date: rawLine.extra_date || null,
     extra_text: rawLine.extra_text || '',
+    weight: rawLine.weight != null && rawLine.weight !== '' ? Number(rawLine.weight) : null,
   };
 }
 
@@ -845,6 +846,55 @@ async function prepareEntrySaveContext(data) {
   };
 }
 
+async function getSupplementalInvoiceItems(fileNumber, fromDate, toDate) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return [];
+  const patient = await resolvePatient(fn);
+  const from = normalizeCalendarDate(fromDate);
+  const to = normalizeCalendarDate(toDate);
+  const items = [];
+
+  const { listOperationsInRange } = require('./patientOperationService');
+  const operations = await listOperationsInRange(patient.id, from, to);
+  for (const op of operations) {
+    const amount = round2(op.amount);
+    if (amount <= 0) continue;
+    const dateLabel = formatDailyEntryDateLabel(op.entry_date);
+    const detailParts = [op.operation_name || 'عملية'];
+    if (op.surgeon_name) detailParts.push(`جراح: ${op.surgeon_name}`);
+    if (op.doctor_name) detailParts.push(`طبيب: ${op.doctor_name}`);
+    items.push({
+      description: buildDailyItemDescription(dateLabel, `عملية — ${detailParts.join(' — ')}`, ''),
+      quantity: 1,
+      amount,
+      section_code: 'operations',
+      section_sort_order: 45,
+      patient_operation_id: op.id,
+    });
+  }
+
+  const glassesPrice = round2(patient.glasses_price);
+  const glassesDisc = round2(patient.glasses_discount_percent);
+  const glassesFinal = round2(glassesPrice * (1 - glassesDisc / 100));
+  const glassesDate = normalizeCalendarDate(patient.glasses_start_date);
+  if (glassesFinal > 0 && glassesDate && from && to && glassesDate >= from && glassesDate <= to) {
+    const lens = String(patient.glasses_lens_type || '').trim() || 'نظارات / بصريات';
+    items.push({
+      description: buildDailyItemDescription(
+        formatDailyEntryDateLabel(glassesDate),
+        `بصريات — ${lens}`,
+        glassesDisc > 0 ? `خصم ${glassesDisc}%` : ''
+      ),
+      quantity: 1,
+      amount: glassesFinal,
+      section_code: 'glasses',
+      section_sort_order: 46,
+    });
+  }
+
+  return items;
+}
+
 async function resolveEntryDoctorFields(data, existing = null, client = null) {
   const { getDoctorById, normalizeDoctorText } = require('./doctorService');
   const doctorId = Number(data.doctor_id) || null;
@@ -979,8 +1029,8 @@ async function persistEntryInTransaction(client, data, user, context = null) {
             service_id = $1, catalog_item_id = $2, description = $3, quantity = $4,
             unit_price = $5, amount = $6, cost_price = $7, markup_percent = $8,
             catalog_unit = $9, catalog_unit_level = $10,
-            extra_date = $11, extra_text = $12, sort_order = $13
-           WHERE id = $14`,
+            extra_date = $11, extra_text = $12, weight = $13, sort_order = $14
+           WHERE id = $15`,
           [
             line.service_id,
             line.catalog_item_id || null,
@@ -994,6 +1044,7 @@ async function persistEntryInTransaction(client, data, user, context = null) {
             line.catalog_unit_level || null,
             line.extra_date,
             line.extra_text,
+            line.weight != null ? line.weight : null,
             index,
             existingLineId,
           ]
@@ -1002,8 +1053,8 @@ async function persistEntryInTransaction(client, data, user, context = null) {
         await client.query(
           `INSERT INTO patient_daily_entry_lines (
             entry_id, section_code, service_id, catalog_item_id, description, quantity, unit_price, amount,
-            cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, sort_order
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+            cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, weight, sort_order
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
           [
             existing.id,
             line.section_code,
@@ -1019,6 +1070,7 @@ async function persistEntryInTransaction(client, data, user, context = null) {
             line.catalog_unit_level || null,
             line.extra_date,
             line.extra_text,
+            line.weight != null ? line.weight : null,
             index,
           ]
         );
@@ -1053,8 +1105,8 @@ async function persistEntryInTransaction(client, data, user, context = null) {
       await client.query(
         `INSERT INTO patient_daily_entry_lines (
           entry_id, section_code, service_id, catalog_item_id, description, quantity, unit_price, amount,
-          cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, sort_order
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+          cost_price, markup_percent, catalog_unit, catalog_unit_level, extra_date, extra_text, weight, sort_order
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
         [
           entryId,
           line.section_code,
@@ -1070,6 +1122,7 @@ async function persistEntryInTransaction(client, data, user, context = null) {
           line.catalog_unit_level || null,
           line.extra_date,
           line.extra_text,
+          line.weight != null ? line.weight : null,
           index,
         ]
       );
@@ -1120,6 +1173,32 @@ async function saveEntriesBatch(data, user = null) {
   if (!entries.length) throw new Error('لا توجد أيام للحفظ');
 
   const fileNumber = data.file_number?.trim();
+  const supplemental = { operations: 0, glasses: 0 };
+  let primaryDate = normalizeCalendarDate(entries[0]?.entry_date) || getCurrentBusinessDateString();
+
+  if (fileNumber) {
+    const patient = await resolvePatient(fileNumber, data.patient_name);
+    if (data.patient_fields && typeof data.patient_fields === 'object') {
+      await upsertPatient(fileNumber, {
+        name: data.patient_name || patient.name,
+        ...data.patient_fields,
+      });
+    }
+    if (Array.isArray(data.operations)) {
+      const { saveOperationsForDate, getOperationsTotal } = require('./patientOperationService');
+      await saveOperationsForDate(patient.id, primaryDate, data.operations);
+      supplemental.operations = await getOperationsTotal(patient.id, primaryDate);
+    }
+    if (data.glasses_total != null && data.glasses_total !== '') {
+      supplemental.glasses = round2(data.glasses_total);
+    } else if (data.patient_fields) {
+      const refreshed = await resolvePatient(fileNumber, data.patient_name);
+      const price = round2(refreshed.glasses_price);
+      const disc = round2(refreshed.glasses_discount_percent);
+      supplemental.glasses = round2(price * (1 - disc / 100));
+    }
+  }
+
   const batchPlan = [];
 
   for (const entryData of entries) {
@@ -1131,6 +1210,12 @@ async function saveEntriesBatch(data, user = null) {
     const entryId = Number(entryData.entry_id || entryData.id) || 0;
     const snapshot = entryId ? await getEntryById(entryId) : null;
     const context = await prepareEntrySaveContext(merged);
+    const entryDate = normalizeCalendarDate(context.entryDate);
+    if (entryDate === primaryDate && supplemental.operations + supplemental.glasses > 0) {
+      context.dailyTotal = round2(
+        context.dailyTotal + supplemental.operations + supplemental.glasses
+      );
+    }
     batchPlan.push({
       entryData: merged,
       wasNew: !entryId,
@@ -1687,7 +1772,9 @@ async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = nu
 async function getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, invoiceId = null) {
   const sections = await listSections();
   const entries = await getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId);
-  const items = entriesToInvoiceItems(entries, sections);
+  const lineItems = entriesToInvoiceItems(entries, sections);
+  const supplemental = await getSupplementalInvoiceItems(fileNumber, fromDate, toDate);
+  const items = [...lineItems, ...supplemental];
   return dedupeDailyInvoiceItemsByLineId(await enrichDailyInvoiceItems(items));
 }
 

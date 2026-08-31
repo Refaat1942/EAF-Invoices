@@ -15,6 +15,10 @@ const {
   getInvoiceItemsFromDailyCharges,
 } = require('../services/dailyChargeService');
 const { upsertPatient, getPatientByFileNumber } = require('../services/patientService');
+const {
+  listOperations,
+  saveOperationsForDate,
+} = require('../services/patientOperationService');
 const { getOpenPatientStay, openPatientStay } = require('../services/invoiceService');
 const { getDailyPrintReport, resolveDailyPrintKind } = require('../services/reportService');
 const { buildDailyReportHtml, wrapDailyItemsPrintPage } = require('../services/pdfService');
@@ -349,6 +353,39 @@ router.post('/change-room', requirePermission('daily_charges.manage'), async (re
     }
     const stay = await getOpenPatientStay(file_number);
     res.json({ assignment, ...stay });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/operations', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const file_number = String(req.query.file_number || '').trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    const patient = await getPatientByFileNumber(file_number);
+    if (!patient) return res.json([]);
+    const ops = await listOperations(patient.id, req.query.entry_date || null);
+    res.json(ops);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/operations', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const file_number = String(req.body.file_number || '').trim();
+    const entry_date = req.body.entry_date;
+    if (!file_number || !entry_date) {
+      return res.status(400).json({ error: 'file_number و entry_date مطلوبان' });
+    }
+    const patient = await getPatientByFileNumber(file_number);
+    if (!patient) return res.status(404).json({ error: 'المريض غير موجود' });
+    const operations = await saveOperationsForDate(
+      patient.id,
+      entry_date,
+      Array.isArray(req.body.operations) ? req.body.operations : []
+    );
+    res.json({ operations });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -28,6 +28,10 @@ const DOCTOR_IMPORT_SCHEMA = {
   department: { aliases: ['القسم', 'قسم', 'department', 'dept'], required: true },
   specialty: { aliases: ['التخصص', 'تخصص', 'specialty'], required: true },
   name: { aliases: ['الاسم', 'اسم', 'name', 'doctor', 'طبيب'], required: true },
+  consultation_price: {
+    aliases: ['السعر', 'سعر', 'سعر الكشف', 'price', 'consultation_price', 'fee'],
+    required: false,
+  },
 };
 
 function validateDoctorPayload(data = {}) {
@@ -38,7 +42,15 @@ function validateDoctorPayload(data = {}) {
   if (!specialty) throw new Error('التخصص مطلوب');
   if (!name) throw new Error('اسم الطبيب مطلوب');
   const code = normalizeDoctorText(data.code);
-  return { department, specialty, name, code: code || null };
+  let consultation_price;
+  if (data.consultation_price !== undefined && data.consultation_price !== null && data.consultation_price !== '') {
+    const n = Number(String(data.consultation_price).replace(/,/g, '').trim());
+    if (!Number.isFinite(n) || n < 0) throw new Error('سعر الكشف غير صالح');
+    consultation_price = Math.round(n * 100) / 100;
+  }
+  const payload = { department, specialty, name, code: code || null };
+  if (consultation_price !== undefined) payload.consultation_price = consultation_price;
+  return payload;
 }
 
 async function findDoctorByIdentity(department, specialty, name, client = null) {
@@ -183,10 +195,17 @@ async function createDoctor(data) {
     if (dup.rows.length) throw new Error('كود الطبيب مستخدم مسبقًا');
   }
   const { rows } = await query(
-    `INSERT INTO doctors (code, name, department, specialty, is_active, updated_at)
-     VALUES ($1,$2,$3,$4,$5,NOW())
+    `INSERT INTO doctors (code, name, department, specialty, consultation_price, is_active, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,NOW())
      RETURNING *`,
-    [payload.code, payload.name, payload.department, payload.specialty, data.is_active !== false]
+    [
+      payload.code,
+      payload.name,
+      payload.department,
+      payload.specialty,
+      payload.consultation_price != null ? payload.consultation_price : 0,
+      data.is_active !== false,
+    ]
   );
   return rows[0];
 }
@@ -212,10 +231,15 @@ async function updateDoctor(id, data) {
     if (dup.rows.length) throw new Error('كود الطبيب مستخدم مسبقًا');
   }
 
+  const consultation_price =
+    data.consultation_price !== undefined
+      ? validateDoctorPayload({ ...data, department, specialty, name }).consultation_price ?? 0
+      : Number(existing.consultation_price) || 0;
+
   const { rows } = await query(
-    `UPDATE doctors SET code = $2, name = $3, department = $4, specialty = $5, updated_at = NOW()
+    `UPDATE doctors SET code = $2, name = $3, department = $4, specialty = $5, consultation_price = $6, updated_at = NOW()
      WHERE id = $1 RETURNING *`,
-    [Number(id), code, name, department, specialty]
+    [Number(id), code, name, department, specialty, consultation_price]
   );
   return rows[0];
 }
@@ -336,9 +360,15 @@ async function importDoctorRowsTransactional(rows = []) {
         }
 
         await client.query(
-          `INSERT INTO doctors (code, name, department, specialty, is_active, updated_at)
-           VALUES ($1,$2,$3,$4,TRUE,NOW())`,
-          [payload.code, payload.name, payload.department, payload.specialty]
+          `INSERT INTO doctors (code, name, department, specialty, consultation_price, is_active, updated_at)
+           VALUES ($1,$2,$3,$4,$5,TRUE,NOW())`,
+          [
+            payload.code,
+            payload.name,
+            payload.department,
+            payload.specialty,
+            payload.consultation_price != null ? payload.consultation_price : 0,
+          ]
         );
         result.inserted += 1;
       } catch (err) {
@@ -370,6 +400,7 @@ async function exportDoctorsExcel() {
     { header: 'التخصص', key: 'specialty', width: 20 },
     { header: 'الاسم', key: 'name', width: 40 },
     { header: 'كود', key: 'code', width: 12 },
+    { header: 'سعر الكشف', key: 'consultation_price', width: 14 },
     { header: 'نشط', key: 'active', width: 8 },
   ];
   doctors.forEach((doc, index) => {
@@ -379,6 +410,7 @@ async function exportDoctorsExcel() {
       specialty: doc.specialty,
       name: doc.name,
       code: doc.code || '',
+      consultation_price: Number(doc.consultation_price) || 0,
       active: doc.is_active ? 'نعم' : 'لا',
     });
   });
@@ -433,6 +465,11 @@ function buildDoctorReportFilters(filters = {}) {
   if (filters.file_number) {
     sql += ` AND p.file_number ILIKE $${i++}`;
     params.push(`%${String(filters.file_number).trim()}%`);
+  }
+  if (filters.search) {
+    sql += ` AND (p.name ILIKE $${i} OR p.file_number ILIKE $${i})`;
+    params.push(`%${String(filters.search).trim()}%`);
+    i++;
   }
 
   return { sql, params };

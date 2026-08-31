@@ -148,6 +148,18 @@
                     <option value="female">أنثى</option>
                   </select>
                 </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold">السن</label>
+                  <input type="text" inputmode="numeric" class="form-control fw-bold patient-reg-field" id="patient-reg-age" autocomplete="off" placeholder="0">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">درجة الإعاقة</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-disability-degree" autocomplete="off" placeholder="مثال: 50%">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">نوع الإعاقة</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-disability-type" autocomplete="off">
+                </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
                   <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-admission" autocomplete="off">
@@ -190,12 +202,18 @@
                     <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-assistant" placeholder="0" autocomplete="off">
                   </div>
                   <div class="col-md-3">
+                    <label class="form-label fw-bold">تأمين الغرفة</label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-room-insurance" placeholder="0" autocomplete="off">
+                  </div>
+                  <div class="col-md-3">
                     <label class="form-label fw-bold">نوع التعامل</label>
                     <select class="form-select fw-bold patient-reg-field" id="patient-reg-invoice-type" autocomplete="off">
                       <option value="civil">مدني (خاص)</option>
                       <option value="contracted">جهات متعاقدة</option>
                       <option value="non_contracted">جهات غير متعاقدة</option>
                       <option value="military">عسكري</option>
+                      <option value="hospital">حالة مستشفى</option>
+                      <option value="special">حالة خاصة</option>
                     </select>
                   </div>
                   <div class="col-md-4" id="patient-reg-entity-wrap" style="display:none">
@@ -211,6 +229,14 @@
                   <div class="col-md-2" id="patient-reg-letter-wrap-end" style="display:none">
                     <label class="form-label fw-bold">جواب التعاقد — إلى</label>
                     <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-to" autocomplete="off">
+                  </div>
+                  <div class="col-md-2" id="patient-reg-military-wrap" style="display:none">
+                    <label class="form-label fw-bold">تأمين عسكري — من</label>
+                    <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-military-from" autocomplete="off">
+                  </div>
+                  <div class="col-md-2" id="patient-reg-military-wrap-end" style="display:none">
+                    <label class="form-label fw-bold">تأمين عسكري — إلى</label>
+                    <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-military-to" autocomplete="off">
                   </div>
                 </div>
               </div>
@@ -639,6 +665,18 @@
                   </select>
                 </div>
                 <div class="col-md-2">
+                  <label class="form-label fw-bold">السن</label>
+                  <input type="text" inputmode="numeric" class="form-control fw-bold" id="daily-stay-age" autocomplete="off">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">درجة الإعاقة</label>
+                  <input type="text" class="form-control fw-bold" id="daily-stay-disability-degree" autocomplete="off">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">نوع الإعاقة</label>
+                  <input type="text" class="form-control fw-bold" id="daily-stay-disability-type" autocomplete="off">
+                </div>
+                <div class="col-md-2">
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
                   <input type="date" class="form-control fw-bold" id="daily-stay-admission" autocomplete="off">
                 </div>
@@ -684,12 +722,18 @@
                     <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-assistant" placeholder="0" autocomplete="off">
                   </div>
                   <div class="col-md-3">
+                    <label class="form-label fw-bold">تأمين الغرفة</label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-room-insurance" placeholder="0" autocomplete="off">
+                  </div>
+                  <div class="col-md-3">
                     <label class="form-label fw-bold">نوع التعامل</label>
                     <select class="form-select fw-bold" id="daily-stay-invoice-type" autocomplete="off">
                       <option value="civil">مدني (خاص)</option>
                       <option value="contracted">جهات متعاقدة</option>
                       <option value="non_contracted">جهات غير متعاقدة</option>
                       <option value="military">عسكري</option>
+                      <option value="hospital">حالة مستشفى</option>
+                      <option value="special">حالة خاصة</option>
                     </select>
                   </div>
                   <div class="col-md-4" id="daily-stay-entity-wrap" style="display:none">
@@ -705,6 +749,14 @@
                   <div class="col-md-2" id="daily-stay-letter-to-wrap" style="display:none">
                     <label class="form-label fw-bold">جواب التعاقد — إلى</label>
                     <input type="date" class="form-control fw-bold" id="daily-stay-letter-to" autocomplete="off">
+                  </div>
+                  <div class="col-md-2" id="daily-stay-military-from-wrap" style="display:none">
+                    <label class="form-label fw-bold">تأمين عسكري — من</label>
+                    <input type="date" class="form-control fw-bold" id="daily-stay-military-from" autocomplete="off">
+                  </div>
+                  <div class="col-md-2" id="daily-stay-military-to-wrap" style="display:none">
+                    <label class="form-label fw-bold">تأمين عسكري — إلى</label>
+                    <input type="date" class="form-control fw-bold" id="daily-stay-military-to" autocomplete="off">
                   </div>
                   <div class="col-md-12">
                     <button type="button" class="btn btn-outline-warning fw-bold" id="daily-change-room-btn" style="display:none">🔄 تغيير الغرفة</button>
@@ -752,7 +804,67 @@
               <ul class="nav nav-tabs nav-fill daily-entry-tabs flex-wrap mb-2" id="daily-entry-tabs" role="tablist"></ul>
               <p class="small text-muted mb-2" id="daily-tab-hint">اختر قسمًا لتسجيل الحركة — يمكن التبديل بين الأقسام قبل الحفظ</p>
 
-          <div class="table-responsive daily-sheet-wrap mb-3">
+              <div id="daily-section-total-bar" class="alert alert-warning fw-bold py-2 mb-2" style="display:none">
+                إجمالي القسم: <span id="daily-section-total">0</span>
+              </div>
+
+              <div id="daily-glasses-panel" class="card border mb-3" style="display:none">
+                <div class="card-header bg-light fw-bold">نظارات / بصريات</div>
+                <div class="card-body row g-3">
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">نوع العدسة</label>
+                    <input type="text" class="form-control" id="daily-glasses-lens" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">تاريخ البداية</label>
+                    <input type="date" class="form-control" id="daily-glasses-start" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">السعر</label>
+                    <input type="text" inputmode="decimal" class="form-control comma-amount" id="daily-glasses-price" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">خصم %</label>
+                    <input type="text" inputmode="decimal" class="form-control comma-amount" id="daily-glasses-discount" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">الإجمالي بعد الخصم</label>
+                    <input type="text" class="form-control fw-bold bg-light" id="daily-glasses-final" readonly>
+                  </div>
+                </div>
+              </div>
+
+              <div id="daily-operations-panel" class="card border mb-3" style="display:none">
+                <div class="card-header bg-light fw-bold d-flex justify-content-between align-items-center">
+                  <span>العمليات / الجراحات</span>
+                  <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-op-add-row">+ إضافة عملية</button>
+                </div>
+                <div class="card-body p-0">
+                  <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0">
+                      <thead class="table-light">
+                        <tr>
+                          <th>العملية</th>
+                          <th>المدة</th>
+                          <th>الجراح</th>
+                          <th>الطبيب</th>
+                          <th>التخدير</th>
+                          <th>مساعد الجراح</th>
+                          <th>نوع الحالة</th>
+                          <th>المبلغ</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody id="daily-operations-tbody"></tbody>
+                      <tfoot class="table-warning">
+                        <tr><td colspan="7" class="fw-bold text-end">إجمالي العمليات</td><td class="fw-bold" id="daily-operations-total">0</td><td></td></tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+          <div class="table-responsive daily-sheet-wrap mb-3" id="daily-main-sheet-wrap">
             <table class="table table-bordered table-sm daily-sheet-table" id="daily-sections-table">
               <thead class="table-light">
                 <tr id="daily-sections-head"></tr>
@@ -876,8 +988,37 @@
       <div class="view-page-header mb-3">
         <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
       </div>
-      <div class="row g-3">
-        <div class="col-md-6">
+      <div class="card shadow-sm mb-3 settings-hub-card">
+        <div class="card-header bg-secondary text-white py-3">
+          <h5 class="mb-0 fw-black">الإعدادات</h5>
+          <p class="small mb-0 opacity-90">اختر القسم من القائمة — القوائم والجداول لا تُعرض كلها معًا</p>
+        </div>
+        <div class="card-body">
+          <div class="row g-3 align-items-end">
+            <div class="col-md-6 col-lg-4">
+              <label class="form-label fw-bold small mb-1" for="settings-section-select">قسم الإعدادات</label>
+              <select class="form-select fw-bold" id="settings-section-select">
+                <option value="">— اختر قسم —</option>
+                <option value="logo">🖼️ شعار الفاتورة</option>
+                <option value="invoice-types">📋 أنواع الفواتير</option>
+                <option value="payment-methods">💳 طرق الدفع</option>
+                <option value="financial-treatments">💼 المعاملات المالية</option>
+                <option value="stay-types">🏨 أنواع الإقامة</option>
+                <option value="contracted-entities">🏢 الجهات المتعاقدة</option>
+                <option value="discount-exclusions">🚫 البنود المستثناة من الخصم</option>
+                <option value="doctors" data-admin="1">🩺 إدارة الأطباء</option>
+                <option value="item-catalog" data-admin="1">💊 كتالوج الأصناف</option>
+                <option value="pricing" data-admin="1">💰 الأسعار واللائحة</option>
+                <option value="backup" data-admin="1">💾 النسخ الاحتياطي</option>
+                <option value="users" data-perm="users.*">👥 المستخدمين والصلاحيات</option>
+              </select>
+            </div>
+          </div>
+          <p class="small text-muted mt-2 mb-0" id="settings-section-hint">اختر قسم من القائمة أعلاه لإظهار إعداداته.</p>
+        </div>
+      </div>
+      <div class="row g-3" id="settings-panels-row">
+        <div class="col-md-6 settings-panel" id="settings-panel-logo" data-settings-section="logo" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-primary text-white fw-black">🖼️ شعار الفاتورة</div>
             <div class="card-body text-center">
@@ -888,7 +1029,7 @@
             </div>
           </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-6 settings-panel" id="settings-panel-invoice-types" data-settings-section="invoice-types" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-info text-white fw-black">📋 أنواع الفواتير</div>
             <div class="card-body">
@@ -900,7 +1041,7 @@
             </div>
           </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-6 settings-panel" id="settings-panel-payment-methods" data-settings-section="payment-methods" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-success text-white fw-black">💳 طرق الدفع</div>
             <div class="card-body">
@@ -912,7 +1053,7 @@
             </div>
           </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-6 settings-panel" id="settings-panel-financial-treatments" data-settings-section="financial-treatments" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-dark text-white fw-black">💼 المعاملات المالية</div>
             <div class="card-body">
@@ -924,7 +1065,7 @@
             </div>
           </div>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-6 settings-panel" id="settings-panel-stay-types" data-settings-section="stay-types" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-secondary text-white fw-black">🏨 أنواع الإقامة</div>
             <div class="card-body">
@@ -937,7 +1078,7 @@
             </div>
           </div>
         </div>
-        <div class="col-12">
+        <div class="col-12 settings-panel" id="settings-panel-contracted-entities" data-settings-section="contracted-entities" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-warning text-dark fw-black">🏢 الجهات المتعاقدة ونسب الخصم</div>
             <div class="card-body">
@@ -955,7 +1096,7 @@
             </div>
           </div>
         </div>
-        <div class="col-12" id="doctors-settings-card" style="display:none">
+        <div class="col-12 settings-panel" id="doctors-settings-card" data-settings-section="doctors" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-info text-dark fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
               <span>🩺 إدارة الأطباء (داخلي — لا يظهر على الفاتورة)</span>
@@ -973,7 +1114,8 @@
               <form id="doctor-add-form" class="row g-2 align-items-end mb-3 border-bottom pb-3">
                 <div class="col-md-2"><label class="form-label small fw-bold">القسم</label><input type="text" class="form-control form-control-sm" id="doctor-add-department" required></div>
                 <div class="col-md-2"><label class="form-label small fw-bold">التخصص</label><input type="text" class="form-control form-control-sm" id="doctor-add-specialty" required></div>
-                <div class="col-md-4"><label class="form-label small fw-bold">اسم الطبيب</label><input type="text" class="form-control form-control-sm" id="doctor-add-name" required></div>
+                <div class="col-md-3"><label class="form-label small fw-bold">اسم الطبيب</label><input type="text" class="form-control form-control-sm" id="doctor-add-name" required></div>
+                <div class="col-md-2"><label class="form-label small fw-bold">سعر الكشف</label><input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="doctor-add-price" placeholder="0" autocomplete="off"></div>
                 <div class="col-md-2"><label class="form-label small fw-bold">كود (اختياري)</label><input type="text" class="form-control form-control-sm" id="doctor-add-code"></div>
                 <div class="col-md-2"><button type="submit" class="btn btn-sm btn-primary fw-bold w-100">إضافة</button></div>
               </form>
@@ -1003,8 +1145,8 @@
               </div>
               <div class="table-responsive">
                 <table class="table table-sm table-bordered">
-                  <thead class="table-light"><tr><th>القسم</th><th>التخصص</th><th>الاسم</th><th>كود</th><th>الحالة</th><th></th></tr></thead>
-                  <tbody id="doctors-manage-body"><tr><td colspan="6" class="text-muted text-center">جاري التحميل...</td></tr></tbody>
+                  <thead class="table-light"><tr><th>القسم</th><th>التخصص</th><th>الاسم</th><th>سعر الكشف</th><th>كود</th><th>الحالة</th><th></th></tr></thead>
+                  <tbody id="doctors-manage-body"><tr><td colspan="7" class="text-muted text-center">جاري التحميل...</td></tr></tbody>
                 </table>
               </div>
               <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2" id="doctor-pagination-wrap">
@@ -1014,7 +1156,7 @@
             </div>
           </div>
         </div>
-        <div class="col-12" id="item-catalog-settings-card" style="display:none">
+        <div class="col-12 settings-panel" id="item-catalog-settings-card" data-settings-section="item-catalog" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-danger text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
               <span>💊 إدارة كتالوج الأصناف (أدوية / مستلزمات / مستحضرات)</span>
@@ -1076,11 +1218,11 @@
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small fw-bold">الوحدة الكبرى</label>
-                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-major-unit" value="مرة">
+                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-major-unit" value="قطعة" placeholder="مثال: علبة، كرتونة">
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small fw-bold">الوحدة الصغرى</label>
-                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-minor-unit" placeholder="اختياري">
+                  <input type="text" class="form-control form-control-sm" id="item-catalog-add-minor-unit" placeholder="إن وُجدت (قطعة، شريط...)">
                 </div>
                 <div class="col-md-2">
                   <label class="form-label small fw-bold">عدد الصغرى / كبرى</label>
@@ -1138,7 +1280,7 @@
             </div>
           </div>
         </div>
-        <div class="col-12" id="backup-settings-card" style="display:none">
+        <div class="col-12 settings-panel" id="backup-settings-card" data-settings-section="backup" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-dark text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
               <span>💾 النسخ الاحتياطي لقاعدة البيانات</span>
@@ -1161,7 +1303,7 @@
             </div>
           </div>
         </div>
-        <div class="col-12" id="pricing-settings-card" style="display:none">
+        <div class="col-12 settings-panel" id="pricing-settings-card" data-settings-section="pricing" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-primary text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
               <span>💰 إدارة الأسعار واللائحة المالية</span>
@@ -1250,7 +1392,7 @@
             </div>
           </div>
         </div>
-        <div class="col-12">
+        <div class="col-12 settings-panel" id="settings-panel-discount-exclusions" data-settings-section="discount-exclusions" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-danger text-white fw-black">🚫 البنود المستثناة من الخصم</div>
             <div class="card-body">
@@ -1263,7 +1405,7 @@
             </div>
           </div>
         </div>
-        <div class="col-12" id="users-settings-card" style="display:none">
+        <div class="col-12 settings-panel" id="users-settings-card" data-settings-section="users" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-dark text-white fw-black">👥 المستخدمين والصلاحيات</div>
             <div class="card-body">
@@ -1295,64 +1437,76 @@
 
     <!-- Reports View -->
     <section id="view-reports" class="view-section" style="display:none">
-      <div class="view-page-header mb-3">
+      <div class="view-page-header mb-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
         <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+        <span class="text-muted small fw-bold">المصري: أسعار اللائحة — الأجنبي: ×2 (للمسار المحاسبي)</span>
       </div>
-      <div class="card shadow-sm mb-3">
+
+      <div class="card shadow-sm mb-3 reports-hub-card">
+        <div class="card-header bg-primary text-white py-3">
+          <h5 class="mb-0 fw-black">التقارير</h5>
+          <p class="small mb-0 opacity-90">اختر التقرير، حدّد الفترة، وابحث باسم المريض أو رقم الملف أو رقم الفاتورة</p>
+        </div>
         <div class="card-body">
-          <div class="row g-2 align-items-end">
-            <div class="col-md-2" id="report-patient-wrap" style="display:none">
-              <label class="form-label fw-bold small mb-1">رقم الملف / اسم المريض</label>
-              <input type="text" class="form-control form-control-sm fw-bold" id="report-patient-search" placeholder="ابحث عن مريض...">
+          <div class="row g-3 align-items-end">
+            <div class="col-lg-3 col-md-6">
+              <label class="form-label fw-bold small mb-1">نوع التقرير</label>
+              <select class="form-select form-select-sm fw-bold" id="report-type-select">
+                <option value="summary">ملخص عام</option>
+                <option value="invoices">الفواتير</option>
+                <option value="payments">المدفوعات</option>
+                <option value="remaining">المتبقي</option>
+                <option value="supplies_markup">هامش المستلزمات</option>
+                <option value="patient_status">موقف مريض</option>
+                <option value="reconciliation">مطابقة الفواتير</option>
+                <option value="doctors">تقرير الأطباء</option>
+              </select>
             </div>
-            <div class="col-md-2" id="report-doctor-filters-wrap" style="display:none">
-              <label class="form-label fw-bold small mb-1">تقرير الأطباء</label>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label fw-bold small mb-1">من تاريخ</label>
+              <input type="date" class="form-control form-control-sm fw-bold" id="report-from">
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label fw-bold small mb-1">إلى تاريخ</label>
+              <input type="date" class="form-control form-control-sm fw-bold" id="report-to">
+            </div>
+            <div class="col-lg-3 col-md-6">
+              <label class="form-label fw-bold small mb-1">بحث</label>
+              <input type="search" class="form-control form-control-sm fw-bold" id="report-search" placeholder="رقم ملف، اسم مريض، رقم فاتورة..." autocomplete="off">
+            </div>
+            <div class="col-lg-2 col-md-4" id="report-invoice-type-wrap">
+              <label class="form-label fw-bold small mb-1">نوع الفاتورة</label>
+              <select class="form-select form-select-sm fw-bold" id="report-type-filter"><option value="">الكل</option></select>
+            </div>
+          </div>
+
+          <div class="row g-3 align-items-end mt-1" id="report-doctor-filters-row" style="display:none">
+            <div class="col-md-3">
+              <label class="form-label fw-bold small mb-1">القسم</label>
               <select class="form-select form-select-sm" id="report-doctor-department"><option value="">كل الأقسام</option></select>
             </div>
-            <div class="col-md-2" id="report-doctor-specialty-wrap" style="display:none">
+            <div class="col-md-3">
               <label class="form-label fw-bold small mb-1">التخصص</label>
               <select class="form-select form-select-sm" id="report-doctor-specialty"><option value="">كل التخصصات</option></select>
             </div>
-            <div class="col-md-2" id="report-doctor-id-wrap" style="display:none">
+            <div class="col-md-3">
               <label class="form-label fw-bold small mb-1">الطبيب</label>
               <select class="form-select form-select-sm" id="report-doctor-id"><option value="">كل الأطباء</option></select>
             </div>
-            <div class="col-md-2" id="report-doctor-file-wrap" style="display:none">
+            <div class="col-md-3">
               <label class="form-label fw-bold small mb-1">رقم الملف (اختياري)</label>
-              <input type="text" class="form-control form-control-sm" id="report-doctor-file">
+              <input type="text" class="form-control form-control-sm" id="report-doctor-file" placeholder="تصفية إضافية بالملف">
             </div>
-            <div class="col-md-2">
-              <label class="form-label fw-bold small mb-1">من تاريخ</label>
-              <input type="date" class="form-control form-control-sm" id="report-from">
-            </div>
-            <div class="col-md-2">
-              <label class="form-label fw-bold small mb-1">إلى تاريخ</label>
-              <input type="date" class="form-control form-control-sm" id="report-to">
-            </div>
-            <div class="col-md-2" id="report-invoice-type-wrap">
-              <label class="form-label fw-bold small mb-1">نوع الفاتورة</label>
-              <select class="form-select form-select-sm" id="report-type-filter"><option value="">الكل</option></select>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label fw-bold small mb-1">نوع التقرير</label>
-              <div class="btn-group w-100 flex-wrap" role="group">
-                <button type="button" class="btn btn-sm btn-primary fw-bold report-tab active" data-report="summary">ملخص</button>
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="invoices">الفواتير</button>
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="payments">المدفوعات</button>
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="remaining">المتبقي</button>
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="supplies_markup">هامش مستلزمات</button>
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="patient_status">موقف مريض</button>
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="reconciliation">مطابقة</button>
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold report-tab" data-report="doctors">تقرير الأطباء</button>
-              </div>
-            </div>
-            <div class="col-md-2 d-flex gap-2 align-items-end">
-              <button class="btn btn-sm btn-success fw-bold flex-grow-1" id="report-refresh-btn">🔄 تحديث</button>
-              <button class="btn btn-sm btn-outline-success fw-bold flex-grow-1" id="report-export-btn" style="display:none">📥 Excel</button>
-            </div>
+          </div>
+
+          <div class="d-flex flex-wrap gap-2 mt-3">
+            <button type="button" class="btn btn-success btn-sm fw-bold" id="report-refresh-btn">🔄 تحديث التقرير</button>
+            <button type="button" class="btn btn-outline-success btn-sm fw-bold" id="report-export-btn" style="display:none">📥 تصدير Excel</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="report-clear-filters-btn">مسح الفلاتر</button>
           </div>
         </div>
       </div>
+
       <div class="row g-3" id="reports-content">
         <div class="col-12 text-center py-5"><div class="spinner-border text-primary"></div></div>
       </div>
@@ -1623,6 +1777,7 @@
             <div class="col-12"><label class="form-label fw-bold">القسم</label><input type="text" class="form-control" id="doctor-edit-department" required></div>
             <div class="col-12"><label class="form-label fw-bold">التخصص</label><input type="text" class="form-control" id="doctor-edit-specialty" required></div>
             <div class="col-12"><label class="form-label fw-bold">الاسم</label><input type="text" class="form-control" id="doctor-edit-name" required></div>
+            <div class="col-12"><label class="form-label fw-bold">سعر الكشف</label><input type="text" inputmode="decimal" class="form-control comma-amount" id="doctor-edit-price" autocomplete="off"></div>
             <div class="col-12"><label class="form-label fw-bold">كود</label><input type="text" class="form-control" id="doctor-edit-code"></div>
           </div>
           <div class="modal-footer">

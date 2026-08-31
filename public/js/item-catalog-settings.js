@@ -75,6 +75,20 @@ function catalogEscapeAttr(text) {
   return String(text || '').replace(/"/g, '&quot;');
 }
 
+function displayCatalogUnitLabel(unit) {
+  const value = String(unit || '').trim();
+  if (!value || value === 'مرة') return 'قطعة';
+  return value;
+}
+
+function displayCatalogMinorUnitLabel(major, minor, ratio) {
+  const maj = String(major || '').trim();
+  const min = String(minor || maj).trim();
+  const qty = Number(ratio) || 1;
+  if (!min || min === maj || qty <= 1) return '—';
+  return displayCatalogUnitLabel(min);
+}
+
 function catalogComputeSellingPrice(cost, markup) {
   const c = catalogParseAmount(cost);
   const m = catalogParseAmount(markup);
@@ -119,10 +133,14 @@ function updateItemCatalogSellingPreview(mode = 'add') {
 }
 
 function formatCatalogUnitsCell(item) {
-  const major = item.major_unit || item.unit || '';
-  const minor = item.minor_unit || major;
+  const major = displayCatalogUnitLabel(item.major_unit || item.unit || '');
+  const minor = displayCatalogMinorUnitLabel(
+    item.major_unit || item.unit,
+    item.minor_unit,
+    item.minor_quantity_per_major
+  );
   const qty = Number(item.minor_quantity_per_major) || 1;
-  if (minor === major || qty <= 1) {
+  if (minor === '—') {
     return catalogEscapeHtml(major);
   }
   return `${catalogEscapeHtml(major)} / ${catalogEscapeHtml(minor)} <small class="text-muted">(${qty})</small>`;
@@ -151,7 +169,7 @@ function buildItemCatalogPayload(mode = 'add') {
     name: document.getElementById(`item-catalog-${prefix}-name`)?.value.trim(),
     category,
     major_unit:
-      document.getElementById(`item-catalog-${prefix}-major-unit`)?.value.trim() || 'مرة',
+      document.getElementById(`item-catalog-${prefix}-major-unit`)?.value.trim() || 'قطعة',
     minor_unit: document.getElementById(`item-catalog-${prefix}-minor-unit`)?.value.trim() || '',
     minor_quantity_per_major: catalogParseAmount(
       document.getElementById(`item-catalog-${prefix}-minor-qty`)?.value
@@ -203,9 +221,16 @@ async function refreshItemCatalogAfterChange() {
 
 function renderItemCatalogManageRow(item) {
   const label = ITEM_CATALOG_CATEGORY_LABELS[item.category] || item.category;
-  const majorUnit = item.major_unit || item.unit || '';
-  const minorUnit = item.minor_unit || majorUnit;
+  const majorUnit = displayCatalogUnitLabel(item.major_unit || item.unit || '');
+  const minorUnit = displayCatalogMinorUnitLabel(
+    item.major_unit || item.unit,
+    item.minor_unit,
+    item.minor_quantity_per_major
+  );
   const ratio = Number(item.minor_quantity_per_major) || 1;
+  const rawMajor = String(item.major_unit || item.unit || '').trim();
+  const rawMinor = String(item.minor_unit || rawMajor).trim();
+  const hasMinorTier = rawMinor && rawMinor !== rawMajor && ratio > 1;
   const majorPrice = catalogFmt(item.major_unit_selling_price || item.price);
   const minorPrice = catalogFmt(item.minor_unit_selling_price || item.price);
   const statusBadge = item.is_active
@@ -223,9 +248,9 @@ function renderItemCatalogManageRow(item) {
     <td>${catalogEscapeHtml(label)}</td>
     <td>${catalogEscapeHtml(majorUnit)}</td>
     <td>${catalogEscapeHtml(minorUnit)}</td>
-    <td>${ratio > 1 && minorUnit !== majorUnit ? ratio : '—'}</td>
+    <td>${ratio > 1 && hasMinorTier ? ratio : '—'}</td>
     <td>${majorPrice}</td>
-    <td>${minorUnit !== majorUnit && ratio > 1 ? minorPrice : '—'}</td>
+    <td>${hasMinorTier ? minorPrice : '—'}</td>
     <td>${statusBadge}</td>
     <td class="d-flex gap-1 flex-wrap">${actions}</td>
   </tr>`;
@@ -338,7 +363,7 @@ async function submitItemCatalogAdd(event) {
     const form = document.getElementById('item-catalog-add-form');
     if (form) form.reset();
     const majorUnitEl = document.getElementById('item-catalog-add-major-unit');
-    if (majorUnitEl) majorUnitEl.value = 'مرة';
+    if (majorUnitEl) majorUnitEl.value = 'قطعة';
     const filterCat = document.getElementById('item-catalog-filter-category')?.value;
     const addCat = document.getElementById('item-catalog-add-category');
     if (filterCat && addCat) addCat.value = filterCat;
@@ -359,9 +384,13 @@ async function openItemCatalogEditModal(itemId) {
     document.getElementById('item-catalog-edit-code').value = item.code || '';
     document.getElementById('item-catalog-edit-name').value = item.name || '';
     document.getElementById('item-catalog-edit-category').value = item.category || 'Medicine';
-    document.getElementById('item-catalog-edit-major-unit').value = item.major_unit || item.unit || 'مرة';
+    document.getElementById('item-catalog-edit-major-unit').value = displayCatalogUnitLabel(
+      item.major_unit || item.unit || 'قطعة'
+    );
+    const rawMajor = String(item.major_unit || item.unit || '').trim();
+    const rawMinor = String(item.minor_unit || '').trim();
     document.getElementById('item-catalog-edit-minor-unit').value =
-      item.minor_unit && item.minor_unit !== (item.major_unit || item.unit) ? item.minor_unit : '';
+      rawMinor && rawMinor !== rawMajor && rawMinor !== 'مرة' ? rawMinor : '';
     const minorQtyEl = document.getElementById('item-catalog-edit-minor-qty');
     if (minorQtyEl) {
       minorQtyEl.value =
@@ -566,8 +595,8 @@ function renderItemCatalogImportPreview(rows = [], state = {}) {
           <td>${catalogEscapeHtml(row.code || '—')}</td>
           <td>${catalogEscapeHtml(row.name)}</td>
           <td>${catalogEscapeHtml(row.category)}</td>
-          <td>${catalogEscapeHtml(row.major_unit || row.unit || '')}</td>
-          <td>${catalogEscapeHtml(row.minor_unit || '')}</td>
+          <td>${catalogEscapeHtml(displayCatalogUnitLabel(row.major_unit || row.unit || ''))}</td>
+          <td>${catalogEscapeHtml(displayCatalogMinorUnitLabel(row.major_unit || row.unit, row.minor_unit, row.minor_quantity_per_major))}</td>
           <td>${catalogFmt(row.minor_quantity_per_major || 1)}</td>
           <td>${catalogFmt(row.major_unit_selling_price || row.price)}</td>
           <td>${catalogFmt(row.minor_unit_selling_price || '')}</td>

@@ -92,6 +92,15 @@ router.get('/reports/remaining', requirePermission('reports.view'), async (req, 
   }
 });
 
+router.get('/reports/invoices', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const { getInvoicesReport } = require('../services/reportService');
+    res.json(await getInvoicesReport(reportFilters(req)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/reports/patient-status', requirePermission('reports.view'), async (req, res) => {
   try {
     const { getPatientStatusReport } = require('../services/reportService');

@@ -71,7 +71,7 @@ function majorPriceExplicitlySupplied(data) {
 }
 
 function normalizeUnitFields(data) {
-  const majorUnit = String(data.major_unit || data.unit || '').trim() || 'مرة';
+  const majorUnit = String(data.major_unit || data.unit || '').trim() || 'قطعة';
   let minorUnit = String(data.minor_unit || '').trim();
   let minorQty = round2(data.minor_quantity_per_major);
   let majorPrice = round2(data.major_unit_selling_price ?? data.price);
@@ -166,6 +166,12 @@ function hasDistinctMinorTier(majorUnit, minorUnit, ratio) {
 function isPlaceholderMajorUnit(unit) {
   const value = String(unit || '').trim();
   return !value || value === 'مرة';
+}
+
+function formatCatalogUnitLabel(unit) {
+  const value = String(unit || '').trim();
+  if (!value || value === 'مرة') return 'قطعة';
+  return value;
 }
 
 function initImportPriceExplicitFlags(row = {}) {
