@@ -1,5 +1,6 @@
 const { formatDual, round2, calculateInvoiceTotals } = require('./calculations');
 const { aggregateCustomerFacingLines } = require('./invoicePresentationService');
+const { CENTER_NAME } = require('../config/branding');
 
 function formatNumber(n) {
   const num = Number(n) || 0;
@@ -442,7 +443,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       <div class="header-text">
         <span class="line">وزارة الدفاع</span>
         <span class="line">إدارة الخدمات الطبية</span>
-        <span class="line">مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم ق.م</span>
+        <span class="line">${CENTER_NAME}</span>
         <span class="line">القسم المالي</span>
       </div>
       ${

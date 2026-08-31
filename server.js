@@ -31,6 +31,7 @@ const app = express();
 const PORT = process.env.PORT || 17159;
 const HOST = process.env.HOST || '0.0.0.0';
 const pkg = require('./package.json');
+const { CENTER_NAME, APP_SHORT_NAME } = require('./config/branding');
 
 if (process.env.TRUST_PROXY === 'true') {
   app.set('trust proxy', 1);
@@ -68,7 +69,8 @@ app.get('/api/public/branding', async (req, res) => {
     const { getLogoUrl } = require('./services/settingsService');
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json({
-      app_name: 'نظام فواتير A.R.R.C',
+      app_name: APP_SHORT_NAME,
+      center_name: CENTER_NAME,
       logo_url: await getLogoUrl(baseUrl),
     });
   } catch (err) {
@@ -134,7 +136,7 @@ async function start() {
     const server = app.listen(PORT, HOST, () => {
       console.log(`
 ╔══════════════════════════════════════════════════════╗
-║     نظام فواتير A.R.R.C - مركز الطب الطبيعي والتأهيل  ║
+║     ${APP_SHORT_NAME} — ${CENTER_NAME}  ║
 ╠══════════════════════════════════════════════════════╣
 ║  🌐 Local:   http://localhost:${PORT}                   ║
 ║  🌐 Network: http://0.0.0.0:${PORT}                     ║

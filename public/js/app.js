@@ -160,6 +160,27 @@ function syncBrandLogos(url) {
   });
 }
 
+function applyAppBranding(data = {}) {
+  const centerName =
+    data.center_name || 'مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة';
+  const appName = data.app_name || 'نظام الفواتير';
+  document.title = `${appName} — ${centerName}`;
+  const textMap = {
+    'login-app-title': appName,
+    'login-center-name': centerName,
+    'navbar-brand-text': centerName,
+    'hub-center-name': centerName,
+  };
+  Object.entries(textMap).forEach(([id, text]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  });
+  ['login-logo', 'navbar-logo', 'hub-logo'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.alt = `شعار ${centerName}`;
+  });
+}
+
 async function loadAppBranding() {
   try {
     const res = await fetch('/api/public/branding');
@@ -168,9 +189,7 @@ async function loadAppBranding() {
     if (data.logo_url) {
       syncBrandLogos(data.logo_url);
     }
-    if (data.app_name) {
-      document.title = `${data.app_name} - مركز الطب الطبيعي والتأهيل`;
-    }
+    applyAppBranding(data);
   } catch {
     /* keep defaults */
   }

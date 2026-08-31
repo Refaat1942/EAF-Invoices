@@ -10,6 +10,7 @@ const {
   AlignmentType,
   VerticalAlign,
 } = require('docx');
+const { CENTER_NAME } = require('../config/branding');
 
 function formatNumber(n) {
   const num = Number(n) || 0;
@@ -252,7 +253,7 @@ function buildWordDocument(invoice) {
             bidirectional: true,
             children: [
               new TextRun({
-                text: 'مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم ق.م',
+                text: CENTER_NAME,
                 bold: true,
                 size: 24,
                 rightToLeft: true,
