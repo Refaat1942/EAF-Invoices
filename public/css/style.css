@@ -696,3 +696,173 @@ body {
   border-radius: 8px;
   padding: 0.25rem;
 }
+
+/* ——— Home hub ——— */
+.app-topbar {
+  background: linear-gradient(90deg, #0d2137 0%, #1a5276 100%) !important;
+}
+
+.hub-brand-btn {
+  text-decoration: none !important;
+}
+
+.hub-brand-btn:hover {
+  opacity: 0.92;
+}
+
+.navbar-brand-text {
+  font-size: 1.05rem;
+}
+
+.hub-screen {
+  min-height: calc(100vh - 72px);
+  padding: 1.25rem 1rem 2.5rem;
+  background: linear-gradient(180deg, #eef2f7 0%, #e2eaf3 100%);
+}
+
+.hub-hero {
+  text-align: center;
+  margin-bottom: 2rem;
+  padding-top: 0.5rem;
+}
+
+.hub-logo {
+  max-height: 100px;
+  max-width: 200px;
+  object-fit: contain;
+  margin-bottom: 0.75rem;
+}
+
+.hub-title {
+  font-size: clamp(1.35rem, 3vw, 1.85rem);
+  color: #0d2137;
+  margin-bottom: 0.35rem;
+}
+
+.hub-subtitle {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #1a5276;
+  margin-bottom: 0.5rem;
+}
+
+.hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1.15rem;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.hub-tile {
+  aspect-ratio: 1;
+  min-height: 160px;
+  border: 2px solid transparent;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(13, 33, 55, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 1rem;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  text-align: center;
+}
+
+.hub-tile:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 14px 32px rgba(13, 33, 55, 0.16);
+}
+
+.hub-tile:active {
+  transform: translateY(-2px);
+}
+
+.hub-tile-icon {
+  font-size: 2.35rem;
+  line-height: 1;
+}
+
+.hub-tile-title {
+  font-weight: 900;
+  font-size: 1rem;
+  color: #0d2137;
+  line-height: 1.3;
+}
+
+.hub-tile-desc {
+  font-size: 0.78rem;
+  color: #6c7a89;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.hub-tile--primary {
+  background: linear-gradient(145deg, #1a5276 0%, #0d2137 100%);
+  border-color: #0d2137;
+}
+
+.hub-tile--primary .hub-tile-title,
+.hub-tile--primary .hub-tile-desc {
+  color: #fff;
+}
+
+.hub-tile--primary .hub-tile-desc {
+  opacity: 0.9;
+}
+
+.hub-tile--teal {
+  background: linear-gradient(145deg, #e8f4f8, #fff);
+  border-color: #1a5276;
+}
+
+.hub-tile--blue {
+  background: linear-gradient(145deg, #e3f0ff, #fff);
+  border-color: #2563eb;
+}
+
+.hub-tile--indigo {
+  background: linear-gradient(145deg, #ede9fe, #fff);
+  border-color: #4f46e5;
+}
+
+.hub-tile--green {
+  background: linear-gradient(145deg, #e8f5e9, #fff);
+  border-color: #2e7d32;
+}
+
+.hub-tile--slate {
+  background: linear-gradient(145deg, #f1f3f5, #fff);
+  border-color: #64748b;
+}
+
+.view-page-header {
+  max-width: 1400px;
+}
+
+.invoice-bottom-panel {
+  margin-top: 0.25rem;
+}
+
+@media (max-width: 576px) {
+  .hub-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.85rem;
+  }
+
+  .hub-tile {
+    min-height: 130px;
+    padding: 0.75rem;
+  }
+
+  .hub-tile-icon {
+    font-size: 1.85rem;
+  }
+
+  .hub-tile-title {
+    font-size: 0.88rem;
+  }
+}

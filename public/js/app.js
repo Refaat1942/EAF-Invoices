@@ -150,15 +150,21 @@ document.addEventListener('DOMContentLoaded', () => {
   checkAuth();
 });
 
+function syncBrandLogos(url) {
+  if (!url) return;
+  ['login-logo', 'navbar-logo', 'hub-logo'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.src = url;
+  });
+}
+
 async function loadAppBranding() {
   try {
     const res = await fetch('/api/public/branding');
     if (!res.ok) return;
     const data = await res.json();
     if (data.logo_url) {
-      document.getElementById('login-logo').src = data.logo_url;
-      const navbarLogo = document.getElementById('navbar-logo');
-      if (navbarLogo) navbarLogo.src = data.logo_url;
+      syncBrandLogos(data.logo_url);
     }
     if (data.app_name) {
       document.title = `${data.app_name} - مركز الطب الطبيعي والتأهيل`;
@@ -188,6 +194,10 @@ function showApp() {
   document.getElementById('login-screen').style.display = 'none';
   document.getElementById('app-container').style.display = 'block';
   document.getElementById('nav-user').textContent = `${currentUser.full_name || currentUser.username} (${currentUser.role_label})`;
+  const hubWelcome = document.getElementById('hub-welcome-text');
+  if (hubWelcome) {
+    hubWelcome.textContent = `مرحبًا ${currentUser.full_name || currentUser.username}`;
+  }
   applyPermissions();
   bindEvents();
   loadInvoiceTypes();
@@ -198,7 +208,7 @@ function showApp() {
   loadPermissionCatalog();
   ensureDefaultPriceListId();
   loadCatalogCache();
-  switchView('daily');
+  switchView('home');
 }
 
 function isDailySourcedInvoice(inv) {
@@ -297,9 +307,24 @@ async function openInvoiceFollowUpView() {
 
 function applyPermissions() {
   const isAdmin = can('settings.*');
-  document.getElementById('nav-settings').style.display = isAdmin ? '' : 'none';
-  const dailyNav = document.getElementById('nav-daily');
-  if (dailyNav) dailyNav.style.display = can('daily_charges.view') ? '' : 'none';
+  const hubSettings = document.getElementById('hub-tile-settings');
+  if (hubSettings) hubSettings.style.display = isAdmin ? '' : 'none';
+
+  const hubDaily = document.getElementById('hub-tile-daily');
+  const hubNewPatient = document.getElementById('hub-tile-new-patient');
+  const showDaily = can('daily_charges.view');
+  if (hubDaily) hubDaily.style.display = showDaily ? '' : 'none';
+  if (hubNewPatient) hubNewPatient.style.display = showDaily ? '' : 'none';
+
+  const hubInvoice = document.getElementById('hub-tile-invoice');
+  const hubList = document.getElementById('hub-tile-list');
+  const showInvoices = can('invoices.create') || can('invoices.edit') || can('invoices.view');
+  if (hubInvoice) hubInvoice.style.display = showInvoices ? '' : 'none';
+  if (hubList) hubList.style.display = can('invoices.view') ? '' : 'none';
+
+  const hubReports = document.getElementById('hub-tile-reports');
+  if (hubReports) hubReports.style.display = can('reports.view') ? '' : 'none';
+
   document.getElementById('import-daily-charges-btn').style.display =
     can('invoices.create') || can('invoices.edit') ? '' : 'none';
   document.getElementById('users-settings-card').style.display = can('users.*') ? '' : 'none';
@@ -307,9 +332,6 @@ function applyPermissions() {
   document.getElementById('item-catalog-settings-card').style.display = isAdmin ? '' : 'none';
   document.getElementById('backup-settings-card').style.display = isAdmin ? '' : 'none';
   document.getElementById('doctors-settings-card').style.display = isAdmin ? '' : 'none';
-
-  const createBtn = document.querySelector('[data-view="create"]');
-  if (createBtn) createBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
 
   const canEdit = can('invoices.create') || can('invoices.edit');
   document.getElementById('save-draft-btn').style.display = canEdit ? '' : 'none';
@@ -449,8 +471,26 @@ function createRow(index) {
 }
 
 function bindEvents() {
-  document.querySelectorAll('.nav-btn').forEach((btn) => {
-    btn.addEventListener('click', () => switchView(btn.dataset.view));
+  document.querySelectorAll('.hub-tile[data-view]').forEach((tile) => {
+    tile.addEventListener('click', () => {
+      const view = tile.dataset.view;
+      const action = tile.dataset.hubAction;
+      if (action === 'new-patient' && typeof window.openNewPatientRegistration === 'function') {
+        window.openNewPatientRegistration();
+        return;
+      }
+      if (view === 'create') {
+        switchView('create');
+        return;
+      }
+      switchView(view, { keepForm: true });
+    });
+  });
+
+  document.getElementById('nav-home-btn')?.addEventListener('click', () => switchView('home'));
+  document.getElementById('nav-home-shortcut')?.addEventListener('click', () => switchView('home'));
+  document.querySelectorAll('.hub-back-btn').forEach((btn) => {
+    btn.addEventListener('click', () => switchView('home'));
   });
 
   document.getElementById('invoice-form').addEventListener('submit', (e) => {
@@ -460,8 +500,8 @@ function bindEvents() {
   document.getElementById('save-draft-btn').addEventListener('click', () => saveInvoiceWithMode('draft'));
   document.getElementById('submit-review-btn').addEventListener('click', () => saveInvoiceWithMode('submit'));
   document.getElementById('approve-invoice-btn').addEventListener('click', approveCurrentInvoice);
-  document.getElementById('reset-form-btn').addEventListener('click', () => switchView('daily'));
-  document.getElementById('goto-daily-from-invoice-btn')?.addEventListener('click', () => switchView('daily'));
+  document.getElementById('reset-form-btn').addEventListener('click', () => switchView('home'));
+  document.getElementById('goto-daily-from-invoice-btn')?.addEventListener('click', () => switchView('daily', { keepForm: true }));
   document.getElementById('add-row-btn').addEventListener('click', () => {
     document.getElementById('items-tbody').appendChild(createRow(rowCount++));
     bindCalcTriggers();
@@ -2474,9 +2514,10 @@ function switchView(view, options = {}) {
     return;
   }
   document.querySelectorAll('.view-section').forEach((s) => (s.style.display = 'none'));
-  document.getElementById(`view-${view}`).style.display = 'block';
-  document.querySelectorAll('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  const section = document.getElementById(`view-${view}`);
+  if (section) section.style.display = 'block';
 
+  if (view === 'home') return;
   if (view === 'list') loadInvoicesList();
   if (view === 'reports') {
     populateReportTypeFilter();
@@ -3219,10 +3260,7 @@ async function loadSettingsPage() {
 
     if (settings.logo_url) {
       document.getElementById('logo-preview').src = settings.logo_url;
-      const navbarLogo = document.getElementById('navbar-logo');
-      const loginLogo = document.getElementById('login-logo');
-      if (navbarLogo) navbarLogo.src = settings.logo_url;
-      if (loginLogo) loginLogo.src = settings.logo_url;
+      syncBrandLogos(settings.logo_url);
     }
 
     document.getElementById('stay-types-list').innerHTML = renderStayTypesList(stayTypes);
@@ -3350,10 +3388,7 @@ async function uploadLogo() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     document.getElementById('logo-preview').src = data.logo_url;
-    const navbarLogo = document.getElementById('navbar-logo');
-    const loginLogo = document.getElementById('login-logo');
-    if (navbarLogo) navbarLogo.src = data.logo_url;
-    if (loginLogo) loginLogo.src = data.logo_url;
+    syncBrandLogos(data.logo_url);
     showToast('تم رفع الشعار بنجاح', 'success');
     fileInput.value = '';
   } catch (err) {

@@ -32,31 +32,71 @@
   </div>
 
   <div id="app-container" style="display:none">
-  <nav class="navbar navbar-dark bg-dark shadow-sm">
+  <nav class="navbar navbar-dark app-topbar shadow-sm">
     <div class="container-fluid">
-      <span class="navbar-brand fw-black d-flex align-items-center gap-2">
+      <button type="button" class="btn btn-link text-white p-0 d-flex align-items-center gap-2 hub-brand-btn" id="nav-home-btn">
         <img id="navbar-logo" src="/assets/logo.svg" alt="شعار A.R.R.C" class="navbar-logo">
-        <span>نظام فواتير A.R.R.C</span>
-      </span>
+        <span class="fw-black navbar-brand-text">نظام فواتير A.R.R.C</span>
+      </button>
       <div class="d-flex gap-2 align-items-center">
         <span class="text-light small fw-bold" id="nav-user"></span>
-        <button class="btn btn-outline-light btn-sm nav-btn" data-view="create">متابعة الفاتورة</button>
-        <button class="btn btn-outline-light btn-sm nav-btn" data-view="list">الفواتير</button>
-        <button class="btn btn-outline-light btn-sm nav-btn active" data-view="daily" id="nav-daily">إقامة المريض</button>
-        <button class="btn btn-outline-light btn-sm nav-btn" data-view="reports">التقارير</button>
-        <button class="btn btn-outline-light btn-sm nav-btn" data-view="settings" id="nav-settings">الإعدادات</button>
-        <button class="btn btn-outline-danger btn-sm fw-bold" id="logout-btn">خروج</button>
+        <button type="button" class="btn btn-outline-light btn-sm fw-bold" id="nav-home-shortcut">🏠 الرئيسية</button>
+        <button type="button" class="btn btn-outline-danger btn-sm fw-bold" id="logout-btn">خروج</button>
       </div>
     </div>
   </nav>
 
-  <main class="container-fluid py-3">
+  <main class="container-fluid py-3 app-main">
+    <!-- Home Hub -->
+    <section id="view-home" class="view-section hub-screen">
+      <div class="hub-hero">
+        <img id="hub-logo" src="/assets/logo.svg" alt="شعار المركز" class="hub-logo">
+        <h1 class="hub-title fw-black">مركز الطب الطبيعي وتأهيل العجوزة</h1>
+        <p class="hub-subtitle">حسابات المرضى</p>
+        <p class="hub-welcome small text-muted mb-0" id="hub-welcome-text"></p>
+      </div>
+      <div class="hub-grid" id="hub-tiles">
+        <button type="button" class="hub-tile hub-tile--primary" data-view="daily" data-hub-action="new-patient" id="hub-tile-new-patient">
+          <span class="hub-tile-icon">🆕</span>
+          <span class="hub-tile-title">تسجيل مريض جديد</span>
+          <span class="hub-tile-desc">فتح ملف وإقامة جديدة</span>
+        </button>
+        <button type="button" class="hub-tile hub-tile--teal" data-view="daily" id="hub-tile-daily">
+          <span class="hub-tile-icon">📋</span>
+          <span class="hub-tile-title">إقامة المريض</span>
+          <span class="hub-tile-desc">الحركة اليومية والخدمات</span>
+        </button>
+        <button type="button" class="hub-tile hub-tile--blue" data-view="create" id="hub-tile-invoice">
+          <span class="hub-tile-icon">📄</span>
+          <span class="hub-tile-title">متابعة الفاتورة</span>
+          <span class="hub-tile-desc">مراجعة ومدفوعات</span>
+        </button>
+        <button type="button" class="hub-tile hub-tile--indigo" data-view="list" id="hub-tile-list">
+          <span class="hub-tile-icon">📑</span>
+          <span class="hub-tile-title">قائمة الفواتير</span>
+          <span class="hub-tile-desc">بحث وطباعة</span>
+        </button>
+        <button type="button" class="hub-tile hub-tile--green" data-view="reports" id="hub-tile-reports">
+          <span class="hub-tile-icon">📊</span>
+          <span class="hub-tile-title">التقارير</span>
+          <span class="hub-tile-desc">موقف مريض ومطابقة</span>
+        </button>
+        <button type="button" class="hub-tile hub-tile--slate" data-view="settings" id="hub-tile-settings">
+          <span class="hub-tile-icon">⚙️</span>
+          <span class="hub-tile-title">الإعدادات</span>
+          <span class="hub-tile-desc">لائحة الأسعار والمستخدمين</span>
+        </button>
+      </div>
+    </section>
     <!-- Create/Edit Invoice View -->
     <section id="view-create" class="view-section" style="display:none">
+      <div class="view-page-header mb-3">
+        <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+      </div>
       <div class="row g-3">
-        <div class="col-xl-10 col-lg-9">
+        <div class="col-12">
           <div class="card shadow-sm invoice-card">
-            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
               <h5 class="mb-0 fw-black" id="form-title">إنشاء فاتورة جديدة</h5>
               <span class="badge bg-light text-dark fw-bold" id="edit-serial" style="display:none"></span>
             </div>
@@ -304,7 +344,7 @@
                   <button type="button" class="btn btn-outline-secondary btn-lg fw-black" id="save-draft-btn">💾 حفظ مؤقت</button>
                   <button type="button" class="btn btn-warning btn-lg fw-black" id="submit-review-btn" style="display:none">📤 إرسال للمراجعة</button>
                   <button type="button" class="btn btn-success btn-lg fw-black" id="approve-invoice-btn" style="display:none">✅ اعتماد نهائي</button>
-                  <button type="button" class="btn btn-outline-secondary fw-bold" id="reset-form-btn">← إقامة المريض</button>
+                  <button type="button" class="btn btn-outline-secondary fw-bold" id="reset-form-btn">← الرئيسية</button>
                   <button type="button" class="btn btn-danger fw-bold" id="download-pdf-btn" style="display:none">📄 PDF</button>
                   <button type="button" class="btn btn-primary fw-bold" id="download-docx-btn" style="display:none">📝 Word</button>
                   <button type="button" class="btn btn-info fw-bold" id="preview-btn" style="display:none">👁️ معاينة</button>
@@ -317,55 +357,53 @@
           </div>
         </div>
 
-        <div class="col-xl-2 col-lg-3 sidebar-panel">
-          <div class="card shadow-sm mb-3" id="qr-card" style="display:none">
-            <div class="card-header bg-dark text-white fw-black">QR Code</div>
-            <div class="card-body text-center">
-              <img id="qr-image" class="img-fluid mb-2" alt="QR Code">
-              <p class="fw-black text-primary" id="qr-serial"></p>
-              <p class="small text-muted">امسح الكود لعرض الفاتورة وتحميلها</p>
-            </div>
-          </div>
-          <div class="card shadow-sm mb-3 sidebar-collapsible" id="invoice-returns-card" style="display:none">
-            <div class="card-header bg-danger text-white fw-black collapsed-toggle" data-bs-toggle="collapse" data-bs-target="#invoice-returns-collapse">
-              ↩️ سجل الإرجاعات <span class="toggle-icon">▼</span>
-            </div>
-            <div class="collapse" id="invoice-returns-collapse">
-              <div class="card-body p-2" id="invoice-returns-history">
-                <p class="small text-muted mb-0">لا توجد إرجاعات مسجلة.</p>
+        <div class="col-12 invoice-bottom-panel">
+          <div class="row g-3">
+            <div class="col-lg-4" id="qr-card-wrap">
+              <div class="card shadow-sm" id="qr-card" style="display:none">
+                <div class="card-header bg-dark text-white fw-black">QR Code</div>
+                <div class="card-body text-center">
+                  <img id="qr-image" class="img-fluid mb-2" alt="QR Code">
+                  <p class="fw-black text-primary" id="qr-serial"></p>
+                  <p class="small text-muted">امسح الكود لعرض الفاتورة وتحميلها</p>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="card shadow-sm mb-3 sidebar-collapsible">
-            <div class="card-header bg-info text-white fw-black collapsed-toggle" data-bs-toggle="collapse" data-bs-target="#calc-flow-collapse">
-              📊 مسار الحساب <span class="toggle-icon">▼</span>
-            </div>
-            <div class="collapse" id="calc-flow-collapse">
-              <div class="card-body p-2">
-                <div id="calculation-validation-banner" class="calc-validation-banner mb-2" style="display:none"></div>
-                <ol class="calculation-flow-list mb-0" id="calculation-flow-list">
-                  <li class="text-muted small">أدخل البيانات لعرض مسار الحساب...</li>
-                </ol>
+            <div class="col-lg-4" id="invoice-returns-card" style="display:none">
+              <div class="card shadow-sm">
+                <div class="card-header bg-danger text-white fw-black">↩️ سجل الإرجاعات</div>
+                <div class="card-body p-2" id="invoice-returns-history">
+                  <p class="small text-muted mb-0">لا توجد إرجاعات مسجلة.</p>
+                </div>
               </div>
             </div>
-          </div>
-          <div class="card shadow-sm sidebar-collapsible">
-            <div class="card-header bg-secondary text-white fw-black collapsed-toggle" data-bs-toggle="collapse" data-bs-target="#summary-collapse" aria-expanded="true">
-              ملخص الحسابات <span class="toggle-icon">▼</span>
+            <div class="col-lg-4">
+              <div class="card shadow-sm">
+                <div class="card-header bg-info text-white fw-black">📊 مسار الحساب</div>
+                <div class="card-body p-2">
+                  <div id="calculation-validation-banner" class="calc-validation-banner mb-2" style="display:none"></div>
+                  <ol class="calculation-flow-list mb-0" id="calculation-flow-list">
+                    <li class="text-muted small">أدخل البيانات لعرض مسار الحساب...</li>
+                  </ol>
+                </div>
+              </div>
             </div>
-            <div class="collapse show" id="summary-collapse">
-              <div class="card-body compact-summary">
-                <div class="summary-item"><span>إجمالي البنود:</span><strong id="sum_items">0.00</strong></div>
-                <div class="summary-item" id="sum_stay_wrap" style="display:none"><span>تكلفة الإقامة:</span><strong id="sum_stay">0.00</strong></div>
-                <div class="summary-item"><span>دمغة + مهن:</span><strong id="sum_fees">0.00</strong></div>
-                <div class="summary-item"><span>مصروفات إدارية:</span><strong id="sum_admin">0.00</strong></div>
-                <div class="summary-item"><span>بعد المصروفات:</span><strong id="sum_after_admin">0.00</strong></div>
-                <div class="summary-item" id="sum_discount_wrap" style="display:none"><span>خصم الجهة:</span><strong id="sum_discount">0.00</strong></div>
-                <div class="summary-item" id="sum_net_wrap" style="display:none"><span>صافي بعد الخصم:</span><strong id="sum_net">0.00</strong></div>
-                <div class="summary-item total"><span>الإجمالي النهائي:</span><strong id="sum_final">0</strong></div>
-                <div class="summary-item"><span>المحصل:</span><strong id="sum_collected">0</strong></div>
-                <div class="summary-item remaining"><span>المتبقي:</span><strong id="sum_remaining">0.00</strong></div>
-                <div class="summary-item" id="sum_refundable_wrap" style="display:none"><span>مستحق إرجاع:</span><strong id="sum_refundable" class="text-danger">0.00</strong></div>
+            <div class="col-lg-4">
+              <div class="card shadow-sm">
+                <div class="card-header bg-secondary text-white fw-black">ملخص الحسابات</div>
+                <div class="card-body compact-summary">
+                  <div class="summary-item"><span>إجمالي البنود:</span><strong id="sum_items">0.00</strong></div>
+                  <div class="summary-item" id="sum_stay_wrap" style="display:none"><span>تكلفة الإقامة:</span><strong id="sum_stay">0.00</strong></div>
+                  <div class="summary-item"><span>دمغة + مهن:</span><strong id="sum_fees">0.00</strong></div>
+                  <div class="summary-item"><span>مصروفات إدارية:</span><strong id="sum_admin">0.00</strong></div>
+                  <div class="summary-item"><span>بعد المصروفات:</span><strong id="sum_after_admin">0.00</strong></div>
+                  <div class="summary-item" id="sum_discount_wrap" style="display:none"><span>خصم الجهة:</span><strong id="sum_discount">0.00</strong></div>
+                  <div class="summary-item" id="sum_net_wrap" style="display:none"><span>صافي بعد الخصم:</span><strong id="sum_net">0.00</strong></div>
+                  <div class="summary-item total"><span>الإجمالي النهائي:</span><strong id="sum_final">0</strong></div>
+                  <div class="summary-item"><span>المحصل:</span><strong id="sum_collected">0</strong></div>
+                  <div class="summary-item remaining"><span>المتبقي:</span><strong id="sum_remaining">0.00</strong></div>
+                  <div class="summary-item" id="sum_refundable_wrap" style="display:none"><span>مستحق إرجاع:</span><strong id="sum_refundable" class="text-danger">0.00</strong></div>
+                </div>
               </div>
             </div>
           </div>
@@ -375,6 +413,9 @@
 
     <!-- List View -->
     <section id="view-list" class="view-section" style="display:none">
+      <div class="view-page-header mb-3">
+        <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+      </div>
       <div class="card shadow-sm">
         <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
           <h5 class="mb-0 fw-black">قائمة الفواتير</h5>
@@ -418,7 +459,10 @@
     </section>
 
     <!-- Patient Stay Workflow: register → daily entries → open invoice -->
-    <section id="view-daily" class="view-section">
+    <section id="view-daily" class="view-section" style="display:none">
+      <div class="view-page-header mb-3 d-flex flex-wrap gap-2 align-items-center">
+        <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+      </div>
       <div class="patient-stay-steps mb-3">
         <div class="patient-stay-step active" data-step="1"><span>①</span> بيانات المريض</div>
         <div class="patient-stay-step" data-step="2"><span>②</span> الحركة اليومية</div>
@@ -426,7 +470,7 @@
       </div>
 
       <div class="row g-3">
-        <div class="col-lg-8">
+        <div class="col-12">
           <!-- Step 1: Patient registration -->
           <div class="card shadow-sm mb-3" id="daily-step-1-card">
             <div class="card-header bg-primary text-white fw-black">① تسجيل / فتح إقامة المريض</div>
@@ -544,23 +588,30 @@
           </div>
         </div>
 
-        <!-- Step 3: Open invoice panel -->
-        <div class="col-lg-4">
-          <div class="card shadow-sm sticky-top" id="daily-step-3-panel" style="top:1rem">
+        <div class="col-12">
+          <div class="card shadow-sm" id="daily-step-3-panel">
             <div class="card-header bg-warning fw-black">③ الفاتورة المفتوحة</div>
             <div class="card-body">
-              <div id="daily-invoice-empty" class="text-muted text-center py-4">
-                <p class="mb-0">سجّل المريض في الخطوة ① لإنشاء فاتورة مسودة.</p>
-              </div>
-              <div id="daily-invoice-info" style="display:none">
-                <div class="mb-2"><span class="text-muted">فاتورة:</span> <strong id="daily-inv-number">#—</strong></div>
-                <div class="mb-2"><span class="text-muted">الحالة:</span> <span class="badge bg-secondary" id="daily-inv-status">—</span></div>
-                <div class="mb-2"><span class="text-muted">الفترة:</span> <span id="daily-inv-period">—</span></div>
-                <div class="mb-2"><span class="text-muted">أيام مسجّلة:</span> <strong id="daily-inv-days">0</strong></div>
-                <div class="mb-2"><span class="text-muted">إجمالي الحركة:</span> <strong id="daily-inv-daily-total">0</strong></div>
-                <div class="mb-3"><span class="text-muted">إجمالي الفاتورة:</span> <strong class="fs-5 text-primary" id="daily-inv-final-total">0</strong></div>
-                <button type="button" class="btn btn-primary w-100 fw-bold mb-2" id="daily-open-invoice-btn">📄 فتح الفاتورة للمراجعة</button>
-                <p class="small text-muted mb-0">تُحدَّث الفاتورة تلقائيًا مع كل حفظ للحركة اليومية حتى يتم اعتمادها.</p>
+              <div class="row align-items-center g-3">
+                <div class="col-lg-8">
+                  <div id="daily-invoice-empty" class="text-muted text-center py-3">
+                    <p class="mb-0">سجّل المريض في الخطوة ① لإنشاء فاتورة مسودة.</p>
+                  </div>
+                  <div id="daily-invoice-info" style="display:none">
+                    <div class="row g-2 small">
+                      <div class="col-md-3"><span class="text-muted">فاتورة:</span> <strong id="daily-inv-number">#—</strong></div>
+                      <div class="col-md-3"><span class="text-muted">الحالة:</span> <span class="badge bg-secondary" id="daily-inv-status">—</span></div>
+                      <div class="col-md-3"><span class="text-muted">الفترة:</span> <span id="daily-inv-period">—</span></div>
+                      <div class="col-md-3"><span class="text-muted">أيام مسجّلة:</span> <strong id="daily-inv-days">0</strong></div>
+                      <div class="col-md-4"><span class="text-muted">إجمالي الحركة:</span> <strong id="daily-inv-daily-total">0</strong></div>
+                      <div class="col-md-4"><span class="text-muted">إجمالي الفاتورة:</span> <strong class="fs-5 text-primary" id="daily-inv-final-total">0</strong></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-lg-4">
+                  <button type="button" class="btn btn-primary w-100 fw-bold mb-2" id="daily-open-invoice-btn">📄 فتح الفاتورة للمراجعة</button>
+                  <p class="small text-muted mb-0">تُحدَّث الفاتورة تلقائيًا مع كل حفظ للحركة اليومية حتى يتم اعتمادها.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -570,6 +621,9 @@
 
     <!-- Settings View -->
     <section id="view-settings" class="view-section" style="display:none">
+      <div class="view-page-header mb-3">
+        <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+      </div>
       <div class="row g-3">
         <div class="col-md-6">
           <div class="card shadow-sm">
@@ -989,6 +1043,9 @@
 
     <!-- Reports View -->
     <section id="view-reports" class="view-section" style="display:none">
+      <div class="view-page-header mb-3">
+        <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+      </div>
       <div class="card shadow-sm mb-3">
         <div class="card-body">
           <div class="row g-2 align-items-end">

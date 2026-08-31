@@ -1028,6 +1028,23 @@ function clearDailyForm() {
   updateDailyGrandTotal();
 }
 
+function openNewPatientRegistration() {
+  sessionStorage.removeItem('dailyStayFileNumber');
+  document.getElementById('daily-stay-file-number').value = '';
+  document.getElementById('daily-stay-patient-name').value = '';
+  document.getElementById('daily-stay-admission').value = '';
+  const dischargeEl = document.getElementById('daily-stay-discharge');
+  if (dischargeEl) dischargeEl.value = '';
+  document.getElementById('daily-stay-financial').value = '';
+  const balanceEl = document.getElementById('daily-stay-balance');
+  if (balanceEl) balanceEl.value = '';
+  applyDailyStayContext(null);
+  clearDailyForm();
+  if (typeof switchView === 'function') switchView('daily', { keepForm: true });
+  const fileInput = document.getElementById('daily-stay-file-number');
+  if (fileInput) fileInput.focus();
+}
+
 async function initDailyChargesView() {
   if (!dailyCan('daily_charges.view')) return;
   try {
@@ -1228,6 +1245,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 window.initDailyChargesView = initDailyChargesView;
+window.openNewPatientRegistration = openNewPatientRegistration;
 window.loadDailyDoctorSpecialties = loadDailyDoctorSpecialties;
 window.importDailyChargesToInvoice = importDailyChargesToInvoice;
 window.syncDailyChargeRowsFromTotals = syncDailyChargeRowsFromTotals;
