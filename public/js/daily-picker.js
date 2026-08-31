@@ -29,7 +29,7 @@
     if (typeof dailyFmt === 'function') return dailyFmt(n);
     if (typeof fmt === 'function') return fmt(n);
     if (typeof formatPlainNumber === 'function') return formatPlainNumber(n, 2);
-    return Number(n || 0).toLocaleString('ar-EG', {
+    return Number(n || 0).toLocaleString('ar-EG-u-nu-latn', {
       useGrouping: true,
       minimumFractionDigits: 0,
       maximumFractionDigits: 2,

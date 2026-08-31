@@ -50,11 +50,12 @@ const REPORT_TILES = [
 
 function formatPlainNumber(n, maxDecimals = 2) {
   const num = Number(n) || 0;
+  const locale = 'ar-EG-u-nu-latn';
   const grouping = { useGrouping: true };
   if (maxDecimals === 0) {
-    return Math.round(num).toLocaleString('ar-EG', { ...grouping, maximumFractionDigits: 0 });
+    return Math.round(num).toLocaleString(locale, { ...grouping, maximumFractionDigits: 0 });
   }
-  return num.toLocaleString('ar-EG', {
+  return num.toLocaleString(locale, {
     ...grouping,
     minimumFractionDigits: 0,
     maximumFractionDigits: maxDecimals,

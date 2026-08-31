@@ -1022,54 +1022,19 @@ body {
   background-color: #f4f7fb !important;
 }
 
-#view-daily .daily-clean-table {
-  border: none;
-  border-collapse: separate;
-  border-spacing: 0;
-  margin-bottom: 0;
-}
-
-#view-daily .daily-clean-table th,
-#view-daily .daily-clean-table td {
-  border: none !important;
-  border-bottom: 1px solid #e8edf2 !important;
-  padding: 0.8rem 0.9rem;
+#view-daily .daily-sheet-table th,
+#view-daily .daily-sheet-table td,
+#view-daily .daily-operations-table th,
+#view-daily .daily-operations-table td {
+  padding: 0.65rem 0.75rem;
   vertical-align: middle;
 }
 
-#view-daily .daily-clean-table thead th {
+#view-daily .daily-sheet-table thead th,
+#view-daily .daily-operations-table thead th {
   background: #f4f7fb;
-  color: #334155;
-  font-weight: 800;
-  font-size: 0.82rem;
-  border-bottom: 2px solid #dbe4ee !important;
+  font-weight: 700;
   white-space: nowrap;
-}
-
-#view-daily .daily-clean-table tbody tr:last-child td {
-  border-bottom: none !important;
-}
-
-#view-daily .daily-clean-table tbody tr:hover {
-  background: #f8fafc;
-}
-
-#view-daily .daily-clean-table tfoot td {
-  background: #fef9c3;
-  border-bottom: none !important;
-  font-weight: 800;
-  padding-top: 0.95rem;
-  padding-bottom: 0.95rem;
-}
-
-#view-daily .table-bordered.daily-sheet-table th,
-#view-daily .table-bordered.daily-sheet-table td {
-  border: none !important;
-  border-bottom: 1px solid #e8edf2 !important;
-}
-
-#view-daily .daily-sheet-table thead th {
-  border-bottom: 2px solid #dbe4ee !important;
 }
 
 #view-daily .daily-operations-legend {
@@ -1152,19 +1117,7 @@ body {
   margin-top: 0.25rem;
 }
 
-/* Arabic accounting amounts — bold, grouped, readable */
-input.comma-amount,
-input[data-comma-amount="1"],
-input.calc-trigger[inputmode="decimal"],
-input.pay-amt,
-input.patient-credit-input {
-  font-weight: 800 !important;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-}
-
-.amount-num,
-#daily-invoice-info strong,
+/* Monetary totals — bold, comma-separated Western digits */
 #daily-total-display,
 #daily-section-total,
 #daily-operations-total,
@@ -1173,13 +1126,16 @@ input.patient-credit-input {
 #daily-inv-collected,
 #daily-inv-remaining,
 #daily-inv-final-total,
-.daily-clean-table tfoot td,
 .daily-sheet-table tfoot td,
-.daily-review-readonly-grid .review-field,
-.invoice-totals-panel input.form-control,
-.invoice-totals-panel .fw-bold,
-.invoice-table input.comma-amount {
-  font-weight: 800 !important;
+.daily-operations-table tfoot td,
+.daily-row-total,
+.amount-total {
+  font-weight: 700 !important;
+  font-variant-numeric: tabular-nums;
+}
+
+input.comma-amount,
+input[data-comma-amount="1"] {
   font-variant-numeric: tabular-nums;
 }
 

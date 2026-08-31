@@ -64,7 +64,7 @@ function catalogParseAmount(text) {
 function catalogFmt(n) {
   if (typeof fmt === 'function') return fmt(n);
   const num = Number(n) || 0;
-  return num.toLocaleString('ar-EG', {
+  return num.toLocaleString('ar-EG-u-nu-latn', {
     useGrouping: true,
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,

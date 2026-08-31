@@ -1849,7 +1849,7 @@ function dailyCan(view) {
 function dailyFormatNumber(n, decimals = 2) {
   if (typeof formatPlainNumber === 'function') return formatPlainNumber(n, decimals);
   const num = Number(n) || 0;
-  return num.toLocaleString('ar-EG', {
+  return num.toLocaleString('ar-EG-u-nu-latn', {
     useGrouping: true,
     minimumFractionDigits: 0,
     maximumFractionDigits: decimals,
@@ -2481,10 +2481,10 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
     <td><input type="text" class="form-control form-control-sm daily-sup-invoice bg-light" readonly value="${dailyEscapeAttr(invoiceLabel)}"></td>
     <td class="daily-sup-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
-    <td><input type="text" class="form-control form-control-sm daily-sup-cost-unit bg-light" readonly placeholder="تكلفة"></td>
-    <td><input type="text" class="form-control form-control-sm daily-sup-cost-total bg-light" readonly placeholder="إجمالي"></td>
+    <td><input type="text" class="form-control form-control-sm daily-sup-cost-unit bg-light" readonly placeholder="قبل الهامش"></td>
+    <td><input type="text" class="form-control form-control-sm daily-sup-cost-total bg-light" readonly placeholder="إجمالي قبل"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-sell-unit bg-light" readonly placeholder="بعد الهامش"></td>
-    <td><input type="text" class="form-control form-control-sm daily-sup-sell-total bg-light" readonly placeholder="إجمالي"></td>
+    <td><input type="text" class="form-control form-control-sm daily-sup-sell-total bg-light" readonly placeholder="إجمالي بعد"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
     <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount">`;
 
@@ -3010,8 +3010,8 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">رقم الفاتورة</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
       '<th class="daily-meta-th">الكمية</th>' +
-      '<th class="daily-meta-th">سعر الصنف</th>' +
-      '<th class="daily-meta-th">الإجمالي</th>' +
+      '<th class="daily-meta-th">سعر قبل الهامش</th>' +
+      '<th class="daily-meta-th">إجمالي قبل الهامش</th>' +
       '<th class="daily-meta-th">سعر بعد الهامش</th>' +
       '<th class="daily-meta-th">إجمالي بعد الهامش</th>' +
       '<th class="daily-meta-th"></th>';
