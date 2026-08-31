@@ -910,6 +910,14 @@ body {
   font-size: 0.95rem;
 }
 
+.invoice-section-aggregate-row td {
+  background: #f8fafc;
+}
+
+.invoice-section-aggregate-row [data-field="description"] {
+  color: #1a5276;
+}
+
 #items-tbody tr.daily-invoice-row td {
   background-color: #fafcff;
 }

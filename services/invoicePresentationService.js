@@ -41,6 +41,76 @@ function buildServiceGroupKey(item) {
   return `${serviceId}|${serviceCode}|${name}|${unitPrice}`;
 }
 
+function inferSectionCode(item) {
+  const code = String(item?.section_code || '').trim();
+  if (code) return code;
+  const desc = String(item?.description || '');
+  if (desc.includes('عملية')) return 'operations';
+  if (desc.includes('بصريات') || desc.includes('نظارات')) return 'glasses';
+  return '__manual__';
+}
+
+/**
+ * One summary row per invoice section (medicines, lab, stay, etc.) for customer-facing display.
+ */
+function aggregateInvoiceSectionTotals(items = [], options = {}) {
+  const sectionLabels = options.sectionLabels || {};
+  const buckets = new Map();
+  const order = [];
+
+  const sorted = [...items].sort((a, b) => {
+    const sa = a.section_sort_order ?? 999;
+    const sb = b.section_sort_order ?? 999;
+    if (sa !== sb) return sa - sb;
+    return (Number(a.id) || 0) - (Number(b.id) || 0);
+  });
+
+  for (let index = 0; index < sorted.length; index++) {
+    const item = sorted[index];
+    const sectionCode = inferSectionCode(item);
+    if (!buckets.has(sectionCode)) {
+      const label =
+        sectionCode === '__manual__'
+          ? 'بنود أخرى'
+          : resolveSectionLabel(item, sectionCode, sectionLabels);
+      buckets.set(sectionCode, {
+        section_code: sectionCode === '__manual__' ? '' : sectionCode,
+        description: label,
+        section_sort_order: item.section_sort_order ?? 999,
+        firstIndex: index,
+        total: 0,
+        total_raw: 0,
+      });
+      order.push(sectionCode);
+    }
+    const bucket = buckets.get(sectionCode);
+    bucket.total = round2(bucket.total + (Number(item.total) || 0));
+    bucket.total_raw = round2(bucket.total_raw + (Number(item.total_raw ?? item.total) || 0));
+    if (item.section_name && sectionCode !== '__manual__') {
+      bucket.description = String(item.section_name).trim();
+    }
+    if (item.section_sort_order != null) {
+      bucket.section_sort_order = item.section_sort_order;
+    }
+  }
+
+  return order.map((code) => {
+    const bucket = buckets.get(code);
+    return {
+      description: bucket.description,
+      section_code: bucket.section_code,
+      section_sort_order: bucket.section_sort_order,
+      total: bucket.total,
+      total_raw: bucket.total_raw,
+      quantity: '',
+      amount: '',
+      item_discount_percent: '',
+      _customer_display_aggregate: true,
+      _section_aggregate: true,
+    };
+  });
+}
+
 /**
  * Collapse catalog consumable lines and identical clinical service lines for customer PDF.
  * Call only after calculateInvoiceTotals + enrichInvoice so line totals include returns.
@@ -154,6 +224,8 @@ function aggregateCustomerFacingLines(items = [], options = {}) {
 
 module.exports = {
   aggregateCustomerFacingLines,
+  aggregateInvoiceSectionTotals,
+  inferSectionCode,
   isCustomerAggregateSection,
   buildServiceGroupKey,
   CUSTOMER_AGGREGATE_SECTION_CODES,

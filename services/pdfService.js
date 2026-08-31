@@ -1,5 +1,5 @@
 const { formatDual, round2, calculateInvoiceTotals } = require('./calculations');
-const { aggregateCustomerFacingLines } = require('./invoicePresentationService');
+const { aggregateInvoiceSectionTotals } = require('./invoicePresentationService');
 const { CENTER_NAME } = require('../config/branding');
 
 const { formatAmountAr } = require('./amountFormat');
@@ -172,7 +172,7 @@ function formatItemQuantityDisplay(item) {
 function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
   const inv = enrichInvoice(invoice);
-  const displayItems = aggregateCustomerFacingLines(inv.items || []);
+  const displayItems = aggregateInvoiceSectionTotals(inv.items || []);
 
   const realItems = displayItems.filter((i) => {
     if (i._customer_display_aggregate) return true;
