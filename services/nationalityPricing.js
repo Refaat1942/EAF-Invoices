@@ -11,6 +11,8 @@ function normalizeNationalityText(nationality) {
 function isEgyptianNationality(nationality) {
   const n = normalizeNationalityText(nationality);
   if (!n) return true;
+  const foreignHints = ['اجنبي', 'أجنبي', 'foreign', 'foreigner'];
+  if (foreignHints.some((hint) => n.includes(hint))) return false;
   const egyptianHints = [
     'مصر',
     'مصري',

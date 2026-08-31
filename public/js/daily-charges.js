@@ -651,7 +651,7 @@ async function ensureOpenStayInvoice(ctx) {
         admission_date: getLocalDateString(),
         patient_type: p.patient_type || 'internal',
         phone: p.phone || '',
-        nationality: p.nationality || '',
+        nationality: normalizeNationalitySelectValue(p.nationality),
         gender: p.gender || '',
         financial_treatment: '',
       }),
@@ -810,6 +810,29 @@ function toggleDailyStayEntityFields() {
   if (milTo) milTo.style.display = isMilitary ? '' : 'none';
 }
 
+function normalizeNationalitySelectValue(nationality) {
+  const n = String(nationality || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي');
+  if (!n) return 'مصري';
+  const egyptianHints = ['مصر', 'مصري', 'egypt', 'egyptian', 'eg'];
+  if (egyptianHints.some((hint) => n.includes(hint))) return 'مصري';
+  return 'أجنبي';
+}
+
+function setNationalityFieldValue(el, nationality) {
+  if (!el) return;
+  const value = normalizeNationalitySelectValue(nationality);
+  if (el.tagName === 'SELECT') {
+    el.value = value;
+    if (!el.value) el.value = 'مصري';
+  } else {
+    el.value = value;
+  }
+}
+
 function collectPatientDemographics(mode = 'register') {
   const isDaily = mode === 'daily';
   const invoice_type = document.getElementById(
@@ -819,9 +842,6 @@ function collectPatientDemographics(mode = 'register') {
     age: document.getElementById(isDaily ? 'daily-stay-age' : 'patient-reg-age')?.value?.trim() || null,
     stay_grade_id:
       document.getElementById(isDaily ? 'daily-stay-stay-grade-id' : 'patient-reg-stay-grade')?.value || null,
-    disability_type: document.getElementById(
-      isDaily ? 'daily-stay-disability-type' : 'patient-reg-disability-type'
-    )?.value?.trim() || '',
     room_insurance_amount: dailyParseAmount(
       document.getElementById(isDaily ? 'daily-stay-room-insurance' : 'patient-reg-room-insurance')?.value
     ),
@@ -1200,14 +1220,18 @@ function clearPatientRegisterForm(options = {}) {
     'patient-reg-admission',
     'patient-reg-balance',
     'patient-reg-age',
-    'patient-reg-disability-type',
     'patient-reg-room-insurance',
     'patient-reg-military-from',
     'patient-reg-military-to',
   ];
   ids.forEach((id) => {
     const el = document.getElementById(id);
-    if (el) el.value = '';
+    if (!el) return;
+    if (id === 'patient-reg-nationality') {
+      el.value = 'مصري';
+    } else {
+      el.value = '';
+    }
   });
   const genderEl = document.getElementById('patient-reg-gender');
   if (genderEl) genderEl.value = '';
@@ -1233,7 +1257,9 @@ async function savePatientRegistration(event) {
   const file_number = document.getElementById('patient-reg-file-number')?.value.trim() || '';
   const patient_name = document.getElementById('patient-reg-name')?.value.trim() || '';
   const phone = document.getElementById('patient-reg-phone')?.value.trim() || '';
-  const nationality = document.getElementById('patient-reg-nationality')?.value.trim() || '';
+  const nationality = normalizeNationalitySelectValue(
+    document.getElementById('patient-reg-nationality')?.value
+  );
   const gender = document.getElementById('patient-reg-gender')?.value || '';
   const admission_date = document.getElementById('patient-reg-admission')?.value || '';
   const financial_treatment = document.getElementById('patient-reg-financial')?.value || '';
@@ -1318,7 +1344,7 @@ function applyDailyStayContext(ctx) {
     const phoneEl = document.getElementById('daily-stay-phone');
     if (phoneEl) phoneEl.value = ctx.patient.phone || '';
     const nationalityEl = document.getElementById('daily-stay-nationality');
-    if (nationalityEl) nationalityEl.value = ctx.patient.nationality || '';
+    setNationalityFieldValue(nationalityEl, ctx.patient.nationality);
     const genderEl = document.getElementById('daily-stay-gender');
     if (genderEl) genderEl.value = ctx.patient.gender || '';
     const ageEl = document.getElementById('daily-stay-age');
@@ -1330,8 +1356,6 @@ function applyDailyStayContext(ctx) {
           ? String(ctx.patient.stay_grade_id)
           : '';
     }
-    const disType = document.getElementById('daily-stay-disability-type');
-    if (disType) disType.value = ctx.patient.disability_type || '';
     const roomIns = document.getElementById('daily-stay-room-insurance');
     if (roomIns && typeof setCommaAmountValue === 'function') {
       setCommaAmountValue(roomIns, ctx.patient.room_insurance_amount || 0);
@@ -1463,7 +1487,9 @@ async function saveOpenPatientStay() {
       file_number,
       patient_name,
       phone: document.getElementById('daily-stay-phone')?.value.trim() || '',
-      nationality: document.getElementById('daily-stay-nationality')?.value.trim() || '',
+      nationality: normalizeNationalitySelectValue(
+        document.getElementById('daily-stay-nationality')?.value
+      ),
       gender: document.getElementById('daily-stay-gender')?.value || '',
       admission_date,
       discharge_date,
@@ -2286,7 +2312,9 @@ async function saveDailyEntry() {
         patient_fields: {
           ...collectPatientDemographics('daily'),
           phone: document.getElementById('daily-stay-phone')?.value?.trim() || '',
-          nationality: document.getElementById('daily-stay-nationality')?.value?.trim() || '',
+          nationality: normalizeNationalitySelectValue(
+            document.getElementById('daily-stay-nationality')?.value
+          ),
           gender: document.getElementById('daily-stay-gender')?.value || '',
           age: document.getElementById('daily-stay-age')?.value?.trim() || null,
         },

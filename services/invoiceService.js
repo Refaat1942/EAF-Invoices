@@ -489,10 +489,11 @@ async function listInvoices(filters = {}) {
 }
 
 async function saveInvoice(data, existingId = null, createdBy = null, options = {}) {
+  const actor = options.actor ?? createdBy;
   let existingForPatientGuard = null;
   if (existingId) {
     existingForPatientGuard = await getInvoiceById(existingId);
-    data = preserveDailyPatientHeaderFromExisting(data, existingForPatientGuard, options.actor);
+    data = preserveDailyPatientHeaderFromExisting(data, existingForPatientGuard, actor);
   }
 
   data.issue_date = fmtDateOnly(data.issue_date);
@@ -544,7 +545,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
   const skipPatientUpsert =
     existingForPatientGuard &&
     invoiceHasDailySource(existingForPatientGuard) &&
-    !canBypassDailyPatientHeaderLock(options.actor);
+    !canBypassDailyPatientHeaderLock(actor);
   if (data.file_number?.trim() && !skipPatientUpsert) {
     await upsertPatient(data.file_number, data.patient_name || '');
   }
@@ -577,7 +578,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
       }
 
       const existingFull = await getInvoiceById(existingId, client);
-      assertInvoiceStructuralEditAllowed(options.actor, existingFull, data, totals);
+      assertInvoiceStructuralEditAllowed(actor, existingFull, data, totals);
 
       serialNumber = current.serial_number;
       fiscalYear = current.fiscal_year;
@@ -1415,6 +1416,7 @@ async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = nu
   const updated = await saveInvoice(payload, invoice.id, user, {
     save_mode: 'draft',
     preserve_status: true,
+    actor: user,
   });
 
   const refreshed = await getInvoiceById(updated.id);
@@ -1521,7 +1523,6 @@ async function openPatientStay(data, user = null) {
     floor: patientType === 'internal' ? data.floor || '' : '',
     age: data.age,
     disability_degree: data.disability_degree || '',
-    disability_type: data.disability_type || '',
     stay_grade_id: data.stay_grade_id || null,
     room_insurance_amount: data.room_insurance_amount,
     military_auth_from: data.military_auth_from,
@@ -1583,6 +1584,7 @@ async function openPatientStay(data, user = null) {
   const updated = await saveInvoice(payload, invoiceId, user, {
     save_mode: 'draft',
     preserve_status: true,
+    actor: user,
   });
   await syncInvoiceDailyCharges(invoiceId, { preserve_status: true });
 

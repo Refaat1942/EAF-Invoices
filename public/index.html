@@ -133,7 +133,11 @@
                 </div>
                 <div class="col-md-4">
                   <label class="form-label fw-bold">الجنسية</label>
-                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-nationality" autocomplete="off" autocorrect="off" spellcheck="false">
+                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-nationality" autocomplete="off">
+                    <option value="مصري">مصري</option>
+                    <option value="أجنبي">أجنبي</option>
+                  </select>
+                  <small class="text-muted">الأجنبي: أسعار اللائحة × 2</small>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold">الجنس</label>
@@ -153,10 +157,6 @@
                     <option value="">-- اختر من اللائحة --</option>
                   </select>
                   <small class="text-muted">من لائحة الإقامات والرعاية المركزة</small>
-                </div>
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">نوع الإعاقة</label>
-                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-disability-type" autocomplete="off">
                 </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
@@ -882,7 +882,6 @@
         <select id="daily-stay-gender"><option value=""></option><option value="male">ذكر</option><option value="female">أنثى</option></select>
         <input type="hidden" id="daily-stay-age">
         <input type="hidden" id="daily-stay-stay-grade-id">
-        <input type="hidden" id="daily-stay-disability-type">
         <input type="hidden" id="daily-stay-admission">
         <input type="hidden" id="daily-stay-discharge">
         <select id="daily-stay-financial"><option value=""></option></select>

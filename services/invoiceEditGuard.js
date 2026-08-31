@@ -4,6 +4,35 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+const HEADER_KEYS = [
+  'patient_name',
+  'file_number',
+  'invoice_type',
+  'admission_date',
+  'discharge_date',
+  'financial_treatment',
+  'contracted_entity_id',
+  'discount_percent',
+  'stamp_duty',
+  'professional_fees',
+  'admin_expenses_percent',
+  'notes',
+  'letter_from_date',
+  'letter_to_date',
+];
+
+const REGISTRATION_HEADER_KEYS = new Set([
+  'patient_name',
+  'file_number',
+  'invoice_type',
+  'admission_date',
+  'discharge_date',
+  'financial_treatment',
+  'contracted_entity_id',
+  'letter_from_date',
+  'letter_to_date',
+]);
+
 function normalizeItemsForCompare(items = []) {
   return (items || [])
     .filter((i) => !i.is_stay_entry)
@@ -27,30 +56,28 @@ function normalizeStayForCompare(entries = []) {
   }));
 }
 
-function hasStructuralInvoiceChanges(existing, newData) {
-  const headerKeys = [
-    'patient_name',
-    'file_number',
-    'invoice_type',
-    'admission_date',
-    'discharge_date',
-    'contracted_entity_id',
-    'discount_percent',
-    'stamp_duty',
-    'professional_fees',
-    'admin_expenses_percent',
-    'notes',
-    'letter_from_date',
-    'letter_to_date',
-  ];
-  for (const key of headerKeys) {
+function filterManualItems(items = [], dailySync = false) {
+  if (!dailySync) return items;
+  return (items || []).filter((i) => !i.daily_entry_line_id);
+}
+
+function hasHeaderChanges(existing, newData, allowedKeys = null) {
+  for (const key of HEADER_KEYS) {
+    if (allowedKeys && allowedKeys.has(key)) continue;
     const a = existing[key] ?? '';
     const b = newData[key] ?? '';
     if (String(a).trim() !== String(b).trim()) return true;
   }
+  return false;
+}
 
-  const oldItems = JSON.stringify(normalizeItemsForCompare(existing.items));
-  const newItems = JSON.stringify(normalizeItemsForCompare(newData.items));
+function hasItemOrStayChanges(existing, newData, dailySync = false) {
+  const oldItems = JSON.stringify(
+    normalizeItemsForCompare(filterManualItems(existing.items, dailySync))
+  );
+  const newItems = JSON.stringify(
+    normalizeItemsForCompare(filterManualItems(newData.items, dailySync))
+  );
   if (oldItems !== newItems) return true;
 
   const oldStay = JSON.stringify(normalizeStayForCompare(existing.stay_entries));
@@ -60,6 +87,12 @@ function hasStructuralInvoiceChanges(existing, newData) {
   if (oldStay !== newStay) return true;
 
   return false;
+}
+
+function hasStructuralInvoiceChanges(existing, newData, options = {}) {
+  const dailySync = options.dailySync === true;
+  if (hasHeaderChanges(existing, newData)) return true;
+  return hasItemOrStayChanges(existing, newData, dailySync);
 }
 
 function assertInvoiceStructuralEditAllowed(actor, existing, newPayload, totals) {
@@ -73,7 +106,22 @@ function assertInvoiceStructuralEditAllowed(actor, existing, newPayload, totals)
     stay_entries: totals?.stay_entries || newPayload.stay_entries || existing.stay_entries,
   };
 
-  if (hasStructuralInvoiceChanges(existing, merged)) {
+  const dailySync = newPayload.include_daily_charges === true;
+
+  if (hasItemOrStayChanges(existing, merged, dailySync)) {
+    throw new Error('تعديل بنود ومحتوى الفاتورة الأصلية متاح للمسؤول فقط');
+  }
+
+  const canRegister =
+    dailySync && userHasPermission(actor, 'daily_charges.manage');
+  if (canRegister) {
+    if (hasHeaderChanges(existing, merged, REGISTRATION_HEADER_KEYS)) {
+      throw new Error('تعديل بنود ومحتوى الفاتورة الأصلية متاح للمسؤول فقط');
+    }
+    return;
+  }
+
+  if (hasHeaderChanges(existing, merged)) {
     throw new Error('تعديل بنود ومحتوى الفاتورة الأصلية متاح للمسؤول فقط');
   }
 }
