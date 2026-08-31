@@ -1,5 +1,33 @@
 const { query, withTransaction } = require('../database/db');
 
+function normalizePatientType(type) {
+  const t = String(type || '').trim().toLowerCase();
+  return t === 'external' || t === 'خارجي' ? 'external' : 'internal';
+}
+
+function normalizeUpsertData(fileNumber, dataOrName = '') {
+  if (typeof dataOrName === 'string') {
+    return {
+      file_number: String(fileNumber || '').trim(),
+      name: dataOrName || '',
+      phone: '',
+      nationality: '',
+      gender: '',
+      patient_type: 'internal',
+    };
+  }
+  const data = dataOrName || {};
+  return {
+    file_number: String(fileNumber || data.file_number || '').trim(),
+    name: String(data.name || '').trim(),
+    phone: String(data.phone || '').trim(),
+    nationality: String(data.nationality || '').trim(),
+      gender: String(data.gender || '').trim(),
+      patient_type: normalizePatientType(data.patient_type || data.patientType),
+      floor: String(data.floor || '').trim(),
+    };
+}
+
 async function getPatientByFileNumber(fileNumber) {
   if (!fileNumber?.trim()) return null;
   const { rows } = await query(
@@ -9,24 +37,37 @@ async function getPatientByFileNumber(fileNumber) {
   return rows[0] || null;
 }
 
-async function upsertPatient(fileNumber, name = '') {
-  const fn = String(fileNumber || '').trim();
-  if (!fn) return null;
+async function upsertPatient(fileNumber, dataOrName = '') {
+  const data = normalizeUpsertData(fileNumber, dataOrName);
+  if (!data.file_number) return null;
 
   const { rows } = await query(
-    `INSERT INTO patients (file_number, name, updated_at)
-     VALUES ($1, $2, NOW())
+    `INSERT INTO patients (file_number, name, phone, nationality, gender, patient_type, floor, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
      ON CONFLICT (file_number) DO UPDATE SET
        name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE patients.name END,
+       phone = CASE WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone ELSE patients.phone END,
+       nationality = CASE WHEN EXCLUDED.nationality <> '' THEN EXCLUDED.nationality ELSE patients.nationality END,
+       gender = CASE WHEN EXCLUDED.gender <> '' THEN EXCLUDED.gender ELSE patients.gender END,
+       patient_type = EXCLUDED.patient_type,
+       floor = CASE WHEN EXCLUDED.floor <> '' THEN EXCLUDED.floor ELSE patients.floor END,
        updated_at = NOW()
      RETURNING *`,
-    [fn, name || '']
+    [
+      data.file_number,
+      data.name || '',
+      data.phone || '',
+      data.nationality || '',
+      data.gender || '',
+      data.patient_type,
+      data.floor || '',
+    ]
   );
   return rows[0];
 }
 
 async function setPatientBalance(fileNumber, balance, name = '') {
-  const patient = await upsertPatient(fileNumber, name);
+  const patient = await upsertPatient(fileNumber, typeof name === 'string' ? name : name || {});
   if (!patient) throw new Error('رقم الملف مطلوب');
 
   const amount = Math.round((Number(balance) || 0) * 100) / 100;
@@ -122,7 +163,8 @@ async function recordInvoiceCollections(client, invoice, totals) {
 
 async function listPatients() {
   const { rows } = await query(
-    'SELECT id, file_number, name, account_balance, updated_at FROM patients ORDER BY file_number'
+    `SELECT id, file_number, name, phone, nationality, gender, patient_type, account_balance, updated_at
+     FROM patients ORDER BY file_number`
   );
   return rows;
 }
@@ -134,4 +176,5 @@ module.exports = {
   applyPatientCredit,
   recordInvoiceCollections,
   listPatients,
+  normalizePatientType,
 };

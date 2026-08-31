@@ -329,6 +329,31 @@ router.post('/open-stay', requirePermission('daily_charges.manage'), async (req,
   }
 });
 
+router.post('/change-room', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const file_number = req.body.file_number?.trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    const patient = await getPatientByFileNumber(file_number);
+    if (!patient) return res.status(400).json({ error: 'المريض غير موجود' });
+    const { changeRoomAssignment } = require('../services/patientRoomService');
+    const assignment = await changeRoomAssignment(patient.id, {
+      stay_type_id: req.body.stay_type_id,
+      floor: req.body.floor,
+      companion_amount: req.body.companion_amount,
+      nursing_point_amount: req.body.nursing_point_amount,
+      patient_assistant_amount: req.body.patient_assistant_amount,
+      effective_from: req.body.effective_from,
+    });
+    if (patient.floor && req.body.floor) {
+      await upsertPatient(file_number, { floor: req.body.floor, name: patient.name });
+    }
+    const stay = await getOpenPatientStay(file_number);
+    res.json({ assignment, ...stay });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/entries', requirePermission('daily_charges.manage'), async (req, res) => {
   try {
     const entry = await saveEntry(req.body, req.session?.user || null);

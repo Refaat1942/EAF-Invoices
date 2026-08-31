@@ -470,17 +470,18 @@ function buildInvoiceHtml(invoice, options = {}) {
         <td class="value">${inv.stay_days ?? ''}</td>
       </tr>
       ${
-        inv.invoice_type === 'contracted' && inv.contracted_entity_name
+        (inv.invoice_type === 'contracted' || inv.invoice_type === 'non_contracted') &&
+        inv.contracted_entity_name
           ? `<tr>
-        <th>الجهة المتعاقدة</th>
+        <th>الجهة</th>
         <th>نسبة الخصم</th>
-        <th>خطاب الجهة من</th>
-        <th>خطاب الجهة إلى</th>
+        <th>جواب التعاقد من</th>
+        <th>جواب التعاقد إلى</th>
         <th colspan="2">المعاملة المالية للمريض</th>
       </tr>
       <tr>
         <td class="value">${escapeHtml(inv.contracted_entity_name)}</td>
-        <td class="value">${inv.discount_percent || 0}%</td>
+        <td class="value">${inv.invoice_type === 'contracted' ? inv.discount_percent || 0 : 0}%</td>
         <td class="value">${formatDate(inv.letter_from_date)}</td>
         <td class="value">${formatDate(inv.letter_to_date)}</td>
         <td class="value" colspan="2">${escapeHtml(inv.financial_treatment)}</td>

@@ -475,8 +475,9 @@ function bindEvents() {
     tile.addEventListener('click', () => {
       const view = tile.dataset.view;
       const action = tile.dataset.hubAction;
-      if (action === 'new-patient' && typeof window.openNewPatientRegistration === 'function') {
-        window.openNewPatientRegistration();
+      if (action === 'new-patient') {
+        switchView('patient-register');
+        if (typeof window.initPatientRegistration === 'function') window.initPatientRegistration();
         return;
       }
       if (view === 'create') {
@@ -2233,6 +2234,10 @@ async function saveInvoiceWithMode(saveMode) {
     showToast('يجب اختيار الجهة المتعاقدة', 'danger');
     return;
   }
+  if (data.invoice_type === 'non_contracted' && !data.contracted_entity_id) {
+    showToast('يجب اختيار الجهة', 'danger');
+    return;
+  }
 
   if (!lastCalculationTotals) {
     await recalculate();
@@ -2525,6 +2530,7 @@ function switchView(view, options = {}) {
     loadReports();
   }
   if (view === 'settings') loadSettingsPage();
+  if (view === 'patient-register' && typeof initPatientRegistration === 'function') initPatientRegistration();
   if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView();
 }
 
@@ -2883,6 +2889,7 @@ async function loadFinancialTreatments(selected = {}) {
 
     fillSelect('financial_treatment', selected.financial_treatment);
     fillSelect('daily-stay-financial', selected.daily_stay_financial ?? selected.financial_treatment);
+    fillSelect('patient-reg-financial', selected.patient_reg_financial ?? selected.financial_treatment);
   } catch (err) {
     console.error(err);
   }
@@ -3114,16 +3121,18 @@ async function loadContractedEntities(selectedId = null) {
 }
 
 function toggleContractedFields() {
-  const isContracted = document.getElementById('invoice_type').value === 'contracted';
-  document.getElementById('contracted-entity-wrap').style.display = isContracted ? '' : 'none';
+  const type = document.getElementById('invoice_type').value;
+  const isContracted = type === 'contracted';
+  const isEntityType = type === 'contracted' || type === 'non_contracted';
+  document.getElementById('contracted-entity-wrap').style.display = isEntityType ? '' : 'none';
   document.getElementById('contracted-discount-wrap').style.display = isContracted ? '' : 'none';
-  document.getElementById('contracted-letter-wrap').style.display = isContracted ? '' : 'none';
-  if (!isContracted) {
+  document.getElementById('contracted-letter-wrap').style.display = isEntityType ? '' : 'none';
+  if (!isEntityType) {
     document.getElementById('contracted_entity_id').value = '';
     document.getElementById('discount_percent_display').value = '0';
     document.getElementById('letter_from_date').value = '';
     document.getElementById('letter_to_date').value = '';
-  } else {
+  } else if (isContracted) {
     onContractedEntityChange();
   }
   recalculate();

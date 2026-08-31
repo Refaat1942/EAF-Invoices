@@ -672,6 +672,28 @@ body {
   color: #fff;
 }
 
+.patient-register-type-picker {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.patient-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.patient-type-tile {
+  min-height: 140px;
+}
+
+@media (max-width: 576px) {
+  .patient-type-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .daily-step-locked {
   opacity: 0.55;
   pointer-events: none;

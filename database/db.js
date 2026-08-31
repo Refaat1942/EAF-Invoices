@@ -474,6 +474,32 @@ async function runMigrations() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS phone TEXT DEFAULT ''`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS nationality TEXT DEFAULT ''`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS gender VARCHAR(20) DEFAULT ''`);
+  await query(
+    `ALTER TABLE patients ADD COLUMN IF NOT EXISTS patient_type VARCHAR(20) NOT NULL DEFAULT 'internal'`
+  );
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS floor TEXT DEFAULT ''`);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS patient_room_assignments (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      stay_type_id INTEGER REFERENCES stay_types(id) ON DELETE SET NULL,
+      floor TEXT DEFAULT '',
+      companion_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      nursing_point_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      patient_assistant_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+      effective_from DATE NOT NULL,
+      effective_to DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_patient_room_assignments_patient_dates
+     ON patient_room_assignments(patient_id, effective_from, effective_to)`
+  );
 
   await query(`
     CREATE TABLE IF NOT EXISTS patient_transactions (

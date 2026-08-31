@@ -144,7 +144,13 @@ async function prepareCalculationData(data, client = null) {
         calcData.discount_percent = await getEffectiveDiscountPercent(entity.id);
       }
     }
-  } else {
+  } else if (calcData.invoice_type === 'non_contracted' && calcData.contracted_entity_id) {
+    const entity = await getContractedEntityById(Number(calcData.contracted_entity_id));
+    if (entity) {
+      calcData.contracted_entity_name = entity.name;
+      calcData.discount_percent = 0;
+    }
+  } else if (calcData.invoice_type !== 'contracted' && calcData.invoice_type !== 'non_contracted') {
     calcData.contracted_entity_id = null;
     calcData.contracted_entity_name = '';
     calcData.discount_percent = 0;
@@ -1360,10 +1366,19 @@ async function getOpenPatientStay(fileNumber) {
   const { getDailySummaryForPatient } = require('./dailyChargeService');
   const dailySummary = await getDailySummaryForPatient(fn);
 
+  let room_assignment = null;
+  if (patient?.id) {
+    const { getAssignmentForDate } = require('./patientRoomService');
+    const refDate =
+      fmtDateOnly(invoice?.admission_date) || new Date().toISOString().slice(0, 10);
+    room_assignment = await getAssignmentForDate(patient.id, refDate);
+  }
+
   return {
     patient: patient || { file_number: fn, name: invoice?.patient_name || '', account_balance: 0 },
     invoice,
     daily_summary: dailySummary,
+    room_assignment,
   };
 }
 
@@ -1372,13 +1387,37 @@ async function openPatientStay(data, user = null) {
   const patientName = data.patient_name?.trim() || '';
   const admissionDate = fmtDateOnly(data.admission_date);
   const dischargeDate = fmtDateOnly(data.discharge_date);
+  const patientType = String(data.patient_type || 'internal').trim().toLowerCase() === 'external' ? 'external' : 'internal';
   if (!fileNumber || !patientName || !admissionDate) {
     throw new Error('رقم الملف واسم المريض وتاريخ الدخول مطلوبان');
   }
 
-  await upsertPatient(fileNumber, patientName);
-  if (data.account_balance !== undefined && data.account_balance !== null && data.account_balance !== '') {
-    await setPatientBalance(fileNumber, data.account_balance, patientName);
+  await upsertPatient(fileNumber, {
+    name: patientName,
+    phone: data.phone || '',
+    nationality: data.nationality || '',
+    gender: data.gender || '',
+    patient_type: patientType,
+    floor: patientType === 'internal' ? data.floor || '' : '',
+  });
+  if (patientType === 'internal') {
+    if (data.account_balance !== undefined && data.account_balance !== null && data.account_balance !== '') {
+      await setPatientBalance(fileNumber, data.account_balance, patientName);
+    }
+    const patientRow = await getPatientByFileNumber(fileNumber);
+    if (patientRow?.id && data.stay_type_id) {
+      const { createInitialAssignment } = require('./patientRoomService');
+      await createInitialAssignment(patientRow.id, {
+        stay_type_id: data.stay_type_id,
+        floor: data.floor || '',
+        companion_amount: data.companion_amount,
+        nursing_point_amount: data.nursing_point_amount,
+        patient_assistant_amount: data.patient_assistant_amount,
+        effective_from: admissionDate,
+      });
+    }
+  } else {
+    await setPatientBalance(fileNumber, 0, patientName);
   }
 
   let invoiceId = await resolveOpenInvoiceForDailyEntry(fileNumber);
@@ -1399,6 +1438,12 @@ async function openPatientStay(data, user = null) {
   });
   payload.patient_name = patientName;
   payload.financial_treatment = data.financial_treatment || invoice.financial_treatment || '';
+  if (data.invoice_type) payload.invoice_type = data.invoice_type;
+  if (data.invoice_type === 'contracted' || data.invoice_type === 'non_contracted') {
+    payload.contracted_entity_id = data.contracted_entity_id ? Number(data.contracted_entity_id) : null;
+    payload.letter_from_date = data.letter_from_date || null;
+    payload.letter_to_date = data.letter_to_date || null;
+  }
 
   const updated = await saveInvoice(payload, invoiceId, user, {
     save_mode: 'draft',
@@ -1409,11 +1454,18 @@ async function openPatientStay(data, user = null) {
   const patient = await getPatientByFileNumber(fileNumber);
   const dailySummary = await getDailySummaryForStay(fileNumber, updated.admission_date, updated.discharge_date);
 
+  let room_assignment = null;
+  if (patient?.id) {
+    const { getAssignmentForDate } = require('./patientRoomService');
+    room_assignment = await getAssignmentForDate(patient.id, admissionDate);
+  }
+
   return {
     patient,
     invoice: updated,
     created,
     daily_summary: dailySummary,
+    room_assignment,
   };
 }
 

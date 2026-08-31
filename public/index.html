@@ -56,7 +56,7 @@
         <p class="hub-welcome small text-muted mb-0" id="hub-welcome-text"></p>
       </div>
       <div class="hub-grid" id="hub-tiles">
-        <button type="button" class="hub-tile hub-tile--primary" data-view="daily" data-hub-action="new-patient" id="hub-tile-new-patient">
+        <button type="button" class="hub-tile hub-tile--primary" data-view="patient-register" data-hub-action="new-patient" id="hub-tile-new-patient">
           <span class="hub-tile-icon">🆕</span>
           <span class="hub-tile-title">تسجيل مريض جديد</span>
           <span class="hub-tile-desc">فتح ملف وإقامة جديدة</span>
@@ -88,6 +88,140 @@
         </button>
       </div>
     </section>
+
+    <!-- New patient registration -->
+    <section id="view-patient-register" class="view-section" style="display:none">
+      <div class="view-page-header mb-3 d-flex flex-wrap gap-2 align-items-center">
+        <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+      </div>
+
+      <div id="patient-register-type-picker" class="patient-register-type-picker">
+        <div class="hub-hero py-2">
+          <h2 class="hub-title fw-black mb-1">تسجيل مريض جديد</h2>
+          <p class="hub-subtitle mb-0">اختر نوع المريض</p>
+        </div>
+        <div class="patient-type-grid">
+          <button type="button" class="hub-tile hub-tile--primary patient-type-tile" data-patient-type="internal">
+            <span class="hub-tile-icon">🏥</span>
+            <span class="hub-tile-title">مريض داخلي</span>
+            <span class="hub-tile-desc">إقامة ورعاية — مع رصيد أول المدة</span>
+          </button>
+          <button type="button" class="hub-tile hub-tile--teal patient-type-tile" data-patient-type="external">
+            <span class="hub-tile-icon">🩺</span>
+            <span class="hub-tile-title">مريض خارجي</span>
+            <span class="hub-tile-desc">عيادات خارجية — بدون رصيد أول المدة</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="patient-register-form-panel" class="d-none">
+        <div class="card shadow-sm">
+          <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span class="fw-black" id="patient-register-type-badge">مريض داخلي</span>
+            <button type="button" class="btn btn-sm btn-light fw-bold" id="patient-register-change-type">↩ تغيير النوع</button>
+          </div>
+          <div class="card-body">
+            <form id="patient-register-form" autocomplete="off" novalidate>
+              <input type="hidden" id="patient-reg-type" value="internal">
+              <div class="row g-3">
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">رقم الملف *</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-file-number" autocomplete="off" autocorrect="off" spellcheck="false">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">اسم المريض *</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-name" autocomplete="off" autocorrect="off" spellcheck="false">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">رقم التليفون</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-phone" autocomplete="off" inputmode="tel">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">الجنسية</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-nationality" autocomplete="off" autocorrect="off" spellcheck="false">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold">الجنس</label>
+                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-gender" autocomplete="off">
+                    <option value="">-- اختر --</option>
+                    <option value="male">ذكر</option>
+                    <option value="female">أنثى</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">تاريخ الدخول *</label>
+                  <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-admission" autocomplete="off">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">التأمين / المعاملة المالية</label>
+                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-financial" autocomplete="off">
+                    <option value="">-- اختر --</option>
+                  </select>
+                </div>
+                <div class="col-md-3" id="patient-reg-balance-wrap">
+                  <label class="form-label fw-bold">رصيد أول المدة</label>
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-balance" placeholder="0" autocomplete="off">
+                </div>
+              </div>
+
+              <div id="patient-reg-internal-wrap" class="mt-3 border-top pt-3">
+                <h6 class="fw-black mb-3">بيانات الإقامة الداخلية</h6>
+                <div class="row g-3">
+                  <div class="col-md-4">
+                    <label class="form-label fw-bold">الغرفة / الجناح *</label>
+                    <select class="form-select fw-bold patient-reg-field" id="patient-reg-room" autocomplete="off">
+                      <option value="">-- اختر الغرفة أو الجناح --</option>
+                    </select>
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">الدور</label>
+                    <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-floor" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">مرافق</label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-companion" placeholder="0" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">نقطة التمريض</label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-nursing" placeholder="0" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">التمريض المساعد</label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-assistant" placeholder="0" autocomplete="off">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">نوع التعامل</label>
+                    <select class="form-select fw-bold patient-reg-field" id="patient-reg-invoice-type" autocomplete="off">
+                      <option value="civil">مدني (خاص)</option>
+                      <option value="contracted">جهات متعاقدة</option>
+                      <option value="non_contracted">جهات غير متعاقدة</option>
+                      <option value="military">عسكري</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4" id="patient-reg-entity-wrap" style="display:none">
+                    <label class="form-label fw-bold">الجهة *</label>
+                    <select class="form-select fw-bold patient-reg-field" id="patient-reg-entity" autocomplete="off">
+                      <option value="">-- اختر الجهة --</option>
+                    </select>
+                  </div>
+                  <div class="col-md-2" id="patient-reg-letter-wrap" style="display:none">
+                    <label class="form-label fw-bold">جواب التعاقد — من</label>
+                    <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-from" autocomplete="off">
+                  </div>
+                  <div class="col-md-2" id="patient-reg-letter-wrap-end" style="display:none">
+                    <label class="form-label fw-bold">جواب التعاقد — إلى</label>
+                    <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-to" autocomplete="off">
+                  </div>
+                </div>
+              </div>
+              <div class="d-flex gap-2 flex-wrap mt-4">
+                <button type="submit" class="btn btn-success fw-bold" id="patient-reg-save-btn">💾 حفظ تسجيل المريض</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
     <!-- Create/Edit Invoice View -->
     <section id="view-create" class="view-section" style="display:none">
       <div class="view-page-header mb-3">
@@ -117,7 +251,7 @@
                       </select>
                     </div>
                     <div class="col-lg-3 col-md-6" id="contracted-entity-wrap" style="display:none">
-                      <label class="form-label fw-bold">الجهة المتعاقدة *</label>
+                      <label class="form-label fw-bold">الجهة *</label>
                       <select class="form-select fw-bold" id="contracted_entity_id">
                         <option value="">-- اختر الجهة --</option>
                       </select>
@@ -129,11 +263,11 @@
                     <div class="col-lg-4 col-md-8" id="contracted-letter-wrap" style="display:none">
                       <div class="row g-2">
                         <div class="col-6">
-                          <label class="form-label fw-bold">خطاب الجهة — من</label>
+                          <label class="form-label fw-bold">جواب التعاقد — من</label>
                           <input type="date" class="form-control fw-bold" id="letter_from_date">
                         </div>
                         <div class="col-6">
-                          <label class="form-label fw-bold">خطاب الجهة — إلى</label>
+                          <label class="form-label fw-bold">جواب التعاقد — إلى</label>
                           <input type="date" class="form-control fw-bold" id="letter_to_date">
                         </div>
                       </div>
@@ -476,31 +610,105 @@
             <div class="card-header bg-primary text-white fw-black">① تسجيل / فتح إقامة المريض</div>
             <div class="card-body">
               <div class="row g-3">
+                <div class="col-md-2">
+                  <label class="form-label fw-bold">نوع المريض</label>
+                  <div class="form-control fw-bold bg-light" id="daily-stay-type-display">—</div>
+                </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold">رقم الملف *</label>
-                  <input type="text" class="form-control fw-bold" id="daily-stay-file-number" autocomplete="off">
+                  <input type="text" class="form-control fw-bold" id="daily-stay-file-number" autocomplete="off" autocorrect="off" spellcheck="false">
                 </div>
                 <div class="col-md-4">
                   <label class="form-label fw-bold">اسم المريض *</label>
-                  <input type="text" class="form-control fw-bold" id="daily-stay-patient-name">
+                  <input type="text" class="form-control fw-bold" id="daily-stay-patient-name" autocomplete="off" autocorrect="off" spellcheck="false">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">رقم التليفون</label>
+                  <input type="text" class="form-control fw-bold" id="daily-stay-phone" autocomplete="off" inputmode="tel">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">الجنسية</label>
+                  <input type="text" class="form-control fw-bold" id="daily-stay-nationality" autocomplete="off" autocorrect="off" spellcheck="false">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold">الجنس</label>
+                  <select class="form-select fw-bold" id="daily-stay-gender" autocomplete="off">
+                    <option value="">-- اختر --</option>
+                    <option value="male">ذكر</option>
+                    <option value="female">أنثى</option>
+                  </select>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
-                  <input type="date" class="form-control fw-bold" id="daily-stay-admission">
+                  <input type="date" class="form-control fw-bold" id="daily-stay-admission" autocomplete="off">
                 </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold">تاريخ الخروج</label>
-                  <input type="date" class="form-control fw-bold" id="daily-stay-discharge">
+                  <input type="date" class="form-control fw-bold" id="daily-stay-discharge" autocomplete="off">
                 </div>
                 <div class="col-md-4">
-                  <label class="form-label fw-bold">المعاملة المالية</label>
-                  <select class="form-select fw-bold" id="daily-stay-financial">
+                  <label class="form-label fw-bold">التأمين / المعاملة المالية</label>
+                  <select class="form-select fw-bold" id="daily-stay-financial" autocomplete="off">
                     <option value="">-- اختر --</option>
                   </select>
                 </div>
-                <div class="col-md-3">
-                  <label class="form-label fw-bold">رصيد الحساب</label>
-                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-balance" placeholder="0">
+                <div class="col-md-3" id="daily-stay-balance-wrap">
+                  <label class="form-label fw-bold">رصيد أول المدة</label>
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-balance" placeholder="0" autocomplete="off">
+                </div>
+              </div>
+
+              <div id="daily-stay-internal-wrap" class="mt-3 border-top pt-3" style="display:none">
+                <h6 class="fw-black mb-3">بيانات الإقامة الداخلية</h6>
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-4">
+                    <label class="form-label fw-bold">الغرفة / الجناح</label>
+                    <select class="form-select fw-bold" id="daily-stay-room" autocomplete="off">
+                      <option value="">-- اختر الغرفة أو الجناح --</option>
+                    </select>
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">الدور</label>
+                    <input type="text" class="form-control fw-bold" id="daily-stay-floor" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">مرافق</label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-companion" placeholder="0" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">نقطة التمريض</label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-nursing" placeholder="0" autocomplete="off">
+                  </div>
+                  <div class="col-md-2">
+                    <label class="form-label fw-bold">التمريض المساعد</label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="daily-stay-assistant" placeholder="0" autocomplete="off">
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label fw-bold">نوع التعامل</label>
+                    <select class="form-select fw-bold" id="daily-stay-invoice-type" autocomplete="off">
+                      <option value="civil">مدني (خاص)</option>
+                      <option value="contracted">جهات متعاقدة</option>
+                      <option value="non_contracted">جهات غير متعاقدة</option>
+                      <option value="military">عسكري</option>
+                    </select>
+                  </div>
+                  <div class="col-md-4" id="daily-stay-entity-wrap" style="display:none">
+                    <label class="form-label fw-bold">الجهة</label>
+                    <select class="form-select fw-bold" id="daily-stay-entity" autocomplete="off">
+                      <option value="">-- اختر الجهة --</option>
+                    </select>
+                  </div>
+                  <div class="col-md-2" id="daily-stay-letter-from-wrap" style="display:none">
+                    <label class="form-label fw-bold">جواب التعاقد — من</label>
+                    <input type="date" class="form-control fw-bold" id="daily-stay-letter-from" autocomplete="off">
+                  </div>
+                  <div class="col-md-2" id="daily-stay-letter-to-wrap" style="display:none">
+                    <label class="form-label fw-bold">جواب التعاقد — إلى</label>
+                    <input type="date" class="form-control fw-bold" id="daily-stay-letter-to" autocomplete="off">
+                  </div>
+                  <div class="col-md-12">
+                    <button type="button" class="btn btn-outline-warning fw-bold" id="daily-change-room-btn" style="display:none">🔄 تغيير الغرفة</button>
+                  </div>
                 </div>
               </div>
               <div class="d-flex gap-2 flex-wrap mt-3">
@@ -617,9 +825,53 @@
           </div>
         </div>
       </div>
-    </section>
 
-    <!-- Settings View -->
+      <div class="modal fade" id="change-room-modal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header bg-warning">
+              <h5 class="modal-title fw-black">🔄 تغيير الغرفة / الجناح</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">الغرفة / الجناح الجديدة *</label>
+                  <select class="form-select fw-bold" id="change-room-stay-type">
+                    <option value="">-- اختر --</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">الدور</label>
+                  <input type="text" class="form-control fw-bold" id="change-room-floor" autocomplete="off">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold">بدءًا من تاريخ *</label>
+                  <input type="date" class="form-control fw-bold" id="change-room-from" autocomplete="off">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">مرافق</label>
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-companion" placeholder="0">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">نقطة التمريض</label>
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-nursing" placeholder="0">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label fw-bold">التمريض المساعد</label>
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-assistant" placeholder="0">
+                </div>
+              </div>
+              <p class="small text-muted mt-3 mb-0">سيُسجَّل الإقامة تلقائيًا يوميًا من التاريخ المحدد وفق الغرفة الجديدة.</p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إلغاء</button>
+              <button type="button" class="btn btn-warning fw-bold" id="change-room-submit-btn">تأكيد تغيير الغرفة</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
     <section id="view-settings" class="view-section" style="display:none">
       <div class="view-page-header mb-3">
         <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
