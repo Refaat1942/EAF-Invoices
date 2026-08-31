@@ -572,9 +572,12 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
     const stayTypeIdsJson = JSON.stringify(stayTypeIds);
 
     if (existingId) {
+      // Lock the row before reading status so two concurrent saves of the same invoice
+      // (e.g. a duplicate submit racing an automatic daily-sync save) can't both pass
+      // the "not approved" check and race to overwrite each other's item/payment writes.
       const existing = await client.query(
         `SELECT serial_number, qr_token, file_password, fiscal_year, serial_sequence, status, patient_credit_deducted
-         FROM invoices WHERE id = $1`,
+         FROM invoices WHERE id = $1 FOR UPDATE`,
         [existingId]
       );
       if (!existing.rows.length) throw new Error('الفاتورة غير موجودة');
@@ -1104,7 +1107,7 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
     stay_days: invoice.stay_days,
     financial_treatment: invoice.financial_treatment || '',
     notes: invoice.notes || '',
-    stamp_duty: invoice.stamp_duty,
+    stamp_duty: dateOverrides.stamp_duty ?? invoice.stamp_duty,
     professional_fees: invoice.professional_fees,
     balance: invoice.balance,
     admin_expenses_percent: invoice.admin_expenses_percent,
@@ -1560,7 +1563,7 @@ async function openPatientStay(data, user = null) {
   });
   if (patientType === 'internal') {
     if (data.account_balance !== undefined && data.account_balance !== null && data.account_balance !== '') {
-      await setPatientBalance(fileNumber, data.account_balance, patientName);
+      await setPatientBalance(fileNumber, data.account_balance, patientName, user);
     }
     const patientRow = await getPatientByFileNumber(fileNumber);
     if (patientRow?.id && data.stay_type_id) {

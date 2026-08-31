@@ -262,6 +262,20 @@ function calculateStayEntries(entries) {
     });
 }
 
+const DAILY_STAMP_SECTION_CODES = new Set(['consultation_stamp', 'analyses_stamp', 'xray_stamp']);
+
+// Daily-entry stamp lines (دمغة كشوفات/تحاليل/أشعة) are already itemized as regular
+// invoice items when synced from patient_daily_entry_lines. The invoice header's manual
+// stamp_duty field must not re-add that same amount — only the portion of the header
+// value that exceeds what's already itemized should be added to the subtotal.
+function sumStampLineItemsRaw(items = []) {
+  return round2(
+    items
+      .filter((item) => DAILY_STAMP_SECTION_CODES.has(item.section_code))
+      .reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
+  );
+}
+
 function sumItemPatientCredit(data) {
   return round2(
     (data.items || []).reduce((sum, item) => sum + round2(item.patient_credit_applied || 0), 0)
@@ -392,7 +406,9 @@ function calculateInvoiceTotals(data) {
   );
   const adminExpenses = roundNearest(adminExpensesRaw);
 
-  const subtotalBeforeAdminRaw = round2(itemsSubtotalRaw + stampDutyD.raw + professionalFeesD.raw);
+  const stampLineItemsRaw = sumStampLineItemsRaw(items);
+  const stampDutyExtraRaw = round2(Math.max(0, stampDutyD.raw - stampLineItemsRaw));
+  const subtotalBeforeAdminRaw = round2(itemsSubtotalRaw + stampDutyExtraRaw + professionalFeesD.raw);
   const subtotalBeforeAdmin = roundNearest(subtotalBeforeAdminRaw);
 
   const totalAfterAdminRaw = round2(subtotalBeforeAdminRaw + adminExpensesRaw);
@@ -477,6 +493,8 @@ function calculateInvoiceTotals(data) {
     net_after_discount_raw: netAfterDiscountRaw,
     stamp_duty: stampDutyD.rounded,
     stamp_duty_raw: stampDutyD.raw,
+    stamp_duty_extra_raw: stampDutyExtraRaw,
+    stamp_line_items_raw: stampLineItemsRaw,
     professional_fees: professionalFeesD.rounded,
     professional_fees_raw: professionalFeesD.raw,
     subtotal_before_admin: subtotalBeforeAdmin,
@@ -724,7 +742,7 @@ function validateInvoiceCalculations(data, totals) {
 
   const expectedSubtotalBeforeAdmin = round2(
     (totals.items_subtotal_raw || 0) +
-      (totals.stamp_duty_raw || 0) +
+      (totals.stamp_duty_extra_raw ?? totals.stamp_duty_raw ?? 0) +
       (totals.professional_fees_raw || 0)
   );
   if (!approxEqual(expectedSubtotalBeforeAdmin, totals.subtotal_before_admin_raw)) {

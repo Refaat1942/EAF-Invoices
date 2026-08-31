@@ -152,6 +152,16 @@ async function initDatabase() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS patients (
+      id SERIAL PRIMARY KEY,
+      file_number VARCHAR(100) UNIQUE NOT NULL,
+      name TEXT DEFAULT '',
+      account_balance NUMERIC(14,2) DEFAULT 0,
+      account_balance_raw NUMERIC(14,4) DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS invoice_items (
       id SERIAL PRIMARY KEY,
       invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,

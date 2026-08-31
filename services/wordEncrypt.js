@@ -4,8 +4,7 @@ async function encryptDocxBuffer(docxBuffer, password) {
   try {
     return await officeCrypto.encrypt(docxBuffer, { password });
   } catch (err) {
-    console.warn('Word encryption failed:', err.message);
-    return docxBuffer;
+    throw new Error(`تعذّر تشفير ملف Word: ${err.message}`);
   }
 }
 

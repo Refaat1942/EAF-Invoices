@@ -25,8 +25,7 @@ function encryptPdfBuffer(pdfBuffer, password) {
     );
     return fs.readFileSync(outputPath);
   } catch (err) {
-    console.warn('PDF encryption unavailable (install qpdf):', err.message);
-    return pdfBuffer;
+    throw new Error(`تعذّر تشفير ملف PDF (qpdf غير متاح؟): ${err.message}`);
   } finally {
     try {
       fs.unlinkSync(inputPath);

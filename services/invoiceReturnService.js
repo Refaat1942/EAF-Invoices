@@ -80,6 +80,12 @@ async function recordInvoiceReturns(invoiceId, payload = {}, user = null) {
   const { getInvoiceById, recalculateAndPersistInvoiceTotals } = require('./invoiceService');
 
   return withTransaction(async (client) => {
+    // Lock the invoice row first so two concurrent return submissions on the same
+    // invoice can't both read the same pre-return snapshot and both pass the
+    // remaining-quantity check below (over-return race).
+    const lockRes = await client.query('SELECT id FROM invoices WHERE id = $1 FOR UPDATE', [invoiceId]);
+    if (!lockRes.rows.length) throw new Error('الفاتورة غير موجودة');
+
     const invoice = await getInvoiceById(invoiceId, client);
     if (!invoice) throw new Error('الفاتورة غير موجودة');
 

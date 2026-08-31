@@ -3127,9 +3127,9 @@ async function loadUsers() {
         const more = (u.permissions || []).length > 6 ? ` +${u.permissions.length - 6}` : '';
         return `
       <tr>
-        <td class="fw-bold">${u.username}</td>
-        <td>${u.full_name || '-'}</td>
-        <td><span class="badge bg-primary">${u.role_label}</span></td>
+        <td class="fw-bold">${escapeHtml(u.username)}</td>
+        <td>${escapeHtml(u.full_name || '-')}</td>
+        <td><span class="badge bg-primary">${escapeHtml(u.role_label)}</span></td>
         <td>
           <small class="text-muted d-block mb-1">${permLabels}${more}</small>
           <button class="btn btn-sm btn-outline-secondary" onclick="editUserPermissions(${u.id})">⚙️ الصلاحيات</button>
@@ -3158,7 +3158,7 @@ async function editUserPermissions(userId) {
         `<div class="modal fade" id="${modalId}" tabindex="-1">
           <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
-              <div class="modal-header"><h5 class="modal-title fw-black">صلاحيات: ${user.username}</h5>
+              <div class="modal-header"><h5 class="modal-title fw-black">صلاحيات: ${escapeHtml(user.username)}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
               <div class="modal-body">
                 <div class="mb-2">
@@ -3582,7 +3582,7 @@ async function loadContractedEntities(selectedId = null) {
         const indent = '— '.repeat(e.depth || 0);
         const effective = getEffectiveDiscountFromCache(e.id);
         const discount = effective ? ` (${effective}%)` : '';
-        return `<option value="${e.id}">${indent}${e.name}${discount}</option>`;
+        return `<option value="${e.id}">${indent}${escapeHtml(e.name)}${discount}</option>`;
       })
       .join('');
 
@@ -3641,7 +3641,7 @@ function renderContractedEntitiesList(items) {
     <li class="list-group-item admin-lookup-item ${item.is_active ? '' : 'is-inactive'}">
       <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
         <div class="flex-grow-1">
-          <div class="fw-bold">${indent}${item.name}</div>
+          <div class="fw-bold">${indent}${escapeHtml(item.name)}</div>
           <small class="text-muted">خصم: ${item.discount_percent || 0}%</small>
         </div>
         <div class="d-flex gap-1 align-items-center flex-wrap">
@@ -4076,9 +4076,9 @@ async function loadInvoicesList() {
             return `
         <tr>
           <td>${serialCell}<br><span class="badge ${statusInfo.class}">${statusInfo.text}</span></td>
-          <td class="fw-bold">${inv.file_number || '-'}</td>
-          <td>${inv.patient_name || '-'}</td>
-          <td class="small">${inv.patient_phone || '-'}</td>
+          <td class="fw-bold">${escapeHtml(inv.file_number || '-')}</td>
+          <td>${escapeHtml(inv.patient_name || '-')}</td>
+          <td class="small">${escapeHtml(inv.patient_phone || '-')}</td>
           <td><span class="badge bg-secondary">${inv.invoice_type_label || invoiceTypeLabels[inv.invoice_type] || inv.invoice_type}</span></td>
           <td class="fw-bold">${fmtDual(inv.final_total_raw ?? inv.final_total, inv.final_total)}</td>
           <td>${fmtDual(inv.total_collected_raw ?? inv.total_collected, inv.total_collected)}</td>
@@ -4176,8 +4176,8 @@ async function loadReports() {
                       .map(
                         (m) => `
                       <tr>
-                        <td class="fw-black">${m.file_number}</td>
-                        <td>${m.patient_name || '-'}</td>
+                        <td class="fw-black">${escapeHtml(m.file_number)}</td>
+                        <td>${escapeHtml(m.patient_name || '-')}</td>
                         <td>${m.invoice_count}</td>
                         <td>${m.first_admission ? new Date(m.first_admission).toLocaleDateString('ar-EG') : '—'}</td>
                         <td><button class="btn btn-sm btn-primary fw-bold" onclick="selectPatientForReport('${escapeAttr(m.file_number)}', '${escapeAttr(m.patient_name || '')}')">عرض الموقف</button></td>
@@ -4372,8 +4372,8 @@ async function loadReports() {
           return `<tr>
             <td>${inv.serial_number || '—'}</td>
             <td><span class="badge ${st.class}">${st.text}</span></td>
-            <td>${inv.file_number || '-'}</td>
-            <td>${inv.patient_name || '-'}</td>
+            <td>${escapeHtml(inv.file_number || '-')}</td>
+            <td>${escapeHtml(inv.patient_name || '-')}</td>
             <td>${reportNationalityHtml(inv)}</td>
             <td>${inv.invoice_type_label || invoiceTypeLabels[inv.invoice_type] || inv.invoice_type}</td>
             <td>${fmt(inv.final_total)}</td>
@@ -4394,14 +4394,14 @@ async function loadReports() {
     const rows = (Array.isArray(data) ? data : [])
       .map((r) =>
         isPayments
-          ? `<tr><td>${r.serial_number}</td><td>${r.file_number || '-'}</td><td>${r.patient_name || '-'}</td>
+          ? `<tr><td>${escapeHtml(r.serial_number)}</td><td>${escapeHtml(r.file_number || '-')}</td><td>${escapeHtml(r.patient_name || '-')}</td>
              <td>${reportNationalityHtml(r)}</td>
-             <td>${r.issue_date || '-'}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.cash_private)}</td>
+             <td>${escapeHtml(r.issue_date || '-')}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.cash_private)}</td>
              <td>${fmt(r.bank_private)}</td><td>${fmt(r.cash_external)}</td><td>${fmt(r.patient_credit_applied)}</td>
              <td>${fmt(r.total_collected)}</td><td class="text-danger">${fmt(r.remaining)}</td></tr>`
-          : `<tr><td>${r.serial_number}</td><td>${r.file_number || '-'}</td><td>${r.patient_name || '-'}</td>
+          : `<tr><td>${escapeHtml(r.serial_number)}</td><td>${escapeHtml(r.file_number || '-')}</td><td>${escapeHtml(r.patient_name || '-')}</td>
              <td>${reportNationalityHtml(r)}</td>
-             <td>${r.issue_date || '-'}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.total_collected)}</td>
+             <td>${escapeHtml(r.issue_date || '-')}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.total_collected)}</td>
              <td class="text-danger fw-bold">${fmt(r.remaining)}</td></tr>`
       )
       .join('');
@@ -4461,8 +4461,8 @@ function renderPatientStatusReport(data) {
       <td><span class="badge bg-light text-dark border">${tx.transaction_kind_label || tx.transaction_kind || '—'}</span></td>
       <td class="${Number(tx.amount) < 0 ? 'text-danger' : 'text-success'} fw-bold">${fmt(tx.amount)}</td>
       <td>${fmt(tx.balance_after)}</td>
-      <td>${tx.serial_number || '—'}</td>
-      <td>${tx.note || '—'}</td>
+      <td>${escapeHtml(tx.serial_number || '—')}</td>
+      <td>${escapeHtml(tx.note || '—')}</td>
     </tr>`
     )
     .join('');
@@ -4471,7 +4471,7 @@ function renderPatientStatusReport(data) {
     <div class="col-12">
       <div class="card shadow-sm patient-report-card mb-3">
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
-          <h5 class="mb-0 fw-black">موقف المريض: ${data.patient.name || '—'}</h5>
+          <h5 class="mb-0 fw-black">موقف المريض: ${escapeHtml(data.patient.name || '—')}</h5>
           ${stayBadge}
         </div>
         <div class="card-body">

@@ -231,8 +231,26 @@ async function updateUser(id, data, actor) {
   return sanitizeUser(rows[0]);
 }
 
-async function deleteUser(id) {
-  const { rowCount } = await query('DELETE FROM users WHERE id = $1 AND username <> $2', [id, 'admin']);
+async function deleteUser(id, actor = null) {
+  const targetId = Number(id);
+  if (actor?.id && Number(actor.id) === targetId) {
+    throw new Error('لا يمكنك حذف حسابك الحالي');
+  }
+
+  const { rows } = await query('SELECT role FROM users WHERE id = $1 AND username <> $2', [targetId, 'admin']);
+  if (!rows.length) return false;
+
+  if (rows[0].role === 'admin') {
+    const { rows: adminCount } = await query(
+      `SELECT COUNT(*)::int AS c FROM users WHERE role = 'admin' AND is_active = TRUE AND id <> $1`,
+      [targetId]
+    );
+    if (adminCount[0].c < 1) {
+      throw new Error('لا يمكن حذف آخر مسؤول (admin) نشط في النظام');
+    }
+  }
+
+  const { rowCount } = await query('DELETE FROM users WHERE id = $1 AND username <> $2', [targetId, 'admin']);
   return rowCount > 0;
 }
 
