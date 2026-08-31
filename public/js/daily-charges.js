@@ -122,7 +122,7 @@ function sectionsForActiveView() {
 
 function shouldShowDailyMetaInView() {
   if (!activeDailyTab) return true;
-  const hideMetaTabs = ['medicines', 'supplies', 'exams', 'lab', 'radiology', 'other', 'stay'];
+  const hideMetaTabs = ['medicines', 'supplies', 'exams', 'lab', 'radiology', 'other', 'stay', 'sessions'];
   return !hideMetaTabs.includes(activeDailyTab);
 }
 
@@ -156,7 +156,7 @@ function applyDailyTabColumnVisibility() {
     el.classList.toggle('daily-col-hidden', !showExams);
   });
 
-  const catalogTabs = ['medicines', 'supplies', 'exams', 'lab', 'radiology', 'other'];
+  const catalogTabs = ['medicines', 'supplies', 'exams', 'lab', 'radiology', 'other', 'sessions'];
   const hideMeta = catalogTabs.includes(activeDailyTab);
   document.querySelectorAll('.daily-meta-th').forEach((el) => {
     el.classList.toggle('daily-col-hidden', hideMeta);
@@ -197,16 +197,22 @@ function applyDailyTabColumnVisibility() {
     hint.textContent =
       'إقامة اليوم — نوع الإقامة ثابت من تسجيل المريض حتى «تغيير الغرفة». الأسعار من اللائحة تلقائياً.';
   } else if (hint && activeDailyTab === 'exams') {
-    hint.textContent = 'أضف صفاً لكل كشف — نوع الكشف والسعر من اللائحة، واختر الطبيب.';
+    hint.textContent =
+      'كشوفات — حالة الكشف، النوع، الطبيب، السعر، تاريخ الكشف، واسم المريض.';
   } else if (hint && activeDailyTab === 'medicines') {
     hint.textContent = 'أدوية — ابحث عن الصنف، السعر من الكتالوج. الإجمالي في أسفل الجدول.';
   } else if (hint && activeDailyTab === 'supplies') {
     hint.textContent =
-      'مستلزمات — سعر التكلفة والإجمالي قبل الهامش، ثم السعر والإجمالي بعد هامش الربح.';
+      'مستلزمات — م، تاريخ، رقم الفاتورة، الصنف، العدد، السعر والإجمالي، سعر/إجمالي المستلزم، ونسبة هامش الربح.';
+  } else if (hint && activeDailyTab === 'sessions') {
+    hint.textContent =
+      'جلسات — تاريخ الجلسة، اسم المريض، نوع الجلسة، صباحي/مسائي، العدد، السعر، والإجمالي.';
   } else if (hint && activeDailyTab === 'lab') {
-    hint.textContent = 'تحاليل — اختر التحليل من اللائحة، أدخل الدمغة والتاريخ عند الحاجة.';
+    hint.textContent =
+      'تحاليل — م، تاريخ التحليل، نوع التحليل، سعر التحليل، الإجمالي، والدمغة.';
   } else if (hint && activeDailyTab === 'radiology') {
-    hint.textContent = 'أشعة — اختر نوع الأشعة من اللائحة مع الدمغة والتاريخ.';
+    hint.textContent =
+      'أشعة — نوع الأشعة، السعر، الإجمالي، تاريخ الأشعة، والدمغة.';
   } else if (hint && activeDailyTab === 'other') {
     hint.textContent = 'خدمات متنوعة — ابحث واختر الخدمة، السعر من اللائحة تلقائياً.';
   } else if (hint && codes) {
@@ -253,6 +259,10 @@ function updateSectionTabTotal() {
       document.querySelectorAll('.daily-misc-row').forEach((tr) => {
         total += dailyParseAmount(tr.querySelector('.daily-misc-total')?.value);
       });
+    } else if (activeDailyTab === 'sessions') {
+      document.querySelectorAll('.daily-session-row').forEach((tr) => {
+        total += dailyParseAmount(tr.querySelector('.daily-session-total')?.value);
+      });
     } else {
       document.querySelectorAll('.daily-entry-row').forEach((tr) => {
         codes.forEach((code) => {
@@ -260,7 +270,7 @@ function updateSectionTabTotal() {
           if (input) total += dailyParseAmount(input.value);
         });
         if (activeDailyTab === 'exams') {
-          total += dailyParseAmount(tr.querySelector('.daily-exam-total')?.value);
+          total += dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
         }
       });
     }
@@ -2063,17 +2073,36 @@ function buildCompanionKindOptions(selectedServiceId = '') {
   );
 }
 
+function buildExamCaseOptions(selectedSectionCode = '') {
+  const cases = [
+    { code: 'consultant_exam', name: 'كشف استشاري' },
+    { code: 'specialist_exam', name: 'كشف أخصائي' },
+  ];
+  return (
+    '<option value="">— حالة الكشف —</option>' +
+    cases
+      .map(
+        (c) =>
+          `<option value="${c.code}"${selectedSectionCode === c.code ? ' selected' : ''}>${dailyEscapeHtml(c.name)}</option>`
+      )
+      .join('')
+  );
+}
+
 function buildExamTypeOptions(selectedServiceId = '', sectionCode = '') {
-  if (!dailyExamServicesCache.length) {
+  const pool = sectionCode
+    ? dailyExamServicesCache.filter((s) => s.section_code === sectionCode)
+    : dailyExamServicesCache;
+  if (!pool.length) {
     return '<option value="">— نوع الكشف —</option>';
   }
   return (
     '<option value="">— نوع الكشف —</option>' +
-    dailyExamServicesCache
+    pool
       .map((s) => {
         const price = Number(s.price ?? s.list_price) || 0;
         const selected = String(selectedServiceId) === String(s.id) ? ' selected' : '';
-        return `<option value="${s.id}" data-section="${s.section_code}" data-code="${dailyEscapeAttr(s.code || '')}" data-price="${price}"${selected ? ' selected' : ''}>${dailyEscapeHtml(s.name)} — ${dailyFmt(price)}</option>`;
+        return `<option value="${s.id}" data-section="${s.section_code}" data-code="${dailyEscapeAttr(s.code || '')}" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)}</option>`;
       })
       .join('')
   );
@@ -2138,23 +2167,38 @@ async function onStayTypeChangeForRow(selectEl) {
   updateSectionTabTotal();
 }
 
+function onExamCaseChange(selectEl) {
+  const tr = selectEl?.closest('.daily-entry-row');
+  if (!tr) return;
+  const sectionCode = selectEl.value || '';
+  tr.dataset.examSectionCode = sectionCode;
+  const typeSel = tr.querySelector('.daily-exam-type');
+  if (typeSel) {
+    const prev = typeSel.value;
+    typeSel.innerHTML = buildExamTypeOptions('', sectionCode);
+    if (prev && typeSel.querySelector(`option[value="${prev}"]`)) typeSel.value = prev;
+    else typeSel.value = '';
+  }
+  const unitEl = tr.querySelector('.daily-exam-unit-price');
+  if (unitEl) unitEl.value = '';
+  updateRowTotal(tr);
+  updateDailyGrandTotal();
+  updateSectionTabTotal();
+}
+
 function onExamTypeChange(selectEl) {
   const tr = selectEl?.closest('.daily-entry-row');
   if (!tr) return;
   const opt = selectEl.selectedOptions[0];
   const sectionCode = opt?.dataset.section || '';
-  const code = opt?.dataset.code || '';
   const price = Number(opt?.dataset.price) || 0;
-  if (sectionCode) tr.dataset.examSectionCode = sectionCode;
-  const serialEl = tr.querySelector('.daily-exam-serial');
-  if (serialEl) serialEl.value = code || '';
+  if (sectionCode) {
+    tr.dataset.examSectionCode = sectionCode;
+    const caseSel = tr.querySelector('.daily-exam-case');
+    if (caseSel && caseSel.value !== sectionCode) caseSel.value = sectionCode;
+  }
   const unitEl = tr.querySelector('.daily-exam-unit-price');
   if (unitEl) unitEl.value = price > 0 ? formatAmountFieldValue(price) : '';
-  const totalEl = tr.querySelector('.daily-exam-total');
-  if (totalEl && price > 0) {
-    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(totalEl, price);
-    else totalEl.value = formatAmountFieldValue(price);
-  }
   updateRowTotal(tr);
   updateDailyGrandTotal();
   updateSectionTabTotal();
@@ -2168,6 +2212,8 @@ function bindStayRowEvents(tr) {
 }
 
 function bindExamRowEvents(tr) {
+  const caseSel = tr.querySelector('.daily-exam-case');
+  if (caseSel) caseSel.addEventListener('change', () => onExamCaseChange(caseSel));
   const typeSel = tr.querySelector('.daily-exam-type');
   if (typeSel) typeSel.addEventListener('change', () => onExamTypeChange(typeSel));
   const doctorSearch = tr.querySelector('.daily-exam-doctor-search');
@@ -2180,11 +2226,6 @@ function bindExamRowEvents(tr) {
       }, 300);
     });
   }
-  tr.querySelector('.daily-exam-total')?.addEventListener('input', () => {
-    updateRowTotal(tr);
-    updateDailyGrandTotal();
-    updateSectionTabTotal();
-  });
 }
 
 function collectStayLinesFromRow(tr) {
@@ -2218,19 +2259,23 @@ function collectStayLinesFromRow(tr) {
 
 function collectExamLinesFromRow(tr) {
   const viewCodes = new Set(DAILY_EXAM_CODES);
+  const caseSel = tr.querySelector('.daily-exam-case');
   const typeSel = tr.querySelector('.daily-exam-type');
   const opt = typeSel?.selectedOptions[0];
-  const sectionCode = opt?.dataset.section || tr.dataset.examSectionCode || '';
+  const sectionCode = caseSel?.value || opt?.dataset.section || tr.dataset.examSectionCode || '';
   const serviceId = typeSel?.value || null;
-  const amount = dailyParseAmount(tr.querySelector('.daily-exam-total')?.value);
+  const amount = dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
   const lines = [];
   if (sectionCode && (serviceId || amount > 0)) {
-    lines.push({
+    const line = {
       section_code: sectionCode,
       service_id: serviceId ? Number(serviceId) : null,
       amount,
       quantity: 1,
-    });
+    };
+    const dateEl = tr.querySelector('.daily-exam-date');
+    if (dateEl?.value) line.extra_date = dateEl.value;
+    lines.push(line);
   }
   const snapshot = tr._entryLinesSnapshot || [];
   const preserved = snapshot.filter((line) => !viewCodes.has(line.section_code) && lineHasChargeData(line));
@@ -2311,29 +2356,34 @@ function createExamDailyEntryRow(entry = {}, examLine = null) {
   if (line.section_code) tr.dataset.examSectionCode = line.section_code;
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
-  const examService = dailyExamServicesCache.find((s) => String(s.id) === String(line.service_id));
-  const serialVal = examService?.code || line.extra_text || '';
-  const amountVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
+  const caseCode = line.section_code || '';
+  const dateVal = line.extra_date
+    ? String(line.extra_date).slice(0, 10)
+    : entry.entry_date
+      ? String(entry.entry_date).slice(0, 10)
+      : getLocalDateString();
+  const patientName = getDailyPatientDisplayName();
+  const priceVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
 
   tr.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm daily-exam-serial bg-light" readonly value="${dailyEscapeAttr(serialVal)}" placeholder="—"></td>
-    <td><select class="form-select form-select-sm daily-exam-type">${buildExamTypeOptions(line.service_id, line.section_code)}</select></td>
-    <td><input type="text" class="form-control form-control-sm daily-exam-unit-price bg-light" readonly placeholder="من اللائحة"></td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-total comma-amount" value="${dailyEscapeAttr(amountVal)}" placeholder="0" autocomplete="off"></td>
+    <td><select class="form-select form-select-sm daily-exam-case">${buildExamCaseOptions(caseCode)}</select></td>
+    <td><select class="form-select form-select-sm daily-exam-type">${buildExamTypeOptions(line.service_id, caseCode)}</select></td>
     <td>
       <input type="search" class="form-control form-control-sm daily-exam-doctor-search mb-1" placeholder="بحث طبيب..." autocomplete="off">
       <select class="form-select form-select-sm daily-exam-doctor"><option value="">— الطبيب —</option></select>
     </td>
+    <td><input type="text" class="form-control form-control-sm daily-exam-unit-price bg-light" readonly value="${dailyEscapeAttr(priceVal)}" placeholder="سعر الكشف"></td>
+    <td><input type="date" class="form-control form-control-sm daily-exam-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
+    <td><input type="text" class="form-control form-control-sm daily-exam-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
     <td class="daily-row-total fw-bold text-nowrap d-none"></td>`;
 
   bindExamRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
-  if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
   populateDailyDoctorSelect(tr.querySelector('.daily-exam-doctor'), '', entry.doctor_id || null);
   const typeSel = tr.querySelector('.daily-exam-type');
   if (typeSel?.value) onExamTypeChange(typeSel);
-  else if (amountVal) updateRowTotal(tr);
+  else if (priceVal) updateRowTotal(tr);
   return tr;
 }
 
@@ -2341,6 +2391,188 @@ function getDailyInvoiceDisplayLabel() {
   const inv = dailyStayContext?.invoice;
   if (!inv) return '—';
   return inv.serial_number || `#${inv.id}`;
+}
+
+function getDailyPatientDisplayName() {
+  return dailyStayContext?.patient?.name || dailyStayContext?.invoice?.patient_name || '—';
+}
+
+function parseSessionsDetail(extraText) {
+  if (!extraText) return { morning: 0, evening: 0 };
+  const s = String(extraText).trim();
+  try {
+    const parsed = JSON.parse(s);
+    if (parsed && typeof parsed === 'object') {
+      return {
+        morning: Number(parsed.morning) || 0,
+        evening: Number(parsed.evening) || 0,
+      };
+    }
+  } catch (_) {
+    /* legacy text */
+  }
+  const pipe = s.match(/^(\d+)\s*[|،,/]\s*(\d+)$/);
+  if (pipe) {
+    return { morning: Number(pipe[1]) || 0, evening: Number(pipe[2]) || 0 };
+  }
+  return { morning: 0, evening: 0 };
+}
+
+function formatSessionsDetail(morning, evening) {
+  return JSON.stringify({
+    morning: Number(morning) || 0,
+    evening: Number(evening) || 0,
+  });
+}
+
+function syncSessionsRowDisplay(tr, item, unitPrice, opts = {}) {
+  if (!tr) return;
+  const qtyEl = tr.querySelector('.daily-session-qty');
+  let qty = dailyParseAmount(qtyEl?.value);
+  if (!opts.skipQtyAuto) {
+    const morning = dailyParseAmount(tr.querySelector('.daily-session-morning')?.value);
+    const evening = dailyParseAmount(tr.querySelector('.daily-session-evening')?.value);
+    if (morning > 0 || evening > 0) {
+      qty = morning + evening;
+      if (qtyEl) qtyEl.value = formatAmountFieldValue(qty, 0);
+    }
+  }
+  if (!qty) qty = 1;
+  const unit =
+    Number(unitPrice) ||
+    (item?.price != null ? Number(item.price) : 0) ||
+    getCatalogRowUnitPrice(tr, 'sessions') ||
+    0;
+  const total = Math.round(unit * qty * 100) / 100;
+  const unitEl = tr.querySelector('.daily-session-unit');
+  if (unitEl) unitEl.value = unit > 0 ? formatAmountFieldValue(unit) : '';
+  const totalEl = tr.querySelector('.daily-session-total');
+  if (totalEl) totalEl.value = total > 0 ? formatAmountFieldValue(total) : '';
+  const hidden = tr.querySelector('.daily-field.daily-amount[data-section="sessions"]');
+  if (hidden) {
+    hidden.value = String(total);
+    hidden.dataset.unitPrice = String(unit);
+    hidden.dataset.manualAmount = '0';
+  }
+  updateRowTotal(tr);
+  updateDailyGrandTotal();
+  updateSectionTabTotal();
+}
+
+function bindSessionsRowEvents(tr) {
+  const onShiftChange = () => {
+    const picker = tr.querySelector('.daily-picker[data-section="sessions"]');
+    syncSessionsRowDisplay(tr, picker?._selectedItem);
+  };
+  tr.querySelector('.daily-session-morning')?.addEventListener('input', onShiftChange);
+  tr.querySelector('.daily-session-evening')?.addEventListener('input', onShiftChange);
+  tr.querySelector('.daily-session-qty')?.addEventListener('input', () => {
+    const picker = tr.querySelector('.daily-picker[data-section="sessions"]');
+    syncSessionsRowDisplay(tr, picker?._selectedItem, null, { skipQtyAuto: true });
+  });
+}
+
+function createSessionsRow(entry = {}, sessionsLine = null) {
+  const line = sessionsLine || serviceLinesFromEntry(entry, 'sessions')[0] || {};
+  const dateLine = getLineForSection(entry, 'sessions_date');
+  const detailLine = getLineForSection(entry, 'sessions_detail');
+  const section = dailySectionsCache.find((s) => s.code === 'sessions');
+  const tr = document.createElement('tr');
+  tr.className = 'daily-entry-row daily-session-row';
+  if (entry.id) tr.dataset.entryId = entry.id;
+  if (entry.notes) tr.dataset.entryNotes = entry.notes;
+  if (line.service_id) tr.dataset.serviceId = String(line.service_id);
+  tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
+
+  const { morning, evening } = parseSessionsDetail(detailLine.extra_text);
+  const morningVal = morning > 0 ? formatAmountFieldValue(morning, 0) : '';
+  const eveningVal = evening > 0 ? formatAmountFieldValue(evening, 0) : '';
+  const qtyVal =
+    line.quantity != null && line.quantity !== ''
+      ? formatAmountFieldValue(line.quantity, 0)
+      : morning + evening > 0
+        ? formatAmountFieldValue(morning + evening, 0)
+        : '1';
+  const dateVal = dateLine.extra_date
+    ? String(dateLine.extra_date).slice(0, 10)
+    : entry.entry_date
+      ? String(entry.entry_date).slice(0, 10)
+      : getLocalDateString();
+  const patientName = getDailyPatientDisplayName();
+  const unitVal =
+    line.unit_price > 0
+      ? formatAmountFieldValue(line.unit_price)
+      : line.quantity && line.amount
+        ? formatAmountFieldValue(Number(line.amount) / Number(line.quantity))
+        : '';
+  const totalVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
+
+  tr.innerHTML = `
+    <td><input type="date" class="form-control form-control-sm daily-session-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
+    <td><input type="text" class="form-control form-control-sm daily-session-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
+    <td class="daily-session-type-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-session-morning comma-amount" data-decimals="0" value="${dailyEscapeAttr(morningVal)}" placeholder="0" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-session-evening comma-amount" data-decimals="0" value="${dailyEscapeAttr(eveningVal)}" placeholder="0" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-session-qty comma-amount" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
+    <td><input type="text" class="form-control form-control-sm daily-session-unit bg-light" readonly value="${dailyEscapeAttr(unitVal)}" placeholder="سعر الجلسة"></td>
+    <td><input type="text" class="form-control form-control-sm daily-session-total bg-light" readonly value="${dailyEscapeAttr(totalVal)}" placeholder="الإجمالي"></td>
+    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
+    <input type="hidden" class="daily-field daily-amount" data-section="sessions" data-type="amount">`;
+
+  bindSessionsRowEvents(tr);
+  tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
+  if (section && window.DailyEntryPicker) {
+    DailyEntryPicker.bindRow(tr);
+    DailyEntryPicker.hydratePicker(tr, section, line);
+    if (!totalVal) {
+      syncSessionsRowDisplay(
+        tr,
+        null,
+        Number(line.unit_price) ||
+          (line.quantity ? Number(line.amount) / Number(line.quantity) : 0)
+      );
+    }
+  }
+  if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
+  return tr;
+}
+
+function collectSessionsLinesFromRow(tr) {
+  const tabCodes = new Set(['sessions_date', 'sessions_detail', 'sessions']);
+  const snapshot = tr._entryLinesSnapshot || [];
+  const preserved = snapshot.filter((l) => !tabCodes.has(l.section_code) && lineHasChargeData(l));
+  const lines = [...preserved];
+
+  const dateEl = tr.querySelector('.daily-session-date');
+  if (dateEl?.value) {
+    lines.push({ section_code: 'sessions_date', extra_date: dateEl.value });
+  }
+
+  const morning = dailyParseAmount(tr.querySelector('.daily-session-morning')?.value);
+  const evening = dailyParseAmount(tr.querySelector('.daily-session-evening')?.value);
+  if (morning > 0 || evening > 0) {
+    lines.push({
+      section_code: 'sessions_detail',
+      extra_text: formatSessionsDetail(morning, evening),
+    });
+  }
+
+  const section = dailySectionsCache.find((s) => s.code === 'sessions');
+  if (section) {
+    const pickerFields = window.DailyEntryPicker ? DailyEntryPicker.readPickerFields(tr, section) : {};
+    const qty = dailyParseAmount(tr.querySelector('.daily-session-qty')?.value) || 1;
+    const amount = dailyParseAmount(tr.querySelector('.daily-session-total')?.value);
+    const unit = dailyParseAmount(tr.querySelector('.daily-session-unit')?.value);
+    const chargeLine = {
+      section_code: 'sessions',
+      service_id: pickerFields.service_id ?? null,
+      amount,
+      quantity: qty,
+    };
+    if (unit > 0) chargeLine.unit_price = unit;
+    if (lineHasChargeData(chargeLine)) lines.push(chargeLine);
+  }
+  return lines;
 }
 
 function catalogLinesFromEntry(entry, sectionCodes) {
@@ -2381,6 +2613,15 @@ function syncMedicineRowDisplay(tr, item, unitPrice) {
   updateSectionTabTotal();
 }
 
+function calcSupplyMarkupPercent(costUnit, sellUnit, fallback = 0) {
+  const fb = Number(fallback) || 0;
+  if (fb > 0) return Math.round(fb * 100) / 100;
+  const cost = Number(costUnit) || 0;
+  const sell = Number(sellUnit) || 0;
+  if (cost <= 0 || sell <= 0) return 0;
+  return Math.round(((sell - cost) / cost) * 10000) / 100;
+}
+
 function syncSupplyRowDisplay(tr, item, unitPrice) {
   if (!tr) return;
   const sectionCode = tr.dataset.sectionCode || 'supplies';
@@ -2390,8 +2631,14 @@ function syncSupplyRowDisplay(tr, item, unitPrice) {
   const sellUnit = Number(unitPrice) || Number(tr.dataset.sellUnit) || getCatalogRowUnitPrice(tr, sectionCode) || 0;
   const costTotal = Math.round(costUnit * qty * 100) / 100;
   const sellTotal = Math.round(sellUnit * qty * 100) / 100;
+  const markupPct = calcSupplyMarkupPercent(
+    costUnit,
+    sellUnit,
+    item?.markup_percent ?? tr.dataset.markupPercent
+  );
   tr.dataset.costPrice = String(costUnit);
   tr.dataset.sellUnit = String(sellUnit);
+  tr.dataset.markupPercent = String(markupPct);
   if (item?.code) tr.dataset.catalogCode = item.code;
   const serialEl = tr.querySelector('.daily-sup-serial');
   if (serialEl) serialEl.value = item?.code || tr.dataset.catalogCode || '';
@@ -2403,6 +2650,10 @@ function syncSupplyRowDisplay(tr, item, unitPrice) {
   if (sellUnitEl) sellUnitEl.value = sellUnit > 0 ? formatAmountFieldValue(sellUnit) : '';
   const sellTotalEl = tr.querySelector('.daily-sup-sell-total');
   if (sellTotalEl) sellTotalEl.value = sellTotal > 0 ? formatAmountFieldValue(sellTotal) : '';
+  const markupEl = tr.querySelector('.daily-sup-markup');
+  if (markupEl) {
+    markupEl.value = markupPct > 0 ? formatAmountFieldValue(markupPct, 0) : '';
+  }
   const hidden = tr.querySelector(`.daily-field.daily-amount[data-section="${sectionCode}"]`);
   if (hidden) {
     hidden.value = String(sellTotal);
@@ -2428,7 +2679,9 @@ function clearSupplyRowDisplay(tr) {
   const sectionCode = tr.dataset.sectionCode || 'supplies';
   const serial = tr.querySelector('.daily-sup-serial');
   if (serial) serial.value = '';
-  ['.daily-sup-cost-unit', '.daily-sup-cost-total', '.daily-sup-sell-unit', '.daily-sup-sell-total'].forEach(
+  const dateEl = tr.querySelector('.daily-sup-date');
+  if (dateEl) dateEl.value = getLocalDateString();
+  ['.daily-sup-cost-unit', '.daily-sup-cost-total', '.daily-sup-sell-unit', '.daily-sup-sell-total', '.daily-sup-markup'].forEach(
     (sel) => {
       const el = tr.querySelector(sel);
       if (el) el.value = '';
@@ -2436,6 +2689,7 @@ function clearSupplyRowDisplay(tr) {
   );
   tr.dataset.costPrice = '';
   tr.dataset.sellUnit = '';
+  tr.dataset.markupPercent = '';
   tr.dataset.catalogCode = '';
   const hidden = tr.querySelector(`.daily-field.daily-amount[data-section="${sectionCode}"]`);
   if (hidden) {
@@ -2460,7 +2714,20 @@ function bindSupplyRowEvents(tr) {
   if (qtyInput) {
     qtyInput.addEventListener('input', () => {
       const picker = tr.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
-      syncSupplyRowDisplay(tr, picker?._selectedItem, getCatalogRowUnitPrice(tr, sectionCode));
+      const sellUnit =
+        Number(tr.dataset.sellUnit) || getCatalogRowUnitPrice(tr, sectionCode);
+      syncSupplyRowDisplay(tr, picker?._selectedItem, sellUnit);
+    });
+  }
+  const markupInput = tr.querySelector('.daily-sup-markup');
+  if (markupInput) {
+    markupInput.addEventListener('input', () => {
+      const costUnit = dailyParseAmount(tr.querySelector('.daily-sup-cost-unit')?.value);
+      const markup = dailyParseAmount(markupInput.value);
+      if (costUnit <= 0) return;
+      const sellUnit = Math.round(costUnit * (1 + markup / 100) * 100) / 100;
+      tr.dataset.markupPercent = String(markup);
+      syncSupplyRowDisplay(tr, { cost_price: costUnit, markup_percent: markup }, sellUnit);
     });
   }
 }
@@ -2529,21 +2796,33 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
   if (line.catalog_item_code) tr.dataset.catalogCode = line.catalog_item_code;
   if (line.cost_price != null) tr.dataset.costPrice = String(line.cost_price);
+  if (line.markup_percent != null) tr.dataset.markupPercent = String(line.markup_percent);
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const invoiceLabel = getDailyInvoiceDisplayLabel();
   const serialVal = line.catalog_item_code || '';
+  const dateVal = line.extra_date
+    ? String(line.extra_date).slice(0, 10)
+    : entry.entry_date
+      ? String(entry.entry_date).slice(0, 10)
+      : getLocalDateString();
+  const markupVal =
+    line.markup_percent != null && Number(line.markup_percent) > 0
+      ? formatAmountFieldValue(line.markup_percent, 0)
+      : '';
 
   tr.innerHTML = `
     <td><input type="text" class="form-control form-control-sm daily-sup-serial bg-light" readonly value="${dailyEscapeAttr(serialVal)}" placeholder="—"></td>
+    <td><input type="date" class="form-control form-control-sm daily-sup-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-invoice bg-light" readonly value="${dailyEscapeAttr(invoiceLabel)}"></td>
     <td class="daily-sup-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
-    <td><input type="text" class="form-control form-control-sm daily-sup-cost-unit bg-light" readonly placeholder="قبل الهامش"></td>
-    <td><input type="text" class="form-control form-control-sm daily-sup-cost-total bg-light" readonly placeholder="إجمالي قبل"></td>
-    <td><input type="text" class="form-control form-control-sm daily-sup-sell-unit bg-light" readonly placeholder="بعد الهامش"></td>
-    <td><input type="text" class="form-control form-control-sm daily-sup-sell-total bg-light" readonly placeholder="إجمالي بعد"></td>
+    <td><input type="text" class="form-control form-control-sm daily-sup-sell-unit bg-light" readonly placeholder="السعر"></td>
+    <td><input type="text" class="form-control form-control-sm daily-sup-sell-total bg-light" readonly placeholder="الإجمالي"></td>
+    <td><input type="text" class="form-control form-control-sm daily-sup-cost-unit bg-light" readonly placeholder="سعر المستلزم"></td>
+    <td><input type="text" class="form-control form-control-sm daily-sup-cost-total bg-light" readonly placeholder="إجمالي المستلزم"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-sup-markup comma-amount bg-light" data-decimals="0" value="${dailyEscapeAttr(markupVal)}" placeholder="%" autocomplete="off"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
     <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount">`;
 
@@ -2554,7 +2833,11 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
     DailyEntryPicker.hydratePicker(tr, section, line);
     syncSupplyRowDisplay(
       tr,
-      { code: line.catalog_item_code, cost_price: line.cost_price },
+      {
+        code: line.catalog_item_code,
+        cost_price: line.cost_price,
+        markup_percent: line.markup_percent,
+      },
       Number(line.unit_price) || (line.quantity ? Number(line.amount) / Number(line.quantity) : 0)
     );
   }
@@ -2577,6 +2860,14 @@ function collectSupplyLinesFromRow(tr) {
   const section = dailySectionsCache.find((s) => s.code === sectionCode);
   if (!section) return [];
   const line = collectLineForSection(tr, section);
+  const costUnit = dailyParseAmount(tr.querySelector('.daily-sup-cost-unit')?.value);
+  const sellUnit = dailyParseAmount(tr.querySelector('.daily-sup-sell-unit')?.value);
+  const markup = dailyParseAmount(tr.querySelector('.daily-sup-markup')?.value);
+  if (costUnit > 0) line.cost_price = costUnit;
+  if (markup > 0) line.markup_percent = markup;
+  if (sellUnit > 0) line.unit_price = sellUnit;
+  const dateEl = tr.querySelector('.daily-sup-date');
+  if (dateEl?.value) line.extra_date = dateEl.value;
   const snapshot = tr._entryLinesSnapshot || [];
   const preserved = snapshot.filter(
     (l) => !['supplies', 'cosmetics'].includes(l.section_code) && lineHasChargeData(l)
@@ -2595,7 +2886,7 @@ function syncSimpleServiceRow(tr, item, unitPrice, mainSection, ui) {
   const unit = Number(unitPrice) || getCatalogRowUnitPrice(tr, mainSection) || 0;
   const total = Math.round(unit * qty * 100) / 100;
   if (item?.code) tr.dataset.serviceCode = item.code;
-  const serialEl = tr.querySelector(ui.serial);
+  const serialEl = ui.serial ? tr.querySelector(ui.serial) : null;
   if (serialEl) serialEl.value = item?.code || tr.dataset.serviceCode || '';
   const unitEl = tr.querySelector(ui.unit);
   if (unitEl) {
@@ -2634,27 +2925,11 @@ function getRadRowGrandTotal(tr) {
 }
 
 function bindLabRowEvents(tr) {
-  tr.querySelector('.daily-catalog-qty[data-section="analyses"]')?.addEventListener('input', () => {
-    const picker = tr.querySelector('.daily-picker[data-section="analyses"]');
-    syncSimpleServiceRow(tr, picker?._selectedItem, getCatalogRowUnitPrice(tr, 'analyses'), 'analyses', {
-      serial: '.daily-lab-serial',
-      unit: '.daily-lab-unit-price',
-      total: '.daily-lab-total',
-    });
-  });
   tr.querySelector('.daily-lab-stamp')?.addEventListener('input', refreshServiceRowTotals);
   tr.querySelector('.daily-lab-date')?.addEventListener('change', refreshServiceRowTotals);
 }
 
 function bindRadRowEvents(tr) {
-  tr.querySelector('.daily-catalog-qty[data-section="xray_total"]')?.addEventListener('input', () => {
-    const picker = tr.querySelector('.daily-picker[data-section="xray_total"]');
-    syncSimpleServiceRow(tr, picker?._selectedItem, getCatalogRowUnitPrice(tr, 'xray_total'), 'xray_total', {
-      serial: '.daily-rad-serial',
-      unit: '.daily-rad-unit-price',
-      total: '.daily-rad-total',
-    });
-  });
   tr.querySelector('.daily-rad-stamp')?.addEventListener('input', refreshServiceRowTotals);
   tr.querySelector('.daily-rad-date')?.addEventListener('change', refreshServiceRowTotals);
 }
@@ -2684,18 +2959,21 @@ function createLabRow(entry = {}, analysisLine = null) {
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
-  const dateVal = line.extra_date ? String(line.extra_date).slice(0, 10) : getLocalDateString();
+  const dateVal = line.extra_date
+    ? String(line.extra_date).slice(0, 10)
+    : entry.entry_date
+      ? String(entry.entry_date).slice(0, 10)
+      : getLocalDateString();
 
   tr.innerHTML = `
     <td><input type="text" class="form-control form-control-sm daily-lab-serial bg-light" readonly placeholder="—"></td>
-    <td class="daily-lab-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="analyses" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
-    <td><input type="text" class="form-control form-control-sm daily-lab-unit-price bg-light" readonly placeholder="سعر الصنف"></td>
-    <td><input type="text" class="form-control form-control-sm daily-lab-total bg-light" readonly placeholder="الإجمالي"></td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-lab-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="دمغة" autocomplete="off"></td>
     <td><input type="date" class="form-control form-control-sm daily-lab-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
+    <td class="daily-lab-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
+    <td><input type="text" class="form-control form-control-sm daily-lab-unit-price bg-light" readonly placeholder="سعر التحليل"></td>
+    <td><input type="text" class="form-control form-control-sm daily-lab-total bg-light" readonly placeholder="الإجمالي"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-lab-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="الدمغة" autocomplete="off"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <td class="daily-row-total fw-bold text-nowrap d-none"></td>
+    <input type="hidden" class="daily-catalog-qty" data-section="analyses" value="${dailyEscapeAttr(qtyVal)}">
     <input type="hidden" class="daily-field daily-amount" data-section="analyses" data-type="amount">`;
 
   bindLabRowEvents(tr);
@@ -2732,18 +3010,25 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
     ? String(line.extra_date).slice(0, 10)
     : typeLine.extra_date
       ? String(typeLine.extra_date).slice(0, 10)
-      : getLocalDateString();
+      : entry.entry_date
+        ? String(entry.entry_date).slice(0, 10)
+        : getLocalDateString();
+  const unitVal =
+    line.unit_price > 0
+      ? formatAmountFieldValue(line.unit_price)
+      : line.quantity && line.amount
+        ? formatAmountFieldValue(Number(line.amount) / Number(line.quantity))
+        : '';
+  const totalVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
 
   tr.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm daily-rad-serial bg-light" readonly placeholder="—"></td>
     <td class="daily-rad-name-cell">${section ? buildCatalogPickerCell(section) : ''}</td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="xray_total" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
-    <td><input type="text" class="form-control form-control-sm daily-rad-unit-price bg-light" readonly placeholder="السعر"></td>
-    <td><input type="text" class="form-control form-control-sm daily-rad-total bg-light" readonly placeholder="الإجمالي"></td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-rad-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="دمغة" autocomplete="off"></td>
+    <td><input type="text" class="form-control form-control-sm daily-rad-unit-price bg-light" readonly value="${dailyEscapeAttr(unitVal)}" placeholder="سعر الأشعة"></td>
+    <td><input type="text" class="form-control form-control-sm daily-rad-total bg-light" readonly value="${dailyEscapeAttr(totalVal)}" placeholder="الإجمالي"></td>
     <td><input type="date" class="form-control form-control-sm daily-rad-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-rad-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="الدمغة" autocomplete="off"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <td class="daily-row-total fw-bold text-nowrap d-none"></td>
+    <input type="hidden" class="daily-catalog-qty" data-section="xray_total" value="${dailyEscapeAttr(qtyVal)}">
     <input type="hidden" class="daily-field daily-amount" data-section="xray_total" data-type="amount">`;
 
   bindRadRowEvents(tr);
@@ -2751,13 +3036,15 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
   if (section && window.DailyEntryPicker) {
     DailyEntryPicker.bindRow(tr);
     DailyEntryPicker.hydratePicker(tr, section, line);
-    syncSimpleServiceRow(
-      tr,
-      null,
-      Number(line.unit_price) || (line.quantity ? Number(line.amount) / Number(line.quantity) : 0),
-      'xray_total',
-      { serial: '.daily-rad-serial', unit: '.daily-rad-unit-price', total: '.daily-rad-total' }
-    );
+    if (!totalVal) {
+      syncSimpleServiceRow(
+        tr,
+        null,
+        Number(line.unit_price) || (line.quantity ? Number(line.amount) / Number(line.quantity) : 0),
+        'xray_total',
+        { unit: '.daily-rad-unit-price', total: '.daily-rad-total' }
+      );
+    }
   }
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
   return tr;
@@ -2861,6 +3148,8 @@ function onDailyCatalogPickerApplied(tr, section, item) {
     syncMedicineRowDisplay(tr, item, getCatalogRowUnitPrice(tr, 'medicines'));
   } else if (tr.classList.contains('daily-sup-row')) {
     syncSupplyRowDisplay(tr, item, getCatalogRowUnitPrice(tr, tr.dataset.sectionCode || section.code));
+  } else if (tr.classList.contains('daily-session-row') && section.code === 'sessions') {
+    syncSessionsRowDisplay(tr, item, getCatalogRowUnitPrice(tr, 'sessions'));
   } else if (tr.classList.contains('daily-lab-row') && section.code === 'analyses') {
     syncSimpleServiceRow(tr, item, getCatalogRowUnitPrice(tr, 'analyses'), 'analyses', {
       serial: '.daily-lab-serial',
@@ -2869,7 +3158,6 @@ function onDailyCatalogPickerApplied(tr, section, item) {
     });
   } else if (tr.classList.contains('daily-rad-row') && section.code === 'xray_total') {
     syncSimpleServiceRow(tr, item, getCatalogRowUnitPrice(tr, 'xray_total'), 'xray_total', {
-      serial: '.daily-rad-serial',
       unit: '.daily-rad-unit-price',
       total: '.daily-rad-total',
     });
@@ -2892,6 +3180,19 @@ function onDailyCatalogPickerCleared(tr, sectionCode) {
     updateSectionTabTotal();
   } else if (tr.classList.contains('daily-sup-row') && sectionCode === tr.dataset.sectionCode) {
     clearSupplyRowDisplay(tr);
+    updateRowTotal(tr);
+    updateDailyGrandTotal();
+    updateSectionTabTotal();
+  } else if (tr.classList.contains('daily-session-row') && sectionCode === 'sessions') {
+    const unitEl = tr.querySelector('.daily-session-unit');
+    const totalEl = tr.querySelector('.daily-session-total');
+    if (unitEl) unitEl.value = '';
+    if (totalEl) totalEl.value = '';
+    const hidden = tr.querySelector('.daily-field.daily-amount[data-section="sessions"]');
+    if (hidden) {
+      hidden.value = '';
+      hidden.dataset.unitPrice = '';
+    }
     updateRowTotal(tr);
     updateDailyGrandTotal();
     updateSectionTabTotal();
@@ -3017,19 +3318,47 @@ function renderDailySectionsTable() {
     return;
   }
 
-  if (activeDailyTab === 'exams') {
+  if (activeDailyTab === 'sessions') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
-      '<th class="daily-meta-th">نوع الكشف</th>' +
-      '<th class="daily-meta-th">سعر الكشف</th>' +
+      '<th class="daily-meta-th">تاريخ الجلسة</th>' +
+      '<th class="daily-meta-th">اسم المريض</th>' +
+      '<th class="daily-meta-th">نوع الجلسة</th>' +
+      '<th class="daily-meta-th">جلسة صباحي</th>' +
+      '<th class="daily-meta-th">جلسة مسائي</th>' +
+      '<th class="daily-meta-th">عدد الجلسات</th>' +
+      '<th class="daily-meta-th">سعر الجلسة</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
-      '<th class="daily-meta-th">اسم الطبيب</th>' +
       '<th class="daily-meta-th"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    const colCount = 6;
+    const colCount = 9;
+    const footLabel = document.getElementById('daily-total-foot-label');
+    const footSpacer = document.getElementById('daily-total-foot-spacer');
+    if (footLabel) {
+      footLabel.colSpan = Math.max(colCount - 2, 1);
+      footLabel.textContent = 'إجمالي الجلسات (جران توتال)';
+    }
+    if (footSpacer) footSpacer.colSpan = Math.max(colCount - 3, 0);
+    applyDailyTabColumnVisibility();
+    return;
+  }
+
+  if (activeDailyTab === 'exams') {
+    head.innerHTML =
+      '<th class="daily-meta-th">حالة الكشف</th>' +
+      '<th class="daily-meta-th">نوع الكشف</th>' +
+      '<th class="daily-meta-th">اسم الطبيب</th>' +
+      '<th class="daily-meta-th">سعر الكشف</th>' +
+      '<th class="daily-meta-th">تاريخ الكشف</th>' +
+      '<th class="daily-meta-th">اسم المريض</th>' +
+      '<th class="daily-meta-th"></th>';
+    if (subhead) {
+      subhead.innerHTML = '';
+      subhead.style.display = 'none';
+    }
+    const colCount = 7;
     const footLabel = document.getElementById('daily-total-foot-label');
     const footSpacer = document.getElementById('daily-total-foot-spacer');
     if (footLabel) {
@@ -3068,20 +3397,22 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'supplies') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
-      '<th class="daily-meta-th">رقم الفاتورة</th>' +
+      '<th class="daily-meta-th">م</th>' +
+      '<th class="daily-meta-th">تاريخ</th>' +
+      '<th class="daily-meta-th">رقم فاتورة</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
-      '<th class="daily-meta-th">الكمية</th>' +
-      '<th class="daily-meta-th">سعر قبل الهامش</th>' +
-      '<th class="daily-meta-th">إجمالي قبل الهامش</th>' +
-      '<th class="daily-meta-th">سعر بعد الهامش</th>' +
-      '<th class="daily-meta-th">إجمالي بعد الهامش</th>' +
+      '<th class="daily-meta-th">عدد</th>' +
+      '<th class="daily-meta-th">السعر</th>' +
+      '<th class="daily-meta-th">الإجمالي</th>' +
+      '<th class="daily-meta-th">سعر المستلزم</th>' +
+      '<th class="daily-meta-th">إجمالي المستلزم</th>' +
+      '<th class="daily-meta-th">هامش الربح %</th>' +
       '<th class="daily-meta-th"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    const colCount = 9;
+    const colCount = 12;
     const footLabel = document.getElementById('daily-total-foot-label');
     const footSpacer = document.getElementById('daily-total-foot-spacer');
     if (footLabel) {
@@ -3095,19 +3426,18 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'lab') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
-      '<th class="daily-meta-th">اسم التحليل</th>' +
-      '<th class="daily-meta-th">العدد</th>' +
-      '<th class="daily-meta-th">سعر الصنف</th>' +
+      '<th class="daily-meta-th">م</th>' +
+      '<th class="daily-meta-th">تاريخ التحليل</th>' +
+      '<th class="daily-meta-th">نوع التحليل</th>' +
+      '<th class="daily-meta-th">سعر التحليل</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
       '<th class="daily-meta-th">الدمغة</th>' +
-      '<th class="daily-meta-th">التاريخ</th>' +
       '<th class="daily-meta-th"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    const colCount = 8;
+    const colCount = 7;
     const footLabel = document.getElementById('daily-total-foot-label');
     const footSpacer = document.getElementById('daily-total-foot-spacer');
     if (footLabel) {
@@ -3121,19 +3451,17 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'radiology') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
-      '<th class="daily-meta-th">اسم الأشعة</th>' +
-      '<th class="daily-meta-th">العدد</th>' +
-      '<th class="daily-meta-th">السعر</th>' +
+      '<th class="daily-meta-th">نوع الأشعة</th>' +
+      '<th class="daily-meta-th">سعر الأشعة</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
+      '<th class="daily-meta-th">تاريخ الأشعة</th>' +
       '<th class="daily-meta-th">الدمغة</th>' +
-      '<th class="daily-meta-th">التاريخ</th>' +
       '<th class="daily-meta-th"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    const colCount = 8;
+    const colCount = 6;
     const footLabel = document.getElementById('daily-total-foot-label');
     const footSpacer = document.getElementById('daily-total-foot-spacer');
     if (footLabel) {
@@ -3323,6 +3651,7 @@ async function applyStayTypeRateToRow(tr) {
 
 function createDailyEntryRow(entry = {}) {
   if (activeDailyTab === 'stay') return createStayDailyEntryRow(entry);
+  if (activeDailyTab === 'sessions') return createSessionsRow(entry);
   if (activeDailyTab === 'exams') return createExamDailyEntryRow(entry);
   if (activeDailyTab === 'medicines') return createMedicineCatalogRow(entry);
   if (activeDailyTab === 'supplies') return createSupplyCatalogRow(entry);
@@ -3397,8 +3726,9 @@ function addDailyEntryRow(preset = {}) {
 
 function rowHasChargeData(tr) {
   if (tr._entryLinesSnapshot?.some((line) => lineHasChargeData(line))) return true;
-  if (dailyParseAmount(tr.querySelector('.daily-exam-total')?.value) > 0) return true;
+  if (dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value) > 0) return true;
   if (tr.querySelector('.daily-exam-type')?.value) return true;
+  if (tr.querySelector('.daily-exam-case')?.value) return true;
   if (dailyParseAmount(tr.querySelector('.daily-med-total')?.value) > 0) return true;
   if (tr.querySelector('.daily-picker[data-section="medicines"] .daily-picker-value')?.value) return true;
   if (dailyParseAmount(tr.querySelector('.daily-sup-sell-total')?.value) > 0) return true;
@@ -3413,6 +3743,10 @@ function rowHasChargeData(tr) {
   if (dailyParseAmount(tr.querySelector('.daily-misc-total')?.value) > 0) return true;
   const miscSection = tr.dataset.sectionCode || 'other';
   if (tr.querySelector(`.daily-picker[data-section="${miscSection}"] .daily-picker-value`)?.value) return true;
+  if (dailyParseAmount(tr.querySelector('.daily-session-total')?.value) > 0) return true;
+  if (tr.querySelector('.daily-picker[data-section="sessions"] .daily-picker-value')?.value) return true;
+  if (dailyParseAmount(tr.querySelector('.daily-session-morning')?.value) > 0) return true;
+  if (dailyParseAmount(tr.querySelector('.daily-session-evening')?.value) > 0) return true;
   let hasValue = false;
   tr.querySelectorAll('.daily-amount').forEach((input) => {
     if (dailyParseAmount(input.value) > 0) hasValue = true;
@@ -3463,6 +3797,7 @@ function lineHasChargeData(line) {
 
 function collectDailyLinesFromRow(tr) {
   if (activeDailyTab === 'stay') return collectStayLinesFromRow(tr);
+  if (activeDailyTab === 'sessions') return collectSessionsLinesFromRow(tr);
   if (activeDailyTab === 'exams') return collectExamLinesFromRow(tr);
   if (activeDailyTab === 'medicines') return collectMedicineLinesFromRow(tr);
   if (activeDailyTab === 'supplies') return collectSupplyLinesFromRow(tr);
@@ -3508,6 +3843,18 @@ function updateRowTotal(tr) {
     if (cell) cell.textContent = total > 0 ? dailyFmt(total) : '';
     return;
   }
+  if (tr.classList.contains('daily-session-row')) {
+    const total = dailyParseAmount(tr.querySelector('.daily-session-total')?.value);
+    const cell = tr.querySelector('.daily-row-total');
+    if (cell) cell.textContent = total > 0 ? dailyFmt(total) : '';
+    return;
+  }
+  if (tr.classList.contains('daily-exam-row')) {
+    const total = dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
+    const cell = tr.querySelector('.daily-row-total');
+    if (cell) cell.textContent = total > 0 ? dailyFmt(total) : '';
+    return;
+  }
   const amountSections = new Set(
     dailySectionsCache.filter((s) => s.input_type === 'amount').map((s) => s.code)
   );
@@ -3515,8 +3862,6 @@ function updateRowTotal(tr) {
   tr.querySelectorAll('.daily-amount').forEach((input) => {
     if (amountSections.has(input.dataset.section)) total += dailyParseAmount(input.value);
   });
-  const examTotal = tr.querySelector('.daily-exam-total');
-  if (examTotal) total += dailyParseAmount(examTotal.value);
   const cell = tr.querySelector('.daily-row-total');
   if (cell) {
     const rounded = Math.round(total * 100) / 100;
@@ -3625,6 +3970,21 @@ async function loadDailyEntriesIntoSheet() {
           for (const line of supLines) {
             body.appendChild(createSupplyCatalogRow(entry, line, line.section_code));
           }
+        }
+      }
+      if (!body.querySelector('.daily-entry-row')) addDailyEntryRow();
+    } else if (activeDailyTab === 'sessions') {
+      for (const entry of todayEntries) {
+        const sessionLines = serviceLinesFromEntry(entry, 'sessions');
+        const hasSessionMeta =
+          lineHasChargeData(getLineForSection(entry, 'sessions_date')) ||
+          lineHasChargeData(getLineForSection(entry, 'sessions_detail'));
+        if (sessionLines.length) {
+          for (const line of sessionLines) {
+            body.appendChild(createSessionsRow(entry, line));
+          }
+        } else if (hasSessionMeta) {
+          body.appendChild(createSessionsRow(entry));
         }
       }
       if (!body.querySelector('.daily-entry-row')) addDailyEntryRow();
