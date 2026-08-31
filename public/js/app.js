@@ -1,5 +1,6 @@
 const API = '/api/invoices';
 const SETTINGS_API = '/api/settings';
+let currentSettingsSection = '';
 const PRICING_API = '/api/pricing';
 const AUTH_API = '/api/auth';
 const USERS_API = '/api/users';
@@ -588,8 +589,15 @@ function bindEvents() {
   document.getElementById('add-entity-btn').addEventListener('click', addContractedEntity);
   document.getElementById('add-exclusion-btn').addEventListener('click', addDiscountExclusion);
 
-  document.getElementById('settings-section-select')?.addEventListener('change', (e) => {
-    showSettingsSection(e.target.value);
+  document.getElementById('settings-tiles-grid')?.addEventListener('click', (e) => {
+    const tile = e.target.closest('.settings-section-tile');
+    if (!tile || tile.style.display === 'none') return;
+    const section = tile.dataset.settingsSection;
+    if (section) showSettingsSection(section);
+  });
+
+  document.getElementById('settings-section-back')?.addEventListener('click', () => {
+    showSettingsSection('');
   });
 
   document.getElementById('pricing-refresh-btn')?.addEventListener('click', loadPricingSection);
@@ -2527,6 +2535,7 @@ function switchView(view, options = {}) {
     loadReports();
   }
   if (view === 'settings') {
+    currentSettingsSection = '';
     applySettingsSectionPermissions();
     loadSettingsPage();
   }
@@ -3299,7 +3308,7 @@ async function addDiscountExclusion() {
 
 async function loadSettingsPage() {
   try {
-    const section = document.getElementById('settings-section-select')?.value || '';
+    const section = currentSettingsSection;
     const [settingsRes, stayRes, invoiceRes, paymentRes, entityRes, exclusionRes, financialRes] =
       await Promise.all([
       apiFetch(SETTINGS_API),
@@ -3354,37 +3363,39 @@ async function loadSettingsPage() {
 }
 
 function applySettingsSectionPermissions() {
-  const select = document.getElementById('settings-section-select');
-  if (!select) return;
-
-  select.querySelectorAll('option').forEach((opt) => {
-    if (!opt.value) return;
-    const needsAdmin = opt.dataset.admin === '1';
-    const perm = opt.dataset.perm;
+  document.querySelectorAll('.settings-section-tile').forEach((tile) => {
+    const needsAdmin = tile.dataset.admin === '1';
+    const perm = tile.dataset.perm;
     let allowed = true;
     if (needsAdmin && !can('settings.*')) allowed = false;
     if (perm && !can(perm)) allowed = false;
-    opt.hidden = !allowed;
-    opt.disabled = !allowed;
+    tile.style.display = allowed ? '' : 'none';
   });
 
-  const current = select.value;
-  if (!current) return;
-  const currentOpt = select.querySelector(`option[value="${CSS.escape(current)}"]`);
-  if (currentOpt && (currentOpt.hidden || currentOpt.disabled)) {
-    select.value = '';
+  if (!currentSettingsSection) return;
+  const activeTile = document.querySelector(
+    `.settings-section-tile[data-settings-section="${CSS.escape(currentSettingsSection)}"]`
+  );
+  if (activeTile && activeTile.style.display === 'none') {
     showSettingsSection('');
   }
 }
 
 function showSettingsSection(section) {
+  currentSettingsSection = section || '';
+
   document.querySelectorAll('.settings-panel').forEach((el) => {
     const key = el.dataset.settingsSection;
     el.style.display = section && key === section ? '' : 'none';
   });
 
-  const hint = document.getElementById('settings-section-hint');
-  if (hint) hint.style.display = section ? 'none' : '';
+  const tilesWrap = document.getElementById('settings-tiles-wrap');
+  const panelsWrap = document.getElementById('settings-panels-wrap');
+  if (tilesWrap) tilesWrap.style.display = section ? 'none' : '';
+  if (panelsWrap) {
+    if (section) panelsWrap.classList.remove('d-none');
+    else panelsWrap.classList.add('d-none');
+  }
 
   if (!section) return;
 

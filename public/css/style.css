@@ -884,6 +884,15 @@ body {
   border-color: #64748b;
 }
 
+.hub-tile--red {
+  background: linear-gradient(145deg, #fde8e8, #fff);
+  border-color: #c62828;
+}
+
+.settings-hub-grid {
+  max-width: 1200px;
+}
+
 .view-page-header {
   max-width: 1400px;
 }
