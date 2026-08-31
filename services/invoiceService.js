@@ -1531,6 +1531,7 @@ async function openPatientStay(data, user = null) {
     room_insurance_amount: data.room_insurance_amount,
     military_auth_from: data.military_auth_from,
     military_auth_to: data.military_auth_to,
+    military_auth_amount: data.military_auth_amount,
     glasses_lens_type: data.glasses_lens_type || '',
     glasses_start_date: data.glasses_start_date,
     glasses_price: data.glasses_price,

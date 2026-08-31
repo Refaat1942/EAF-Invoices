@@ -40,6 +40,7 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
       room_insurance_amount: 0,
       military_auth_from: null,
       military_auth_to: null,
+      military_auth_amount: 0,
       glasses_lens_type: '',
       glasses_start_date: null,
       glasses_price: 0,
@@ -62,6 +63,7 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
     room_insurance_amount: parseAmount(data.room_insurance_amount),
     military_auth_from: parseOptionalDate(data.military_auth_from),
     military_auth_to: parseOptionalDate(data.military_auth_to),
+    military_auth_amount: parseAmount(data.military_auth_amount),
     glasses_lens_type: String(data.glasses_lens_type || '').trim(),
     glasses_start_date: parseOptionalDate(data.glasses_start_date),
     glasses_price: parseAmount(data.glasses_price),
@@ -83,10 +85,10 @@ async function upsertPatient(fileNumber, dataOrName = '') {
     `INSERT INTO patients (
        file_number, name, phone, nationality, gender, patient_type, floor,
        age, disability_degree, disability_type, stay_grade_id, room_insurance_amount,
-       military_auth_from, military_auth_to,
+       military_auth_from, military_auth_to, military_auth_amount,
        glasses_lens_type, glasses_start_date, glasses_price, glasses_discount_percent,
        updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW())
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,NOW())
      ON CONFLICT (file_number) DO UPDATE SET
        name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE patients.name END,
        phone = CASE WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone ELSE patients.phone END,
@@ -101,6 +103,7 @@ async function upsertPatient(fileNumber, dataOrName = '') {
        room_insurance_amount = CASE WHEN EXCLUDED.room_insurance_amount > 0 THEN EXCLUDED.room_insurance_amount ELSE patients.room_insurance_amount END,
        military_auth_from = COALESCE(EXCLUDED.military_auth_from, patients.military_auth_from),
        military_auth_to = COALESCE(EXCLUDED.military_auth_to, patients.military_auth_to),
+       military_auth_amount = CASE WHEN EXCLUDED.military_auth_amount > 0 THEN EXCLUDED.military_auth_amount ELSE patients.military_auth_amount END,
        glasses_lens_type = CASE WHEN EXCLUDED.glasses_lens_type <> '' THEN EXCLUDED.glasses_lens_type ELSE patients.glasses_lens_type END,
        glasses_start_date = COALESCE(EXCLUDED.glasses_start_date, patients.glasses_start_date),
        glasses_price = CASE WHEN EXCLUDED.glasses_price > 0 THEN EXCLUDED.glasses_price ELSE patients.glasses_price END,
@@ -122,6 +125,7 @@ async function upsertPatient(fileNumber, dataOrName = '') {
       data.room_insurance_amount,
       data.military_auth_from,
       data.military_auth_to,
+      data.military_auth_amount,
       data.glasses_lens_type || '',
       data.glasses_start_date,
       data.glasses_price,

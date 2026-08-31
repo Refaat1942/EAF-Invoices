@@ -861,8 +861,16 @@ async function getSupplementalInvoiceItems(fileNumber, fromDate, toDate) {
     if (amount <= 0) continue;
     const dateLabel = formatDailyEntryDateLabel(op.entry_date);
     const detailParts = [op.operation_name || 'عملية'];
+    const startTime = String(op.operation_start_time || '').trim();
+    const endTime = String(op.operation_end_time || '').trim();
+    if (startTime && endTime) {
+      detailParts.push(`من ${startTime} إلى ${endTime}`);
+    } else if (Number(op.duration_hours) > 0) {
+      detailParts.push(`مدة ${op.duration_hours} ساعة`);
+    }
     if (op.surgeon_name) detailParts.push(`جراح: ${op.surgeon_name}`);
-    if (op.doctor_name) detailParts.push(`طبيب: ${op.doctor_name}`);
+    if (op.anesthesia_doctor) detailParts.push(`تخدير: ${op.anesthesia_doctor}`);
+    if (op.assistant_surgeon) detailParts.push(`مساعد جراح: ${op.assistant_surgeon}`);
     items.push({
       description: buildDailyItemDescription(dateLabel, `عملية — ${detailParts.join(' — ')}`, ''),
       quantity: 1,

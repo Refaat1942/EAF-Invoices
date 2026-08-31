@@ -243,6 +243,9 @@
     if (typeof updateRowTotal === 'function') updateRowTotal(tr);
     if (typeof updateDailyGrandTotal === 'function') updateDailyGrandTotal();
     if (typeof updateSectionTabTotal === 'function') updateSectionTabTotal();
+    if (typeof window.onDailyCatalogPickerApplied === 'function') {
+      window.onDailyCatalogPickerApplied(tr, section, item);
+    }
   }
 
   function clearPicker(tr, sectionCode) {
@@ -266,6 +269,9 @@
       amountInput.value = '';
       amountInput.dataset.unitPrice = '';
       amountInput.dataset.manualAmount = '0';
+    }
+    if (typeof window.onDailyCatalogPickerCleared === 'function') {
+      window.onDailyCatalogPickerCleared(tr, sectionCode);
     }
   }
 
@@ -385,6 +391,11 @@
         if (typeof updateRowTotal === 'function') updateRowTotal(tr);
         if (typeof updateDailyGrandTotal === 'function') updateDailyGrandTotal();
         if (typeof updateSectionTabTotal === 'function') updateSectionTabTotal();
+        if (typeof window.onDailyCatalogPickerApplied === 'function') {
+          const section = dailySectionsCache.find((s) => s.code === unitSelect.dataset.section);
+          const picker = tr.querySelector(`.daily-picker[data-section="${unitSelect.dataset.section}"]`);
+          window.onDailyCatalogPickerApplied(tr, section, picker?._selectedItem);
+        }
       });
     });
   }

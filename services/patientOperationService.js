@@ -15,6 +15,33 @@ function parseAmount(value) {
   return Math.round(n * 100) / 100;
 }
 
+function parseOptionalTime(value) {
+  const s = String(value ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!m) return '';
+  const hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes) || hours > 23 || minutes > 59) return '';
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function timeToMinutes(value) {
+  const t = parseOptionalTime(value);
+  if (!t) return null;
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function computeDurationHours(startTime, endTime, fallbackHours = 0) {
+  const start = timeToMinutes(startTime);
+  const end = timeToMinutes(endTime);
+  if (start != null && end != null && end >= start) {
+    return Math.round(((end - start) / 60) * 100) / 100;
+  }
+  return parseAmount(fallbackHours);
+}
+
 async function listOperations(patientId, entryDate) {
   const pid = Number(patientId);
   if (!pid) return [];
@@ -41,22 +68,28 @@ async function saveOperationsForDate(patientId, entryDate, operations = []) {
     const name = String(op.operation_name || '').trim();
     const amount = parseAmount(op.amount);
     if (!name && amount <= 0) continue;
+    const startTime = parseOptionalTime(op.operation_start_time);
+    const endTime = parseOptionalTime(op.operation_end_time);
+    const durationHours = computeDurationHours(startTime, endTime, op.duration_hours);
     const { rows } = await query(
       `INSERT INTO patient_operations (
          patient_id, entry_date, operation_name, duration_hours,
+         operation_start_time, operation_end_time,
          surgeon_name, doctor_name, anesthesia_doctor, assistant_surgeon,
          case_type, amount, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()) RETURNING *`,
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW()) RETURNING *`,
       [
         pid,
         date,
         name,
-        parseAmount(op.duration_hours),
+        durationHours,
+        startTime,
+        endTime,
         String(op.surgeon_name || '').trim(),
         String(op.doctor_name || '').trim(),
         String(op.anesthesia_doctor || '').trim(),
         String(op.assistant_surgeon || '').trim(),
-        String(op.case_type || 'civil').trim() || 'civil',
+        String(op.case_type || 'special').trim() || 'special',
         amount,
       ]
     );
@@ -95,4 +128,6 @@ module.exports = {
   saveOperationsForDate,
   getOperationsTotal,
   listOperationsInRange,
+  parseOptionalTime,
+  computeDurationHours,
 };

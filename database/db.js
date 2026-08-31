@@ -494,6 +494,9 @@ async function runMigrations() {
   );
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS military_auth_from DATE`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS military_auth_to DATE`);
+  await query(
+    `ALTER TABLE patients ADD COLUMN IF NOT EXISTS military_auth_amount NUMERIC(14,2) NOT NULL DEFAULT 0`
+  );
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS glasses_lens_type TEXT DEFAULT ''`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS glasses_start_date DATE`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS glasses_price NUMERIC(14,2) NOT NULL DEFAULT 0`);
@@ -831,6 +834,8 @@ async function runMigrations() {
       daily_entry_id INTEGER REFERENCES patient_daily_entries(id) ON DELETE SET NULL,
       operation_name TEXT DEFAULT '',
       duration_hours NUMERIC(10,2) NOT NULL DEFAULT 0,
+      operation_start_time VARCHAR(10) DEFAULT '',
+      operation_end_time VARCHAR(10) DEFAULT '',
       surgeon_name TEXT DEFAULT '',
       doctor_name TEXT DEFAULT '',
       anesthesia_doctor TEXT DEFAULT '',
@@ -844,6 +849,8 @@ async function runMigrations() {
   await query(
     `CREATE INDEX IF NOT EXISTS idx_patient_operations_patient_date ON patient_operations(patient_id, entry_date)`
   );
+  await query(`ALTER TABLE patient_operations ADD COLUMN IF NOT EXISTS operation_start_time VARCHAR(10) DEFAULT ''`);
+  await query(`ALTER TABLE patient_operations ADD COLUMN IF NOT EXISTS operation_end_time VARCHAR(10) DEFAULT ''`);
 
   await query(`
     CREATE TABLE IF NOT EXISTS daily_entry_catalog_code_registry (
