@@ -578,7 +578,9 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
       }
 
       const existingFull = await getInvoiceById(existingId, client);
-      assertInvoiceStructuralEditAllowed(actor, existingFull, data, totals);
+      if (!options.skip_structural_guard) {
+        assertInvoiceStructuralEditAllowed(actor, existingFull, data, totals);
+      }
 
       serialNumber = current.serial_number;
       fiscalYear = current.fiscal_year;
@@ -1191,7 +1193,7 @@ async function resolveOpenInvoiceForDailyEntry(fileNumber) {
   return rows[0]?.id || null;
 }
 
-async function syncInvoiceAfterDailyChange(invoiceId, fileNumber) {
+async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) {
   const invoice = await getInvoiceById(invoiceId);
   if (!invoice || invoice.status === 'approved') return null;
 
@@ -1218,6 +1220,7 @@ async function syncInvoiceAfterDailyChange(invoiceId, fileNumber) {
   return saveInvoice(payload, invoiceId, null, {
     save_mode: 'draft',
     preserve_status: true,
+    skip_structural_guard: true,
   });
 }
 
@@ -1226,7 +1229,7 @@ async function syncInvoiceDailyCharges(invoiceId, options = {}) {
   if (!invoice || invoice.status === 'approved') return null;
 
   if (options.rebuild_from_daily && invoice.file_number) {
-    return syncInvoiceAfterDailyChange(invoiceId, invoice.file_number);
+    return syncInvoiceAfterDailyChange(invoiceId, invoice.file_number, options);
   }
 
   const entryDate = options.entry_date ? fmtDateOnly(options.entry_date) : null;
@@ -1243,6 +1246,7 @@ async function syncInvoiceDailyCharges(invoiceId, options = {}) {
   const updated = await saveInvoice(payload, invoiceId, null, {
     save_mode: 'draft',
     preserve_status: options.preserve_status !== false,
+    skip_structural_guard: true,
   });
   return updated;
 }
@@ -1585,8 +1589,9 @@ async function openPatientStay(data, user = null) {
     save_mode: 'draft',
     preserve_status: true,
     actor: user,
+    skip_structural_guard: true,
   });
-  await syncInvoiceDailyCharges(invoiceId, { preserve_status: true });
+  await syncInvoiceDailyCharges(invoiceId, { preserve_status: true, actor: user });
 
   const patient = await getPatientByFileNumber(fileNumber);
   const dailySummary = await getDailySummaryForStay(fileNumber, updated.admission_date, updated.discharge_date);

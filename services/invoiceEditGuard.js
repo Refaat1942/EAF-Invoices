@@ -80,6 +80,8 @@ function hasItemOrStayChanges(existing, newData, dailySync = false) {
   );
   if (oldItems !== newItems) return true;
 
+  if (dailySync) return false;
+
   const oldStay = JSON.stringify(normalizeStayForCompare(existing.stay_entries));
   const newStay = JSON.stringify(
     normalizeStayForCompare(newData.stay_entries || newData.calcData?.stay_entries)
