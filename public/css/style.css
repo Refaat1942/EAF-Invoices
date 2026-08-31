@@ -727,6 +727,14 @@ body {
   opacity: 1;
 }
 
+.invoice-followup-mode #invoice-patient-data-section {
+  display: none !important;
+}
+
+#invoice-patient-data-summary .badge {
+  font-size: 0.85rem;
+}
+
 .invoice-followup-mode .service-search {
   pointer-events: none;
   background-color: #f8f9fa;
@@ -894,7 +902,8 @@ body {
 }
 
 .daily-patient-grid,
-.daily-section-grid {
+.daily-section-grid,
+.daily-invoice-hub-grid {
   max-width: 1200px;
 }
 

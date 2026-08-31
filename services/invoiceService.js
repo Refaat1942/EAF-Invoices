@@ -15,10 +15,46 @@ const { listDiscountExclusions } = require('./discountExclusionService');
 const { upsertPatient, applyPatientCredit, setPatientBalance, getPatientByFileNumber, recordInvoiceCollections } = require('./patientService');
 const { assertInvoiceStructuralEditAllowed } = require('./invoiceEditGuard');
 const { getSummaryReport, STATUS_LABELS } = require('./reportService');
+const { userHasPermission } = require('./authService');
 
 const { getStayTypeById } = require('./stayTypeService');
 const { resolveServiceForInvoice } = require('./serviceCatalogService');
 const { getSetting } = require('./settingsService');
+
+const DAILY_PATIENT_HEADER_KEYS = [
+  'patient_name',
+  'file_number',
+  'admission_date',
+  'discharge_date',
+  'stay_days',
+  'financial_treatment',
+  'invoice_type',
+  'contracted_entity_id',
+  'discount_percent',
+  'letter_from_date',
+  'letter_to_date',
+  'issue_date',
+];
+
+function invoiceHasDailySource(invoice) {
+  return (invoice?.items || []).some((item) => item.daily_entry_line_id);
+}
+
+function canBypassDailyPatientHeaderLock(actor) {
+  return userHasPermission(actor, 'invoices.edit_original') || userHasPermission(actor, 'settings.*');
+}
+
+function preserveDailyPatientHeaderFromExisting(data, existing, actor = null) {
+  if (!existing || !invoiceHasDailySource(existing)) return data;
+  if (canBypassDailyPatientHeaderLock(actor)) return data;
+  const out = { ...data };
+  for (const key of DAILY_PATIENT_HEADER_KEYS) {
+    if (existing[key] !== undefined && existing[key] !== null) out[key] = existing[key];
+    else if (key in existing) out[key] = existing[key];
+  }
+  out.stay_entries = existing.stay_entries || [];
+  return out;
+}
 
 async function enrichItemsWithServices(items = []) {
   const {
@@ -453,6 +489,12 @@ async function listInvoices(filters = {}) {
 }
 
 async function saveInvoice(data, existingId = null, createdBy = null, options = {}) {
+  let existingForPatientGuard = null;
+  if (existingId) {
+    existingForPatientGuard = await getInvoiceById(existingId);
+    data = preserveDailyPatientHeaderFromExisting(data, existingForPatientGuard, options.actor);
+  }
+
   data.issue_date = fmtDateOnly(data.issue_date);
   data.admission_date = fmtDateOnly(data.admission_date);
   data.discharge_date = fmtDateOnly(data.discharge_date);
@@ -499,7 +541,11 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
 
   const manualItems = totals.items.filter((item) => !item.is_stay_entry);
 
-  if (data.file_number?.trim()) {
+  const skipPatientUpsert =
+    existingForPatientGuard &&
+    invoiceHasDailySource(existingForPatientGuard) &&
+    !canBypassDailyPatientHeaderLock(options.actor);
+  if (data.file_number?.trim() && !skipPatientUpsert) {
     await upsertPatient(data.file_number, data.patient_name || '');
   }
 

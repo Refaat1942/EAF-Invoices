@@ -9,6 +9,7 @@ let currentInvoiceId = null;
 let currentUser = null;
 let currentInvoiceStatus = null;
 let invoiceFollowUpMode = false;
+let followUpPatientSnapshot = null;
 let currentInvoiceReturns = [];
 let invoiceReturnModal = null;
 let rowCount = 12;
@@ -219,42 +220,154 @@ function isDailySourcedInvoice(inv) {
   return hasDailyLines || (hasStayFile && inv.status !== 'approved');
 }
 
+function canInvoiceFullFollowUpEdit() {
+  return can('invoices.edit_original') || can('settings.*');
+}
+
+function isInvoiceFollowUpLocked() {
+  return invoiceFollowUpMode && !canInvoiceFullFollowUpEdit();
+}
+
+function buildFollowUpPatientSnapshot(inv) {
+  return {
+    invoice_type: inv.invoice_type,
+    contracted_entity_id: inv.contracted_entity_id || null,
+    discount_percent: inv.discount_percent || 0,
+    letter_from_date: inv.letter_from_date || null,
+    letter_to_date: inv.letter_to_date || null,
+    issue_date: inv.issue_date || inv.created_at || null,
+    file_number: inv.file_number || '',
+    patient_name: inv.patient_name || '',
+    admission_date: inv.admission_date || null,
+    discharge_date: inv.discharge_date || null,
+    stay_days: inv.stay_days,
+    financial_treatment: inv.financial_treatment || '',
+    stay_entries: inv.stay_entries || [],
+  };
+}
+
+function applyFollowUpSnapshotToFormData(data) {
+  if (!isInvoiceFollowUpLocked() || !followUpPatientSnapshot) return data;
+  const out = { ...data };
+  for (const [key, value] of Object.entries(followUpPatientSnapshot)) {
+    out[key] = value;
+  }
+  return out;
+}
+
+function getInvoiceSelectLabel(id) {
+  const el = document.getElementById(id);
+  if (!el) return '—';
+  const opt = el.options?.[el.selectedIndex];
+  return (opt?.text || el.value || '—').trim();
+}
+
+function fmtInvoiceSummaryDate(value) {
+  if (!value) return '—';
+  try {
+    return new Date(value).toLocaleDateString('ar-EG');
+  } catch {
+    return value;
+  }
+}
+
+function updateInvoicePatientSummary() {
+  const panel = document.getElementById('invoice-patient-data-summary');
+  if (!panel) return;
+  const balanceText = document.getElementById('patient-balance-display')?.textContent || '0';
+  const entityWrap = document.getElementById('contracted-entity-wrap');
+  const entityVisible = entityWrap && entityWrap.style.display !== 'none';
+  const entityLabel = entityVisible ? getInvoiceSelectLabel('contracted_entity_id') : '';
+  panel.innerHTML = `
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+      <div>
+        <span class="text-muted small d-block mb-1">بيانات المريض (من الحركة اليومية)</span>
+        <strong class="fs-5">${escapeHtml(document.getElementById('patient_name')?.value || '—')}</strong>
+        <span class="text-muted ms-2">ملف ${escapeHtml(document.getElementById('file_number')?.value || '—')}</span>
+      </div>
+      <span class="badge bg-primary">${escapeHtml(getInvoiceSelectLabel('invoice_type'))}</span>
+    </div>
+    <div class="row g-2 small">
+      <div class="col-md-3"><span class="text-muted">الدخول:</span> ${fmtInvoiceSummaryDate(document.getElementById('admission_date')?.value)}</div>
+      <div class="col-md-3"><span class="text-muted">الخروج:</span> ${fmtInvoiceSummaryDate(document.getElementById('discharge_date')?.value)}</div>
+      <div class="col-md-2"><span class="text-muted">الأيام:</span> ${escapeHtml(document.getElementById('stay_days')?.value || '0')}</div>
+      <div class="col-md-4"><span class="text-muted">المعاملة المالية:</span> ${escapeHtml(getInvoiceSelectLabel('financial_treatment'))}</div>
+      ${entityLabel ? `<div class="col-md-4"><span class="text-muted">الجهة:</span> ${escapeHtml(entityLabel)}</div>` : ''}
+      <div class="col-md-3"><span class="text-muted">رصيد الحساب:</span> ${escapeHtml(balanceText)}</div>
+      <div class="col-md-3"><span class="text-muted">تاريخ الإصدار:</span> ${fmtInvoiceSummaryDate(document.getElementById('issue_date')?.value)}</div>
+    </div>
+    <p class="small text-muted mt-2 mb-0">لتعديل بيانات المريض أو الإقامة ارجع إلى الحركة اليومية أو تسجيل المريض.</p>
+  `;
+}
+
+function applyInvoiceFollowUpPaymentsOnly() {
+  setFormReadonly(true);
+  setInvoiceItemsReadonly(true);
+  document.querySelectorAll('.payment-method-input, .payment-meta-input').forEach((el) => {
+    el.removeAttribute('readonly');
+    el.disabled = false;
+  });
+  document.querySelectorAll('.pay-remaining-btn').forEach((btn) => {
+    btn.style.display = '';
+  });
+  ['pay-full-cash-btn', 'pay-full-bank-btn', 'pay-full-check-btn', 'clear-payments-btn'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = '';
+  });
+  document.getElementById('save-draft-btn').style.display =
+    can('invoices.create') || can('invoices.edit') ? '' : 'none';
+}
+
 function applyInvoiceFollowUpMode(enabled) {
   invoiceFollowUpMode = enabled;
+  const locked = isInvoiceFollowUpLocked();
+
+  if (!enabled) {
+    followUpPatientSnapshot = null;
+  } else if (!locked) {
+    followUpPatientSnapshot = null;
+  }
+
   const card = document.querySelector('.invoice-card');
   const banner = document.getElementById('invoice-followup-banner');
-  if (card) card.classList.toggle('invoice-followup-mode', enabled);
+  const adminBadge = document.getElementById('invoice-followup-admin-badge');
+  const patientSection = document.getElementById('invoice-patient-data-section');
+  const patientSummary = document.getElementById('invoice-patient-data-summary');
+  if (card) card.classList.toggle('invoice-followup-mode', locked);
   if (banner) banner.style.display = enabled ? '' : 'none';
+  if (adminBadge) adminBadge.style.display = enabled && canInvoiceFullFollowUpEdit() ? '' : 'none';
 
-  const metaIds = [
-    'file_number',
-    'patient_name',
-    'admission_date',
-    'discharge_date',
-    'stay_days',
-  ];
-  metaIds.forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    if (enabled) {
-      el.setAttribute('readonly', 'readonly');
-      el.classList.add('bg-light');
-    } else if (!(currentInvoiceStatus === 'approved')) {
-      el.removeAttribute('readonly');
-      el.classList.remove('bg-light');
-    }
-  });
-
+  const editBalanceBtn = document.getElementById('edit-patient-balance-btn');
   const manualEntryIds = ['add-row-btn', 'remove-row-btn', 'add-stay-entry-btn', 'import-daily-charges-btn'];
+  const stayWrap = document.querySelector('.stay-entries-wrap');
+  const stayHint = document.getElementById('invoice-stay-sync-hint');
+
+  if (locked) {
+    if (patientSection) patientSection.style.display = 'none';
+    if (patientSummary) {
+      patientSummary.style.display = '';
+      updateInvoicePatientSummary();
+    }
+    if (editBalanceBtn) editBalanceBtn.style.display = 'none';
+    manualEntryIds.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    if (stayWrap) stayWrap.style.display = 'none';
+    if (stayHint) stayHint.style.display = 'none';
+    lockDailyInvoiceRows();
+    applyInvoiceFollowUpPaymentsOnly();
+    return;
+  }
+
+  if (patientSection) patientSection.style.display = '';
+  if (patientSummary) patientSummary.style.display = 'none';
   manualEntryIds.forEach((id) => {
     const el = document.getElementById(id);
-    if (el) el.style.display = enabled ? 'none' : '';
+    if (el) el.style.display = '';
   });
-
-  const stayWrap = document.querySelector('.stay-entries-wrap');
-  if (stayWrap) stayWrap.style.display = enabled ? 'none' : '';
-
-  if (enabled) lockDailyInvoiceRows();
+  if (stayWrap) stayWrap.style.display = '';
+  if (stayHint) stayHint.style.display = '';
 }
 
 function lockDailyInvoiceRows() {
@@ -264,7 +377,7 @@ function lockDailyInvoiceRows() {
     const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     const hasContent = Boolean(desc || amt || isDaily);
 
-    if (invoiceFollowUpMode) {
+    if (isInvoiceFollowUpLocked()) {
       row.style.display = hasContent ? '' : 'none';
     } else {
       row.style.display = '';
@@ -272,7 +385,7 @@ function lockDailyInvoiceRows() {
 
     row.classList.toggle('daily-invoice-row', isDaily);
     row.querySelectorAll('[data-field="description"], [data-field="quantity"], [data-field="amount"]').forEach((el) => {
-      if (invoiceFollowUpMode && (isDaily || hasContent)) {
+      if (isInvoiceFollowUpLocked() && (isDaily || hasContent)) {
         el.setAttribute('readonly', 'readonly');
         el.classList.add('bg-light');
       } else if (currentInvoiceStatus !== 'approved') {
@@ -281,29 +394,6 @@ function lockDailyInvoiceRows() {
       }
     });
   });
-}
-
-async function openInvoiceFollowUpView() {
-  const fileNumber = sessionStorage.getItem('dailyStayFileNumber');
-  if (!fileNumber) {
-    showToast('ابدأ من الحركة اليومية — سجّل المريض أولًا من تسجيل مريض جديد', 'info');
-    switchView('daily');
-    return;
-  }
-  try {
-    const res = await apiFetch(`/api/daily-charges/open-stay?file_number=${encodeURIComponent(fileNumber)}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل تحميل الإقامة');
-    if (data.invoice?.id) {
-      await loadInvoiceForEdit(data.invoice.id, { followUp: true });
-      return;
-    }
-    showToast('لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا', 'warning');
-    switchView('daily');
-  } catch (err) {
-    showToast(err.message, 'danger');
-    switchView('daily');
-  }
 }
 
 function applyPermissions() {
@@ -317,10 +407,8 @@ function applyPermissions() {
   if (hubDaily) hubDaily.style.display = showDaily ? '' : 'none';
   if (hubNewPatient) hubNewPatient.style.display = showDaily ? '' : 'none';
 
-  const hubInvoice = document.getElementById('hub-tile-invoice');
   const hubList = document.getElementById('hub-tile-list');
   const showInvoices = can('invoices.create') || can('invoices.edit') || can('invoices.view');
-  if (hubInvoice) hubInvoice.style.display = showInvoices ? '' : 'none';
   if (hubList) hubList.style.display = can('invoices.view') ? '' : 'none';
 
   const hubReports = document.getElementById('hub-tile-reports');
@@ -364,6 +452,11 @@ function setInvoiceItemsReadonly(readonly) {
 }
 
 function applyInvoiceEditMode() {
+  if (isInvoiceFollowUpLocked()) {
+    applyInvoiceFollowUpPaymentsOnly();
+    return;
+  }
+
   const canPay = can('invoices.create') || can('invoices.edit');
   const canItems = can('invoices.edit_original');
   document.getElementById('save-draft-btn').style.display = canPay ? '' : 'none';
@@ -477,8 +570,9 @@ function bindEvents() {
         if (typeof window.initPatientRegistration === 'function') window.initPatientRegistration();
         return;
       }
-      if (view === 'create') {
-        switchView('create');
+      if (view === 'create' && !options.keepForm) {
+        showToast('افتح المريض من الحركة اليومية لمراجعة الفاتورة', 'info');
+        switchView('daily');
         return;
       }
       switchView(view, { keepForm: true });
@@ -1462,7 +1556,9 @@ async function loadPatientBalance() {
     patientAccountBalance = balance;
     document.getElementById('patient-balance-display').textContent = fmt(balance);
     hint.style.display = '';
-    document.getElementById('edit-patient-balance-btn').style.display = can('patients.manage') ? '' : 'none';
+    if (!isInvoiceFollowUpLocked()) {
+      document.getElementById('edit-patient-balance-btn').style.display = can('patients.manage') ? '' : 'none';
+    }
     creditWrap.style.display = fileNumber ? '' : 'none';
     autoApplyPatientCreditToRows();
     await recalculate({ skipAutoCredit: true });
@@ -1607,7 +1703,7 @@ function collectFormData() {
     });
   }
 
-  return {
+  return applyFollowUpSnapshotToFormData({
     invoice_id: document.getElementById('invoice-id').value || null,
     invoice_type: document.getElementById('invoice_type').value,
     contracted_entity_id: document.getElementById('contracted_entity_id').value || null,
@@ -1634,7 +1730,7 @@ function collectFormData() {
     manager_name: document.getElementById('manager_name').value,
     items,
     payments,
-  };
+  });
 }
 
 function collectMethodPayments() {
@@ -1684,7 +1780,7 @@ async function recalculate(options = {}) {
     if (typeof syncDailyChargeRowsFromTotals === 'function') {
       syncDailyChargeRowsFromTotals(totals.items || []);
     }
-    if (invoiceFollowUpMode) lockDailyInvoiceRows();
+    if (isInvoiceFollowUpLocked()) lockDailyInvoiceRows();
 
     if (hasPatientFileNumber()) {
       const creditChanged = syncPatientCreditPaymentOnly(totals);
@@ -2285,7 +2381,9 @@ async function saveInvoiceWithMode(saveMode) {
 
     currentInvoiceId = result.id;
     document.getElementById('invoice-id').value = result.id;
-    document.getElementById('form-title').textContent = 'تعديل الفاتورة';
+    if (!invoiceFollowUpMode) {
+      document.getElementById('form-title').textContent = 'تعديل الفاتورة';
+    }
     updateInvoiceStatusUI(result.status, result.serial_number);
 
     if (result.created_by_name) {
@@ -2358,6 +2456,7 @@ function downloadFile(format) {
 
 function resetForm() {
   applyInvoiceFollowUpMode(false);
+  followUpPatientSnapshot = null;
   currentInvoiceId = null;
   currentInvoiceReturns = [];
   renderInvoiceReturnsHistory([]);
@@ -2406,13 +2505,18 @@ async function loadInvoiceForEdit(id, options = {}) {
     switchView('create', { keepForm: true });
 
     const followUp = options.followUp === true || isDailySourcedInvoice(inv);
+    if (followUp && inv.status !== 'approved' && !canInvoiceFullFollowUpEdit()) {
+      followUpPatientSnapshot = buildFollowUpPatientSnapshot(inv);
+    } else {
+      followUpPatientSnapshot = null;
+    }
     applyInvoiceFollowUpMode(followUp && inv.status !== 'approved');
 
     document.getElementById('invoice-id').value = inv.id;
     if (followUp) {
       document.getElementById('form-title').textContent = inv.serial_number
-        ? `متابعة الفاتورة ${inv.serial_number}`
-        : `متابعة الفاتورة #${inv.id}`;
+        ? `مراجعة الفاتورة ${inv.serial_number}`
+        : `مراجعة الفاتورة #${inv.id}`;
     } else {
       document.getElementById('form-title').textContent = 'تعديل الفاتورة';
     }
@@ -2516,7 +2620,10 @@ async function loadInvoiceForEdit(id, options = {}) {
 
     bindCalcTriggers();
     await recalculate();
-    if (invoiceFollowUpMode) lockDailyInvoiceRows();
+    if (isInvoiceFollowUpLocked()) {
+      lockDailyInvoiceRows();
+      updateInvoicePatientSummary();
+    }
     if (inv.status === 'approved') loadQR(inv.id);
     updateInvoiceActionButtons();
   } catch (err) {
@@ -2526,7 +2633,8 @@ async function loadInvoiceForEdit(id, options = {}) {
 
 function switchView(view, options = {}) {
   if (view === 'create' && !options.keepForm) {
-    void openInvoiceFollowUpView();
+    showToast('افتح المريض من الحركة اليومية لمراجعة الفاتورة', 'info');
+    switchView('daily');
     return;
   }
   document.querySelectorAll('.view-section').forEach((s) => (s.style.display = 'none'));
@@ -3687,7 +3795,7 @@ async function loadInvoicesList() {
         </tr>`;
           })
           .join('')
-      : '<tr><td colspan="9" class="text-center py-4">لا توجد فواتير</td></tr>';
+      : '<tr><td colspan="10" class="text-center py-4">لا توجد فواتير</td></tr>';
   } catch (err) {
     showToast('خطأ في تحميل الفواتير', 'danger');
   }
@@ -4546,6 +4654,7 @@ async function saveServiceEditor() {
 }
 
 window.loadInvoiceForEdit = loadInvoiceForEdit;
+window.renderPatientStatusReport = renderPatientStatusReport;
 window.loadFinancialTreatments = loadFinancialTreatments;
 window.parseDisplayAmount = parseDisplayAmount;
 window.formatAmountInput = formatAmountInput;

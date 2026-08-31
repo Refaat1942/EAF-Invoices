@@ -626,14 +626,32 @@ function setDailyWorkflowSteps(hasStay) {
 function updateDailyInvoicePanel(ctx) {
   const empty = document.getElementById('daily-invoice-empty');
   const info = document.getElementById('daily-invoice-info');
+  const hubWrap = document.getElementById('daily-invoice-hub-wrap');
+  const reportPanel = document.getElementById('daily-patient-report-panel');
   const inv = ctx?.invoice;
   if (!inv?.id) {
     if (empty) empty.style.display = '';
     if (info) info.style.display = 'none';
+    if (hubWrap) hubWrap.classList.add('d-none');
+    if (reportPanel) reportPanel.classList.add('d-none');
     return;
   }
   if (empty) empty.style.display = 'none';
   if (info) info.style.display = '';
+  if (hubWrap) hubWrap.classList.remove('d-none');
+
+  const reviewTile = document.getElementById('daily-invoice-review-tile');
+  const reportTile = document.getElementById('daily-patient-report-tile');
+  const pdfTile = document.getElementById('daily-invoice-pdf-tile');
+  const canInvoice = typeof can === 'function' && (can('invoices.view') || can('invoices.edit') || can('invoices.create'));
+  const canReport = typeof can === 'function' && can('reports.view');
+  if (reviewTile) reviewTile.classList.toggle('d-none', !canInvoice);
+  if (reportTile) reportTile.classList.toggle('d-none', !canReport);
+  if (pdfTile) {
+    const showPdf = canInvoice && inv.status === 'approved';
+    pdfTile.classList.toggle('d-none', !showPdf);
+  }
+
   const numEl = document.getElementById('daily-inv-number');
   if (numEl) numEl.textContent = inv.serial_number ? inv.serial_number : `#${inv.id}`;
   const statusEl = document.getElementById('daily-inv-status');
@@ -645,10 +663,12 @@ function updateDailyInvoicePanel(ctx) {
   if (periodEl) {
     periodEl.textContent = `${fmtStayDate(inv.admission_date) || '—'} → ${fmtStayDate(inv.discharge_date) || '—'}`;
   }
-  const daysEl = document.getElementById('daily-inv-days');
-  if (daysEl) daysEl.textContent = dailyFmtInt(ctx.daily_summary?.entry_count ?? 0);
   const dailyTotalEl = document.getElementById('daily-inv-daily-total');
   if (dailyTotalEl) dailyTotalEl.textContent = dailyFmt(ctx.daily_summary?.daily_total_sum ?? 0);
+  const collectedEl = document.getElementById('daily-inv-collected');
+  if (collectedEl) collectedEl.textContent = dailyFmt(inv.total_collected ?? 0);
+  const remainingEl = document.getElementById('daily-inv-remaining');
+  if (remainingEl) remainingEl.textContent = dailyFmt(inv.remaining ?? inv.outstanding_amount ?? 0);
   const finalEl = document.getElementById('daily-inv-final-total');
   if (finalEl) finalEl.textContent = dailyFmt(inv.final_total ?? 0);
 }
@@ -1256,6 +1276,11 @@ function applyDailyStayContext(ctx) {
 
   updateDailyInvoicePanel(ctx);
   updateDailyPatientHeader(ctx);
+  const reportPanel = document.getElementById('daily-patient-report-panel');
+  if (reportPanel) {
+    reportPanel.classList.add('d-none');
+    delete reportPanel.dataset.loadedFor;
+  }
   if (ctx?.patient?.file_number && ctx?.patient?.name) {
     showDailyPatientWorkspace();
   } else {
@@ -1383,6 +1408,50 @@ async function openDailyStayInvoice() {
   if (typeof switchView === 'function' && typeof loadInvoiceForEdit === 'function') {
     await loadInvoiceForEdit(invoiceId, { followUp: true });
   }
+}
+
+async function openDailyPatientReport() {
+  const fn = getStayFileNumber();
+  if (!fn) return;
+  if (typeof can === 'function' && !can('reports.view')) {
+    showToast('ليس لديك صلاحية التقارير', 'warning');
+    return;
+  }
+  const panel = document.getElementById('daily-patient-report-panel');
+  if (!panel) return;
+  if (!panel.classList.contains('d-none') && panel.dataset.loadedFor === fn) {
+    panel.classList.add('d-none');
+    return;
+  }
+  panel.classList.remove('d-none');
+  panel.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm"></div></div>';
+  try {
+    const data = await apiJson(`/api/invoices/reports/patient-status?file_number=${encodeURIComponent(fn)}`);
+    const html =
+      typeof window.renderPatientStatusReport === 'function'
+        ? window.renderPatientStatusReport(data)
+        : '<p class="text-muted">تعذر عرض التقرير</p>';
+    panel.innerHTML = `<div class="row g-3">${html}<div class="col-12"><button type="button" class="btn btn-sm btn-outline-secondary fw-bold" id="daily-report-close">إغلاق التقرير</button></div></div>`;
+    panel.dataset.loadedFor = fn;
+    document.getElementById('daily-report-close')?.addEventListener('click', () => {
+      panel.classList.add('d-none');
+    });
+  } catch (err) {
+    panel.innerHTML = `<div class="alert alert-danger">${dailyEscapeHtml(err.message)}</div>`;
+  }
+}
+
+function openDailyInvoicePdf() {
+  const inv = dailyStayContext?.invoice;
+  if (!inv?.id) {
+    showToast('لا توجد فاتورة', 'warning');
+    return;
+  }
+  if (inv.status !== 'approved') {
+    showToast('الفاتورة غير معتمدة بعد', 'info');
+    return;
+  }
+  window.open(`/api/invoices/${inv.id}/pdf`, '_blank');
 }
 
 function dailyCan(view) {
@@ -2325,7 +2394,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('change-room-submit-btn')?.addEventListener('click', submitChangeRoom);
   document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
-  document.getElementById('daily-open-invoice-btn')?.addEventListener('click', openDailyStayInvoice);
+  document.getElementById('daily-invoice-review-tile')?.addEventListener('click', openDailyStayInvoice);
+  document.getElementById('daily-patient-report-tile')?.addEventListener('click', () => void openDailyPatientReport());
+  document.getElementById('daily-invoice-pdf-tile')?.addEventListener('click', openDailyInvoicePdf);
   document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
     const q = document.getElementById('daily-patient-search')?.value || '';
     void loadDailyPatientGrid(q);

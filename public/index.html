@@ -66,12 +66,7 @@
           <span class="hub-tile-title">الحركة اليومية</span>
           <span class="hub-tile-desc">مدخلات المريض المسجّل</span>
         </button>
-        <button type="button" class="hub-tile hub-tile--blue" data-view="create" id="hub-tile-invoice">
-          <span class="hub-tile-icon">📄</span>
-          <span class="hub-tile-title">متابعة الفاتورة</span>
-          <span class="hub-tile-desc">مراجعة ومدفوعات</span>
-        </button>
-        <button type="button" class="hub-tile hub-tile--indigo" data-view="list" id="hub-tile-list">
+        <button type="button" class="hub-tile hub-tile--blue" data-view="list" id="hub-tile-list">
           <span class="hub-tile-icon">📑</span>
           <span class="hub-tile-title">قائمة الفواتير</span>
           <span class="hub-tile-desc">بحث وطباعة</span>
@@ -261,14 +256,17 @@
               <span class="badge bg-light text-dark fw-bold" id="edit-serial" style="display:none"></span>
             </div>
             <div class="card-body">
-              <div class="alert alert-info border fw-bold mb-3" id="invoice-followup-banner" style="display:none">
-                📋 <strong>متابعة فاتورة</strong> — البيانات والبنود تُجلب تلقائيًا من الحركة اليومية. راجع المبالغ والمدفوعات ثم أرسل للاعتماد.
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold ms-2" id="goto-daily-from-invoice-btn">← العودة للحركة اليومية</button>
+              <div class="alert alert-light border fw-bold mb-3" id="invoice-followup-banner" style="display:none">
+                📋 مراجعة فاتورة المريض — بيانات المريض والإقامة من صفحة الحركة اليومية. راجع المدفوعات ثم أرسل للاعتماد.
+                <span class="badge bg-warning text-dark ms-2" id="invoice-followup-admin-badge" style="display:none">صلاحية مسؤول — تعديل كامل</span>
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold ms-2" id="goto-daily-from-invoice-btn">← العودة للمريض</button>
               </div>
               <form id="invoice-form">
                 <input type="hidden" id="invoice-id">
 
-                <div class="invoice-meta-section mb-4">
+                <div id="invoice-patient-data-summary" class="alert alert-light border mb-3 fw-bold" style="display:none" aria-live="polite"></div>
+
+                <div class="invoice-meta-section mb-4" id="invoice-patient-data-section">
                   <div class="row g-3 mb-3">
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">نوع الفاتورة *</label>
@@ -374,20 +372,20 @@
                       </div>
                     </div>
                   </div>
+                </div>
 
-                  <div class="row g-3">
+                  <div class="row g-3 mb-3">
                     <div class="col-12">
                       <label class="form-label fw-bold">ملاحظات</label>
                       <input type="text" class="form-control" id="notes">
                     </div>
                   </div>
-                </div>
 
                 <!-- Main Table -->
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
                   <div>
                     <small class="text-muted d-block">اكتب في «البيان» لاختيار خدمة من اللائحة — السعر يُملأ تلقائيًا وأنت تدخل الكمية فقط</small>
-                    <small class="text-muted">اختيار نوع الإقامة بالأعلى ينزل تلقائيًا في جدول البيان</small>
+                    <small class="text-muted" id="invoice-stay-sync-hint">اختيار نوع الإقامة بالأعلى ينزل تلقائيًا في جدول البيان</small>
                   </div>
                   <span class="badge bg-light text-dark border" id="catalog-status-badge">جاري تحميل اللائحة...</span>
                 </div>
@@ -682,19 +680,42 @@
               <div class="d-flex flex-wrap gap-2 align-items-center">
                 <span class="badge bg-light text-dark fw-bold" id="daily-entry-status">—</span>
                 <button type="button" class="btn btn-sm btn-outline-warning fw-bold d-none" id="daily-change-room-btn">🔄 تغيير الغرفة</button>
-                <button type="button" class="btn btn-sm btn-primary fw-bold" id="daily-open-invoice-btn">📄 الفاتورة</button>
               </div>
             </div>
             <div class="row g-2 mt-2 small" id="daily-invoice-info" style="display:none">
-              <div class="col-md-3"><span class="text-muted">فاتورة:</span> <strong id="daily-inv-number">#—</strong></div>
-              <div class="col-md-3"><span class="text-muted">الحالة:</span> <span class="badge bg-secondary" id="daily-inv-status">—</span></div>
+              <div class="col-md-2"><span class="text-muted">فاتورة:</span> <strong id="daily-inv-number">#—</strong></div>
+              <div class="col-md-2"><span class="text-muted">الحالة:</span> <span class="badge bg-secondary" id="daily-inv-status">—</span></div>
               <div class="col-md-3"><span class="text-muted">الفترة:</span> <span id="daily-inv-period">—</span></div>
+              <div class="col-md-2"><span class="text-muted">إجمالي الحركة:</span> <strong id="daily-inv-daily-total">0</strong></div>
+              <div class="col-md-2"><span class="text-muted">المحصل:</span> <strong id="daily-inv-collected">0</strong></div>
+              <div class="col-md-2"><span class="text-muted">المتبقي:</span> <strong class="text-danger" id="daily-inv-remaining">0</strong></div>
               <div class="col-md-3"><span class="text-muted">إجمالي الفاتورة:</span> <strong class="text-primary" id="daily-inv-final-total">0</strong></div>
             </div>
             <div id="daily-invoice-empty" class="small text-warning fw-bold mt-2" style="display:none">لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا.</div>
-            <p class="small text-muted mt-2 mb-0">كل الحركة والبنود الحرة تُحدَّث على الفاتورة الكبيرة تلقائيًا عند الحفظ.</p>
           </div>
         </div>
+
+        <div id="daily-invoice-hub-wrap" class="mb-3 d-none">
+          <p class="fw-bold mb-2">الفاتورة والتقارير</p>
+          <div class="hub-grid daily-invoice-hub-grid">
+            <button type="button" class="hub-tile hub-tile--blue" id="daily-invoice-review-tile">
+              <span class="hub-tile-icon">📄</span>
+              <span class="hub-tile-title">مراجعة الفاتورة</span>
+              <span class="hub-tile-desc">المبالغ والمدفوعات</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--green" id="daily-patient-report-tile">
+              <span class="hub-tile-icon">📊</span>
+              <span class="hub-tile-title">تقرير موقف المريض</span>
+              <span class="hub-tile-desc">فواتير وحركة مالية</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--indigo d-none" id="daily-invoice-pdf-tile">
+              <span class="hub-tile-icon">🖨️</span>
+              <span class="hub-tile-title">طباعة PDF</span>
+              <span class="hub-tile-desc">فاتورة معتمدة</span>
+            </button>
+          </div>
+        </div>
+        <div id="daily-patient-report-panel" class="d-none mb-3"></div>
 
         <div id="daily-section-tiles-wrap">
           <p class="fw-bold mb-2">اختر قسم الحركة</p>
