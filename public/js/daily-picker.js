@@ -48,7 +48,9 @@
     if (!usesCatalog && !hasServicePicker) return '';
 
     const kind = usesCatalog ? 'catalog' : 'service';
-    const placeholder = usesCatalog ? 'بحث صنف (حرفين+)' : 'بحث خدمة (حرفين+)';
+    const placeholder = usesCatalog
+      ? `بحث ${section.name || 'صنف'} (حرفين+)`
+      : `بحث ${section.name || 'خدمة'} (حرفين+)`;
     const selectedId = usesCatalog ? line.catalog_item_id || '' : line.service_id || '';
     const unitSelect =
       usesCatalog
@@ -157,16 +159,54 @@
     }
   }
 
+  function parseQty(tr, sectionCode) {
+    const qtyInput = tr?.querySelector(`.daily-catalog-qty[data-section="${sectionCode}"]`);
+    if (!qtyInput) return 1;
+    if (typeof dailyParseAmount === 'function') return dailyParseAmount(qtyInput.value) || 1;
+    return Number(String(qtyInput.value || '1').replace(/,/g, '')) || 1;
+  }
+
+  function applyLineAmountFromUnitPrice(tr, sectionCode, unitPrice) {
+    const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
+    if (!amountInput || unitPrice <= 0) return;
+    const qty = parseQty(tr, sectionCode);
+    const total = Math.round(unitPrice * qty * 100) / 100;
+    amountInput.value = formatInputAmount(total);
+    amountInput.dataset.manualAmount = '0';
+    amountInput.dataset.unitPrice = String(unitPrice);
+  }
+
+  function getUnitPriceForSection(tr, sectionCode) {
+    const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
+    let unitPrice = Number(amountInput?.dataset.unitPrice) || 0;
+    if (unitPrice > 0) return unitPrice;
+    const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
+    if (unitSelect?.value) {
+      unitPrice = Number(unitSelect.selectedOptions[0]?.dataset.price) || 0;
+      if (unitPrice > 0) return unitPrice;
+    }
+    const picker = tr?.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
+    const item = picker?._selectedItem;
+    if (item) return Number(item.price ?? item.list_price) || 0;
+    return 0;
+  }
   function applyCatalogUnitPrice(tr, sectionCode) {
     const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
-    const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
-    if (!unitSelect || !amountInput) return;
+    if (!unitSelect) return;
     const opt = unitSelect.selectedOptions[0];
     const price = Number(opt?.dataset.price) || 0;
     if (price > 0) {
-      amountInput.value = formatInputAmount(price);
-      amountInput.dataset.manualAmount = '0';
+      applyLineAmountFromUnitPrice(tr, sectionCode, price);
+      return;
     }
+    const picker = tr?.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
+    const name = picker?._selectedItem?.name || 'الصنف';
+    const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
+    if (amountInput) {
+      amountInput.value = '';
+      amountInput.dataset.unitPrice = '';
+    }
+    if (picker?._selectedItem) showToast(`الصنف «${name}» ليس له سعر في الكتالوج`, 'warning');
   }
 
   function applyPickerSelection(tr, section, picker, item) {
@@ -188,20 +228,21 @@
         amountInput.title = `${item.name || section.name} — أدخل المبلغ يدوياً`;
       }
     } else {
-      const price = Number(item.price ?? item.list_price) || 0;
-      if (amountInput && price > 0) {
-        amountInput.value = formatInputAmount(price);
-        amountInput.dataset.manualAmount = '0';
+      const unitPrice = Number(item.price ?? item.list_price) || 0;
+      if (amountInput && unitPrice > 0) {
+        applyLineAmountFromUnitPrice(tr, section.code, unitPrice);
         const unit = item.unit ? ` — ${item.unit}` : '';
         if (item.category_name) amountInput.title = `${item.category_name}${unit} — السعر من اللائحة`;
       } else if (amountInput) {
         amountInput.value = '';
+        amountInput.dataset.unitPrice = '';
         showToast(`الخدمة «${item.name}» ليس لها سعر في اللائحة`, 'warning');
       }
     }
 
     if (typeof updateRowTotal === 'function') updateRowTotal(tr);
     if (typeof updateDailyGrandTotal === 'function') updateDailyGrandTotal();
+    if (typeof updateSectionTabTotal === 'function') updateSectionTabTotal();
   }
 
   function clearPicker(tr, sectionCode) {
@@ -221,7 +262,11 @@
       unitSelect.innerHTML = '<option value="">— وحدة —</option>';
     }
     const amountInput = tr.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
-    if (amountInput) amountInput.value = '';
+    if (amountInput) {
+      amountInput.value = '';
+      amountInput.dataset.unitPrice = '';
+      amountInput.dataset.manualAmount = '0';
+    }
   }
 
   function bindPicker(picker, tr, section) {
@@ -313,7 +358,15 @@
       applyPickerSelection(tr, section, picker, item);
       if (usesCatalog) {
         populateCatalogUnitSelect(tr, section.code, item, line);
-        if (!line.unit_price && !line.amount) applyCatalogUnitPrice(tr, section.code);
+        const amountInput = tr.querySelector(`.daily-amount[data-section="${section.code}"]`);
+        if (line.unit_price) {
+          if (amountInput) amountInput.dataset.unitPrice = String(line.unit_price);
+        } else if (line.amount && line.quantity) {
+          const qty = Number(line.quantity) || 1;
+          if (amountInput && qty > 0) amountInput.dataset.unitPrice = String(Number(line.amount) / qty);
+        } else {
+          applyCatalogUnitPrice(tr, section.code);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -331,8 +384,16 @@
         applyCatalogUnitPrice(tr, unitSelect.dataset.section);
         if (typeof updateRowTotal === 'function') updateRowTotal(tr);
         if (typeof updateDailyGrandTotal === 'function') updateDailyGrandTotal();
+        if (typeof updateSectionTabTotal === 'function') updateSectionTabTotal();
       });
     });
+  }
+
+  function recalcSectionLineTotal(tr, sectionCode) {
+    const amtEl = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
+    if (!amtEl || amtEl.dataset.manualAmount === '1') return;
+    const unitPrice = getUnitPriceForSection(tr, sectionCode);
+    if (unitPrice > 0) applyLineAmountFromUnitPrice(tr, sectionCode, unitPrice);
   }
 
   function readPickerFields(tr, section) {
@@ -360,5 +421,8 @@
     searchPicker,
     populateCatalogUnitSelect,
     applyCatalogUnitPrice,
+    applyLineAmountFromUnitPrice,
+    recalcSectionLineTotal,
+    getUnitPriceForSection,
   };
 })();

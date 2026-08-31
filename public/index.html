@@ -664,8 +664,24 @@
             <p class="small text-muted mt-2 mb-0">المريض غير موجود؟ <button type="button" class="btn btn-link btn-sm fw-bold p-0 align-baseline" id="daily-goto-register-btn">تسجيل مريض جديد</button></p>
           </div>
         </div>
-        <div class="hub-grid daily-patient-grid" id="daily-patient-grid">
-          <p class="text-muted text-center col-12 py-4">جاري تحميل المرضى...</p>
+        <div class="card shadow-sm mb-3">
+          <div class="table-responsive">
+            <table class="table table-hover table-striped align-middle daily-patient-table mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:14%">رقم الملف</th>
+                  <th>اسم المريض</th>
+                  <th style="width:12%">النوع</th>
+                  <th style="width:14%">الهاتف</th>
+                  <th style="width:10%" class="text-end">إجراء</th>
+                </tr>
+              </thead>
+              <tbody id="daily-patient-list">
+                <tr><td colspan="5" class="text-center text-muted py-4">جاري تحميل المرضى...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card-footer small text-muted py-2">انقر على الصف أو «فتح» لبدء الحركة اليومية للمريض</div>
         </div>
       </div>
 
@@ -695,27 +711,17 @@
           </div>
         </div>
 
-        <div id="daily-invoice-hub-wrap" class="mb-3 d-none">
-          <p class="fw-bold mb-2">الفاتورة والتقارير</p>
-          <div class="hub-grid daily-invoice-hub-grid">
-            <button type="button" class="hub-tile hub-tile--blue" id="daily-invoice-review-tile">
-              <span class="hub-tile-icon">📄</span>
-              <span class="hub-tile-title">مراجعة الفاتورة</span>
-              <span class="hub-tile-desc">المبالغ والمدفوعات</span>
-            </button>
-            <button type="button" class="hub-tile hub-tile--green" id="daily-patient-report-tile">
-              <span class="hub-tile-icon">📊</span>
-              <span class="hub-tile-title">تقرير موقف المريض</span>
-              <span class="hub-tile-desc">فواتير وحركة مالية</span>
-            </button>
-            <button type="button" class="hub-tile hub-tile--indigo d-none" id="daily-invoice-pdf-tile">
-              <span class="hub-tile-icon">🖨️</span>
-              <span class="hub-tile-title">طباعة PDF</span>
-              <span class="hub-tile-desc">فاتورة معتمدة</span>
-            </button>
-          </div>
+        <div id="daily-invoice-actions" class="d-flex flex-wrap gap-2 mb-3 d-none">
+          <button type="button" class="btn btn-outline-primary fw-bold" id="daily-toggle-review-btn">📄 مراجعة بيانات المريض</button>
+          <button type="button" class="btn btn-outline-secondary fw-bold d-none" id="daily-invoice-pdf-btn">🖨️ طباعة PDF</button>
         </div>
-        <div id="daily-patient-report-panel" class="d-none mb-3"></div>
+        <div id="daily-invoice-review-panel" class="card shadow-sm mb-3 d-none">
+          <div class="card-header bg-light fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <span>بيانات المريض والفاتورة — للعرض فقط</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" id="daily-review-close-btn">إغلاق</button>
+          </div>
+          <div class="card-body" id="daily-invoice-review-body"></div>
+        </div>
 
         <div id="daily-section-tiles-wrap">
           <p class="fw-bold mb-2">اختر قسم الحركة</p>
@@ -745,6 +751,7 @@
           </div>
 
           <p class="small text-muted mb-2" id="daily-tab-hint"></p>
+          <h5 class="fw-black text-primary mb-2 d-none" id="daily-focused-section-title"></h5>
           <div id="daily-section-total-bar" class="alert alert-warning fw-bold py-2 mb-2" style="display:none">
             إجمالي القسم: <span id="daily-section-total">0</span>
           </div>

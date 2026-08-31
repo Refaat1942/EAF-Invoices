@@ -107,7 +107,33 @@ function getLocalDateString() {
 function codesForActiveDailyTab() {
   if (!activeDailyTab) return null;
   const group = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab);
-  return group ? group.codes : null;
+  if (!group || !group.codes?.length) return null;
+  return group.codes;
+}
+
+function sectionsForActiveView() {
+  const codes = codesForActiveDailyTab();
+  if (!codes) return dailySectionsCache;
+  return dailySectionsCache.filter((s) => codes.includes(s.code));
+}
+
+function shouldShowDailyMetaInView() {
+  if (!activeDailyTab) return true;
+  const hideMetaTabs = ['medicines', 'supplies', 'exams', 'lab', 'radiology', 'other'];
+  return !hideMetaTabs.includes(activeDailyTab);
+}
+
+function updateFocusedSectionTitle() {
+  const el = document.getElementById('daily-focused-section-title');
+  if (!el) return;
+  if (!activeDailyTab) {
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  const group = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab);
+  el.textContent = group ? `قسم: ${group.label}` : '';
+  el.classList.remove('d-none');
 }
 
 function isSectionVisibleInActiveTab(sectionCode) {
@@ -127,7 +153,7 @@ function applyDailyTabColumnVisibility() {
     el.classList.toggle('daily-col-hidden', !showExams);
   });
 
-  const catalogTabs = ['medicines', 'supplies', 'exams', 'radiology', 'other'];
+  const catalogTabs = ['medicines', 'supplies', 'exams', 'lab', 'radiology', 'other'];
   const hideMeta = catalogTabs.includes(activeDailyTab);
   document.querySelectorAll('.daily-meta-th').forEach((el) => {
     el.classList.toggle('daily-col-hidden', hideMeta);
@@ -501,9 +527,16 @@ function showDailySection(sectionId) {
     if (sectionId) sectionWorkspace.classList.remove('d-none');
     else sectionWorkspace.classList.add('d-none');
   }
-  if (sectionId) {
-    applyDailyTabColumnVisibility();
-    if (sectionId === 'free-items') void loadFreeItemsPanel();
+  updateFocusedSectionTitle();
+  renderDailySectionsTable();
+  applyDailyTabColumnVisibility();
+  if (sectionId === 'free-items') void loadFreeItemsPanel();
+  if (
+    sectionId &&
+    dailyStayContext?.invoice?.id &&
+    !['operations', 'free-items'].includes(sectionId)
+  ) {
+    void loadDailyEntriesIntoSheet();
   }
 }
 
@@ -543,30 +576,41 @@ function updateDailyPatientHeader(ctx) {
 }
 
 async function loadDailyPatientGrid(search = '') {
-  const grid = document.getElementById('daily-patient-grid');
-  if (!grid) return;
-  grid.innerHTML = '<p class="text-muted text-center col-12 py-3">جاري التحميل...</p>';
+  const list = document.getElementById('daily-patient-list');
+  if (!list) return;
+  list.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">جاري التحميل...</td></tr>';
   try {
-    const params = new URLSearchParams({ limit: '40' });
+    const params = new URLSearchParams({ limit: '80' });
     if (search.trim()) params.set('search', search.trim());
     const patients = await apiJson(`${DAILY_API}/patients?${params}`);
     if (!patients.length) {
-      grid.innerHTML =
-        '<p class="text-muted text-center col-12 py-4 mb-0">لا يوجد مرضى مطابقين — سجّل مريضًا جديدًا أولًا</p>';
+      list.innerHTML =
+        '<tr><td colspan="5" class="text-center text-muted py-4 mb-0">لا يوجد مرضى مطابقين — سجّل مريضًا جديدًا أولًا</td></tr>';
       return;
     }
-    grid.innerHTML = patients
-      .map(
-        (p) =>
-          `<button type="button" class="hub-tile hub-tile--teal daily-patient-tile" data-file-number="${dailyEscapeHtml(p.file_number)}">
-            <span class="hub-tile-icon">${p.patient_type === 'external' ? '🩺' : '🏥'}</span>
-            <span class="hub-tile-title">${dailyEscapeHtml(p.name)}</span>
-            <span class="hub-tile-desc">ملف ${dailyEscapeHtml(p.file_number)}</span>
-          </button>`
-      )
+    list.innerHTML = patients
+      .map((p) => {
+        const typeLabel = p.patient_type === 'external' ? 'خارجي' : 'داخلي';
+        const typeBadge =
+          p.patient_type === 'external'
+            ? 'bg-info-subtle text-dark border'
+            : 'bg-primary-subtle text-primary border';
+        const openBadge = p.has_open_invoice
+          ? '<span class="badge bg-warning text-dark ms-1">فاتورة مفتوحة</span>'
+          : '';
+        return `<tr class="daily-patient-row" data-file-number="${dailyEscapeHtml(p.file_number)}">
+          <td class="fw-bold">${dailyEscapeHtml(p.file_number)}</td>
+          <td>${dailyEscapeHtml(p.name)}${openBadge}</td>
+          <td><span class="badge ${typeBadge}">${typeLabel}</span></td>
+          <td>${dailyEscapeHtml(p.phone || '—')}</td>
+          <td class="text-end">
+            <button type="button" class="btn btn-sm btn-primary fw-bold daily-patient-open-btn">فتح</button>
+          </td>
+        </tr>`;
+      })
       .join('');
   } catch (err) {
-    grid.innerHTML = `<p class="text-danger text-center col-12 py-3">${dailyEscapeHtml(sanitizeApiErrorMessage(err.message))}</p>`;
+    list.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3">${dailyEscapeHtml(sanitizeApiErrorMessage(err.message))}</td></tr>`;
   }
 }
 
@@ -626,30 +670,26 @@ function setDailyWorkflowSteps(hasStay) {
 function updateDailyInvoicePanel(ctx) {
   const empty = document.getElementById('daily-invoice-empty');
   const info = document.getElementById('daily-invoice-info');
-  const hubWrap = document.getElementById('daily-invoice-hub-wrap');
-  const reportPanel = document.getElementById('daily-patient-report-panel');
+  const actionsWrap = document.getElementById('daily-invoice-actions');
+  const reviewPanel = document.getElementById('daily-invoice-review-panel');
+  const pdfBtn = document.getElementById('daily-invoice-pdf-btn');
   const inv = ctx?.invoice;
   if (!inv?.id) {
     if (empty) empty.style.display = '';
     if (info) info.style.display = 'none';
-    if (hubWrap) hubWrap.classList.add('d-none');
-    if (reportPanel) reportPanel.classList.add('d-none');
+    if (actionsWrap) actionsWrap.classList.add('d-none');
+    if (reviewPanel) reviewPanel.classList.add('d-none');
     return;
   }
   if (empty) empty.style.display = 'none';
   if (info) info.style.display = '';
-  if (hubWrap) hubWrap.classList.remove('d-none');
-
-  const reviewTile = document.getElementById('daily-invoice-review-tile');
-  const reportTile = document.getElementById('daily-patient-report-tile');
-  const pdfTile = document.getElementById('daily-invoice-pdf-tile');
-  const canInvoice = typeof can === 'function' && (can('invoices.view') || can('invoices.edit') || can('invoices.create'));
-  const canReport = typeof can === 'function' && can('reports.view');
-  if (reviewTile) reviewTile.classList.toggle('d-none', !canInvoice);
-  if (reportTile) reportTile.classList.toggle('d-none', !canReport);
-  if (pdfTile) {
-    const showPdf = canInvoice && inv.status === 'approved';
-    pdfTile.classList.toggle('d-none', !showPdf);
+  if (actionsWrap) actionsWrap.classList.remove('d-none');
+  if (pdfBtn) {
+    const showPdf =
+      typeof can === 'function' &&
+      (can('invoices.view') || can('invoices.edit') || can('invoices.create')) &&
+      inv.status === 'approved';
+    pdfBtn.classList.toggle('d-none', !showPdf);
   }
 
   const numEl = document.getElementById('daily-inv-number');
@@ -687,6 +727,10 @@ function applyDailyInvoiceSync(data) {
     daily_summary: data.invoice_sync.daily_summary ?? { entry_count: 0, daily_total_sum: 0 },
   };
   updateDailyInvoicePanel(dailyStayContext);
+  const reviewPanel = document.getElementById('daily-invoice-review-panel');
+  if (reviewPanel && !reviewPanel.classList.contains('d-none')) {
+    renderDailyInvoiceReviewPanel();
+  }
 }
 
 function patientTypeLabel(type) {
@@ -1276,11 +1320,8 @@ function applyDailyStayContext(ctx) {
 
   updateDailyInvoicePanel(ctx);
   updateDailyPatientHeader(ctx);
-  const reportPanel = document.getElementById('daily-patient-report-panel');
-  if (reportPanel) {
-    reportPanel.classList.add('d-none');
-    delete reportPanel.dataset.loadedFor;
-  }
+  const reviewPanel = document.getElementById('daily-invoice-review-panel');
+  if (reviewPanel) reviewPanel.classList.add('d-none');
   if (ctx?.patient?.file_number && ctx?.patient?.name) {
     showDailyPatientWorkspace();
   } else {
@@ -1399,46 +1440,65 @@ async function openDailyItemsPrint(kind) {
   window.open(`${DAILY_API}/daily-items/print?${params}`, '_blank');
 }
 
-async function openDailyStayInvoice() {
-  const invoiceId = dailyStayContext?.invoice?.id;
-  if (!invoiceId) {
-    showToast('لا توجد فاتورة مفتوحة — سجّل المريض أولًا', 'warning');
-    return;
-  }
-  if (typeof switchView === 'function' && typeof loadInvoiceForEdit === 'function') {
-    await loadInvoiceForEdit(invoiceId, { followUp: true });
-  }
+function renderDailyInvoiceReviewPanel() {
+  const body = document.getElementById('daily-invoice-review-body');
+  if (!body) return;
+  const ctx = dailyStayContext;
+  const p = ctx?.patient || {};
+  const inv = ctx?.invoice || {};
+  const typeLabel = p.patient_type === 'external' ? 'مريض خارجي' : 'مريض داخلي';
+  const genderLabel =
+    p.gender === 'male' ? 'ذكر' : p.gender === 'female' ? 'أنثى' : p.gender || '—';
+  const statusClass =
+    inv.status === 'pending_review'
+      ? 'bg-warning text-dark'
+      : inv.status === 'approved'
+        ? 'bg-success'
+        : 'bg-secondary';
+  body.innerHTML = `
+    <div class="row g-3 daily-review-readonly-grid small">
+      <div class="col-12"><h6 class="fw-black text-primary mb-2">بيانات المريض</h6></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">الاسم</span><div class="review-field fw-bold">${dailyEscapeHtml(p.name || inv.patient_name || '—')}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">رقم الملف</span><div class="review-field fw-bold">${dailyEscapeHtml(p.file_number || inv.file_number || '—')}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">النوع</span><div class="review-field">${dailyEscapeHtml(typeLabel)}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">الجنس</span><div class="review-field">${dailyEscapeHtml(genderLabel)}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">الهاتف</span><div class="review-field">${dailyEscapeHtml(p.phone || '—')}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">الجنسية</span><div class="review-field">${dailyEscapeHtml(p.nationality || '—')}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">رصيد الحساب</span><div class="review-field fw-bold text-success">${dailyFmt(p.account_balance ?? 0)}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">المعاملة المالية</span><div class="review-field">${dailyEscapeHtml(inv.financial_treatment || p.financial_treatment || '—')}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">تاريخ الدخول</span><div class="review-field">${dailyEscapeHtml(fmtStayDate(inv.admission_date) || '—')}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">تاريخ الخروج</span><div class="review-field">${dailyEscapeHtml(fmtStayDate(inv.discharge_date) || '—')}</div></div>
+      <div class="col-12 mt-2"><h6 class="fw-black text-primary mb-2">ملخص الفاتورة</h6></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">رقم الفاتورة</span><div class="review-field fw-bold">${dailyEscapeHtml(inv.serial_number ? inv.serial_number : `#${inv.id}`)}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">الحالة</span><div class="review-field"><span class="badge ${statusClass}">${dailyEscapeHtml(inv.status_label || inv.status || '—')}</span></div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">إجمالي الحركة</span><div class="review-field fw-bold">${dailyFmt(ctx.daily_summary?.daily_total_sum ?? 0)}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">إجمالي الفاتورة</span><div class="review-field fw-bold text-primary">${dailyFmt(inv.final_total ?? 0)}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">المحصل</span><div class="review-field fw-bold">${dailyFmt(inv.total_collected ?? 0)}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">المتبقي</span><div class="review-field fw-bold text-danger">${dailyFmt(inv.remaining ?? inv.outstanding_amount ?? 0)}</div></div>
+    </div>
+    <p class="small text-muted mt-3 mb-0">لتعديل بيانات المريض استخدم تسجيل المريض أو الحركة اليومية. للمدفوعات والاعتماد استخدم قائمة الفواتير.</p>
+  `;
 }
 
-async function openDailyPatientReport() {
-  const fn = getStayFileNumber();
-  if (!fn) return;
-  if (typeof can === 'function' && !can('reports.view')) {
-    showToast('ليس لديك صلاحية التقارير', 'warning');
+function toggleDailyInvoiceReview() {
+  const panel = document.getElementById('daily-invoice-review-panel');
+  if (!dailyStayContext?.invoice?.id) {
+    showToast('لا توجد فاتورة مفتوحة لهذا المريض', 'warning');
     return;
   }
-  const panel = document.getElementById('daily-patient-report-panel');
   if (!panel) return;
-  if (!panel.classList.contains('d-none') && panel.dataset.loadedFor === fn) {
-    panel.classList.add('d-none');
-    return;
-  }
-  panel.classList.remove('d-none');
-  panel.innerHTML = '<div class="text-center py-4"><div class="spinner-border spinner-border-sm"></div></div>';
-  try {
-    const data = await apiJson(`/api/invoices/reports/patient-status?file_number=${encodeURIComponent(fn)}`);
-    const html =
-      typeof window.renderPatientStatusReport === 'function'
-        ? window.renderPatientStatusReport(data)
-        : '<p class="text-muted">تعذر عرض التقرير</p>';
-    panel.innerHTML = `<div class="row g-3">${html}<div class="col-12"><button type="button" class="btn btn-sm btn-outline-secondary fw-bold" id="daily-report-close">إغلاق التقرير</button></div></div>`;
-    panel.dataset.loadedFor = fn;
-    document.getElementById('daily-report-close')?.addEventListener('click', () => {
-      panel.classList.add('d-none');
-    });
-  } catch (err) {
-    panel.innerHTML = `<div class="alert alert-danger">${dailyEscapeHtml(err.message)}</div>`;
-  }
+  const opening = panel.classList.contains('d-none');
+  if (opening) renderDailyInvoiceReviewPanel();
+  panel.classList.toggle('d-none', !opening);
+}
+
+function closeDailyInvoiceReview() {
+  const panel = document.getElementById('daily-invoice-review-panel');
+  if (panel) panel.classList.add('d-none');
+}
+
+async function openDailyStayInvoice() {
+  toggleDailyInvoiceReview();
 }
 
 function openDailyInvoicePdf() {
@@ -1565,10 +1625,10 @@ function getLineForSection(entry, sectionCode) {
 function renderDailyCellHtml(section, line = {}) {
   if (section.input_type === 'date') {
     const val = line.extra_date ? String(line.extra_date).slice(0, 10) : '';
-    return `<td><input type="date" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="date" value="${val}"></td>`;
+    return `<td class="daily-section-cell" data-section="${section.code}"><label class="form-label small fw-bold text-primary mb-1">${dailyEscapeHtml(section.name)}</label><input type="date" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="date" value="${val}"></td>`;
   }
   if (section.input_type === 'text') {
-    return `<td><input type="text" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="text" placeholder="${section.name}" value="${dailyEscapeAttr(line.extra_text || '')}"></td>`;
+    return `<td class="daily-section-cell" data-section="${section.code}"><label class="form-label small fw-bold text-primary mb-1">${dailyEscapeHtml(section.name)}</label><input type="text" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="text" placeholder="${dailyEscapeAttr(section.name)}" value="${dailyEscapeAttr(line.extra_text || '')}"></td>`;
   }
 
   const usesCatalog = section.catalog_category || section.uses_catalog;
@@ -1632,10 +1692,10 @@ function renderDailyCellHtml(section, line = {}) {
   const showLineDetails = usesCatalog || qtySections.has(section.code);
 
   if (!showLineDetails) {
-    return `<td class="daily-section-cell" data-section="${section.code}">${pickerHtml}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}" placeholder="المبلغ"></td>`;
+    return `<td class="daily-section-cell" data-section="${section.code}"><label class="form-label small fw-bold text-primary mb-1">${dailyEscapeHtml(section.name)}</label>${pickerHtml}<input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}" placeholder="المبلغ"></td>`;
   }
 
-  return `<td class="daily-section-cell" data-section="${section.code}">${pickerHtml}${weightHtml}<div class="input-group input-group-sm mb-1"><span class="input-group-text">كمية</span><input type="text" inputmode="decimal" class="form-control daily-catalog-qty comma-amount" data-section="${section.code}" data-decimals="0" value="${qtyVal}" autocomplete="off"></div><input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}" placeholder="الإجمالي"></td>`;
+  return `<td class="daily-section-cell" data-section="${section.code}"><label class="form-label small fw-bold text-primary mb-1">${dailyEscapeHtml(section.name)}</label>${pickerHtml}${weightHtml}<div class="input-group input-group-sm mb-1"><span class="input-group-text">كمية</span><input type="text" inputmode="decimal" class="form-control daily-catalog-qty comma-amount" data-section="${section.code}" data-decimals="0" value="${qtyVal}" autocomplete="off"></div><input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}" placeholder="الإجمالي"></td>`;
 }
 
 function renderDailySectionsTable() {
@@ -1643,12 +1703,14 @@ function renderDailySectionsTable() {
   const subhead = document.getElementById('daily-sections-subhead');
   if (!head) return;
 
+  const viewSections = sectionsForActiveView();
+  const showMeta = shouldShowDailyMetaInView();
   const consultationCodes = ['consultant_exam', 'specialist_exam', 'consultation_stamp'];
-  const consultationSections = dailySectionsCache.filter((s) => consultationCodes.includes(s.code));
+  const consultationSections = viewSections.filter((s) => consultationCodes.includes(s.code));
   let consultInserted = false;
   const blocks = [];
 
-  for (const section of dailySectionsCache) {
+  for (const section of viewSections) {
     if (consultationCodes.includes(section.code)) {
       if (!consultInserted) {
         blocks.push({ type: 'consultations', sections: consultationSections });
@@ -1659,15 +1721,19 @@ function renderDailySectionsTable() {
     blocks.push({ type: 'single', section });
   }
 
+  const metaHead = showMeta
+    ? '<th rowspan="2" class="daily-meta-th">التاريخ</th><th rowspan="2" class="daily-meta-th">نوع الإقامة</th>' +
+      '<th rowspan="2" class="daily-meta-th">التخصص</th><th rowspan="2" class="daily-meta-th">الطبيب</th>'
+    : '';
+
   head.innerHTML =
-    '<th rowspan="2" class="daily-meta-th">التاريخ</th><th rowspan="2" class="daily-meta-th">نوع الإقامة</th>' +
-    '<th rowspan="2" class="daily-meta-th">التخصص</th><th rowspan="2" class="daily-meta-th">الطبيب</th>' +
+    metaHead +
     blocks
       .map((block) => {
         if (block.type === 'consultations') {
           return '<th colspan="3" class="text-center daily-group-th" data-section-group="exams">الكشوفات</th>';
         }
-        return `<th rowspan="2" class="daily-section-th" data-section="${block.section.code}" title="${block.section.category_code || ''}">${block.section.name}</th>`;
+        return `<th rowspan="2" class="daily-section-th" data-section="${block.section.code}" title="${block.section.category_code || block.section.catalog_category || ''}">${block.section.name}</th>`;
       })
       .join('') +
     '<th rowspan="2" class="daily-meta-th">إجمالي</th><th rowspan="2" class="daily-meta-th"></th>';
@@ -1686,7 +1752,7 @@ function renderDailySectionsTable() {
     subhead.style.display = consultationSections.length ? '' : 'none';
   }
 
-  const colCount = dailySectionsCache.length + 6;
+  const colCount = viewSections.length + (showMeta ? 4 : 0) + 2;
   const footLabel = document.getElementById('daily-total-foot-label');
   const footSpacer = document.getElementById('daily-total-foot-spacer');
   if (footLabel) footLabel.colSpan = Math.max(colCount - 2, 1);
@@ -1699,20 +1765,9 @@ function bindDailyRowEvents(tr) {
     el.addEventListener('input', () => {
       if (el.classList.contains('daily-amount')) el.dataset.manualAmount = '1';
       if (el.classList.contains('daily-catalog-qty')) {
-        const section = dailySectionsCache.find((s) => s.code === el.dataset.section);
-        const amtEl = tr.querySelector(`.daily-amount[data-section="${el.dataset.section}"]`);
-        const picker = tr.querySelector(`.daily-picker[data-section="${el.dataset.section}"]`);
-        const unitSel = tr.querySelector(`.daily-catalog-unit[data-section="${el.dataset.section}"]`);
-        let unitPrice = 0;
-        if (unitSel && unitSel.value) {
-          const opt = unitSel.selectedOptions[0];
-          unitPrice = dailyParseAmount(opt?.dataset.price);
-        }
-        if (amtEl && unitPrice > 0) {
-          const qty = dailyParseAmount(el.value) || 1;
-          const total = Math.round(unitPrice * qty * 100) / 100;
-          if (typeof setCommaAmountValue === 'function') setCommaAmountValue(amtEl, total);
-          else amtEl.value = dailyFormatInput(total);
+        const sectionCode = el.dataset.section;
+        if (window.DailyEntryPicker?.recalcSectionLineTotal) {
+          DailyEntryPicker.recalcSectionLineTotal(tr, sectionCode);
         }
       }
       updateRowTotal(tr);
@@ -1734,7 +1789,7 @@ function bindDailyRowEvents(tr) {
 }
 
 function applyDefaultPricesForRow(tr) {
-  for (const section of dailySectionsCache) {
+  for (const section of sectionsForActiveView()) {
     if (section.input_type !== 'amount') continue;
     if (section.catalog_category || section.uses_catalog) continue;
     if (isManualDailyAmountSection(section)) continue;
@@ -1789,17 +1844,26 @@ function createDailyEntryRow(entry = {}) {
   tr.className = 'daily-entry-row';
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
+  if (entry.stay_type_id) tr.dataset.stayTypeId = String(entry.stay_type_id);
+  if (entry.doctor_specialty) tr.dataset.doctorSpecialty = entry.doctor_specialty;
+  if (entry.doctor_id) tr.dataset.doctorId = String(entry.doctor_id);
+  tr._entryLinesSnapshot = (entry.lines || []).map((line) => ({ ...line }));
 
   const dateVal = getLocalDateString();
-  tr.innerHTML = `
-    <td><input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1"></td>
+  const viewSections = sectionsForActiveView();
+  const metaHtml = shouldShowDailyMetaInView()
+    ? `<td><input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1"></td>
     <td><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(entry.stay_type_id)}</select></td>
     <td><select class="form-select form-select-sm daily-row-specialty">${buildDailySpecialtyOptions(entry.doctor_specialty || '')}</select></td>
     <td>
       <input type="search" class="form-control form-control-sm daily-doctor-search mb-1" placeholder="بحث طبيب..." autocomplete="off">
       <select class="form-select form-select-sm daily-row-doctor"><option value="">— الطبيب —</option></select>
-    </td>
-    ${dailySectionsCache.map((section) => renderDailyCellHtml(section, getLineForSection(entry, section.code))).join('')}
+    </td>`
+    : '';
+
+  tr.innerHTML = `
+    ${metaHtml}
+    ${viewSections.map((section) => renderDailyCellHtml(section, getLineForSection(entry, section.code))).join('')}
     <td class="daily-row-total fw-bold text-nowrap"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف اليوم">×</button></td>
   `;
@@ -1819,12 +1883,13 @@ function createDailyEntryRow(entry = {}) {
 
   bindDailyRowEvents(tr);
   if (window.DailyEntryPicker) {
-    for (const section of dailySectionsCache) {
+    for (const section of viewSections) {
       DailyEntryPicker.hydratePicker(tr, section, getLineForSection(entry, section.code));
     }
   }
   applyDailyTabColumnVisibility();
   updateRowTotal(tr);
+  applyDefaultPricesForRow(tr);
   return tr;
 }
 
@@ -1839,6 +1904,7 @@ function addDailyEntryRow(preset = {}) {
 }
 
 function rowHasChargeData(tr) {
+  if (tr._entryLinesSnapshot?.some((line) => lineHasChargeData(line))) return true;
   let hasValue = false;
   tr.querySelectorAll('.daily-amount').forEach((input) => {
     if (dailyParseAmount(input.value) > 0) hasValue = true;
@@ -1852,32 +1918,48 @@ function rowHasChargeData(tr) {
   return hasValue;
 }
 
+function collectLineForSection(tr, section) {
+  const field = tr.querySelector(`.daily-field[data-section="${section.code}"]`);
+  const pickerFields = window.DailyEntryPicker ? DailyEntryPicker.readPickerFields(tr, section) : {};
+  if (section.input_type === 'date') {
+    return { section_code: section.code, extra_date: field?.value || null };
+  }
+  if (section.input_type === 'text') {
+    return { section_code: section.code, extra_text: field?.value || '' };
+  }
+  const qtyInput = tr.querySelector(`.daily-catalog-qty[data-section="${section.code}"]`);
+  const qty = dailyParseAmount(qtyInput?.value) || 1;
+  const weightInput = tr.querySelector(`.daily-weight[data-section="${section.code}"]`);
+  const weightRaw = weightInput?.value?.trim();
+  const weight = weightRaw ? Number(weightRaw.replace(/,/g, '')) : null;
+  return {
+    section_code: section.code,
+    catalog_item_id: pickerFields.catalog_item_id ?? null,
+    catalog_unit_level: pickerFields.catalog_unit_level ?? null,
+    catalog_unit: pickerFields.catalog_unit ?? null,
+    service_id: pickerFields.service_id ?? null,
+    amount: dailyParseAmount(field?.value),
+    quantity: qty,
+    weight: Number.isFinite(weight) ? weight : null,
+  };
+}
+
+function lineHasChargeData(line) {
+  if (!line) return false;
+  if (line.extra_date) return true;
+  if (String(line.extra_text || '').trim()) return true;
+  if (Number(line.amount) > 0) return true;
+  if (line.catalog_item_id || line.service_id) return true;
+  return false;
+}
+
 function collectDailyLinesFromRow(tr) {
-  return dailySectionsCache.map((section) => {
-    const field = tr.querySelector(`.daily-field[data-section="${section.code}"]`);
-    const pickerFields = window.DailyEntryPicker ? DailyEntryPicker.readPickerFields(tr, section) : {};
-    if (section.input_type === 'date') {
-      return { section_code: section.code, extra_date: field?.value || null };
-    }
-    if (section.input_type === 'text') {
-      return { section_code: section.code, extra_text: field?.value || '' };
-    }
-    const qtyInput = tr.querySelector(`.daily-catalog-qty[data-section="${section.code}"]`);
-    const qty = dailyParseAmount(qtyInput?.value) || 1;
-    const weightInput = tr.querySelector(`.daily-weight[data-section="${section.code}"]`);
-    const weightRaw = weightInput?.value?.trim();
-    const weight = weightRaw ? Number(weightRaw.replace(/,/g, '')) : null;
-    return {
-      section_code: section.code,
-      catalog_item_id: pickerFields.catalog_item_id ?? null,
-      catalog_unit_level: pickerFields.catalog_unit_level ?? null,
-      catalog_unit: pickerFields.catalog_unit ?? null,
-      service_id: pickerFields.service_id ?? null,
-      amount: dailyParseAmount(field?.value),
-      quantity: qty,
-      weight: Number.isFinite(weight) ? weight : null,
-    };
-  });
+  const viewSections = sectionsForActiveView();
+  const viewCodes = new Set(viewSections.map((s) => s.code));
+  const domLines = viewSections.map((section) => collectLineForSection(tr, section));
+  const snapshot = tr._entryLinesSnapshot || [];
+  const preserved = snapshot.filter((line) => !viewCodes.has(line.section_code) && lineHasChargeData(line));
+  return [...preserved, ...domLines];
 }
 
 function updateRowTotal(tr) {
@@ -2011,9 +2093,11 @@ function collectDailyRowsForSave() {
     rows.push({
       entry_id: entryId,
       entry_date: today,
-      stay_type_id: tr.querySelector('.daily-row-stay-type')?.value || null,
-      doctor_specialty: tr.querySelector('.daily-row-specialty')?.value || '',
-      doctor_id: tr.querySelector('.daily-row-doctor')?.value || null,
+      stay_type_id:
+        tr.querySelector('.daily-row-stay-type')?.value || tr.dataset.stayTypeId || null,
+      doctor_specialty:
+        tr.querySelector('.daily-row-specialty')?.value || tr.dataset.doctorSpecialty || '',
+      doctor_id: tr.querySelector('.daily-row-doctor')?.value || tr.dataset.doctorId || null,
       notes: tr.dataset.entryNotes || notes,
       lines: collectDailyLinesFromRow(tr),
     });
@@ -2394,9 +2478,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('change-room-submit-btn')?.addEventListener('click', submitChangeRoom);
   document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
-  document.getElementById('daily-invoice-review-tile')?.addEventListener('click', openDailyStayInvoice);
-  document.getElementById('daily-patient-report-tile')?.addEventListener('click', () => void openDailyPatientReport());
-  document.getElementById('daily-invoice-pdf-tile')?.addEventListener('click', openDailyInvoicePdf);
+  document.getElementById('daily-toggle-review-btn')?.addEventListener('click', toggleDailyInvoiceReview);
+  document.getElementById('daily-review-close-btn')?.addEventListener('click', closeDailyInvoiceReview);
+  document.getElementById('daily-invoice-pdf-btn')?.addEventListener('click', openDailyInvoicePdf);
   document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
     const q = document.getElementById('daily-patient-search')?.value || '';
     void loadDailyPatientGrid(q);
@@ -2408,10 +2492,12 @@ document.addEventListener('DOMContentLoaded', () => {
       void loadDailyPatientGrid(q);
     }
   });
-  document.getElementById('daily-patient-grid')?.addEventListener('click', (e) => {
-    const tile = e.target.closest('.daily-patient-tile');
-    if (!tile) return;
-    void selectDailyPatient(tile.dataset.fileNumber);
+  document.getElementById('daily-patient-list')?.addEventListener('click', (e) => {
+    const row = e.target.closest('.daily-patient-row');
+    if (!row) return;
+    if (e.target.closest('.daily-patient-open-btn') || e.target.closest('.daily-patient-row')) {
+      void selectDailyPatient(row.dataset.fileNumber);
+    }
   });
   document.getElementById('daily-section-tiles-grid')?.addEventListener('click', (e) => {
     const tile = e.target.closest('.daily-section-tile');

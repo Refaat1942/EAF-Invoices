@@ -659,6 +659,15 @@ body {
   padding: 0.35rem 0.5rem;
 }
 
+.daily-section-cell .form-label.text-primary {
+  font-size: 0.78rem;
+}
+
+.daily-sheet-table th.daily-section-th {
+  font-size: 0.82rem;
+  vertical-align: middle;
+}
+
 .daily-col-hidden {
   display: none !important;
 }
@@ -906,6 +915,22 @@ body {
 
 .settings-hub-grid {
   max-width: 1200px;
+}
+
+.daily-patient-table tbody tr.daily-patient-row {
+  cursor: pointer;
+}
+
+.daily-patient-table tbody tr.daily-patient-row:hover {
+  background-color: #f0f7ff;
+}
+
+.daily-review-readonly-grid .review-field {
+  padding: 0.5rem 0.75rem;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  min-height: 2.35rem;
 }
 
 .daily-patient-grid,
