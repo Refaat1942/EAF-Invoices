@@ -618,6 +618,40 @@ body {
   opacity: 0.55;
 }
 
+.pricing-sort-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.pricing-sort-th:hover {
+  background: #e9ecef;
+}
+
+.pricing-sort-th.sort-active {
+  background: #dee2e6;
+}
+
+.pricing-sort-th::after {
+  content: ' ⇅';
+  font-size: 0.7rem;
+  color: #adb5bd;
+}
+
+.pricing-sort-th.sort-asc::after {
+  content: ' ▲';
+  color: #0d6efd;
+}
+
+.pricing-sort-th.sort-desc::after {
+  content: ' ▼';
+  color: #0d6efd;
+}
+
+#pricing-services-table.pricing-section-active .pricing-col-category {
+  display: none;
+}
+
 .patient-report-table th,
 .patient-report-table td {
   vertical-align: middle;

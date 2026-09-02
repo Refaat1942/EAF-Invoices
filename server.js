@@ -108,7 +108,7 @@ app.get('/api/health', async (req, res) => {
       status: 'ok',
       app: pkg.name,
       version: pkg.version,
-      ui_build: '20260902i',
+      ui_build: '20260902j',
       environment: isProduction() ? 'production' : process.env.NODE_ENV || 'development',
       db: 'connected',
       time: new Date().toISOString(),

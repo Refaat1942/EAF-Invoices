@@ -48,6 +48,8 @@ let catalogServicesCache = [];
 let catalogListMeta = null;
 let pricingCategoriesCache = [];
 let pricingServicesCache = [];
+let pricingTemplatesCache = [];
+let pricingTableSort = { column: 'name', dir: 'asc' };
 let pricingListsCache = [];
 let currentPricingListId = null;
 let serviceEditModal = null;
@@ -948,12 +950,14 @@ function bindEvents() {
 
   document.getElementById('pricing-refresh-btn')?.addEventListener('click', loadPricingSection);
   document.getElementById('pricing-search')?.addEventListener('input', debounce(loadPricingServices, 300));
-  document.getElementById('pricing-category-filter')?.addEventListener('change', loadPricingServices);
+  document.getElementById('pricing-section-select')?.addEventListener('change', onPricingSectionChange);
   document.getElementById('pricing-list-select')?.addEventListener('change', onPricingListChange);
   document.getElementById('pricing-export-btn')?.addEventListener('click', exportPricingExcel);
   document.getElementById('pricing-export-csv-btn')?.addEventListener('click', exportPricingCsv);
   document.getElementById('pricing-import-file')?.addEventListener('change', importPricingFile);
+  document.getElementById('pricing-section-excel-file')?.addEventListener('change', importPricingSectionExcel);
   document.getElementById('pricing-download-template-btn')?.addEventListener('click', downloadPricingTemplate);
+  document.getElementById('pricing-services-table')?.addEventListener('click', onPricingTableSortClick);
   document.getElementById('pricing-clone-btn')?.addEventListener('click', cloneCurrentPriceList);
   document.getElementById('pricing-add-service-btn')?.addEventListener('click', () => openServiceEditor());
   document.getElementById('pricing-save-settings-btn')?.addEventListener('click', savePricingSettings);
@@ -4630,8 +4634,10 @@ async function loadPricingSection() {
     bindCommaAmountInputs(document.getElementById('pricing-settings-card'));
 
     await loadPricingCategories();
+    await loadPricingTemplates();
+    populatePricingSectionSelect();
+    updatePricingSectionUi();
     await loadPricingServices();
-    await loadPricingImportTemplates();
     renderPricingStats(defaultList);
   } catch (err) {
     showToast('خطأ في تحميل الأسعار', 'danger');
@@ -4675,16 +4681,147 @@ function renderPricingImportStatus(listMeta) {
   }
 }
 
+function getSelectedPricingSection() {
+  const value = document.getElementById('pricing-section-select')?.value || 'all';
+  if (value === 'all') {
+    return { value, label: 'كل الأقسام', categoryId: null, templateKey: null, isAll: true };
+  }
+  if (value.startsWith('tpl:')) {
+    const templateKey = value.slice(4);
+    const tpl = pricingTemplatesCache.find((t) => t.key === templateKey);
+    const cat = pricingCategoriesCache.find((c) => c.code === tpl?.category_code);
+    return {
+      value,
+      label: tpl?.label || cat?.name || 'القسم',
+      categoryId: cat?.id || null,
+      templateKey,
+      isAll: false,
+    };
+  }
+  if (value.startsWith('cat:')) {
+    const categoryId = Number(value.slice(4));
+    const cat = pricingCategoriesCache.find((c) => c.id === categoryId);
+    return {
+      value,
+      label: cat?.name || 'القسم',
+      categoryId: categoryId || null,
+      templateKey: null,
+      isAll: false,
+    };
+  }
+  return { value: 'all', label: 'كل الأقسام', categoryId: null, templateKey: null, isAll: true };
+}
+
+function updatePricingSectionUi() {
+  const section = getSelectedPricingSection();
+  const heading = document.getElementById('pricing-section-heading');
+  const downloadBtn = document.getElementById('pricing-download-template-btn');
+  const excelLabel = document.getElementById('pricing-section-excel-label');
+  const table = document.getElementById('pricing-services-table');
+  if (heading) {
+    heading.textContent = section.isAll
+      ? 'جدول الخدمات: كل الأقسام'
+      : `جدول خدمات: ${section.label}`;
+  }
+  if (downloadBtn) {
+    downloadBtn.disabled = !section.templateKey;
+    downloadBtn.title = section.templateKey ? `تحميل قالب ${section.label}` : 'اختر قسم له قالب Excel';
+  }
+  if (excelLabel) {
+    excelLabel.classList.toggle('disabled', section.isAll && !section.templateKey);
+    excelLabel.title = section.isAll
+      ? 'اختر قسماً محدداً أو استخدم زر الاستيراد العام أعلاه'
+      : `رفع ملف Excel لقسم ${section.label}`;
+  }
+  if (table) {
+    table.classList.toggle('pricing-section-active', !section.isAll);
+  }
+  document.querySelectorAll('#pricing-services-table .pricing-sort-th').forEach((th) => {
+    th.classList.remove('sort-active', 'sort-asc', 'sort-desc');
+    if (th.dataset.sort === pricingTableSort.column) {
+      th.classList.add('sort-active', pricingTableSort.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+  });
+}
+
+async function loadPricingTemplates() {
+  try {
+    const res = await apiFetch(`${PRICING_API}/import-templates`);
+    pricingTemplatesCache = res.ok ? await res.json() : [];
+  } catch {
+    pricingTemplatesCache = [];
+  }
+}
+
+function populatePricingSectionSelect() {
+  const select = document.getElementById('pricing-section-select');
+  if (!select) return;
+  const previous = select.value;
+  const usedCategoryIds = new Set();
+  const options = ['<option value="all">— كل الأقسام —</option>'];
+
+  for (const tpl of pricingTemplatesCache) {
+    const cat = pricingCategoriesCache.find((c) => c.code === tpl.category_code);
+    if (cat) usedCategoryIds.add(cat.id);
+    options.push(`<option value="tpl:${escapeHtml(tpl.key)}">${escapeHtml(tpl.label)}</option>`);
+  }
+  for (const cat of pricingCategoriesCache) {
+    if (usedCategoryIds.has(cat.id)) continue;
+    options.push(`<option value="cat:${cat.id}">${escapeHtml(cat.name)}</option>`);
+  }
+
+  select.innerHTML = options.join('');
+  if (previous && [...select.options].some((o) => o.value === previous)) {
+    select.value = previous;
+  }
+}
+
+function onPricingTableSortClick(e) {
+  const th = e.target.closest('.pricing-sort-th');
+  if (!th) return;
+  const column = th.dataset.sort;
+  if (!column) return;
+  if (pricingTableSort.column === column) {
+    pricingTableSort.dir = pricingTableSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    pricingTableSort.column = column;
+    pricingTableSort.dir = column === 'price' ? 'desc' : 'asc';
+  }
+  updatePricingSectionUi();
+  renderPricingServicesTable();
+}
+
+function sortPricingServices(services) {
+  const { column, dir } = pricingTableSort;
+  const factor = dir === 'asc' ? 1 : -1;
+  const numericCols = new Set(['price', 'discountable', 'administrative_fee_applicable']);
+  return [...services].sort((a, b) => {
+    if (numericCols.has(column)) {
+      const av =
+        column === 'price'
+          ? Number(a.price) || 0
+          : column === 'discountable'
+            ? a.discountable ? 1 : 0
+            : a.administrative_fee_applicable ? 1 : 0;
+      const bv =
+        column === 'price'
+          ? Number(b.price) || 0
+          : column === 'discountable'
+            ? b.discountable ? 1 : 0
+            : b.administrative_fee_applicable ? 1 : 0;
+      return factor * (av - bv);
+    }
+    const av = String(a[column] ?? '');
+    const bv = String(b[column] ?? '');
+    return factor * av.localeCompare(bv, 'ar', { sensitivity: 'base', numeric: true });
+  });
+}
+
 async function loadPricingCategories() {
   if (!currentPricingListId) return;
   const res = await apiFetch(`${PRICING_API}/categories?price_list_id=${currentPricingListId}&all=1`);
   pricingCategoriesCache = res.ok ? await res.json() : [];
-  const filter = document.getElementById('pricing-category-filter');
   const editSelect = document.getElementById('service-edit-category');
-  const options = ['<option value="">— كل الأقسام —</option>']
-    .concat(pricingCategoriesCache.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`))
-    .join('');
-  if (filter) filter.innerHTML = options;
   if (editSelect) {
     editSelect.innerHTML = pricingCategoriesCache
       .map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
@@ -4695,10 +4832,15 @@ async function loadPricingCategories() {
 async function loadPricingServices() {
   if (!currentPricingListId) return;
   const search = document.getElementById('pricing-search')?.value?.trim() || '';
-  const categoryId = document.getElementById('pricing-category-filter')?.value || '';
-  const params = new URLSearchParams({ price_list_id: currentPricingListId, all: '1', limit: '500' });
+  const section = getSelectedPricingSection();
+  const params = new URLSearchParams({ price_list_id: currentPricingListId, all: '1' });
+  if (section.categoryId) {
+    params.set('category_id', section.categoryId);
+    params.set('limit', '10000');
+  } else {
+    params.set('limit', '10000');
+  }
   if (search) params.set('search', search);
-  if (categoryId) params.set('category_id', categoryId);
   const res = await apiFetch(`${PRICING_API}/services?${params}`);
   pricingServicesCache = res.ok ? await res.json() : [];
   renderPricingServicesTable();
@@ -4708,15 +4850,22 @@ async function loadPricingServices() {
 function renderPricingServicesTable() {
   const tbody = document.getElementById('pricing-services-tbody');
   if (!tbody) return;
-  if (!pricingServicesCache.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">لا توجد خدمات — استورد ملف Excel أو DOCX أو أضف خدمة يدوياً</td></tr>';
+  const section = getSelectedPricingSection();
+  const services = sortPricingServices(pricingServicesCache);
+  if (!services.length) {
+    const colSpan = section.isAll ? 9 : 8;
+    const hint = section.isAll
+      ? 'لا توجد خدمات — استورد ملف Excel أو DOCX أو أضف خدمة يدوياً'
+      : `لا توجد خدمات في قسم «${section.label}» — ارفع ملف Excel للقسم أو استورد اللائحة`;
+    tbody.innerHTML = `<tr><td colspan="${colSpan}" class="text-center text-muted py-4">${escapeHtml(hint)}</td></tr>`;
     return;
   }
-  tbody.innerHTML = pricingServicesCache
+  const showCategory = section.isAll;
+  tbody.innerHTML = services
     .map(
       (svc) => `<tr class="${svc.is_active ? '' : 'inactive-row'}">
         <td>${escapeHtml(svc.code)}</td>
-        <td>${escapeHtml(svc.category_name || '—')}</td>
+        ${showCategory ? `<td>${escapeHtml(svc.category_name || '—')}</td>` : ''}
         <td>${escapeHtml(svc.name)}</td>
         <td>${escapeHtml(svc.unit || 'مرة')}</td>
         <td>${fmt(Number(svc.price) || 0)}</td>
@@ -4729,9 +4878,17 @@ function renderPricingServicesTable() {
     .join('');
 }
 
+async function onPricingSectionChange() {
+  updatePricingSectionUi();
+  await loadPricingServices();
+}
+
 async function onPricingListChange() {
   currentPricingListId = Number(document.getElementById('pricing-list-select').value) || null;
   await loadPricingCategories();
+  await loadPricingTemplates();
+  populatePricingSectionSelect();
+  updatePricingSectionUi();
   await loadPricingServices();
 }
 
@@ -4767,41 +4924,37 @@ async function exportPricingCsv() {
   window.open(`${PRICING_API}/services-export?price_list_id=${currentPricingListId}&format=csv`, '_blank');
 }
 
-async function loadPricingImportTemplates() {
-  const importSelect = document.getElementById('pricing-import-template-key');
-  const downloadSelect = document.getElementById('pricing-download-template-key');
-  if (!importSelect && !downloadSelect) return;
-  try {
-    const res = await apiFetch(`${PRICING_API}/import-templates`);
-    const templates = res.ok ? await res.json() : [];
-    const options = templates
-      .map((t) => `<option value="${escapeHtml(t.key)}">${escapeHtml(t.label)}</option>`)
-      .join('');
-    if (importSelect) {
-      importSelect.innerHTML = `<option value="">— تلقائي من اسم الملف —</option>${options}`;
-    }
-    if (downloadSelect) {
-      downloadSelect.innerHTML = `<option value="">— اختر القسم —</option>${options}`;
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
 function downloadPricingTemplate() {
-  const key = document.getElementById('pricing-download-template-key')?.value;
-  if (!key) {
-    showToast('اختر قالب القسم أولاً', 'warning');
+  const section = getSelectedPricingSection();
+  if (!section.templateKey) {
+    showToast('اختر قسماً له قالب Excel (مثل التحاليل أو الكشوفات)', 'warning');
     return;
   }
-  window.open(`${PRICING_API}/import-template/${encodeURIComponent(key)}`, '_blank');
+  window.open(`${PRICING_API}/import-template/${encodeURIComponent(section.templateKey)}`, '_blank');
 }
 
-async function importPricingFile(e) {
+async function importPricingSectionExcel(e) {
+  const section = getSelectedPricingSection();
+  if (section.isAll) {
+    showToast('اختر القسم من القائمة أولاً (مثل التحاليل) ثم ارفع ملف Excel', 'warning');
+    e.target.value = '';
+    return;
+  }
+  await importPricingFile(e, {
+    forceTemplateKey: section.templateKey || undefined,
+    sectionLabel: section.label,
+  });
+}
+
+async function importPricingFile(e, options = {}) {
   const file = e.target.files?.[0];
   if (!file) return;
   const replaceExisting = document.getElementById('pricing-import-replace')?.checked;
-  const templateKey = document.getElementById('pricing-import-template-key')?.value || '';
+  const section = getSelectedPricingSection();
+  const templateKey =
+    options.forceTemplateKey ||
+    section.templateKey ||
+    '';
   const statusEl = document.getElementById('pricing-import-status');
   const importInput = e.target;
   const lower = file.name.toLowerCase();
@@ -4929,6 +5082,8 @@ async function openServiceEditor(id = null) {
     renderServiceComponentsEditor(svc.components || []);
     toggleServiceComponentsEditor();
   } else {
+    const section = getSelectedPricingSection();
+    document.getElementById('service-edit-category').value = section.categoryId || '';
     document.getElementById('service-edit-code').value = '';
     document.getElementById('service-edit-name').value = '';
     document.getElementById('service-edit-unit').value = 'مرة';
