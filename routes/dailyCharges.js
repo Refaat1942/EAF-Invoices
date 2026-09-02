@@ -236,7 +236,18 @@ router.post('/catalog/import', catalogManagePerm, upload.single('file'), async (
       return res.status(400).json({ error: 'لم يُعثر على أصناف في الملف — تأكد من الأعمدة: Code, Name, Category, Unit, Price' });
     }
 
-    const result = await importCatalogRows(rows);
+    const importOptions = {};
+    if (req.body.default_category) {
+      importOptions.defaultCategory = String(req.body.default_category).trim();
+    }
+    if (req.body.allow_categories) {
+      importOptions.allowCategories = String(req.body.allow_categories)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    const result = await importCatalogRows(rows, importOptions);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });

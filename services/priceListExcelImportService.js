@@ -28,6 +28,12 @@ const EXCEL_TEMPLATES = {
     headers: ['م', 'البيان (التحليل)', 'السعر بالجنيه'],
     unit: 'تحليل',
   },
+  radiology: {
+    label: 'الأشعة',
+    category_code: 'RADIOLOGY',
+    headers: ['م', 'البيان (الأشعة)', 'السعر بالجنيه'],
+    unit: 'أشعة',
+  },
   rf_injection: {
     label: 'إجراءات وحقن الألم',
     category_code: 'RF_INJECTION',
@@ -99,6 +105,7 @@ function detectTemplateFromFilename(filename) {
   const n = normalizeArabic(filename);
   if (n.includes('كشوف')) return 'medical_exams';
   if (n.includes('تحاليل')) return 'lab';
+  if (n.includes('اشعه') || n.includes('اشعة')) return 'radiology';
   if (n.includes('حقن') || n.includes('اجراءات')) return 'rf_injection';
   if (n.includes('عمليات')) return 'spine_operations';
   if (n.includes('علاج') && n.includes('طبيعي')) return 'physio';
@@ -110,7 +117,7 @@ function detectTemplateFromFilename(filename) {
 function slugCode(prefix, name, index) {
   const base = normalizeArabic(name).replace(/[^a-z0-9]/g, '').slice(0, 24);
   const suffix = base ? base.slice(0, 20) : `row${index}`;
-  return `${prefix}-${suffix}-${index}`.toUpperCase().slice(0, 48);
+  return `${prefix}-${suffix}`.toUpperCase().slice(0, 48);
 }
 
 async function parseExcelBuffer(buffer, options = {}) {
@@ -255,8 +262,11 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
   let updated = 0;
   for (const svc of services) {
     const { rows } = await query(
-      `SELECT id FROM services WHERE price_list_id = $1 AND category_id = $2 AND code = $3 LIMIT 1`,
-      [priceListId, categoryId, svc.code]
+      `SELECT id FROM services
+       WHERE price_list_id = $1 AND category_id = $2
+         AND (code = $3 OR LOWER(TRIM(name)) = LOWER(TRIM($4)))
+       LIMIT 1`,
+      [priceListId, categoryId, svc.code, svc.name]
     );
     const payload = {
       price_list_id: priceListId,

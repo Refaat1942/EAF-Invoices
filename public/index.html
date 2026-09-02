@@ -6,8 +6,8 @@
   <title>نظام الفواتير — مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-  <meta name="app-build" content="20260902l">
-  <link href="/css/style.css?v=20260902l" rel="stylesheet">
+  <meta name="app-build" content="20260902m">
+  <link href="/css/style.css?v=20260902m" rel="stylesheet">
 </head>
 <body>
   <!-- Login Screen -->
@@ -738,6 +738,8 @@
                 <span class="small fw-bold text-muted">تاريخ اليوم:</span>
                 <input type="date" class="form-control form-control-sm fw-bold bg-light" id="daily-entry-date" readonly tabindex="-1" style="width:auto">
                 <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-add-row-btn">+ صف</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary fw-bold d-none" id="daily-tab-import-btn" title="للإدارة فقط">📤 رفع قائمة الخدمات</button>
+                <input type="file" class="d-none" id="daily-tab-import-input" accept=".xlsx,.xls,.csv">
                 <button type="button" class="btn btn-sm btn-success fw-bold px-4" id="daily-save-btn">حفظ</button>
                 <div class="dropdown">
                   <button type="button" class="btn btn-sm btn-outline-dark fw-bold dropdown-toggle" data-bs-toggle="dropdown">🖨️ طباعة</button>
@@ -1867,10 +1869,10 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
-  <script src="/js/daily-section-bundles.js?v=20260902l"></script>
-  <script src="/js/app.js?v=20260902l"></script>
-  <script src="/js/daily-picker.js?v=20260902l"></script>
-  <script src="/js/daily-charges.js?v=20260902l"></script>
+  <script src="/js/daily-section-bundles.js?v=20260902m"></script>
+  <script src="/js/app.js?v=20260902m"></script>
+  <script src="/js/daily-picker.js?v=20260902m"></script>
+  <script src="/js/daily-charges.js?v=20260902m"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>
 </body>

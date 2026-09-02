@@ -24,6 +24,8 @@ const CATEGORY_ALIASES = {
   drug: 'Medicine',
   drugs: 'Medicine',
   'أدوية': 'Medicine',
+  'ادويه': 'Medicine',
+  'ادوية': 'Medicine',
   'دواء': 'Medicine',
   supplies: 'Supplies',
   supply: 'Supplies',
@@ -171,7 +173,35 @@ function isPlaceholderMajorUnit(unit) {
 function formatCatalogUnitLabel(unit) {
   const value = String(unit || '').trim();
   if (!value || value === 'مرة') return 'قطعة';
-  return value;
+  const aliases = {
+    PAC: 'علبة',
+    PACK: 'علبة',
+    PCK: 'علبة',
+    STR: 'شريط',
+    STRIP: 'شريط',
+    TAB: 'قرص',
+    BTL: 'زجاجة',
+    BOX: 'علبة',
+  };
+  const upper = value.toUpperCase();
+  return aliases[upper] || value;
+}
+
+function filterCatalogImportRows(rows = [], options = {}) {
+  const { defaultCategory, allowCategories } = options;
+  return rows
+    .map((row) => {
+      const next = { ...row };
+      if (!next.category && defaultCategory) next.category = defaultCategory;
+      return next;
+    })
+    .filter((row) => {
+      const cat = normalizeCategory(row.category);
+      if (!cat) return false;
+      if (allowCategories?.length) return allowCategories.includes(cat);
+      if (defaultCategory) return cat === defaultCategory;
+      return true;
+    });
 }
 
 function initImportPriceExplicitFlags(row = {}) {
@@ -580,16 +610,16 @@ function catalogItemToPicker(item) {
 
   const unit_options = hasMinorTier
     ? [
-        { level: 'major', unit: majorUnit, price: majorPrice },
-        { level: 'minor', unit: minorUnit, price: minorPrice },
+        { level: 'major', unit: formatCatalogUnitLabel(majorUnit), price: majorPrice },
+        { level: 'minor', unit: formatCatalogUnitLabel(minorUnit), price: minorPrice },
       ]
-    : [{ level: 'major', unit: majorUnit, price: majorPrice }];
+    : [{ level: 'major', unit: formatCatalogUnitLabel(majorUnit), price: majorPrice }];
 
   const base = {
     id: item.id,
     code: item.code,
     name: item.name,
-    unit: majorUnit,
+    unit: formatCatalogUnitLabel(majorUnit),
     major_unit: majorUnit,
     minor_unit: minorUnit,
     minor_quantity_per_major: minorQty,
@@ -954,7 +984,8 @@ async function analyzeCatalogImportFile(buffer, originalName, mappingOverride = 
   };
 }
 
-async function importCatalogRowsTransactional(rows = []) {
+async function importCatalogRowsTransactional(rows = [], options = {}) {
+  const preparedRows = filterCatalogImportRows(rows, options);
   const result = {
     inserted: 0,
     updated: 0,
@@ -965,8 +996,8 @@ async function importCatalogRowsTransactional(rows = []) {
     errors: [],
   };
 
-  const mergedRows = mergeImportRowsByProduct(rows);
-  result.merged = rows.length - mergedRows.length;
+  const mergedRows = mergeImportRowsByProduct(preparedRows);
+  result.merged = preparedRows.length - mergedRows.length;
 
   const productSeen = new Map();
   const codeSeen = new Map();
@@ -1287,9 +1318,10 @@ async function upsertCatalogItem(raw) {
   });
 }
 
-async function importCatalogRows(rows = []) {
+async function importCatalogRows(rows = [], options = {}) {
   const result = await importCatalogRowsTransactional(
-    rows.map((row, index) => ({ ...row, row_number: row.row_number || index + 2 }))
+    rows.map((row, index) => ({ ...row, row_number: row.row_number || index + 2 })),
+    options
   );
   return {
     imported: result.inserted + result.updated,

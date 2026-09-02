@@ -26,6 +26,88 @@ const DAILY_INVOICE_TYPE_LABELS = {
 
 const DAILY_CLINICAL_TABS = ['exams', 'lab', 'radiology', 'sessions', 'medicines', 'supplies'];
 
+const DAILY_PRICING_API = '/api/pricing';
+
+/** Admin-only per-tab service list upload (catalog or price-list Excel). */
+const DAILY_TAB_IMPORT_CONFIG = {
+  medicines: {
+    kind: 'catalog',
+    defaultCategory: 'Medicine',
+    label: 'رفع قائمة أدوية',
+    accept: '.xlsx,.xls,.csv,.txt',
+  },
+  supplies: {
+    kind: 'catalog',
+    defaultCategory: 'Supplies',
+    allowCategories: ['Supplies', 'Cosmetics'],
+    label: 'رفع قائمة مستلزمات',
+    accept: '.xlsx,.xls,.csv,.txt',
+  },
+  sessions: { kind: 'excel', template_key: 'physio', label: 'رفع العلاج الطبيعي' },
+  exams: { kind: 'excel', template_key: 'medical_exams', label: 'رفع الكشوفات' },
+  lab: { kind: 'excel', template_key: 'lab', label: 'رفع التحاليل' },
+  radiology: { kind: 'excel', template_key: 'radiology', label: 'رفع الأشعة' },
+  other: { kind: 'excel', template_key: 'medical_services', label: 'رفع الخدمات الطبية' },
+  stay: { kind: 'excel', template_key: 'accommodation', label: 'رفع الإقامات' },
+};
+
+function isDailyAdminImportAllowed() {
+  return typeof can === 'function' && can('settings.*');
+}
+
+function updateDailyTabImportButton() {
+  const btn = document.getElementById('daily-tab-import-btn');
+  const input = document.getElementById('daily-tab-import-input');
+  if (!btn || !input) return;
+  const cfg = DAILY_TAB_IMPORT_CONFIG[activeDailyTab];
+  const allowed = isDailyAdminImportAllowed() && cfg;
+  btn.classList.toggle('d-none', !allowed);
+  if (cfg) {
+    btn.textContent = `📤 ${cfg.label}`;
+    input.accept = cfg.accept || '.xlsx,.xls';
+  }
+}
+
+async function handleDailyTabImport(file) {
+  const cfg = DAILY_TAB_IMPORT_CONFIG[activeDailyTab];
+  if (!cfg || !file || !isDailyAdminImportAllowed()) return;
+
+  const btn = document.getElementById('daily-tab-import-btn');
+  if (btn) btn.disabled = true;
+  try {
+    if (cfg.kind === 'catalog') {
+      const form = new FormData();
+      form.append('file', file);
+      if (cfg.defaultCategory) form.append('default_category', cfg.defaultCategory);
+      if (cfg.allowCategories?.length) form.append('allow_categories', cfg.allowCategories.join(','));
+      const res = await apiFetch(`${DAILY_API}/catalog/import`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const msg = `كتالوج: ${data.inserted || 0} جديد، ${data.updated || 0} محدّث`;
+      showToast(msg, 'success');
+      if (typeof loadCatalogCache === 'function') await loadCatalogCache();
+    } else if (cfg.kind === 'excel') {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('replace_existing', 'false');
+      form.append('template_key', cfg.template_key);
+      const res = await apiFetch(`${DAILY_PRICING_API}/import-excel`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const label = data.template_label || cfg.label;
+      const msg = `تم تحديث «${label}»: ${data.imported || 0} جديد، ${data.updated || 0} محدّث`;
+      showToast(msg, 'success');
+      if (typeof loadCatalogCache === 'function') await loadCatalogCache();
+    }
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+  } finally {
+    if (btn) btn.disabled = false;
+    const input = document.getElementById('daily-tab-import-input');
+    if (input) input.value = '';
+  }
+}
+
 let dailySectionsCache = [];
 let dailyCurrentEntryId = null;
 let dailyStayContext = null;
@@ -394,6 +476,8 @@ function applyDailyTabColumnVisibility() {
   const saveBtn = document.getElementById('daily-save-btn');
   if (addRowBtn) addRowBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
   if (saveBtn) saveBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
+
+  updateDailyTabImportButton();
 
   if (activeDailyTab === 'operations') ensureOperationRows();
 
@@ -5361,6 +5445,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-add-row-btn')?.addEventListener('click', () => {
     if (activeDailyTab === 'operations') addOperationRow();
     else addDailyEntryRow();
+  });
+  document.getElementById('daily-tab-import-btn')?.addEventListener('click', () => {
+    document.getElementById('daily-tab-import-input')?.click();
+  });
+  document.getElementById('daily-tab-import-input')?.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) void handleDailyTabImport(file);
   });
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
   document.getElementById('daily-free-add-row')?.addEventListener('click', () => addFreeItemRow());

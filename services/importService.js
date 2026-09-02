@@ -238,6 +238,8 @@ const CATALOG_IMPORT_SCHEMA = {
       'major uom',
       'pack unit',
       'الوحدة الكبرى',
+      'الوحده الكبري',
+      'الوحده الكبرى',
       'وحدة كبرى',
       'الوحدة',
       'وحدة',
@@ -249,7 +251,15 @@ const CATALOG_IMPORT_SCHEMA = {
   minor_unit: {
     required: false,
     label: 'الوحدة الصغرى',
-    aliases: ['minor unit', 'minor uom', 'الوحدة الصغرى', 'وحدة صغرى', 'وحدة بيع'],
+    aliases: [
+      'minor unit',
+      'minor uom',
+      'الوحدة الصغرى',
+      'الوحده الصغري',
+      'الوحده الصغرى',
+      'وحدة صغرى',
+      'وحدة بيع',
+    ],
   },
   minor_quantity_per_major: {
     required: false,
@@ -262,6 +272,9 @@ const CATALOG_IMPORT_SCHEMA = {
       'عدد الصغرى',
       'عدد الوحدات الصغرى',
       'العدد لكل وحدة كبرى',
+      'كمية الوحده الصغري',
+      'كمية الوحدة الصغرى',
+      'كمية الوحده الصغرى',
     ],
   },
   major_unit_selling_price: {

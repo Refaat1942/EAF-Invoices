@@ -989,12 +989,37 @@ body {
 
 .daily-sheet-table--medicines .daily-med-total,
 .daily-sheet-table--supplies .daily-sup-total,
+.daily-sheet-table--supplies .daily-sup-sell-total,
 .daily-sheet-table--lab .daily-lab-total,
 .daily-sheet-table--radiology .daily-rad-total,
 .daily-sheet-table--sessions .daily-session-total,
-.daily-sheet-table--sessions .daily-row-total {
+.daily-sheet-table--sessions .daily-row-total,
+.daily-sheet-table--other .daily-misc-total {
   font-weight: 800;
+  font-size: 1.05rem;
   color: #1a5276;
+  min-width: 5.5rem;
+}
+
+.daily-sheet-table .daily-med-total,
+.daily-sheet-table .daily-sup-total,
+.daily-sheet-table .daily-sup-sell-total,
+.daily-sheet-table .daily-lab-total,
+.daily-sheet-table .daily-rad-total,
+.daily-sheet-table .daily-session-total,
+.daily-sheet-table .daily-misc-total,
+.daily-sheet-table .daily-col-total input,
+.daily-sheet-table .daily-row-total input {
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+#daily-total-display,
+.daily-total-foot-value {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: #1a5276;
+  min-width: 6rem;
 }
 
 .invoice-section-header-row td {
