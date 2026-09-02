@@ -4766,15 +4766,20 @@ function populatePricingSectionSelect() {
   if (!select) return;
   const previous = select.value;
   const usedCategoryIds = new Set();
+  const usedCategoryCodes = new Set();
   const options = ['<option value="all">— كل الأقسام —</option>'];
 
   for (const tpl of pricingTemplatesCache) {
     const cat = pricingCategoriesCache.find((c) => c.code === tpl.category_code);
-    if (cat) usedCategoryIds.add(cat.id);
+    if (cat) {
+      usedCategoryIds.add(cat.id);
+      usedCategoryCodes.add(cat.code);
+    }
     options.push(`<option value="tpl:${escapeHtml(tpl.key)}">${escapeHtml(tpl.label)}</option>`);
   }
   for (const cat of pricingCategoriesCache) {
-    if (usedCategoryIds.has(cat.id)) continue;
+    if (usedCategoryIds.has(cat.id) || usedCategoryCodes.has(cat.code)) continue;
+    usedCategoryCodes.add(cat.code);
     options.push(`<option value="cat:${cat.id}">${escapeHtml(cat.name)}</option>`);
   }
 

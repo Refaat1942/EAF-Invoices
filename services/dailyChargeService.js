@@ -9,6 +9,29 @@ const {
   getBundleSortOrder,
   BUNDLE_SOURCES,
 } = require('./dailySectionBundles');
+const { formatServiceUnitLabel } = require('./serviceUnitLabels');
+
+function normalizeArabicSearch(text) {
+  return String(text || '')
+    .replace(/\u0640/g, '')
+    .replace(/[\u064B-\u065F]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .trim()
+    .toLowerCase();
+}
+
+function buildServiceSearchPatterns(q) {
+  const raw = String(q || '').trim();
+  if (!raw) return [];
+  const patterns = new Set([`%${raw}%`]);
+  const norm = normalizeArabicSearch(raw);
+  if (norm) patterns.add(`%${norm}%`);
+  const alef = raw.replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
+  if (alef !== raw) patterns.add(`%${alef}%`);
+  return [...patterns];
+}
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -255,15 +278,17 @@ async function getSectionsWithServices() {
 function serviceToDailyPicker(service) {
   if (!service) return null;
   const price = Number(service.list_price ?? service.price) || 0;
+  const categoryCode = service.category_code || '';
+  const unit = formatServiceUnitLabel(service.unit, categoryCode);
   return {
     id: service.id,
     code: service.code || '',
     name: service.name || '',
     price,
     list_price: price,
-    unit: service.unit || '',
+    unit,
     category_name: service.category_name || '',
-    category_code: service.category_code || '',
+    category_code: categoryCode,
   };
 }
 
@@ -370,19 +395,30 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
     };
   }
 
-  const categoryRes = await query(`SELECT id FROM service_categories WHERE code = $1`, [section.category_code]);
+  const categoryRes = await query(
+    `SELECT id FROM service_categories WHERE price_list_id = $1 AND code = $2 LIMIT 1`,
+    [priceList.id, section.category_code]
+  );
   const categoryId = categoryRes.rows[0]?.id;
   if (!categoryId) {
-    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'service' };
+    return {
+      rows: [],
+      total: 0,
+      page: pageNum,
+      limit: maxLimit,
+      totalPages: 1,
+      kind: 'service',
+      hint: `قسم «${section.category_code}» غير موجود في اللائحة — استورد هذا القسم من الإعدادات`,
+    };
   }
 
-  const searchPat = `%${q}%`;
+  const patterns = buildServiceSearchPatterns(q);
   const offset = (pageNum - 1) * maxLimit;
   const countRes = await query(
     `SELECT COUNT(*)::int AS total FROM services s
      WHERE s.price_list_id = $1 AND s.category_id = $2 AND s.is_active = TRUE
-       AND (s.name ILIKE $3 OR s.code ILIKE $3 OR s.description ILIKE $3)`,
-    [priceList.id, categoryId, searchPat]
+       AND (s.name ILIKE ANY($3::text[]) OR s.code ILIKE ANY($3::text[]) OR s.description ILIKE ANY($3::text[]))`,
+    [priceList.id, categoryId, patterns]
   );
   const total = countRes.rows[0]?.total || 0;
 
@@ -391,10 +427,10 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
      FROM services s
      LEFT JOIN service_categories c ON c.id = s.category_id
      WHERE s.price_list_id = $1 AND s.category_id = $2 AND s.is_active = TRUE
-       AND (s.name ILIKE $3 OR s.code ILIKE $3 OR s.description ILIKE $3)
+       AND (s.name ILIKE ANY($3::text[]) OR s.code ILIKE ANY($3::text[]) OR s.description ILIKE ANY($3::text[]))
      ORDER BY s.sort_order, s.name, s.id
      LIMIT $4 OFFSET $5`,
-    [priceList.id, categoryId, searchPat, maxLimit, offset]
+    [priceList.id, categoryId, patterns, maxLimit, offset]
   );
   const enriched = await enrichServicesWithResolvedPrices(rows);
 
@@ -443,6 +479,12 @@ async function getDailyPickerItemBySection(section_code, id) {
   if (!service || !service.is_active) {
     const err = new Error('الخدمة غير موجودة');
     err.status = 404;
+    throw err;
+  }
+  const priceList = await getDefaultPriceList();
+  if (priceList && Number(service.price_list_id) !== Number(priceList.id)) {
+    const err = new Error('الخدمة ليست في اللائحة الافتراضية الحالية');
+    err.status = 400;
     throw err;
   }
   if (service.category_code !== section.category_code) {

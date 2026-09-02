@@ -3278,6 +3278,11 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
     <td class="daily-med-name-cell">${section ? buildCatalogPickerCell(section) : ''}
       <input type="hidden" class="daily-field daily-amount" data-section="medicines" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="medicines" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
+    <td class="daily-med-unit-cell">
+      <select class="form-select form-select-sm daily-catalog-unit" data-section="medicines">
+        <option value="">— اختر الوحدة —</option>
+      </select>
+    </td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-weight comma-amount" data-section="medicines" value="${dailyEscapeAttr(weightVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-med-unit-price bg-light" readonly></td>
     <td><input type="text" class="form-control form-control-sm daily-med-total bg-light" readonly></td>
@@ -4161,15 +4166,16 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">تاريخ</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
       '<th class="daily-meta-th">الكمية</th>' +
+      '<th class="daily-meta-th">الوحدة</th>' +
       '<th class="daily-meta-th">الوزن</th>' +
-      '<th class="daily-meta-th">سعر الصنف</th>' +
+      '<th class="daily-meta-th">سعر الوحدة</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(9, 'إجمالي الأدوية (كل الأيام)');
+    configureDailyTableFooter(10, 'إجمالي الأدوية (كل الأيام)');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;

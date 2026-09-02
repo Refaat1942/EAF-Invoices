@@ -56,8 +56,9 @@
     const kind = usesCatalog ? 'catalog' : 'service';
     const placeholder = '';
     const selectedId = usesCatalog ? line.catalog_item_id || '' : line.service_id || '';
+    const externalUnitSelect = section.code === 'medicines';
     const unitSelect =
-      usesCatalog
+      usesCatalog && !externalUnitSelect
         ? `<select class="form-select form-select-sm mb-1 daily-catalog-unit" data-section="${escAttr(section.code)}" style="display:none"><option value="">— وحدة —</option></select>`
         : '';
 
@@ -97,9 +98,12 @@
       return;
     }
     if (!rows.length) {
-      container.innerHTML = query
-        ? '<div class="service-suggest-empty p-2 small text-muted">لا توجد نتائج مطابقة</div>'
-        : '<div class="service-suggest-empty p-2 small text-muted">ابدأ بالبحث لعرض النتائج</div>';
+      const hint = result?.hint ? `<div class="p-2 small text-warning">${esc(result.hint)}</div>` : '';
+      container.innerHTML =
+        hint +
+        (query
+          ? '<div class="service-suggest-empty p-2 small text-muted">لا توجد نتائج مطابقة — تأكد من استيراد القسم في اللائحة</div>'
+          : '<div class="service-suggest-empty p-2 small text-muted">ابدأ بالبحث لعرض النتائج</div>');
       container.classList.remove('d-none');
       return;
     }
@@ -153,11 +157,12 @@
           preset.catalog_unit_level === opt.level || (preset.catalog_unit && preset.catalog_unit === opt.unit)
             ? 'selected'
             : '';
-        return `<option value="${escAttr(opt.level)}" data-unit="${escAttr(opt.unit)}" data-price="${opt.price}" ${selected}>${esc(opt.unit)} — ${fmtAmount(opt.price)}</option>`;
+        const levelLabel = opt.level === 'major' ? 'كبرى' : opt.level === 'minor' ? 'صغرى' : opt.level;
+        return `<option value="${escAttr(opt.level)}" data-unit="${escAttr(opt.unit)}" data-price="${opt.price}" ${selected}>${esc(opt.unit)} (${levelLabel}) — ${fmtAmount(opt.price)}</option>`;
       })
       .join('');
 
-    unitSelect.style.display = unitOptions.length > 1 ? '' : 'none';
+    unitSelect.style.display = '';
     if (!unitSelect.value && unitOptions.length) {
       unitSelect.value = preset.catalog_unit_level || unitOptions[0].level;
     }

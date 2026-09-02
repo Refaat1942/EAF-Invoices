@@ -1,6 +1,7 @@
 const { query, withTransaction } = require('../database/db');
 const ExcelJS = require('exceljs');
 const { getDefaultPriceList, getPriceListById } = require('./priceListService');
+const { formatServiceUnitLabel } = require('./serviceUnitLabels');
 
 const HIDDEN_CATEGORY_NAMES = new Set([
   'نوع الخدمة',
@@ -9,6 +10,9 @@ const HIDDEN_CATEGORY_NAMES = new Set([
   'م',
   'قسم',
   'قسم التقييم',
+  'جلسة',
+  'نوع الجلسة',
+  'الجلسة',
 ]);
 
 async function listCategories(priceListId, activeOnly = true) {
@@ -95,7 +99,10 @@ async function listServices(filters = {}) {
   }
 
   const { rows } = await query(sql, params);
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    unit: formatServiceUnitLabel(row.unit, row.category_code),
+  }));
 }
 
 async function enrichServicesWithResolvedPrices(services = []) {
