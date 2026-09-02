@@ -169,9 +169,11 @@ function applyDailyTabColumnVisibility() {
 
   const catalogTabs = ['medicines', 'supplies', 'exams', 'lab', 'radiology', 'other', 'sessions'];
   const hideMeta = catalogTabs.includes(activeDailyTab);
-  document.querySelectorAll('.daily-meta-th').forEach((el) => {
-    el.classList.toggle('daily-col-hidden', hideMeta);
-  });
+  document
+    .querySelectorAll('#daily-sections-head .daily-meta-th[rowspan="2"], #daily-sections-subhead .daily-meta-th')
+    .forEach((el) => {
+      el.classList.toggle('daily-col-hidden', hideMeta);
+    });
   document.querySelectorAll('.daily-entry-row .daily-row-date, .daily-row-stay-type, .daily-row-specialty, .daily-row-doctor, .daily-doctor-search').forEach((el) => {
     const cell = el.closest('td');
     if (cell) cell.classList.toggle('daily-col-hidden', hideMeta);
@@ -696,7 +698,6 @@ function showDailyPatientPicker() {
   document.getElementById('daily-patient-workspace')?.classList.add('d-none');
   document.getElementById('daily-change-patient-btn')?.classList.add('d-none');
   document.getElementById('daily-patient-results-wrap')?.classList.add('d-none');
-  document.getElementById('daily-patient-picker-hint')?.classList.remove('d-none');
   const searchInput = document.getElementById('daily-patient-search');
   if (searchInput) searchInput.value = '';
   resetDailyPatientPickerList();
@@ -713,7 +714,6 @@ function resetDailyPatientPickerList() {
 
 function showDailyPatientResults() {
   document.getElementById('daily-patient-results-wrap')?.classList.remove('d-none');
-  document.getElementById('daily-patient-picker-hint')?.classList.add('d-none');
 }
 
 function showDailyPatientWorkspace(ctx = dailyStayContext) {
@@ -811,7 +811,6 @@ async function loadDailyPatientGrid(search = '') {
   const q = String(search || '').trim();
   if (!q) {
     document.getElementById('daily-patient-results-wrap')?.classList.add('d-none');
-    document.getElementById('daily-patient-picker-hint')?.classList.remove('d-none');
     resetDailyPatientPickerList();
     return;
   }
@@ -4835,6 +4834,7 @@ async function initDailyChargesView(options = {}) {
     void loadPatientEntitySelects();
     if (!dailySectionsCache.length) await loadDailySections();
     if (dailySectionsLoadFailed) return;
+    renderDailySectionTabs();
     setDailyTodayDate();
     if (typeof bindCommaAmountInputs === 'function') {
       bindCommaAmountInputs(document.getElementById('view-daily'));

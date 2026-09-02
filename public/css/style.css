@@ -1477,11 +1477,6 @@ body {
   border: 1px solid #e2e8f0;
 }
 
-#daily-patient-picker-hint {
-  max-width: 520px;
-  margin-inline: auto;
-}
-
 #daily-patient-results-wrap {
   max-width: 960px;
   margin-inline: auto;
