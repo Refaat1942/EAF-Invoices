@@ -2,6 +2,13 @@ const { query, withTransaction } = require('../database/db');
 const { getDefaultPriceList } = require('./priceListService');
 const { listServices, resolveServiceForInvoice, getServiceById, enrichServicesWithResolvedPrices } = require('./serviceCatalogService');
 const { upsertPatient } = require('./patientService');
+const {
+  inferBundleKey,
+  inferBundleKeyFromItem,
+  getBundleLabel,
+  getBundleSortOrder,
+  BUNDLE_SOURCES,
+} = require('./dailySectionBundles');
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -191,6 +198,7 @@ async function getSectionsWithServices() {
   return Promise.all(
     sections.map(async (section) => {
       if (section.catalog_category) {
+        const bundle = inferBundleKey(section.code);
         return {
           ...section,
           uses_catalog: true,
@@ -200,6 +208,9 @@ async function getSectionsWithServices() {
           default_service: null,
           price_list_id: priceList?.id || null,
           price_list_name: priceList?.name || null,
+          bundle_code: bundle,
+          bundle_label: getBundleLabel(bundle),
+          price_list_sources: BUNDLE_SOURCES[bundle] || { categories: [], catalog: [section.catalog_category] },
         };
       }
 
@@ -224,6 +235,7 @@ async function getSectionsWithServices() {
       );
       const service_count = countRes.rows[0]?.n || 0;
       const default_service = await resolveDefaultServiceForSection(section, priceList);
+      const bundle = inferBundleKey(section.code);
       return {
         ...section,
         price_list_id: priceList.id,
@@ -232,6 +244,9 @@ async function getSectionsWithServices() {
         services: default_service ? [serviceToDailyPicker(default_service)] : [],
         picker_kind: section.category_code ? 'service' : null,
         default_service: default_service ? serviceToDailyPicker(default_service) : null,
+        bundle_code: bundle,
+        bundle_label: getBundleLabel(bundle),
+        price_list_sources: BUNDLE_SOURCES[bundle] || { categories: [section.category_code].filter(Boolean), catalog: [] },
       };
     })
   );
@@ -975,7 +990,8 @@ async function getSupplementalInvoiceItems(fileNumber, fromDate, toDate) {
       quantity: 1,
       amount,
       section_code: 'operations',
-      section_sort_order: 45,
+      bundle_code: 'operations',
+      section_sort_order: getBundleSortOrder('operations'),
       patient_operation_id: op.id,
     });
   }
@@ -995,7 +1011,8 @@ async function getSupplementalInvoiceItems(fileNumber, fromDate, toDate) {
       quantity: 1,
       amount: glassesFinal,
       section_code: 'glasses',
-      section_sort_order: 46,
+      bundle_code: 'glasses',
+      section_sort_order: getBundleSortOrder('glasses'),
     });
   }
 
@@ -1546,8 +1563,9 @@ function lineToInvoiceItem(line, entry, sections = []) {
     daily_entry_id: entry.id,
     daily_entry_line_id: line.id,
     section_code: line.section_code,
+    bundle_code: inferBundleKey(line.section_code),
     entry_date: entryDate,
-    section_sort_order: section?.sort_order ?? 999,
+    section_sort_order: getBundleSortOrder(inferBundleKey(line.section_code)),
     unit_snapshot: line.catalog_unit || '',
     cost_price: line.cost_price,
     markup_percent: line.markup_percent,
@@ -1695,6 +1713,11 @@ async function enrichDailyInvoiceItems(items = []) {
       next.description = buildDailyItemDescription(parsedDate, name, extraText);
       next.entry_date = parsedDate;
     }
+
+    if (!next.bundle_code) {
+      next.bundle_code = inferBundleKeyFromItem(next);
+    }
+    next.section_sort_order = getBundleSortOrder(next.bundle_code);
 
     enriched.push(next);
   }

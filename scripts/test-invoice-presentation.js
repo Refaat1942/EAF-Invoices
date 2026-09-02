@@ -31,7 +31,10 @@ function sumLineTotals(items) {
   return round2((items || []).reduce((sum, item) => sum + (Number(item.total) || 0), 0));
 }
 
+let nextTestDailyLineId = 9000;
+
 function makeCatalogItem(sectionCode, label, total, overrides = {}) {
+  const lineId = overrides.daily_entry_line_id ?? ++nextTestDailyLineId;
   return {
     section_code: sectionCode,
     section_name: label,
@@ -40,7 +43,9 @@ function makeCatalogItem(sectionCode, label, total, overrides = {}) {
     amount: overrides.amount ?? total,
     total,
     total_raw: overrides.total_raw ?? total,
+    daily_entry_line_id: lineId,
     ...overrides,
+    daily_entry_line_id: lineId,
   };
 }
 
@@ -84,6 +89,7 @@ function testIdenticalClinicalServicesGrouped() {
       amount: 75,
       total: 75,
       total_raw: 75,
+      daily_entry_line_id: 201,
     },
     {
       section_code: 'analyses',
@@ -95,6 +101,7 @@ function testIdenticalClinicalServicesGrouped() {
       amount: 75,
       total: 75,
       total_raw: 75,
+      daily_entry_line_id: 202,
     },
     {
       section_code: 'analyses',
@@ -106,15 +113,15 @@ function testIdenticalClinicalServicesGrouped() {
       amount: 40,
       total: 40,
       total_raw: 40,
+      daily_entry_line_id: 203,
     },
   ];
   const display = aggregateCustomerFacingLines(items);
-  assertEq(display.length, 2, 'two clinical rows after grouping');
-  const cbc = display.find((r) => r.description === 'CBC');
-  assert(cbc, 'CBC row exists');
-  assertEq(cbc.total, 150, 'CBC totals summed');
-  assert(cbc._customer_display_aggregate, 'CBC grouped row flagged');
-  console.log('OK identical clinical service names grouped');
+  assertEq(display.length, 1, 'one lab bundle row');
+  assertEq(display[0].total, 190, 'lab bundle summed total');
+  assert(display[0]._customer_display_aggregate, 'lab bundle flagged');
+  assertEq(display[0].description, 'التحاليل', 'lab bundle label');
+  console.log('OK lab daily lines aggregate to one screen total');
 }
 
 function testMixedSectionsStaySeparated() {
@@ -129,6 +136,7 @@ function testMixedSectionsStaySeparated() {
       amount: 75,
       total: 75,
       total_raw: 75,
+      daily_entry_line_id: 501,
     },
     {
       section_code: 'xray_total',
@@ -138,15 +146,16 @@ function testMixedSectionsStaySeparated() {
       amount: 120,
       total: 120,
       total_raw: 120,
+      daily_entry_line_id: 502,
     },
   ];
   const display = aggregateCustomerFacingLines(items);
-  assertEq(display.length, 4, 'four display rows');
+  assertEq(display.length, 4, 'four bundle rows');
   assertEq(display[0].description, 'الأدوية', 'first aggregated medicines');
   assertEq(display[1].description, 'المستلزمات', 'second aggregated supplies');
-  assert(display[2].description === 'CBC Lab', 'lab line unchanged');
-  assert(display[3].description === 'Chest X-Ray', 'radiology line unchanged');
-  console.log('OK medicine + supply + lab + radiology stay separated');
+  assertEq(display[2].description, 'التحاليل', 'lab bundle label');
+  assertEq(display[3].description, 'الأشعة', 'radiology bundle label');
+  console.log('OK medicine + supply + lab + radiology bundles stay separated');
 }
 
 function testGrandTotalUnchanged() {
@@ -154,14 +163,15 @@ function testGrandTotalUnchanged() {
     items: [
       makeCatalogItem('medicines', 'الأدوية', 104, { description: 'Med A', quantity: 2, amount: 52 }),
       makeCatalogItem('supplies', 'المستلزمات', 252, { description: 'Supply A', quantity: 3, amount: 84 }),
-      {
-        section_code: 'analyses',
-        description: 'Lab',
-        quantity: 1,
-        amount: 75,
-        total: 75,
-        total_raw: 75,
-      },
+    {
+      section_code: 'analyses',
+      description: 'Lab',
+      quantity: 1,
+      amount: 75,
+      total: 75,
+      total_raw: 75,
+      daily_entry_line_id: 301,
+    },
     ],
     stamp_duty: 0,
     professional_fees: 0,
@@ -240,6 +250,7 @@ function testPdfLabelsWithoutProductNames() {
         amount: 75,
         total: 75,
         total_raw: 75,
+        daily_entry_line_id: 401,
       },
     ],
     stamp_duty: 0,
@@ -255,8 +266,9 @@ function testPdfLabelsWithoutProductNames() {
   assert(html.includes(DEFAULT_SECTION_LABELS.supplies), 'PDF contains supplies label');
   assert(!html.includes('SECRET MED NAME'), 'PDF hides medicine product name');
   assert(!html.includes('SECRET SUPPLY NAME'), 'PDF hides supply product name');
-  assert(html.includes('Visible Lab Service'), 'PDF still shows lab service name');
-  console.log('OK customer PDF shows section labels not product names');
+  assert(!html.includes('Visible Lab Service'), 'PDF hides lab line detail');
+  assert(html.includes('التحاليل'), 'PDF shows lab bundle label');
+  console.log('OK customer PDF shows bundle totals not line detail');
 }
 
 function main() {

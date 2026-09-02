@@ -626,6 +626,10 @@ function createRow(index) {
 }
 
 function getInvoiceSectionLabel(item) {
+  if (window.DailySectionBundles) {
+    const key = DailySectionBundles.inferBundleKeyFromItem(item);
+    return DailySectionBundles.getBundleLabel(key, item);
+  }
   const fromItem = String(item?.section_name || '').trim();
   if (fromItem) return fromItem;
   const code = String(item?.section_code || '').trim();
@@ -641,6 +645,9 @@ function estimateInvoiceItemLineTotal(item) {
 }
 
 function inferInvoiceItemSectionKey(item) {
+  if (window.DailySectionBundles) {
+    return DailySectionBundles.inferBundleKeyFromItem(item);
+  }
   const code = String(item?.section_code || '').trim();
   if (code) return code;
   const desc = String(item?.description || '');
@@ -692,7 +699,8 @@ function buildInvoiceItemsRenderPlan(items = []) {
         type: 'aggregate',
         label,
         sectionKey: key,
-        sectionCode: groupItems[0]?.section_code || (key === '__manual__' ? '' : key),
+        sectionCode: key === '__manual__' ? '' : key,
+        bundleCode: key === '__manual__' ? '' : key,
         total: Math.round(total * 100) / 100,
         count: groupItems.length,
       });

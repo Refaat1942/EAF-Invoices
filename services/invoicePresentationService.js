@@ -1,4 +1,9 @@
 const { round2 } = require('./calculations');
+const {
+  inferBundleKeyFromItem,
+  getBundleLabel,
+  getBundleSortOrder,
+} = require('./dailySectionBundles');
 
 const CUSTOMER_AGGREGATE_SECTION_CODES = Object.freeze(['medicines', 'supplies', 'cosmetics']);
 
@@ -12,12 +17,12 @@ function isCustomerAggregateSection(sectionCode) {
   return CUSTOMER_AGGREGATE_SECTION_CODES.includes(String(sectionCode || '').trim());
 }
 
-function resolveSectionLabel(item, sectionCode, sectionLabels = {}) {
-  const fromItem = String(item?.section_name || '').trim();
-  if (fromItem) return fromItem;
-  const fromOptions = String(sectionLabels[sectionCode] || '').trim();
+function resolveSectionLabel(item, bundleKey, sectionLabels = {}) {
+  const fromBundle = getBundleLabel(bundleKey, item);
+  if (fromBundle && fromBundle !== bundleKey) return fromBundle;
+  const fromOptions = String(sectionLabels[bundleKey] || '').trim();
   if (fromOptions) return fromOptions;
-  return DEFAULT_SECTION_LABELS[sectionCode] || sectionCode;
+  return DEFAULT_SECTION_LABELS[bundleKey] || bundleKey;
 }
 
 function normalizePresentationText(text) {
@@ -27,6 +32,7 @@ function normalizePresentationText(text) {
 }
 
 function buildServiceGroupKey(item) {
+  if (item.daily_entry_line_id || item.daily_entry_id) return null;
   if (isCustomerAggregateSection(item.section_code)) return null;
   if (item.catalog_item_id) return null;
   if (item._customer_display_aggregate) return null;
@@ -42,16 +48,11 @@ function buildServiceGroupKey(item) {
 }
 
 function inferSectionCode(item) {
-  const code = String(item?.section_code || '').trim();
-  if (code) return code;
-  const desc = String(item?.description || '');
-  if (desc.includes('عملية')) return 'operations';
-  if (desc.includes('بصريات') || desc.includes('نظارات')) return 'glasses';
-  return '__manual__';
+  return inferBundleKeyFromItem(item);
 }
 
 /**
- * One summary row per invoice section (medicines, lab, stay, etc.) for customer-facing display.
+ * One summary row per daily input screen (bundle) for customer-facing display.
  */
 function aggregateInvoiceSectionTotals(items = [], options = {}) {
   const sectionLabels = options.sectionLabels || {};
@@ -59,38 +60,36 @@ function aggregateInvoiceSectionTotals(items = [], options = {}) {
   const order = [];
 
   const sorted = [...items].sort((a, b) => {
-    const sa = a.section_sort_order ?? 999;
-    const sb = b.section_sort_order ?? 999;
+    const sa = a.section_sort_order ?? getBundleSortOrder(inferBundleKeyFromItem(a));
+    const sb = b.section_sort_order ?? getBundleSortOrder(inferBundleKeyFromItem(b));
     if (sa !== sb) return sa - sb;
     return (Number(a.id) || 0) - (Number(b.id) || 0);
   });
 
   for (let index = 0; index < sorted.length; index++) {
     const item = sorted[index];
-    const sectionCode = inferSectionCode(item);
-    if (!buckets.has(sectionCode)) {
+    const bundleKey = inferBundleKeyFromItem(item);
+    if (!buckets.has(bundleKey)) {
       const label =
-        sectionCode === '__manual__'
+        bundleKey === '__manual__'
           ? 'بنود أخرى'
-          : resolveSectionLabel(item, sectionCode, sectionLabels);
-      buckets.set(sectionCode, {
-        section_code: sectionCode === '__manual__' ? '' : sectionCode,
+          : resolveSectionLabel(item, bundleKey, sectionLabels);
+      buckets.set(bundleKey, {
+        bundle_code: bundleKey === '__manual__' ? '' : bundleKey,
+        section_code: bundleKey === '__manual__' ? '' : bundleKey,
         description: label,
-        section_sort_order: item.section_sort_order ?? 999,
+        section_sort_order: getBundleSortOrder(bundleKey),
         firstIndex: index,
         total: 0,
         total_raw: 0,
       });
-      order.push(sectionCode);
+      order.push(bundleKey);
     }
-    const bucket = buckets.get(sectionCode);
+    const bucket = buckets.get(bundleKey);
     bucket.total = round2(bucket.total + (Number(item.total) || 0));
     bucket.total_raw = round2(bucket.total_raw + (Number(item.total_raw ?? item.total) || 0));
-    if (item.section_name && sectionCode !== '__manual__') {
+    if (item.section_name && bundleKey !== '__manual__') {
       bucket.description = String(item.section_name).trim();
-    }
-    if (item.section_sort_order != null) {
-      bucket.section_sort_order = item.section_sort_order;
     }
   }
 
@@ -99,6 +98,7 @@ function aggregateInvoiceSectionTotals(items = [], options = {}) {
     return {
       description: bucket.description,
       section_code: bucket.section_code,
+      bundle_code: bucket.bundle_code,
       section_sort_order: bucket.section_sort_order,
       total: bucket.total,
       total_raw: bucket.total_raw,
@@ -112,114 +112,27 @@ function aggregateInvoiceSectionTotals(items = [], options = {}) {
 }
 
 /**
- * Collapse catalog consumable lines and identical clinical service lines for customer PDF.
- * Call only after calculateInvoiceTotals + enrichInvoice so line totals include returns.
+ * Customer PDF: one total per input screen; free manual lines stay detailed.
  */
 function aggregateCustomerFacingLines(items = [], options = {}) {
-  const sectionLabels = options.sectionLabels || {};
-  const catalogBuckets = new Map();
-  const serviceBuckets = new Map();
-  const placedCatalogSections = new Set();
-  const placedServiceKeys = new Set();
-  const output = [];
+  const dailyLinked = [];
+  const passthrough = [];
 
-  for (let index = 0; index < items.length; index++) {
-    const item = items[index];
-    const sectionCode = String(item.section_code || '').trim();
-
-    if (isCustomerAggregateSection(sectionCode)) {
-      if (!catalogBuckets.has(sectionCode)) {
-        catalogBuckets.set(sectionCode, {
-          section_code: sectionCode,
-          description: resolveSectionLabel(item, sectionCode, sectionLabels),
-          section_sort_order: item.section_sort_order ?? 999,
-          firstIndex: index,
-          total: 0,
-          total_raw: 0,
-        });
-      }
-
-      const bucket = catalogBuckets.get(sectionCode);
-      bucket.total = round2(bucket.total + (Number(item.total) || 0));
-      bucket.total_raw = round2(bucket.total_raw + (Number(item.total_raw ?? item.total) || 0));
-      if (item.section_name) {
-        bucket.description = String(item.section_name).trim();
-      }
-      if (item.section_sort_order != null) {
-        bucket.section_sort_order = item.section_sort_order;
-      }
+  for (const item of items) {
+    if (item.daily_entry_line_id || item.daily_entry_id) {
+      dailyLinked.push(item);
       continue;
     }
-
-    const serviceKey = buildServiceGroupKey(item);
-    if (serviceKey) {
-      if (!serviceBuckets.has(serviceKey)) {
-        serviceBuckets.set(serviceKey, {
-          key: serviceKey,
-          description: normalizePresentationText(item.service_name_snapshot || item.description),
-          section_code: sectionCode,
-          section_sort_order: item.section_sort_order ?? 999,
-          firstIndex: index,
-          total: 0,
-          total_raw: 0,
-        });
-      }
-      const bucket = serviceBuckets.get(serviceKey);
-      bucket.total = round2(bucket.total + (Number(item.total) || 0));
-      bucket.total_raw = round2(bucket.total_raw + (Number(item.total_raw ?? item.total) || 0));
-      if (item.section_sort_order != null) {
-        bucket.section_sort_order = item.section_sort_order;
-      }
+    const bundleKey = inferBundleKeyFromItem(item);
+    if (bundleKey !== '__manual__') {
+      dailyLinked.push(item);
+      continue;
     }
+    passthrough.push(item);
   }
 
-  for (let index = 0; index < items.length; index++) {
-    const item = items[index];
-    const sectionCode = String(item.section_code || '').trim();
-
-    if (isCustomerAggregateSection(sectionCode) && catalogBuckets.has(sectionCode)) {
-      if (!placedCatalogSections.has(sectionCode)) {
-        const bucket = catalogBuckets.get(sectionCode);
-        output.push({
-          description: bucket.description,
-          section_code: bucket.section_code,
-          section_sort_order: bucket.section_sort_order,
-          total: bucket.total,
-          total_raw: bucket.total_raw,
-          quantity: '',
-          amount: '',
-          item_discount_percent: '',
-          _customer_display_aggregate: true,
-        });
-        placedCatalogSections.add(sectionCode);
-      }
-      continue;
-    }
-
-    const serviceKey = buildServiceGroupKey(item);
-    if (serviceKey && serviceBuckets.has(serviceKey)) {
-      if (!placedServiceKeys.has(serviceKey)) {
-        const bucket = serviceBuckets.get(serviceKey);
-        output.push({
-          description: bucket.description,
-          section_code: bucket.section_code,
-          section_sort_order: bucket.section_sort_order,
-          total: bucket.total,
-          total_raw: bucket.total_raw,
-          quantity: '',
-          amount: '',
-          item_discount_percent: '',
-          _customer_display_aggregate: true,
-        });
-        placedServiceKeys.add(serviceKey);
-      }
-      continue;
-    }
-
-    output.push(item);
-  }
-
-  return output;
+  const bundled = aggregateInvoiceSectionTotals(dailyLinked, options);
+  return [...bundled, ...passthrough];
 }
 
 module.exports = {
