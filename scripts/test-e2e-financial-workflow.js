@@ -14,7 +14,8 @@ const {
   createCatalogItem,
   updateCatalogItem,
 } = require('../services/dailyEntryCatalogService');
-const { createService, updateService, createCategory } = require('../services/serviceCatalogService');
+const { createService, updateService } = require('../services/serviceCatalogService');
+const { getDefaultPriceList } = require('../services/priceListService');
 const { createContractedEntity } = require('../services/contractedEntityService');
 const {
   getInvoiceById,
@@ -33,7 +34,7 @@ const CODES = {
   lab: 'E2E-FIN-LAB-75',
 };
 
-const TEST_PRICE_LIST_CODE = 'E2E-FIN-PL';
+const LEGACY_TEST_PRICE_LIST_CODE = 'E2E-FIN-PL';
 
 const SPECS = {
   med1: { qty: 2, unitPrice: 100.4, lineTotal: 200.8 },
@@ -103,12 +104,9 @@ class Assertions {
   }
 }
 
-async function cleanupTestPriceList(priceListId = null) {
-  let id = priceListId;
-  if (!id) {
-    const { rows } = await query(`SELECT id FROM price_lists WHERE code = $1`, [TEST_PRICE_LIST_CODE]);
-    id = rows[0]?.id;
-  }
+async function removeLegacyE2eFinPriceList() {
+  const { rows } = await query(`SELECT id FROM price_lists WHERE code = $1`, [LEGACY_TEST_PRICE_LIST_CODE]);
+  const id = rows[0]?.id;
   if (!id) return;
 
   const svcRes = await query(`SELECT id FROM services WHERE price_list_id = $1`, [id]);
@@ -122,30 +120,20 @@ async function cleanupTestPriceList(priceListId = null) {
   await query(`DELETE FROM price_lists WHERE id = $1`, [id]);
 }
 
-async function provisionTestPriceList() {
-  await cleanupTestPriceList();
-  const { rows } = await query(
-    `INSERT INTO price_lists (name, code, is_active, is_default, notes)
-     VALUES ($1, $2, TRUE, FALSE, $3)
-     RETURNING *`,
-    [
-      'E2E FIN Test Price List',
-      TEST_PRICE_LIST_CODE,
-      'Isolated E2E test price list — not the production active list',
-    ]
-  );
-  return rows[0];
-}
+async function resolveDefaultLabContext() {
+  const priceList = await getDefaultPriceList();
+  if (!priceList?.id) throw new Error('لا توجد لائحة أسعار افتراضية');
 
-async function provisionTestLabCategory(priceListId) {
-  // daily_charge_sections.analyses uses category_code LAB — service must belong to a
-  // service_categories row with code LAB (see validateServiceForSection in dailyChargeService).
-  return createCategory(priceListId, {
-    code: 'LAB',
-    name: 'E2E FIN Laboratory Category',
-    sort_order: 9999,
-    notes: 'E2E test only',
-  });
+  const { rows } = await query(
+    `SELECT id, code, name FROM service_categories
+     WHERE price_list_id = $1 AND code = 'LAB' AND is_active = TRUE
+     ORDER BY sort_order, id LIMIT 1`,
+    [priceList.id]
+  );
+  const labCategory = rows[0];
+  if (!labCategory) throw new Error('قسم LAB غير موجود في اللائحة الافتراضية');
+
+  return { priceList, labCategory };
 }
 
 async function cleanupAll(patientId, entityId, fixtures) {
@@ -182,17 +170,13 @@ async function cleanupAll(patientId, entityId, fixtures) {
   }
 
   if (fixtures?.labServiceId) {
-    await query(`DELETE FROM service_price_components WHERE service_id = $1`, [ctx.fixtures.labServiceId]);
-    await query(`DELETE FROM service_price_tiers WHERE service_id = $1`, [ctx.fixtures.labServiceId]);
-    await query(`DELETE FROM service_price_history WHERE service_id = $1`, [ctx.fixtures.labServiceId]);
-    await query(`DELETE FROM services WHERE id = $1`, [ctx.fixtures.labServiceId]);
+    await query(`DELETE FROM service_price_components WHERE service_id = $1`, [fixtures.labServiceId]);
+    await query(`DELETE FROM service_price_tiers WHERE service_id = $1`, [fixtures.labServiceId]);
+    await query(`DELETE FROM service_price_history WHERE service_id = $1`, [fixtures.labServiceId]);
+    await query(`DELETE FROM services WHERE id = $1`, [fixtures.labServiceId]);
   }
 
-  if (fixtures?.testPriceListId) {
-    await cleanupTestPriceList(ctx.fixtures.testPriceListId);
-  } else {
-    await cleanupTestPriceList();
-  }
+  await removeLegacyE2eFinPriceList();
 }
 
 function buildFinancialSavePayload(invoice, entityId, paymentAmount) {
@@ -358,10 +342,11 @@ async function main() {
   const ctx = {
     patientId: null,
     entityId: null,
-    fixtures: { labServiceId: null, testPriceListId: null, testLabCategoryId: null },
+    fixtures: { labServiceId: null },
   };
 
   await initDatabase();
+  await removeLegacyE2eFinPriceList();
 
   try {
     const patient = await upsertPatient(TEST_FILE, 'E2E Financial Workflow Patient');
@@ -373,15 +358,9 @@ async function main() {
 
     await cleanupAll(ctx.patientId, null, ctx.fixtures);
 
-  const testPriceList = await provisionTestPriceList();
-  ctx.fixtures.testPriceListId = testPriceList.id;
-  A.assertTrue('test price list created', Boolean(testPriceList.id));
-  A.assertTrue('test price list is not default', !testPriceList.is_default);
-
-  const testLabCategory = await provisionTestLabCategory(testPriceList.id);
-  ctx.fixtures.testLabCategoryId = testLabCategory.id;
-  A.assertEq('test LAB category code', testLabCategory.code, 'LAB');
-  A.assertTrue('test LAB category id assigned', Boolean(testLabCategory.id));
+  const { priceList, labCategory } = await resolveDefaultLabContext();
+  A.assertTrue('default price list available', Boolean(priceList.id));
+  A.assertEq('default LAB category code', labCategory.code, 'LAB');
 
   const med1 = await createCatalogItem({
     code: CODES.med1,
@@ -413,8 +392,8 @@ async function main() {
   A.assertEq('catalog supply markup %', supply.markup_percent, SPECS.supply.markup);
 
   const labService = await createService({
-    price_list_id: testPriceList.id,
-    category_id: testLabCategory.id,
+    price_list_id: priceList.id,
+    category_id: labCategory.id,
     code: CODES.lab,
     name: 'E2E Laboratory Test 75',
     unit: 'تحليل',
@@ -665,8 +644,8 @@ async function main() {
     markup_percent: 50,
   });
   await updateService(labService.id, {
-    price_list_id: testPriceList.id,
-    category_id: testLabCategory.id,
+    price_list_id: priceList.id,
+    category_id: labCategory.id,
     code: CODES.lab,
     name: 'E2E Laboratory Test 75 UPDATED',
     unit: 'تحليل',
