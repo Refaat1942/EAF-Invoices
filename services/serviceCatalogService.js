@@ -2,13 +2,22 @@ const { query, withTransaction } = require('../database/db');
 const ExcelJS = require('exceljs');
 const { getDefaultPriceList, getPriceListById } = require('./priceListService');
 
+const HIDDEN_CATEGORY_NAMES = new Set([
+  'نوع الخدمة',
+  'البيان',
+  'الخدمة',
+  'م',
+  'قسم',
+  'قسم التقييم',
+]);
+
 async function listCategories(priceListId, activeOnly = true) {
   let sql = 'SELECT * FROM service_categories WHERE price_list_id = $1';
   const params = [priceListId];
   if (activeOnly) sql += ' AND is_active = TRUE';
   sql += ' ORDER BY sort_order, name';
   const { rows } = await query(sql, params);
-  return rows;
+  return rows.filter((row) => !HIDDEN_CATEGORY_NAMES.has(String(row.name || '').trim()));
 }
 
 async function createCategory(priceListId, data) {

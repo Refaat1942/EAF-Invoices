@@ -28,6 +28,13 @@ const {
 const { importPriceListPayload, getPriceListStats } = require('../database/seeds/seedPriceList');
 const { parseDocxPriceList } = require('../services/docxPriceListParser');
 const { normalizeDocxImportPayload } = require('../services/priceListImportNormalizer');
+const {
+  parseExcelBuffer,
+  importParsedExcel,
+  buildTemplateExcel,
+  listExcelTemplates,
+  removeGenericCategories,
+} = require('../services/priceListExcelImportService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
@@ -271,6 +278,69 @@ router.post('/import-json', requirePermission('settings.*'), longImportTimeout, 
     const result = await importPriceListPayload(req.body, actor(req), { replaceExisting: !!req.body.replace_existing });
     res.json(result);
   } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/import-templates', requirePermission('settings.*'), async (req, res) => {
+  try {
+    res.json(listExcelTemplates());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/import-template/:key', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const buffer = await buildTemplateExcel(req.params.key);
+    const label = listExcelTemplates().find((t) => t.key === req.params.key)?.label || req.params.key;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="eaf-template-${req.params.key}.xlsx"`);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/cleanup-generic-categories', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const list = req.body.price_list_id
+      ? await getPriceListById(Number(req.body.price_list_id))
+      : await getDefaultPriceList();
+    if (!list) return res.status(400).json({ error: 'لا توجد لائحة أسعار' });
+    const removed = await removeGenericCategories(list.id);
+    res.json({ removed, price_list_id: list.id });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/import-excel', requirePermission('settings.*'), longImportTimeout, handleUpload('file'), async (req, res) => {
+  const started = Date.now();
+  try {
+    if (!req.file) return res.status(400).json({ error: 'الملف مطلوب' });
+    const list = req.body.price_list_id
+      ? await getPriceListById(Number(req.body.price_list_id))
+      : await getDefaultPriceList();
+    if (!list) return res.status(400).json({ error: 'لا توجد لائحة أسعار' });
+
+    const buffer = readUploadedFile(req);
+    const parsed = await parseExcelBuffer(buffer, {
+      template_key: req.body.template_key || null,
+      filename: req.file.originalname || '',
+    });
+    console.log(
+      `[pricing-import] Excel ${req.file.originalname}: template=${parsed.template_key}, rows=${parsed.parsed_rows}`
+    );
+    const result = await importParsedExcel(list.id, parsed, actor(req), {
+      replaceExisting: req.body?.replace_existing === 'true',
+    });
+    cleanupUploadedFile(req);
+    console.log(`[pricing-import] Excel done in ${Math.round((Date.now() - started) / 1000)}s`);
+    res.json(result);
+  } catch (err) {
+    cleanupUploadedFile(req);
+    console.error(`[pricing-import] Excel failed:`, err.message);
     res.status(400).json({ error: err.message });
   }
 });

@@ -953,6 +953,7 @@ function bindEvents() {
   document.getElementById('pricing-export-btn')?.addEventListener('click', exportPricingExcel);
   document.getElementById('pricing-export-csv-btn')?.addEventListener('click', exportPricingCsv);
   document.getElementById('pricing-import-file')?.addEventListener('change', importPricingFile);
+  document.getElementById('pricing-download-template-btn')?.addEventListener('click', downloadPricingTemplate);
   document.getElementById('pricing-clone-btn')?.addEventListener('click', cloneCurrentPriceList);
   document.getElementById('pricing-add-service-btn')?.addEventListener('click', () => openServiceEditor());
   document.getElementById('pricing-save-settings-btn')?.addEventListener('click', savePricingSettings);
@@ -4630,6 +4631,7 @@ async function loadPricingSection() {
 
     await loadPricingCategories();
     await loadPricingServices();
+    await loadPricingImportTemplates();
     renderPricingStats(defaultList);
   } catch (err) {
     showToast('خطأ في تحميل الأسعار', 'danger');
@@ -4653,7 +4655,7 @@ function renderPricingStats(listMeta) {
     const count = listMeta?.services_count ?? services.length;
     note.textContent = count
       ? `إجمالي الخدمات في اللائحة: ${count} — ابحث عنها في حقل «البيان» أثناء إنشاء الفاتورة`
-      : 'اللائحة فارغة — ارفع ملف DOCX من الزر أعلاه ثم اضغط تحديث';
+      : 'اللائحة فارغة — ارفع ملف Excel أو DOCX من الأزرار أعلاه ثم اضغط تحديث';
   }
   renderPricingImportStatus(listMeta);
 }
@@ -4669,7 +4671,7 @@ function renderPricingImportStatus(listMeta) {
   } else {
     statusEl.style.display = '';
     statusEl.className = 'alert alert-warning py-2 mb-3';
-    statusEl.textContent = 'لم يتم استيراد اللائحة بعد — ارفع ملف DOCX من الزر «استيراد DOCX/JSON/CSV»';
+    statusEl.textContent = 'لم يتم استيراد اللائحة بعد — ارفع ملف Excel (الكشوفات، التحاليل، …) أو DOCX/JSON/CSV';
   }
 }
 
@@ -4707,7 +4709,7 @@ function renderPricingServicesTable() {
   const tbody = document.getElementById('pricing-services-tbody');
   if (!tbody) return;
   if (!pricingServicesCache.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">لا توجد خدمات — استورد ملف DOCX أو أضف خدمة يدوياً</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">لا توجد خدمات — استورد ملف Excel أو DOCX أو أضف خدمة يدوياً</td></tr>';
     return;
   }
   tbody.innerHTML = pricingServicesCache
@@ -4765,15 +4767,47 @@ async function exportPricingCsv() {
   window.open(`${PRICING_API}/services-export?price_list_id=${currentPricingListId}&format=csv`, '_blank');
 }
 
+async function loadPricingImportTemplates() {
+  const importSelect = document.getElementById('pricing-import-template-key');
+  const downloadSelect = document.getElementById('pricing-download-template-key');
+  if (!importSelect && !downloadSelect) return;
+  try {
+    const res = await apiFetch(`${PRICING_API}/import-templates`);
+    const templates = res.ok ? await res.json() : [];
+    const options = templates
+      .map((t) => `<option value="${escapeHtml(t.key)}">${escapeHtml(t.label)}</option>`)
+      .join('');
+    if (importSelect) {
+      importSelect.innerHTML = `<option value="">— تلقائي من اسم الملف —</option>${options}`;
+    }
+    if (downloadSelect) {
+      downloadSelect.innerHTML = `<option value="">— اختر القسم —</option>${options}`;
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function downloadPricingTemplate() {
+  const key = document.getElementById('pricing-download-template-key')?.value;
+  if (!key) {
+    showToast('اختر قالب القسم أولاً', 'warning');
+    return;
+  }
+  window.open(`${PRICING_API}/import-template/${encodeURIComponent(key)}`, '_blank');
+}
+
 async function importPricingFile(e) {
   const file = e.target.files?.[0];
   if (!file) return;
   const replaceExisting = document.getElementById('pricing-import-replace')?.checked;
+  const templateKey = document.getElementById('pricing-import-template-key')?.value || '';
   const statusEl = document.getElementById('pricing-import-status');
   const importInput = e.target;
   const lower = file.name.toLowerCase();
-  if (!lower.endsWith('.docx') && !lower.endsWith('.json') && !lower.endsWith('.csv')) {
-    showToast('نوع الملف غير مدعوم — استخدم DOCX أو JSON أو CSV فقط (ليس Excel .xlsx)', 'warning');
+  const isExcel = lower.endsWith('.xlsx') || lower.endsWith('.xls');
+  if (!lower.endsWith('.docx') && !lower.endsWith('.json') && !lower.endsWith('.csv') && !isExcel) {
+    showToast('نوع الملف غير مدعوم — استخدم Excel (.xlsx) أو DOCX أو JSON أو CSV', 'warning');
     importInput.value = '';
     return;
   }
@@ -4802,14 +4836,24 @@ async function importPricingFile(e) {
       csvForm.append('file', file);
       if (currentPricingListId) csvForm.append('price_list_id', currentPricingListId);
       res = await apiFetch(`${PRICING_API}/import-csv`, { method: 'POST', body: csvForm });
+    } else if (isExcel) {
+      const excelForm = new FormData();
+      excelForm.append('file', file);
+      excelForm.append('replace_existing', replaceExisting ? 'true' : 'false');
+      if (currentPricingListId) excelForm.append('price_list_id', currentPricingListId);
+      if (templateKey) excelForm.append('template_key', templateKey);
+      res = await apiFetch(`${PRICING_API}/import-excel`, { method: 'POST', body: excelForm });
     } else {
       res = await apiFetch(`${PRICING_API}/import-docx`, { method: 'POST', body: form });
     }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    const servicesCount = data.services_count || data.serviceCount || data.imported || 0;
+    const servicesCount = data.services_count || data.serviceCount || data.imported || data.total || 0;
     const categoriesCount = data.categories_count || data.categoryCount || 0;
-    const msg = `تم استيراد ${servicesCount} خدمة${categoriesCount ? ` في ${categoriesCount} قسم` : ''} من ملف ${file.name}`;
+    const sectionLabel = data.template_label || data.category_code || '';
+    const msg = sectionLabel
+      ? `تم استيراد ${servicesCount} خدمة من «${sectionLabel}»${data.updated ? ` (${data.updated} محدّثة)` : ''}`
+      : `تم استيراد ${servicesCount} خدمة${categoriesCount ? ` في ${categoriesCount} قسم` : ''} من ملف ${file.name}`;
     showToast(msg, 'success');
     if (statusEl) {
       statusEl.style.display = '';
