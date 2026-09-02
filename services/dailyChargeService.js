@@ -33,6 +33,41 @@ function buildServiceSearchPatterns(q) {
   return [...patterns];
 }
 
+/** Daily sections that search multiple price-list categories in the picker. */
+const SECTION_PICKER_CATEGORY_CODES = {
+  consultant_exam: ['MEDICAL_EXAMS'],
+  specialist_exam: ['MEDICAL_EXAMS'],
+  analyses: ['LAB'],
+  xray_total: ['RADIOLOGY'],
+  sessions: ['PHYSIO'],
+  other: ['GENERAL', 'SPINE_BUILDING', 'RF_INJECTION'],
+  prosthetics: ['PROSTHETICS'],
+};
+
+function getSectionPickerCategoryCodes(section) {
+  if (!section) return [];
+  if (SECTION_PICKER_CATEGORY_CODES[section.code]) return SECTION_PICKER_CATEGORY_CODES[section.code];
+  if (section.category_code) return [section.category_code];
+  return [];
+}
+
+function sectionAllowsServiceCategory(section, categoryCode) {
+  const allowed = getSectionPickerCategoryCodes(section);
+  if (!allowed.length) return false;
+  return allowed.includes(String(categoryCode || '').trim());
+}
+
+async function resolvePickerCategoryIds(priceListId, categoryCodes = []) {
+  const codes = [...new Set(categoryCodes.filter(Boolean))];
+  if (!codes.length) return [];
+  const { rows } = await query(
+    `SELECT id, code FROM service_categories
+     WHERE price_list_id = $1 AND code = ANY($2::text[]) AND is_active = TRUE`,
+    [priceListId, codes]
+  );
+  return rows;
+}
+
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -395,12 +430,10 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
     };
   }
 
-  const categoryRes = await query(
-    `SELECT id FROM service_categories WHERE price_list_id = $1 AND code = $2 LIMIT 1`,
-    [priceList.id, section.category_code]
-  );
-  const categoryId = categoryRes.rows[0]?.id;
-  if (!categoryId) {
+  const categoryCodes = getSectionPickerCategoryCodes(section);
+  const categoryRows = await resolvePickerCategoryIds(priceList.id, categoryCodes);
+  const categoryIds = categoryRows.map((r) => r.id);
+  if (!categoryIds.length) {
     return {
       rows: [],
       total: 0,
@@ -408,7 +441,7 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
       limit: maxLimit,
       totalPages: 1,
       kind: 'service',
-      hint: `قسم «${section.category_code}» غير موجود في اللائحة — استورد هذا القسم من الإعدادات`,
+      hint: `أقسام «${categoryCodes.join(' / ')}» غير موجودة — ارفع ملف القسم من زر الاستيراد أعلاه`,
     };
   }
 
@@ -416,9 +449,9 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
   const offset = (pageNum - 1) * maxLimit;
   const countRes = await query(
     `SELECT COUNT(*)::int AS total FROM services s
-     WHERE s.price_list_id = $1 AND s.category_id = $2 AND s.is_active = TRUE
+     WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE
        AND (s.name ILIKE ANY($3::text[]) OR s.code ILIKE ANY($3::text[]) OR s.description ILIKE ANY($3::text[]))`,
-    [priceList.id, categoryId, patterns]
+    [priceList.id, categoryIds, patterns]
   );
   const total = countRes.rows[0]?.total || 0;
 
@@ -426,11 +459,11 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
     `SELECT s.*, c.name AS category_name, c.code AS category_code
      FROM services s
      LEFT JOIN service_categories c ON c.id = s.category_id
-     WHERE s.price_list_id = $1 AND s.category_id = $2 AND s.is_active = TRUE
+     WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE
        AND (s.name ILIKE ANY($3::text[]) OR s.code ILIKE ANY($3::text[]) OR s.description ILIKE ANY($3::text[]))
-     ORDER BY s.sort_order, s.name, s.id
+     ORDER BY c.sort_order, s.sort_order, s.name, s.id
      LIMIT $4 OFFSET $5`,
-    [priceList.id, categoryId, patterns, maxLimit, offset]
+    [priceList.id, categoryIds, patterns, maxLimit, offset]
   );
   const enriched = await enrichServicesWithResolvedPrices(rows);
 
@@ -441,6 +474,55 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
     limit: maxLimit,
     totalPages: Math.max(1, Math.ceil(total / maxLimit)),
     kind: 'service',
+    category_codes: categoryCodes,
+  };
+}
+
+async function listDailyPickerServicesByCategory({ category_code, category_codes, limit = 200 } = {}) {
+  const codes = category_codes?.length
+    ? [...new Set(category_codes.filter(Boolean))]
+    : category_code
+      ? [String(category_code).trim()]
+      : [];
+  if (!codes.length) {
+    const err = new Error('category_code مطلوب');
+    err.status = 400;
+    throw err;
+  }
+
+  const priceList = await getDefaultPriceList();
+  if (!priceList) {
+    return { rows: [], total: 0, kind: 'service', category_codes: codes };
+  }
+
+  const categoryRows = await resolvePickerCategoryIds(priceList.id, codes);
+  const categoryIds = categoryRows.map((r) => r.id);
+  if (!categoryIds.length) {
+    return {
+      rows: [],
+      total: 0,
+      kind: 'service',
+      category_codes: codes,
+      hint: `أقسام «${codes.join(' / ')}» غير موجودة — ارفع ملف القسم أولاً`,
+    };
+  }
+
+  const maxLimit = Math.min(500, Math.max(1, Number(limit) || 200));
+  const { rows } = await query(
+    `SELECT s.*, c.name AS category_name, c.code AS category_code
+     FROM services s
+     LEFT JOIN service_categories c ON c.id = s.category_id
+     WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE
+     ORDER BY c.sort_order, s.sort_order, s.name, s.id
+     LIMIT $3`,
+    [priceList.id, categoryIds, maxLimit]
+  );
+  const enriched = await enrichServicesWithResolvedPrices(rows);
+  return {
+    rows: enriched.map(serviceToDailyPicker),
+    total: enriched.length,
+    kind: 'service',
+    category_codes: codes,
   };
 }
 
@@ -488,9 +570,11 @@ async function getDailyPickerItemBySection(section_code, id) {
     throw err;
   }
   if (service.category_code !== section.category_code) {
-    const err = new Error('الخدمة لا تطابق فئة هذا القسم');
-    err.status = 400;
-    throw err;
+    if (!sectionAllowsServiceCategory(section, service.category_code)) {
+      const err = new Error('الخدمة لا تطابق فئة هذا القسم');
+      err.status = 400;
+      throw err;
+    }
   }
   const enriched = await enrichServicesWithResolvedPrices([service]);
   return { kind: 'service', item: serviceToDailyPicker(enriched[0]) };
@@ -2141,6 +2225,7 @@ module.exports = {
   listAccommodationStayGrades,
   resolveDefaultServiceForSection,
   searchDailyPickerItems,
+  listDailyPickerServicesByCategory,
   getDailyPickerItemBySection,
   getEntryById,
   getEntryByPatientDate,

@@ -47,8 +47,9 @@ const DAILY_TAB_IMPORT_CONFIG = {
   exams: { kind: 'excel', template_key: 'medical_exams', label: 'رفع الكشوفات' },
   lab: { kind: 'excel', template_key: 'lab', label: 'رفع التحاليل' },
   radiology: { kind: 'excel', template_key: 'radiology', label: 'رفع الأشعة' },
-  other: { kind: 'excel', template_key: 'medical_services', label: 'رفع الخدمات الطبية' },
+  other: { kind: 'excel', label: 'رفع ملف خدمات', detect_from_filename: true },
   stay: { kind: 'excel', template_key: 'accommodation', label: 'رفع الإقامات' },
+  operations: { kind: 'excel', template_key: 'spine_operations', label: 'رفع العمليات الجراحية' },
 };
 
 function isDailyAdminImportAllowed() {
@@ -86,11 +87,14 @@ async function handleDailyTabImport(file) {
       const msg = `كتالوج: ${data.inserted || 0} جديد، ${data.updated || 0} محدّث`;
       showToast(msg, 'success');
       if (typeof loadCatalogCache === 'function') await loadCatalogCache();
+      await reloadDailyServiceCaches();
     } else if (cfg.kind === 'excel') {
       const form = new FormData();
       form.append('file', file);
       form.append('replace_existing', 'false');
-      form.append('template_key', cfg.template_key);
+      if (cfg.template_key && !cfg.detect_from_filename) {
+        form.append('template_key', cfg.template_key);
+      }
       const res = await apiFetch(`${DAILY_PRICING_API}/import-excel`, { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -98,6 +102,7 @@ async function handleDailyTabImport(file) {
       const msg = `تم تحديث «${label}»: ${data.imported || 0} جديد، ${data.updated || 0} محدّث`;
       showToast(msg, 'success');
       if (typeof loadCatalogCache === 'function') await loadCatalogCache();
+      await reloadDailyServiceCaches();
     }
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
@@ -502,9 +507,10 @@ function applyDailyTabColumnVisibility() {
       'تحاليل — م، تاريخ التحليل، نوع التحليل، سعر التحليل، الإجمالي، والدمغة.';
   } else if (hint && activeDailyTab === 'radiology') {
     hint.textContent =
-      'أشعة — نوع الأشعة، السعر، الإجمالي، تاريخ الأشعة، والدمغة.';
+      'أشعة — ابحث عن نوع الأشعة. تُستورد من «الخدمات الطبية» (أشعة/دوبلكس/سونار) أو ملف أشعة مخصص.';
   } else if (hint && activeDailyTab === 'other') {
-    hint.textContent = 'خدمات متنوعة — ابحث واختر الخدمة، السعر من اللائحة تلقائياً.';
+    hint.textContent =
+      'خدمات متنوعة — ارفع «الخدمات الطبية» أو «إجراءات وحقن الألم» من زر الاستيراد (إدارة).';
   } else if (hint && activeDailyTab === 'operations') {
     hint.textContent =
       'عمليات — أدخل اسم العملية، الأوقات، الجراح، التخدير، تصنيف الحالة والمبلغ ثم احفظ.';
@@ -2520,19 +2526,49 @@ async function loadCompanionServicesCache() {
 }
 
 async function loadExamServicesCache() {
-  if (!window.DailyEntryPicker) return;
   try {
-    const [consultant, specialist] = await Promise.all([
-      DailyEntryPicker.searchPicker('consultant_exam', 'كشف', 40),
-      DailyEntryPicker.searchPicker('specialist_exam', 'كشف', 40),
-    ]);
-    dailyExamServicesCache = [
-      ...(consultant.rows || []).map((r) => ({ ...r, section_code: 'consultant_exam' })),
-      ...(specialist.rows || []).map((r) => ({ ...r, section_code: 'specialist_exam' })),
-    ];
+    const res = await apiFetch(`${DAILY_API}/picker/list?category_code=MEDICAL_EXAMS&limit=500`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    dailyExamServicesCache = (data.rows || []).map((r) => ({
+      ...r,
+      section_code: inferExamSectionCodeFromServiceName(r.name),
+    }));
   } catch {
     dailyExamServicesCache = [];
   }
+}
+
+function inferExamSectionCodeFromServiceName(name) {
+  const text = String(name || '');
+  const norm = text
+    .replace(/\u0640/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .toLowerCase();
+  if (/استشار/.test(text) || norm.includes('استشار')) return 'consultant_exam';
+  if (/أخصائي|اخصائ/i.test(text) || norm.includes('اخصائ')) return 'specialist_exam';
+  if (/خبير/.test(text) || norm.includes('خبير')) return 'consultant_exam';
+  return 'specialist_exam';
+}
+
+function refreshExamRowsDropdowns() {
+  document.querySelectorAll('.daily-exam-row').forEach((tr) => {
+    const caseCode = tr.dataset.examSectionCode || tr.querySelector('.daily-exam-case')?.value || '';
+    const typeSel = tr.querySelector('.daily-exam-type');
+    const prev = typeSel?.value || '';
+    if (typeSel) {
+      typeSel.innerHTML = buildExamTypeOptions(prev, caseCode);
+      if (prev && typeSel.querySelector(`option[value="${CSS.escape(prev)}"]`)) typeSel.value = prev;
+    }
+  });
+}
+
+async function reloadDailyServiceCaches() {
+  await loadExamServicesCache();
+  await loadCompanionServicesCache();
+  refreshExamRowsDropdowns();
 }
 
 function buildCompanionKindOptions(selectedServiceId = '') {
@@ -2567,11 +2603,13 @@ function buildExamCaseOptions(selectedSectionCode = '') {
 }
 
 function buildExamTypeOptions(selectedServiceId = '', sectionCode = '') {
-  const pool = sectionCode
-    ? dailyExamServicesCache.filter((s) => s.section_code === sectionCode)
-    : dailyExamServicesCache;
+  let pool = dailyExamServicesCache;
+  if (sectionCode) {
+    pool = pool.filter((s) => s.section_code === sectionCode);
+    if (!pool.length) pool = dailyExamServicesCache;
+  }
   if (!pool.length) {
-    return '<option value="">— نوع الكشف —</option>';
+    return '<option value="">— نوع الكشف (ارفع ملف الكشوفات) —</option>';
   }
   return (
     '<option value="">— نوع الكشف —</option>' +

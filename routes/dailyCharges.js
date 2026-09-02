@@ -5,6 +5,7 @@ const {
   getSectionsWithServices,
   listAccommodationStayGrades,
   searchDailyPickerItems,
+  listDailyPickerServicesByCategory,
   getDailyPickerItemBySection,
   getEntryByPatientDate,
   listEntries,
@@ -94,6 +95,28 @@ router.get('/picker/search', requirePermission('daily_charges.view'), async (req
         section_code,
         search: req.query.search || '',
         page: req.query.page,
+        limit: req.query.limit,
+      })
+    );
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+router.get('/picker/list', requirePermission('daily_charges.view'), async (req, res) => {
+  try {
+    const category_code = String(req.query.category_code || '').trim();
+    const category_codes = String(req.query.category_codes || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!category_code && !category_codes.length) {
+      return res.status(400).json({ error: 'category_code أو category_codes مطلوب' });
+    }
+    res.json(
+      await listDailyPickerServicesByCategory({
+        category_code,
+        category_codes,
         limit: req.query.limit,
       })
     );

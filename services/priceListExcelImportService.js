@@ -4,7 +4,38 @@ const {
   listCategories,
   createService,
   updateService,
+  createCategory,
 } = require('./serviceCatalogService');
+
+/** Categories created on demand when importing section Excel files. */
+const IMPORT_CATEGORY_DEFINITIONS = {
+  MEDICAL_EXAMS: { name: 'الكشوفات الطبية', sort_order: 2 },
+  LAB: { name: 'المعمل والتحاليل الطبية', sort_order: 39 },
+  RADIOLOGY: { name: 'الأشعة والتصوير الطبي', sort_order: 38 },
+  RF_INJECTION: { name: 'وحدة التردد الحراري والحقن', sort_order: 20 },
+  SPINE_CENTER: { name: 'عمليات العمود الفقري – حالات المركز', sort_order: 16 },
+  PHYSIO: { name: 'العلاج الطبيعي والتأهيلي', sort_order: 8 },
+  SPINE_BUILDING: { name: 'الخدمات الطبية بمبنى العمود الفقري', sort_order: 18 },
+  ACCOMMODATION: { name: 'الإقامات والرعاية المركزة', sort_order: 4 },
+  GENERAL: { name: 'رسوم عامة وخدمات إدارية', sort_order: 41 },
+};
+
+function resolveMedicalServiceCategoryCode(name) {
+  const n = normalizeArabic(name);
+  if (
+    n.includes('اشعه') ||
+    n.includes('دوبلكس') ||
+    n.includes('سونار') ||
+    n.includes('موجاتصوت') ||
+    n.includes('رسمقلب') ||
+    n.includes('تصوير') ||
+    n.includes('اكو') ||
+    n.includes('echo')
+  ) {
+    return 'RADIOLOGY';
+  }
+  return 'SPINE_BUILDING';
+}
 
 const GENERIC_CATEGORY_NAMES = new Set([
   'نوع الخدمة',
@@ -158,6 +189,7 @@ async function parseExcelBuffer(buffer, options = {}) {
         price,
         price_type: 'fixed',
         notes: building ? `المبنى/الدور: ${building}` : '',
+        category_code: template.category_code,
       });
       return;
     }
@@ -184,6 +216,7 @@ async function parseExcelBuffer(buffer, options = {}) {
         price,
         price_type: 'composite',
         components,
+        category_code: template.category_code,
       });
       return;
     }
@@ -202,7 +235,11 @@ async function parseExcelBuffer(buffer, options = {}) {
       price,
       price_type: 'fixed',
       notes: extra ? String(extra) : '',
+      category_code: template.category_code,
     };
+    if (templateKey === 'medical_services') {
+      svc.category_code = resolveMedicalServiceCategoryCode(name);
+    }
     if (templateKey === 'physio' && extra) {
       svc.metadata = { physio_group: extra };
     }
@@ -229,6 +266,24 @@ async function getCategoryId(priceListId, categoryCode) {
   return rows[0]?.id || null;
 }
 
+async function ensureImportCategory(priceListId, categoryCode, actor = null) {
+  const code = String(categoryCode || '').trim();
+  if (!code) throw new Error('كود القسم غير معروف');
+
+  let categoryId = await getCategoryId(priceListId, code);
+  if (categoryId) return categoryId;
+
+  const def = IMPORT_CATEGORY_DEFINITIONS[code] || { name: code, sort_order: 99 };
+  const created = await createCategory(priceListId, {
+    name: def.name,
+    code,
+    sort_order: def.sort_order || 99,
+    is_active: true,
+    notes: 'أُنشئ تلقائياً عند استيراد ملف القسم',
+  });
+  return created.id;
+}
+
 async function removeGenericCategories(priceListId) {
   const cats = await listCategories(priceListId);
   let removed = 0;
@@ -246,21 +301,25 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
   const { category_code, services, template_key, template_label } = parsed;
   if (!services?.length) throw new Error('لا توجد صفوف صالحة في الملف');
 
-  const categoryId = await getCategoryId(priceListId, category_code);
-  if (!categoryId) throw new Error(`القسم ${category_code} غير موجود في اللائحة — تأكد من استيراد اللائحة الأساسية أولاً`);
-
   await removeGenericCategories(priceListId);
 
-  if (options.replaceExisting) {
-    await query('DELETE FROM services WHERE price_list_id = $1 AND category_id = $2', [
-      priceListId,
-      categoryId,
-    ]);
-  }
-
+  const touchedCategories = new Set();
+  const clearedCategories = new Set();
   let imported = 0;
   let updated = 0;
   for (const svc of services) {
+    const catCode = svc.category_code || category_code;
+    const categoryId = await ensureImportCategory(priceListId, catCode, actor);
+    touchedCategories.add(catCode);
+
+    if (options.replaceExisting && !clearedCategories.has(catCode)) {
+      await query('DELETE FROM services WHERE price_list_id = $1 AND category_id = $2', [
+        priceListId,
+        categoryId,
+      ]);
+      clearedCategories.add(catCode);
+    }
+
     const { rows } = await query(
       `SELECT id FROM services
        WHERE price_list_id = $1 AND category_id = $2
@@ -300,6 +359,7 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
     updated,
     total: imported + updated,
     parsed_rows: services.length,
+    categories: [...touchedCategories],
   };
 }
 
@@ -347,4 +407,6 @@ module.exports = {
   buildTemplateExcel,
   listExcelTemplates,
   removeGenericCategories,
+  ensureImportCategory,
+  resolveMedicalServiceCategoryCode,
 };
