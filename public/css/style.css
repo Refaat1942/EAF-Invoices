@@ -640,7 +640,24 @@ body {
   font-size: 0.82rem;
   vertical-align: middle;
   text-align: center;
-  min-width: 120px;
+  min-width: 0;
+}
+
+.daily-sheet-table .daily-col-serial,
+.daily-sheet-table .daily-meta-th.daily-col-serial {
+  width: 3.25rem;
+  min-width: 3.25rem;
+  max-width: 3.75rem;
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+}
+
+.daily-sheet-table .daily-col-action,
+.daily-sheet-table .daily-meta-th.daily-col-action {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  max-width: 3rem;
+  padding: 0.25rem;
 }
 
 .daily-entry-row.table-info {
@@ -792,28 +809,32 @@ body {
 }
 
 .daily-sheet-table--medicines th:nth-child(1),
-.daily-sheet-table--medicines td:nth-child(1) { width: 4.5rem; }
+.daily-sheet-table--medicines td:nth-child(1) { width: 3.25rem; }
 .daily-sheet-table--medicines th:nth-child(2),
 .daily-sheet-table--medicines td:nth-child(2) { width: 6.5rem; }
 .daily-sheet-table--medicines th:nth-child(3),
-.daily-sheet-table--medicines td:nth-child(3) { width: 7.5rem; }
+.daily-sheet-table--medicines td:nth-child(3) { width: 8rem; }
 .daily-sheet-table--medicines th:nth-child(4),
-.daily-sheet-table--medicines td:nth-child(4) { width: 28%; min-width: 11rem; }
+.daily-sheet-table--medicines td:nth-child(4) { width: 22%; min-width: 9rem; }
 .daily-sheet-table--medicines th:nth-child(5),
 .daily-sheet-table--medicines td:nth-child(5),
 .daily-sheet-table--medicines th:nth-child(6),
 .daily-sheet-table--medicines td:nth-child(6),
 .daily-sheet-table--medicines th:nth-child(7),
-.daily-sheet-table--medicines td:nth-child(7) { width: 6.75rem; }
+.daily-sheet-table--medicines td:nth-child(7) { width: 6rem; }
+.daily-sheet-table--medicines th:nth-child(8),
+.daily-sheet-table--medicines td:nth-child(8) { width: 6.5rem; }
+.daily-sheet-table--medicines th:nth-child(9),
+.daily-sheet-table--medicines td:nth-child(9) { width: 2.75rem; }
 
 .daily-sheet-table--supplies th:nth-child(1),
-.daily-sheet-table--supplies td:nth-child(1) { width: 3.5rem; }
+.daily-sheet-table--supplies td:nth-child(1) { width: 3.25rem; }
 .daily-sheet-table--supplies th:nth-child(2),
-.daily-sheet-table--supplies td:nth-child(2) { width: 7.5rem; }
+.daily-sheet-table--supplies td:nth-child(2) { width: 8rem; }
 .daily-sheet-table--supplies th:nth-child(3),
 .daily-sheet-table--supplies td:nth-child(3) { width: 6.5rem; }
 .daily-sheet-table--supplies th:nth-child(4),
-.daily-sheet-table--supplies td:nth-child(4) { width: 18%; min-width: 9rem; }
+.daily-sheet-table--supplies td:nth-child(4) { width: 16%; min-width: 8.5rem; }
 .daily-sheet-table--supplies th:nth-child(5),
 .daily-sheet-table--supplies td:nth-child(5),
 .daily-sheet-table--supplies th:nth-child(6),
@@ -825,66 +846,95 @@ body {
 .daily-sheet-table--supplies th:nth-child(9),
 .daily-sheet-table--supplies td:nth-child(9),
 .daily-sheet-table--supplies th:nth-child(10),
-.daily-sheet-table--supplies td:nth-child(10) { width: 6.75rem; }
+.daily-sheet-table--supplies td:nth-child(10) { width: 6rem; }
+.daily-sheet-table--supplies th:nth-child(11),
+.daily-sheet-table--supplies td:nth-child(11) { width: 2.75rem; }
 
 .daily-sheet-table--lab th:nth-child(1),
-.daily-sheet-table--lab td:nth-child(1) { width: 3.5rem; }
+.daily-sheet-table--lab td:nth-child(1) { width: 3.25rem; }
 .daily-sheet-table--lab th:nth-child(2),
 .daily-sheet-table--lab td:nth-child(2) { width: 8rem; }
 .daily-sheet-table--lab th:nth-child(3),
-.daily-sheet-table--lab td:nth-child(3) { width: 24%; min-width: 10rem; }
+.daily-sheet-table--lab td:nth-child(3) { width: 24%; min-width: 9rem; }
 .daily-sheet-table--lab th:nth-child(4),
 .daily-sheet-table--lab td:nth-child(4),
 .daily-sheet-table--lab th:nth-child(5),
 .daily-sheet-table--lab td:nth-child(5),
 .daily-sheet-table--lab th:nth-child(6),
-.daily-sheet-table--lab td:nth-child(6) { width: 6.75rem; }
+.daily-sheet-table--lab td:nth-child(6) { width: 6.5rem; }
+.daily-sheet-table--lab th:nth-child(7),
+.daily-sheet-table--lab td:nth-child(7) { width: 2.75rem; }
 
 .daily-sheet-table--radiology th:nth-child(1),
-.daily-sheet-table--radiology td:nth-child(1) { width: 24%; min-width: 10rem; }
+.daily-sheet-table--radiology td:nth-child(1) { width: 3.25rem; }
 .daily-sheet-table--radiology th:nth-child(2),
-.daily-sheet-table--radiology td:nth-child(2),
+.daily-sheet-table--radiology td:nth-child(2) { width: 22%; min-width: 9rem; }
 .daily-sheet-table--radiology th:nth-child(3),
 .daily-sheet-table--radiology td:nth-child(3),
-.daily-sheet-table--radiology th:nth-child(5),
-.daily-sheet-table--radiology td:nth-child(5),
-.daily-sheet-table--radiology th:nth-child(6),
-.daily-sheet-table--radiology td:nth-child(6) { width: 6.75rem; }
 .daily-sheet-table--radiology th:nth-child(4),
-.daily-sheet-table--radiology td:nth-child(4) { width: 8rem; }
+.daily-sheet-table--radiology td:nth-child(4) { width: 6.5rem; }
+.daily-sheet-table--radiology th:nth-child(5),
+.daily-sheet-table--radiology td:nth-child(5) { width: 8rem; }
+.daily-sheet-table--radiology th:nth-child(6),
+.daily-sheet-table--radiology td:nth-child(6) { width: 6rem; }
+.daily-sheet-table--radiology th:nth-child(7),
+.daily-sheet-table--radiology td:nth-child(7) { width: 2.75rem; }
 
-.daily-sheet-table--exams th:nth-child(4),
-.daily-sheet-table--exams td:nth-child(4),
-.daily-sheet-table--exams th:nth-child(7),
-.daily-sheet-table--exams td:nth-child(7) { width: 6.75rem; }
+.daily-sheet-table--exams th:nth-child(1),
+.daily-sheet-table--exams td:nth-child(1) { width: 3.25rem; }
 .daily-sheet-table--exams th:nth-child(2),
-.daily-sheet-table--exams td:nth-child(2) { width: 16%; min-width: 9rem; }
+.daily-sheet-table--exams td:nth-child(2) { width: 11%; min-width: 7.5rem; }
 .daily-sheet-table--exams th:nth-child(3),
-.daily-sheet-table--exams td:nth-child(3) { width: 14%; min-width: 8rem; }
+.daily-sheet-table--exams td:nth-child(3) { width: 12%; min-width: 7.5rem; }
+.daily-sheet-table--exams th:nth-child(4),
+.daily-sheet-table--exams td:nth-child(4) { width: 14%; min-width: 9rem; }
 .daily-sheet-table--exams th:nth-child(5),
-.daily-sheet-table--exams td:nth-child(5) { width: 8rem; }
+.daily-sheet-table--exams td:nth-child(5),
+.daily-sheet-table--exams th:nth-child(8),
+.daily-sheet-table--exams td:nth-child(8) { width: 6rem; }
+.daily-sheet-table--exams th:nth-child(6),
+.daily-sheet-table--exams td:nth-child(6) { width: 8rem; }
+.daily-sheet-table--exams th:nth-child(7),
+.daily-sheet-table--exams td:nth-child(7) { width: 8.5rem; }
+.daily-sheet-table--exams th:nth-child(9),
+.daily-sheet-table--exams td:nth-child(9) { width: 2.75rem; }
 
+.daily-sheet-table--sessions th:nth-child(1),
+.daily-sheet-table--sessions td:nth-child(1) { width: 3.25rem; }
+.daily-sheet-table--sessions th:nth-child(2),
+.daily-sheet-table--sessions td:nth-child(2) { width: 8rem; }
 .daily-sheet-table--sessions th:nth-child(3),
-.daily-sheet-table--sessions td:nth-child(3) { width: 18%; min-width: 9rem; }
+.daily-sheet-table--sessions td:nth-child(3) { width: 8rem; }
+.daily-sheet-table--sessions th:nth-child(4),
+.daily-sheet-table--sessions td:nth-child(4) { width: 16%; min-width: 8.5rem; }
+.daily-sheet-table--sessions th:nth-child(5),
+.daily-sheet-table--sessions td:nth-child(5),
 .daily-sheet-table--sessions th:nth-child(6),
-.daily-sheet-table--sessions td:nth-child(6),
+.daily-sheet-table--sessions td:nth-child(6) { width: 5rem; }
 .daily-sheet-table--sessions th:nth-child(7),
 .daily-sheet-table--sessions td:nth-child(7),
 .daily-sheet-table--sessions th:nth-child(8),
-.daily-sheet-table--sessions td:nth-child(8) { width: 6.75rem; }
-.daily-sheet-table--sessions th:nth-child(1),
-.daily-sheet-table--sessions td:nth-child(1) { width: 7.5rem; }
-.daily-sheet-table--sessions th:nth-child(2),
-.daily-sheet-table--sessions td:nth-child(2) { width: 9rem; min-width: 7rem; }
-.daily-sheet-table--sessions th:nth-child(4),
-.daily-sheet-table--sessions td:nth-child(4),
-.daily-sheet-table--sessions th:nth-child(5),
-.daily-sheet-table--sessions td:nth-child(5) { width: 5.5rem; }
+.daily-sheet-table--sessions td:nth-child(8) { width: 6rem; }
 .daily-sheet-table--sessions th:nth-child(9),
-.daily-sheet-table--sessions td:nth-child(9) { width: 3.25rem; }
+.daily-sheet-table--sessions td:nth-child(9) { width: 6.5rem; }
+.daily-sheet-table--sessions th:nth-child(10),
+.daily-sheet-table--sessions td:nth-child(10) { width: 2.75rem; }
 
-.daily-sheet-table--medicines th:nth-child(8),
-.daily-sheet-table--medicines td:nth-child(8) { width: 3.25rem; }
+.daily-sheet-table--other th:nth-child(1),
+.daily-sheet-table--other td:nth-child(1) { width: 3.25rem; }
+.daily-sheet-table--other th:nth-child(2),
+.daily-sheet-table--other td:nth-child(2) { width: 26%; min-width: 9rem; }
+.daily-sheet-table--other th:nth-child(3),
+.daily-sheet-table--other td:nth-child(3),
+.daily-sheet-table--other th:nth-child(4),
+.daily-sheet-table--other td:nth-child(4),
+.daily-sheet-table--other th:nth-child(5),
+.daily-sheet-table--other td:nth-child(5) { width: 6.5rem; }
+.daily-sheet-table--other th:nth-child(6),
+.daily-sheet-table--other td:nth-child(6) { width: 2.75rem; }
+
+.daily-sheet-table--stay th:nth-child(1),
+.daily-sheet-table--stay td:nth-child(1) { width: 3.25rem; }
 
 .daily-sheet-table--medicines input,
 .daily-sheet-table--supplies input,
@@ -1429,15 +1479,26 @@ body {
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table td {
-  padding: 0.5rem 0.4rem;
+  padding: 0.45rem 0.35rem;
+  overflow: hidden;
+  vertical-align: middle;
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table .form-control,
 .daily-tabs-sheet-panel .daily-sheet-table .form-control-sm,
 .daily-tabs-sheet-panel .daily-sheet-table .form-select-sm {
-  font-size: 0.95rem;
-  padding: 0.42rem 0.5rem;
-  min-width: 5.5rem;
+  font-size: 0.9rem;
+  padding: 0.38rem 0.45rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .input-group {
+  width: 100%;
+  max-width: 100%;
+  flex-wrap: nowrap;
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table input[type="date"],
@@ -1450,20 +1511,25 @@ body {
 .daily-tabs-sheet-panel .daily-sheet-table .daily-row-date {
   background: #e8f4fc !important;
   color: #1a5276;
-  font-weight: 800;
+  font-weight: 700;
   border-color: #7eb8da;
-  min-width: 10.5rem;
+  min-width: 0;
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table .daily-row-serial {
-  min-width: 3.25rem;
-  max-width: 4rem;
   font-weight: 800;
   color: #1a5276;
+  padding-left: 0.15rem;
+  padding-right: 0.15rem;
 }
 
 .daily-exam-doctor-cell {
-  min-width: 14rem;
+  min-width: 0;
+}
+
+.daily-doctor-suggest-wrap {
+  width: 100%;
+  min-width: 0;
 }
 
 .daily-doctor-suggest-wrap .daily-doctor-suggest-menu {
@@ -1482,7 +1548,34 @@ body {
 .daily-tabs-sheet-panel .daily-rad-name-cell,
 .daily-tabs-sheet-panel .daily-misc-name-cell,
 .daily-tabs-sheet-panel .daily-session-type-cell {
-  min-width: 12rem;
+  min-width: 0;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-picker,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-picker-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+#view-daily .daily-operations-table th:first-child,
+#view-daily .daily-operations-table td:first-child,
+#view-daily #daily-free-items-panel th:first-child,
+#view-daily #daily-free-items-panel td:first-child {
+  width: 3.25rem;
+  min-width: 3.25rem;
+  max-width: 3.75rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+#view-daily .daily-operations-table .form-control,
+#view-daily .daily-operations-table .form-select,
+#view-daily #daily-free-items-panel .form-control {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 #daily-main-sheet-wrap.daily-sheet-wrap {

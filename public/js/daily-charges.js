@@ -123,7 +123,7 @@ const dailySheetSerialMap = new Map();
 
 function dailyRowSerialCellHtml(serial = '') {
   const val = serial ? String(serial) : '';
-  return `<td><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" value="${dailyEscapeAttr(val)}" placeholder="—"></td>`;
+  return `<td class="daily-col-serial"><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" value="${dailyEscapeAttr(val)}" placeholder="—"></td>`;
 }
 
 function rebuildDailySheetSerialState(entries = []) {
@@ -534,7 +534,7 @@ function createOperationRowHtml(op = {}) {
   const startTimeVal = formatOperationTimeForInput(op.operation_start_time);
   const endTimeVal = formatOperationTimeForInput(op.operation_end_time);
   return `
-    <td><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" placeholder="—"></td>
+    <td class="daily-col-serial"><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" placeholder="—"></td>
     <td><input type="text" class="form-control form-control-sm daily-op-name" value="${dailyEscapeAttr(op.operation_name || '')}" placeholder="اسم العملية" autocomplete="off"></td>
     <td><input type="time" class="form-control form-control-sm daily-op-start-time" value="${dailyEscapeAttr(startTimeVal)}" autocomplete="off"></td>
     <td><input type="time" class="form-control form-control-sm daily-op-end-time" value="${dailyEscapeAttr(endTimeVal)}" autocomplete="off"></td>
@@ -666,7 +666,7 @@ function createFreeItemRowHtml(item = {}) {
   const lineTotal = (Number(item.quantity) || 1) * dailyParseAmount(item.amount);
   const totalVal = lineTotal > 0 && typeof dailyFormatInput === 'function' ? dailyFormatInput(lineTotal) : '';
   return `
-    <td><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" placeholder="—"></td>
+    <td class="daily-col-serial"><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" placeholder="—"></td>
     <td><input type="text" class="form-control form-control-sm daily-free-desc" value="${dailyEscapeHtml(item.description || '')}" placeholder="وصف البند" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-qty comma-amount" data-decimals="0" value="${qty}" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-amount comma-amount" value="${amt}" placeholder="0" autocomplete="off"></td>
@@ -2687,8 +2687,7 @@ function createExamDailyEntryRow(entry = {}, examLine = null) {
     <td><input type="date" class="form-control form-control-sm daily-exam-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-exam-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="الدمغة" autocomplete="off"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>
-    <td class="daily-row-total fw-bold text-nowrap d-none"></td>`;
+    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindExamRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -2885,7 +2884,7 @@ function createSessionsRow(entry = {}, sessionsLine = null) {
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-session-qty comma-amount" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-session-unit bg-light" readonly value="${dailyEscapeAttr(unitVal)}" placeholder="سعر الجلسة"></td>
     <td><input type="text" class="form-control form-control-sm daily-session-total bg-light" readonly value="${dailyEscapeAttr(totalVal)}" placeholder="الإجمالي"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
+    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindSessionsRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3139,7 +3138,7 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-weight comma-amount" data-section="medicines" placeholder="الوزن" value="${dailyEscapeAttr(weightVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-med-unit-price bg-light" readonly placeholder="سعر الصنف"></td>
     <td><input type="text" class="form-control form-control-sm daily-med-total bg-light" readonly placeholder="الإجمالي"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
+    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindMedicineRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3201,7 +3200,7 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
     <td><input type="text" class="form-control form-control-sm daily-sup-cost-unit bg-light" readonly placeholder="سعر المستلزم"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-cost-total bg-light" readonly placeholder="إجمالي المستلزم"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-sup-markup comma-amount bg-light" data-decimals="0" value="${dailyEscapeAttr(markupVal)}" placeholder="%" autocomplete="off"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
+    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindSupplyRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3362,7 +3361,7 @@ function createLabRow(entry = {}, analysisLine = null) {
     <td><input type="text" class="form-control form-control-sm daily-lab-unit-price bg-light" readonly placeholder="سعر التحليل"></td>
     <td><input type="text" class="form-control form-control-sm daily-lab-total bg-light" readonly placeholder="الإجمالي"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-lab-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="الدمغة" autocomplete="off"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
+    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindLabRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3421,7 +3420,7 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
     <td><input type="text" class="form-control form-control-sm daily-rad-total bg-light" readonly value="${dailyEscapeAttr(totalVal)}" placeholder="الإجمالي"></td>
     <td><input type="date" class="form-control form-control-sm daily-rad-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-rad-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" placeholder="الدمغة" autocomplete="off"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
+    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindRadRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3467,7 +3466,7 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-misc-unit-price bg-light" readonly placeholder="السعر"></td>
     <td><input type="text" class="form-control form-control-sm daily-misc-total bg-light" readonly placeholder="الإجمالي"></td>
-    <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
+    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindMiscRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
@@ -3943,7 +3942,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'stay') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
+      '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th daily-col-date">التاريخ</th>' +
       '<th class="daily-meta-th daily-col-stay-type">نوع الإقامة</th>' +
       '<th class="daily-meta-th daily-col-amount">سعر الإقامة</th>' +
@@ -3965,7 +3964,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'sessions') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
+      '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">تاريخ الجلسة</th>' +
       '<th class="daily-meta-th">اسم المريض</th>' +
       '<th class="daily-meta-th">نوع الجلسة</th>' +
@@ -3974,7 +3973,7 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">عدد الجلسات</th>' +
       '<th class="daily-meta-th">سعر الجلسة</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
-      '<th class="daily-meta-th"></th>';
+      '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
@@ -3987,7 +3986,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'exams') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
+      '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">حالة الكشف</th>' +
       '<th class="daily-meta-th">نوع الكشف</th>' +
       '<th class="daily-meta-th">اسم الطبيب</th>' +
@@ -3995,7 +3994,7 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">تاريخ الكشف</th>' +
       '<th class="daily-meta-th">اسم المريض</th>' +
       '<th class="daily-meta-th">الدمغة</th>' +
-      '<th class="daily-meta-th"></th>';
+      '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
@@ -4008,7 +4007,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'medicines') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
+      '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">رقم الفاتورة</th>' +
       '<th class="daily-meta-th">تاريخ</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
@@ -4016,7 +4015,7 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">الوزن</th>' +
       '<th class="daily-meta-th">سعر الصنف</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
-      '<th class="daily-meta-th"></th>';
+      '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
@@ -4029,7 +4028,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'supplies') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
+      '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">تاريخ</th>' +
       '<th class="daily-meta-th">رقم فاتورة</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
@@ -4039,7 +4038,7 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">سعر المستلزم</th>' +
       '<th class="daily-meta-th">إجمالي المستلزم</th>' +
       '<th class="daily-meta-th">هامش الربح %</th>' +
-      '<th class="daily-meta-th"></th>';
+      '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
@@ -4052,13 +4051,13 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'lab') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
+      '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">تاريخ التحليل</th>' +
       '<th class="daily-meta-th">نوع التحليل</th>' +
       '<th class="daily-meta-th">سعر التحليل</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
       '<th class="daily-meta-th">الدمغة</th>' +
-      '<th class="daily-meta-th"></th>';
+      '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
@@ -4071,13 +4070,13 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'radiology') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
+      '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">نوع الأشعة</th>' +
       '<th class="daily-meta-th">سعر الأشعة</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
       '<th class="daily-meta-th">تاريخ الأشعة</th>' +
       '<th class="daily-meta-th">الدمغة</th>' +
-      '<th class="daily-meta-th"></th>';
+      '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
@@ -4090,12 +4089,12 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'other') {
     head.innerHTML =
-      '<th class="daily-meta-th">مسلسل</th>' +
+      '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">اسم الخدمة</th>' +
       '<th class="daily-meta-th">العدد</th>' +
       '<th class="daily-meta-th">السعر</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
-      '<th class="daily-meta-th"></th>';
+      '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
