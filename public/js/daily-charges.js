@@ -375,6 +375,9 @@ function applyDailyTabColumnVisibility() {
       'أشعة — نوع الأشعة، السعر، الإجمالي، تاريخ الأشعة، والدمغة.';
   } else if (hint && activeDailyTab === 'other') {
     hint.textContent = 'خدمات متنوعة — ابحث واختر الخدمة، السعر من اللائحة تلقائياً.';
+  } else if (hint && activeDailyTab === 'operations') {
+    hint.textContent =
+      'عمليات — أدخل اسم العملية، الأوقات، الجراح، التخدير، تصنيف الحالة والمبلغ ثم احفظ.';
   } else if (hint && activeDailyTab === 'stay') {
     hint.textContent = '';
   } else if (hint && codes) {
@@ -575,6 +578,8 @@ function bindOperationRowEvents(tr) {
   });
   tr.querySelector('.daily-op-remove')?.addEventListener('click', () => {
     tr.remove();
+    ensureOperationRows();
+    renumberPanelRowSerials('#daily-operations-tbody .daily-operation-row');
     updateOperationsTotal();
   });
   const caseType = tr.querySelector('.daily-op-case-type');
@@ -584,6 +589,14 @@ function bindOperationRowEvents(tr) {
   }
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
   bindDailyAmountRecalc(tr);
+}
+
+function ensureOperationRows() {
+  const tbody = document.getElementById('daily-operations-tbody');
+  if (!tbody) return;
+  if (!tbody.querySelector('.daily-operation-row')) {
+    addOperationRow();
+  }
 }
 
 function addOperationRow(op = {}) {
@@ -641,12 +654,54 @@ async function loadOperationsForToday() {
       ops.forEach((op) => addOperationRow(op));
       renumberPanelRowSerials('#daily-operations-tbody .daily-operation-row');
     } else {
-      updateOperationsTotal();
+      ensureOperationRows();
     }
+    updateOperationsTotal();
   } catch (err) {
     console.error(err);
     tbody.innerHTML = '';
+    ensureOperationRows();
     updateOperationsTotal();
+  }
+}
+
+async function saveOperationsPanel() {
+  if (!dailyCan('daily_charges.manage')) {
+    showToast('ليس لديك صلاحية', 'warning');
+    return;
+  }
+  const file_number = getStayFileNumber();
+  if (!file_number || !dailyStayContext?.invoice?.id) {
+    showToast('لا توجد فاتورة مفتوحة', 'warning');
+    return;
+  }
+  const operations = collectOperationsFromTable();
+  if (!operations.length) {
+    showToast('أضف عملية واحدة على الأقل (اسم أو مبلغ)', 'warning');
+    return;
+  }
+  const entry_date =
+    document.getElementById('daily-entry-date')?.value?.trim() || getLocalDateString();
+  try {
+    dailySaveInFlight = true;
+    const saveBtn = document.getElementById('daily-save-btn');
+    if (saveBtn) saveBtn.disabled = true;
+    const data = await apiJson(`${DAILY_API}/operations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_number, entry_date, operations }),
+    });
+    await refreshInvoiceFormAfterDailySave(file_number, data.invoice_id);
+    await loadOpenPatientStay(file_number);
+    const totalLabel =
+      data.final_total != null ? dailyFmt(data.final_total) : dailyFmt(operations.reduce((s, o) => s + o.amount, 0));
+    showToast(`تم الحفظ — أُضيف على الفاتورة الكبيرة (${totalLabel})`, 'success');
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+  } finally {
+    dailySaveInFlight = false;
+    const saveBtn = document.getElementById('daily-save-btn');
+    if (saveBtn) saveBtn.disabled = false;
   }
 }
 
@@ -829,6 +884,7 @@ function showDailySection(sectionId) {
   renderDailySectionsTable();
   applyDailyTabColumnVisibility();
   if (sectionId === 'free-items') void loadFreeItemsPanel();
+  if (sectionId === 'operations') ensureOperationRows();
   if (
     activeDailyTab &&
     dailyStayContext?.invoice?.id &&
@@ -4814,6 +4870,9 @@ async function saveDailyEntry() {
   if (dailySaveInFlight) return;
   if (activeDailyTab === 'free-items') {
     return saveFreeItems();
+  }
+  if (activeDailyTab === 'operations') {
+    return saveOperationsPanel();
   }
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية تسجيل الحركة اليومية', 'warning');

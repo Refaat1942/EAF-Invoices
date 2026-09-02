@@ -20,7 +20,13 @@ const {
   listOperations,
   saveOperationsForDate,
 } = require('../services/patientOperationService');
-const { getOpenPatientStay, openPatientStay, listFreeInvoiceItems, saveFreeInvoiceItems } = require('../services/invoiceService');
+const {
+  getOpenPatientStay,
+  openPatientStay,
+  listFreeInvoiceItems,
+  saveFreeInvoiceItems,
+  syncInvoiceAfterDailyChange,
+} = require('../services/invoiceService');
 const { getDailyPrintReport, resolveDailyPrintKind } = require('../services/reportService');
 const { buildDailyReportHtml, wrapDailyItemsPrintPage } = require('../services/pdfService');
 const { generateDailyItemsPdfBuffer } = require('../services/exportService');
@@ -451,7 +457,17 @@ router.post('/operations', requirePermission('daily_charges.manage'), async (req
       entry_date,
       Array.isArray(req.body.operations) ? req.body.operations : []
     );
-    res.json({ operations });
+    const stay = await getOpenPatientStay(file_number);
+    let invoice_id = null;
+    let final_total = null;
+    if (stay?.invoice?.id) {
+      const updated = await syncInvoiceAfterDailyChange(stay.invoice.id, file_number);
+      if (updated) {
+        invoice_id = updated.id;
+        final_total = updated.final_total;
+      }
+    }
+    res.json({ operations, invoice_id, final_total });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

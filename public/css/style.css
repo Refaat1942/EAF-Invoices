@@ -821,7 +821,7 @@ body {
 .daily-sheet-table--medicines th:nth-child(6),
 .daily-sheet-table--medicines td:nth-child(6),
 .daily-sheet-table--medicines th:nth-child(7),
-.daily-sheet-table--medicines td:nth-child(7) { width: 6rem; }
+.daily-sheet-table--medicines td:nth-child(7) { width: 7rem; }
 .daily-sheet-table--medicines th:nth-child(8),
 .daily-sheet-table--medicines td:nth-child(8) { width: 6.5rem; }
 .daily-sheet-table--medicines th:nth-child(9),
@@ -846,7 +846,7 @@ body {
 .daily-sheet-table--supplies th:nth-child(9),
 .daily-sheet-table--supplies td:nth-child(9),
 .daily-sheet-table--supplies th:nth-child(10),
-.daily-sheet-table--supplies td:nth-child(10) { width: 6rem; }
+.daily-sheet-table--supplies td:nth-child(10) { width: 7rem; }
 .daily-sheet-table--supplies th:nth-child(11),
 .daily-sheet-table--supplies td:nth-child(11) { width: 2.75rem; }
 
@@ -861,7 +861,7 @@ body {
 .daily-sheet-table--lab th:nth-child(5),
 .daily-sheet-table--lab td:nth-child(5),
 .daily-sheet-table--lab th:nth-child(6),
-.daily-sheet-table--lab td:nth-child(6) { width: 6.5rem; }
+.daily-sheet-table--lab td:nth-child(6) { width: 7.5rem; }
 .daily-sheet-table--lab th:nth-child(7),
 .daily-sheet-table--lab td:nth-child(7) { width: 2.75rem; }
 
@@ -872,11 +872,11 @@ body {
 .daily-sheet-table--radiology th:nth-child(3),
 .daily-sheet-table--radiology td:nth-child(3),
 .daily-sheet-table--radiology th:nth-child(4),
-.daily-sheet-table--radiology td:nth-child(4) { width: 6.5rem; }
+.daily-sheet-table--radiology td:nth-child(4) { width: 7.5rem; }
 .daily-sheet-table--radiology th:nth-child(5),
-.daily-sheet-table--radiology td:nth-child(5) { width: 8rem; }
+.daily-sheet-table--radiology td:nth-child(5) { width: 8.5rem; }
 .daily-sheet-table--radiology th:nth-child(6),
-.daily-sheet-table--radiology td:nth-child(6) { width: 6rem; }
+.daily-sheet-table--radiology td:nth-child(6) { width: 7rem; }
 .daily-sheet-table--radiology th:nth-child(7),
 .daily-sheet-table--radiology td:nth-child(7) { width: 2.75rem; }
 
@@ -891,7 +891,7 @@ body {
 .daily-sheet-table--exams th:nth-child(5),
 .daily-sheet-table--exams td:nth-child(5),
 .daily-sheet-table--exams th:nth-child(8),
-.daily-sheet-table--exams td:nth-child(8) { width: 6rem; }
+.daily-sheet-table--exams td:nth-child(8) { width: 7rem; }
 .daily-sheet-table--exams th:nth-child(6),
 .daily-sheet-table--exams td:nth-child(6) { width: 8rem; }
 .daily-sheet-table--exams th:nth-child(7),
@@ -914,7 +914,7 @@ body {
 .daily-sheet-table--sessions th:nth-child(7),
 .daily-sheet-table--sessions td:nth-child(7),
 .daily-sheet-table--sessions th:nth-child(8),
-.daily-sheet-table--sessions td:nth-child(8) { width: 6rem; }
+.daily-sheet-table--sessions td:nth-child(8) { width: 7rem; }
 .daily-sheet-table--sessions th:nth-child(9),
 .daily-sheet-table--sessions td:nth-child(9) { width: 6.5rem; }
 .daily-sheet-table--sessions th:nth-child(10),
@@ -929,7 +929,7 @@ body {
 .daily-sheet-table--other th:nth-child(4),
 .daily-sheet-table--other td:nth-child(4),
 .daily-sheet-table--other th:nth-child(5),
-.daily-sheet-table--other td:nth-child(5) { width: 6.5rem; }
+.daily-sheet-table--other td:nth-child(5) { width: 7.5rem; }
 .daily-sheet-table--other th:nth-child(6),
 .daily-sheet-table--other td:nth-child(6) { width: 2.75rem; }
 
@@ -1437,20 +1437,29 @@ body {
   background-color: #f0f7ff;
 }
 
+#view-daily .daily-patient-summary-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
 #view-daily .daily-patient-summary-table th,
 #view-daily .daily-patient-summary-table th.daily-summary-label {
   width: 11%;
-  min-width: 7rem;
+  min-width: 7.5rem;
   font-weight: 800;
   vertical-align: middle;
   background-color: #e8f4fc !important;
   color: #1a5276;
   border-color: #d0e3f0;
+  padding: 0.6rem 0.9rem;
+  white-space: nowrap;
 }
 
 #view-daily .daily-patient-summary-table td {
   vertical-align: middle;
   background-color: #fff;
+  padding: 0.6rem 0.9rem;
+  width: 14%;
 }
 
 .daily-section-toolbar {
@@ -1479,9 +1488,29 @@ body {
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table td {
-  padding: 0.45rem 0.35rem;
-  overflow: hidden;
+  padding: 0.55rem 0.5rem;
+  overflow: visible;
   vertical-align: middle;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-med-name-cell,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-sup-name-cell,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-lab-name-cell,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-rad-name-cell,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-misc-name-cell,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-session-type-cell,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-exam-doctor-cell {
+  position: relative;
+  overflow: visible;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-picker {
+  margin-bottom: 0;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-picker .service-suggest,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-picker .daily-picker-suggest {
+  z-index: 60;
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table .form-control,
@@ -1557,6 +1586,36 @@ body {
   max-width: 100%;
   min-width: 0;
 }
+
+#view-daily .daily-operations-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+#view-daily .daily-operations-table th,
+#view-daily .daily-operations-table td {
+  padding: 0.5rem 0.45rem;
+  vertical-align: middle;
+}
+
+#view-daily .daily-operations-table th:nth-child(2),
+#view-daily .daily-operations-table td:nth-child(2) { width: 14%; min-width: 8rem; }
+#view-daily .daily-operations-table th:nth-child(3),
+#view-daily .daily-operations-table td:nth-child(3),
+#view-daily .daily-operations-table th:nth-child(4),
+#view-daily .daily-operations-table td:nth-child(4) { width: 6.5rem; }
+#view-daily .daily-operations-table th:nth-child(5),
+#view-daily .daily-operations-table td:nth-child(5),
+#view-daily .daily-operations-table th:nth-child(6),
+#view-daily .daily-operations-table td:nth-child(6),
+#view-daily .daily-operations-table th:nth-child(7),
+#view-daily .daily-operations-table td:nth-child(7) { width: 11%; min-width: 7rem; }
+#view-daily .daily-operations-table th:nth-child(8),
+#view-daily .daily-operations-table td:nth-child(8) { width: 12%; min-width: 7.5rem; }
+#view-daily .daily-operations-table th:nth-child(9),
+#view-daily .daily-operations-table td:nth-child(9) { width: 7rem; }
+#view-daily .daily-operations-table th:nth-child(10),
+#view-daily .daily-operations-table td:nth-child(10) { width: 2.75rem; }
 
 #view-daily .daily-operations-table th:first-child,
 #view-daily .daily-operations-table td:first-child,
