@@ -99,7 +99,7 @@ async function handleDailyTabImport(file) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       const label = data.template_label || cfg.label;
-      const msg = `تم تحديث «${label}»: ${data.imported || 0} جديد، ${data.updated || 0} محدّث`;
+      const msg = `تم تحديث «${label}»: ${data.imported || 0} جديد، ${data.updated || 0} محدّث (${data.parsed_rows || data.total || 0} صف في الملف)`;
       showToast(msg, 'success');
       if (typeof loadCatalogCache === 'function') await loadCatalogCache();
       await reloadDailyServiceCaches();
@@ -736,9 +736,10 @@ function getOperationNameFromRow(tr) {
 
 function renderOperationPickerSuggestions(container, result, query, tr) {
   const rows = result?.rows || [];
-  if (result?.min_search && String(query || '').trim().length < 2) {
+  const q = String(query || '').trim();
+  if (result?.min_search && q.length < 2 && !rows.length) {
     container.innerHTML =
-      '<div class="service-suggest-empty p-2 small text-muted">اكتب حرفين على الأقل للبحث</div>';
+      '<div class="service-suggest-empty p-2 small text-muted">اكتب للبحث أو اختر من القائمة — مثال: غضروف، حقن، توسيع</div>';
     container.classList.remove('d-none');
     return;
   }
@@ -746,9 +747,14 @@ function renderOperationPickerSuggestions(container, result, query, tr) {
     const hint = result?.hint
       ? `<div class="p-2 small text-warning">${dailyEscapeHtml(result.hint)}</div>`
       : '';
+    let emptyMsg = 'لا توجد نتائج مطابقة — جرّب جزء من اسم العملية (مثل: غضروف، حقن، توسيع)';
+    if (result?.empty_catalog) {
+      emptyMsg = 'لا توجد عمليات في اللائحة — ارفع ملف العمليات الجراحية أولاً';
+    } else if (result?.catalog_total > 0) {
+      emptyMsg = `لا توجد نتائج مطابقة — اللائحة تحتوي ${result.catalog_total} عملية. جرّب: غضروف، حقن، توسيع`;
+    }
     container.innerHTML =
-      hint +
-      '<div class="service-suggest-empty p-2 small text-muted">لا توجد نتائج — ارفع ملف العمليات الجراحية أولاً</div>';
+      hint + `<div class="service-suggest-empty p-2 small text-muted">${dailyEscapeHtml(emptyMsg)}</div>`;
     container.classList.remove('d-none');
     return;
   }
@@ -820,12 +826,44 @@ function bindOperationNamePicker(tr) {
     }
   };
 
+  const runBrowse = async () => {
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    try {
+      const res = await apiFetch(
+        `${DAILY_API}/picker/list?category_code=SPINE_CENTER&limit=50`,
+        { signal: searchAbort.signal }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      renderOperationPickerSuggestions(
+        suggest,
+        {
+          rows: data.rows || [],
+          catalog_total: data.total || (data.rows || []).length,
+          empty_catalog: !(data.rows || []).length,
+        },
+        '',
+        tr
+      );
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+    }
+  };
+
   searchInput.addEventListener('input', () => {
     clearTimeout(debounceTimer);
+    const q = searchInput.value.trim();
+    if (q.length < 2) {
+      void runBrowse();
+      return;
+    }
     debounceTimer = setTimeout(runSearch, 250);
   });
   searchInput.addEventListener('focus', () => {
-    if (searchInput.value.trim().length >= 2) runSearch();
+    const q = searchInput.value.trim();
+    if (q.length >= 2) runSearch();
+    else void runBrowse();
   });
   searchInput.addEventListener('blur', () => {
     setTimeout(() => suggest.classList.add('d-none'), 200);

@@ -15,11 +15,18 @@ function normalizeArabicSearch(text) {
   return String(text || '')
     .replace(/\u0640/g, '')
     .replace(/[\u064B-\u065F]/g, '')
+    .replace(/\s+/g, '')
     .replace(/[أإآٱ]/g, 'ا')
     .replace(/ى/g, 'ي')
     .replace(/ة/g, 'ه')
+    .replace(/[^\u0600-\u06FFa-zA-Z0-9]/g, '')
     .trim()
     .toLowerCase();
+}
+
+function arabicNormSqlCompact(columnExpr) {
+  const norm = `LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REGEXP_REPLACE(COALESCE(${columnExpr}, ''), '[\\u064B-\\u065F]', '', 'g'), 'أ', 'ا'), 'إ', 'ا'), 'آ', 'ا'), 'ٱ', 'ا'), 'ى', 'ي'), 'ة', 'ه'))`;
+  return `REGEXP_REPLACE(${norm}, '[^\\u0600-\\u06FFa-zA-Z0-9]', '', 'g')`;
 }
 
 function buildServiceSearchPatterns(q) {
@@ -31,6 +38,11 @@ function buildServiceSearchPatterns(q) {
   const alef = raw.replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
   if (alef !== raw) patterns.add(`%${alef}%`);
   return [...patterns];
+}
+
+function buildCompactArabicPattern(q) {
+  const norm = normalizeArabicSearch(q);
+  return norm ? `%${norm}%` : null;
 }
 
 /** Daily sections that search multiple price-list categories in the picker. */
@@ -428,18 +440,6 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
     return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'service' };
   }
 
-  if (q.length < 2) {
-    return {
-      rows: [],
-      total: 0,
-      page: pageNum,
-      limit: maxLimit,
-      totalPages: 1,
-      kind: 'service',
-      min_search: 2,
-    };
-  }
-
   const categoryCodes = getSectionPickerCategoryCodes(section);
   const categoryRows = await resolvePickerCategoryIds(priceList.id, categoryCodes);
   const categoryIds = categoryRows.map((r) => r.id);
@@ -451,29 +451,66 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
       limit: maxLimit,
       totalPages: 1,
       kind: 'service',
+      empty_catalog: true,
       hint: `أقسام «${categoryCodes.join(' / ')}» غير موجودة — ارفع ملف القسم من زر الاستيراد أعلاه`,
     };
   }
 
+  const catalogCountRes = await query(
+    `SELECT COUNT(*)::int AS total FROM services s
+     WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE`,
+    [priceList.id, categoryIds]
+  );
+  const catalog_total = catalogCountRes.rows[0]?.total || 0;
+
+  if (q.length < 2) {
+    return {
+      rows: [],
+      total: 0,
+      page: pageNum,
+      limit: maxLimit,
+      totalPages: 1,
+      kind: 'service',
+      min_search: 2,
+      catalog_total,
+      empty_catalog: catalog_total === 0,
+    };
+  }
+
   const patterns = buildServiceSearchPatterns(q);
+  const compactPattern = buildCompactArabicPattern(q);
+  const normName = arabicNormSqlCompact('s.name');
+  const normCode = arabicNormSqlCompact('s.code');
+  const normDesc = arabicNormSqlCompact('s.description');
+  const matchSql = compactPattern
+    ? `(s.name ILIKE ANY($3::text[]) OR s.code ILIKE ANY($3::text[]) OR s.description ILIKE ANY($3::text[])
+        OR ${normName} LIKE $4 OR ${normCode} LIKE $4 OR ${normDesc} LIKE $4)`
+    : `(s.name ILIKE ANY($3::text[]) OR s.code ILIKE ANY($3::text[]) OR s.description ILIKE ANY($3::text[]))`;
+  const sqlParams = compactPattern
+    ? [priceList.id, categoryIds, patterns, compactPattern]
+    : [priceList.id, categoryIds, patterns];
   const offset = (pageNum - 1) * maxLimit;
+
   const countRes = await query(
     `SELECT COUNT(*)::int AS total FROM services s
      WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE
-       AND (s.name ILIKE ANY($3::text[]) OR s.code ILIKE ANY($3::text[]) OR s.description ILIKE ANY($3::text[]))`,
-    [priceList.id, categoryIds, patterns]
+       AND ${matchSql}`,
+    sqlParams
   );
   const total = countRes.rows[0]?.total || 0;
 
+  const listParams = [...sqlParams, maxLimit, offset];
+  const limitIdx = sqlParams.length + 1;
+  const offsetIdx = sqlParams.length + 2;
   const { rows } = await query(
     `SELECT s.*, c.name AS category_name, c.code AS category_code
      FROM services s
      LEFT JOIN service_categories c ON c.id = s.category_id
      WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE
-       AND (s.name ILIKE ANY($3::text[]) OR s.code ILIKE ANY($3::text[]) OR s.description ILIKE ANY($3::text[]))
+       AND ${matchSql}
      ORDER BY c.sort_order, s.sort_order, s.name, s.id
-     LIMIT $4 OFFSET $5`,
-    [priceList.id, categoryIds, patterns, maxLimit, offset]
+     LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+    listParams
   );
   const enriched = await enrichServicesWithResolvedPrices(rows);
 
@@ -485,6 +522,9 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
     totalPages: Math.max(1, Math.ceil(total / maxLimit)),
     kind: 'service',
     category_codes: categoryCodes,
+    catalog_total,
+    empty_catalog: catalog_total === 0,
+    no_match: catalog_total > 0 && total === 0,
   };
 }
 
