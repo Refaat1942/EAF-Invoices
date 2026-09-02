@@ -484,6 +484,8 @@ function applyPermissions() {
   document.getElementById('submit-review-btn').style.display = can('invoices.submit') ? '' : 'none';
   document.getElementById('approve-invoice-btn').style.display = can('invoices.approve') ? '' : 'none';
   document.getElementById('report-export-btn').style.display = can('reports.export') ? '' : 'none';
+  const listExportBtn = document.getElementById('list-export-excel');
+  if (listExportBtn) listExportBtn.style.display = can('reports.export') ? '' : 'none';
 
   ['reset-form-btn', 'add-row-btn', 'remove-row-btn', 'add-stay-entry-btn', 'pay-full-cash-btn', 'pay-full-bank-btn', 'pay-full-check-btn', 'clear-payments-btn'].forEach((id) => {
     const el = document.getElementById(id);
@@ -885,6 +887,7 @@ function bindEvents() {
   document.getElementById('list-status-filter').addEventListener('change', loadInvoicesList);
   document.getElementById('list-from').addEventListener('change', loadInvoicesList);
   document.getElementById('list-to').addEventListener('change', loadInvoicesList);
+  document.getElementById('list-export-excel')?.addEventListener('click', exportInvoicesListExcel);
 
   document.getElementById('report-refresh-btn').addEventListener('click', loadReports);
   document.getElementById('report-export-btn').addEventListener('click', exportCurrentReport);
@@ -4043,6 +4046,26 @@ function clearInvoicesListFilters() {
   if (statusFilter) statusFilter.value = '';
   initInvoicesListDefaultDates();
   loadInvoicesList();
+}
+
+function exportInvoicesListExcel() {
+  if (!can('reports.export')) {
+    showToast('ليس لديك صلاحية تصدير التقارير', 'warning');
+    return;
+  }
+  const params = new URLSearchParams();
+  params.set('report', 'invoices');
+  const type = document.getElementById('list-type-filter')?.value;
+  const status = document.getElementById('list-status-filter')?.value;
+  const search = document.getElementById('list-search')?.value?.trim();
+  const from = document.getElementById('list-from')?.value;
+  const to = document.getElementById('list-to')?.value;
+  if (type) params.set('type', type);
+  if (status) params.set('status', status);
+  if (search) params.set('search', search);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  window.open(`${API}/reports/export?${params}`, '_blank');
 }
 
 async function loadInvoicesList() {

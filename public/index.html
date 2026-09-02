@@ -6,8 +6,8 @@
   <title>نظام الفواتير — مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-  <meta name="app-build" content="20260902g">
-  <link href="/css/style.css?v=20260902g" rel="stylesheet">
+  <meta name="app-build" content="20260902h">
+  <link href="/css/style.css?v=20260902h" rel="stylesheet">
 </head>
 <body>
   <!-- Login Screen -->
@@ -142,7 +142,7 @@
                     <option value="مصري">مصري</option>
                     <option value="أجنبي">أجنبي</option>
                   </select>
-                  <small class="text-muted">الأجنبي: أسعار اللائحة × 2</small>
+                  <small class="text-muted d-none" id="patient-reg-nationality-hint">الأجنبي: أسعار اللائحة × 2</small>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold">الجنس</label>
@@ -156,10 +156,10 @@
                   <label class="form-label fw-bold">السن</label>
                   <input type="text" inputmode="numeric" class="form-control fw-bold patient-reg-field" id="patient-reg-age" autocomplete="off" placeholder="0">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-3" id="patient-reg-stay-grade-wrap">
                   <label class="form-label fw-bold">درجة الإقامة</label>
                   <select class="form-select fw-bold patient-reg-field" id="patient-reg-stay-grade" autocomplete="off">
-                    <option value="">-- اختر من اللائحة --</option>
+                    <option value=""></option>
                   </select>
                   <small class="text-muted">من لائحة الإقامات والرعاية المركزة</small>
                 </div>
@@ -627,8 +627,9 @@
                 <option value="approved">معتمدة</option>
               </select>
             </div>
-            <div class="col-lg-2 col-md-4 d-flex gap-2">
+            <div class="col-lg-2 col-md-4 d-flex gap-2 flex-wrap">
               <button type="button" class="btn btn-primary btn-sm fw-bold flex-grow-1" id="list-refresh">بحث</button>
+              <button type="button" class="btn btn-success btn-sm fw-bold" id="list-export-excel" title="تصدير النتائج إلى Excel">Excel</button>
               <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="list-clear-filters" title="مسح الفلاتر">مسح</button>
             </div>
           </div>
@@ -787,7 +788,7 @@
                       </thead>
                       <tbody id="daily-operations-tbody"></tbody>
                       <tfoot class="table-warning">
-                        <tr><td colspan="8" class="fw-bold text-end">إجمالي العمليات</td><td class="fw-bold" id="daily-operations-total">0</td><td></td></tr>
+                        <tr><td colspan="8" class="fw-bold text-end">إجمالي العمليات (كل الأيام)</td><td class="fw-bold" id="daily-operations-total">0</td><td></td></tr>
                       </tfoot>
                     </table>
                   </div>
@@ -1858,9 +1859,9 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
-  <script src="/js/app.js?v=20260831u"></script>
-  <script src="/js/daily-picker.js?v=20260831f"></script>
-  <script src="/js/daily-charges.js?v=20260902g"></script>
+  <script src="/js/app.js?v=20260902h"></script>
+  <script src="/js/daily-picker.js?v=20260902h"></script>
+  <script src="/js/daily-charges.js?v=20260902h"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>
 </body>

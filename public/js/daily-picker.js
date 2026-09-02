@@ -54,9 +54,7 @@
     if (!usesCatalog && !hasServicePicker) return '';
 
     const kind = usesCatalog ? 'catalog' : 'service';
-    const placeholder = usesCatalog
-      ? `بحث ${section.name || 'صنف'} (حرفين+)`
-      : `بحث ${section.name || 'خدمة'} (حرفين+)`;
+    const placeholder = '';
     const selectedId = usesCatalog ? line.catalog_item_id || '' : line.service_id || '';
     const unitSelect =
       usesCatalog
