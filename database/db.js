@@ -882,6 +882,15 @@ async function runMigrations() {
   );
   await query(`ALTER TABLE patient_operations ADD COLUMN IF NOT EXISTS operation_start_time VARCHAR(10) DEFAULT ''`);
   await query(`ALTER TABLE patient_operations ADD COLUMN IF NOT EXISTS operation_end_time VARCHAR(10) DEFAULT ''`);
+  await query(
+    `ALTER TABLE patient_operations ADD COLUMN IF NOT EXISTS companion_amount NUMERIC(14,2) NOT NULL DEFAULT 0`
+  );
+  await query(
+    `ALTER TABLE patient_operations ADD COLUMN IF NOT EXISTS nursing_point_amount NUMERIC(14,2) NOT NULL DEFAULT 0`
+  );
+  await query(
+    `ALTER TABLE patient_operations ADD COLUMN IF NOT EXISTS patient_assistant_amount NUMERIC(14,2) NOT NULL DEFAULT 0`
+  );
 
   await query(`
     CREATE TABLE IF NOT EXISTS daily_entry_catalog_code_registry (
@@ -1085,6 +1094,13 @@ async function seedDailyChargeSections() {
     { code: 'xray_stamp', name: 'دمغة أشعة', category_code: 'STAMPS', input_type: 'amount', sort_order: 17 },
     { code: 'other', name: 'أخرى', category_code: 'GENERAL', input_type: 'amount', sort_order: 18 },
     { code: 'prosthetics', name: 'مصنع', category_code: 'PROSTHETICS', input_type: 'amount', sort_order: 19 },
+    {
+      code: 'operation_pick',
+      name: 'عملية جراحية (بحث)',
+      category_code: 'SPINE_CENTER',
+      input_type: 'amount',
+      sort_order: 98,
+    },
     {
       code: 'cosmetics',
       name: 'مستحضرات تجميل',

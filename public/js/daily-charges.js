@@ -275,13 +275,38 @@ function computeAllDaysTabTotal(entries, tab) {
   return total;
 }
 
+function getOperationRowTotalFromPayload(op = {}) {
+  return (
+    dailyParseAmount(op.amount) +
+    dailyParseAmount(op.companion_amount) +
+    dailyParseAmount(op.nursing_point_amount) +
+    dailyParseAmount(op.patient_assistant_amount)
+  );
+}
+
+function getOperationRowTotal(tr) {
+  if (!tr) return 0;
+  return (
+    dailyParseAmount(tr.querySelector('.daily-op-amount')?.value) +
+    dailyParseAmount(tr.querySelector('.daily-op-companion')?.value) +
+    dailyParseAmount(tr.querySelector('.daily-op-nursing')?.value) +
+    dailyParseAmount(tr.querySelector('.daily-op-assistant')?.value)
+  );
+}
+
+function updateOperationRowTotal(tr) {
+  if (!tr) return;
+  const total = getOperationRowTotal(tr);
+  const el = tr.querySelector('.daily-op-row-total');
+  if (el) el.value = total > 0 ? formatAmountFieldValue(total) : '';
+}
+
 function getOperationsAllDaysTotal() {
-  let todayDom = 0;
-  document.querySelectorAll('#daily-operations-tbody .daily-op-amount').forEach((input) => {
-    todayDom += dailyParseAmount(input.value);
+  let domTotal = 0;
+  document.querySelectorAll('#daily-operations-tbody .daily-operation-row').forEach((tr) => {
+    domTotal += getOperationRowTotal(tr);
   });
-  const otherDays = Math.max(0, dailyOperationsAllTotalCache - dailyOperationsTodaySavedTotal);
-  return otherDays + todayDom;
+  return domTotal;
 }
 
 function rebuildDailySheetSerialState(entries = []) {
@@ -513,7 +538,7 @@ function applyDailyTabColumnVisibility() {
       'خدمات متنوعة — ارفع «الخدمات الطبية» أو «إجراءات وحقن الألم» من زر الاستيراد (إدارة).';
   } else if (hint && activeDailyTab === 'operations') {
     hint.textContent =
-      'عمليات — أدخل اسم العملية، الأوقات، الجراح، التخدير، تصنيف الحالة والمبلغ ثم احفظ.';
+      'عمليات — تاريخ، العملية، الأوقات، المرافق، نقطة تمريض، مساعد تمريض، والإجمالي يُحسب تلقائياً. مرّر الجدول لليمين/اليسار لرؤية كل الأعمدة.';
   } else if (hint && activeDailyTab === 'stay') {
     hint.textContent = '';
   } else if (hint && codes) {
@@ -651,14 +676,16 @@ async function refreshOperationsTotalsCache() {
     const allOps = await apiJson(
       `${DAILY_API}/operations?file_number=${encodeURIComponent(fileNumber)}`
     );
-    const today = getLocalDateString();
     dailyOperationsAllTotalCache = (allOps || []).reduce(
-      (sum, op) => sum + dailyParseAmount(op.amount),
+      (sum, op) =>
+        sum +
+        dailyParseAmount(op.amount) +
+        dailyParseAmount(op.companion_amount) +
+        dailyParseAmount(op.nursing_point_amount) +
+        dailyParseAmount(op.patient_assistant_amount),
       0
     );
-    dailyOperationsTodaySavedTotal = (allOps || [])
-      .filter((op) => fmtStayDate(op.entry_date) === today)
-      .reduce((sum, op) => sum + dailyParseAmount(op.amount), 0);
+    dailyOperationsTodaySavedTotal = 0;
   } catch {
     dailyOperationsAllTotalCache = 0;
     dailyOperationsTodaySavedTotal = 0;
@@ -687,6 +714,134 @@ function computeOperationDurationHours(startTime, endTime) {
   return Math.round(((end - start) / 60) * 100) / 100;
 }
 
+const OPERATION_PICKER_SECTION_CODE = 'operation_pick';
+
+function buildOperationNamePickerHtml(selectedName = '') {
+  return `
+    <div class="daily-op-picker position-relative" data-section="${OPERATION_PICKER_SECTION_CODE}">
+      <div class="input-group input-group-sm">
+        <input type="search" class="form-control form-control-sm daily-op-picker-search" value="${dailyEscapeAttr(selectedName)}" autocomplete="off" placeholder="">
+        <button type="button" class="btn btn-outline-secondary btn-sm daily-op-picker-clear" title="مسح الاختيار" aria-label="مسح">×</button>
+      </div>
+      <input type="hidden" class="daily-op-picker-value">
+      <div class="daily-op-picker-suggest service-suggest d-none"></div>
+    </div>`;
+}
+
+function getOperationNameFromRow(tr) {
+  const search = tr?.querySelector('.daily-op-picker-search');
+  if (search) return String(search.value || '').trim();
+  return String(tr?.querySelector('.daily-op-name')?.value || '').trim();
+}
+
+function renderOperationPickerSuggestions(container, result, query, tr) {
+  const rows = result?.rows || [];
+  if (result?.min_search && String(query || '').trim().length < 2) {
+    container.innerHTML =
+      '<div class="service-suggest-empty p-2 small text-muted">اكتب حرفين على الأقل للبحث</div>';
+    container.classList.remove('d-none');
+    return;
+  }
+  if (!rows.length) {
+    const hint = result?.hint
+      ? `<div class="p-2 small text-warning">${dailyEscapeHtml(result.hint)}</div>`
+      : '';
+    container.innerHTML =
+      hint +
+      '<div class="service-suggest-empty p-2 small text-muted">لا توجد نتائج — ارفع ملف العمليات الجراحية أولاً</div>';
+    container.classList.remove('d-none');
+    return;
+  }
+  container.innerHTML = rows
+    .map((item) => {
+      const price = Number(item.price ?? item.list_price) || 0;
+      const label = item.code ? `${item.code} — ${item.name}` : item.name;
+      return `<button type="button" class="service-suggest-item daily-op-suggest-item w-100 text-start border-0 bg-transparent" data-name="${dailyEscapeAttr(item.name || '')}" data-price="${price}">
+        <strong>${dailyEscapeHtml(label)}</strong> — ${dailyFmt(price)}
+      </button>`;
+    })
+    .join('');
+  container.classList.remove('d-none');
+  container.querySelectorAll('.daily-op-suggest-item').forEach((btn) => {
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const name = btn.dataset.name || '';
+      const price = Number(btn.dataset.price) || 0;
+      const searchInput = tr.querySelector('.daily-op-picker-search');
+      if (searchInput) searchInput.value = name;
+      const amountInput = tr.querySelector('.daily-op-amount');
+      if (amountInput && price > 0) {
+        if (typeof setCommaAmountValue === 'function') setCommaAmountValue(amountInput, price);
+        else amountInput.value = formatAmountFieldValue(price);
+      }
+      container.classList.add('d-none');
+      updateOperationRowTotal(tr);
+      updateOperationsTotal();
+    });
+  });
+}
+
+function bindOperationNamePicker(tr) {
+  const picker = tr?.querySelector('.daily-op-picker');
+  const searchInput = picker?.querySelector('.daily-op-picker-search');
+  const suggest = picker?.querySelector('.daily-op-picker-suggest');
+  const clearBtn = picker?.querySelector('.daily-op-picker-clear');
+  if (!picker || !searchInput || !suggest) return;
+  if (picker.dataset.bound === '1') return;
+  picker.dataset.bound = '1';
+
+  let debounceTimer = null;
+  let searchAbort = null;
+
+  const runSearch = async () => {
+    const q = searchInput.value.trim();
+    if (q.length < 2) {
+      suggest.classList.add('d-none');
+      return;
+    }
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    try {
+      const params = new URLSearchParams({
+        section_code: OPERATION_PICKER_SECTION_CODE,
+        search: q,
+        limit: '30',
+      });
+      const res = await apiFetch(`${DAILY_API}/picker/search?${params}`, {
+        signal: searchAbort.signal,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      renderOperationPickerSuggestions(suggest, data, q, tr);
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      suggest.innerHTML = '<div class="service-suggest-empty p-2 small text-muted">تعذر البحث</div>';
+      suggest.classList.remove('d-none');
+    }
+  };
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(runSearch, 250);
+  });
+  searchInput.addEventListener('focus', () => {
+    if (searchInput.value.trim().length >= 2) runSearch();
+  });
+  searchInput.addEventListener('blur', () => {
+    setTimeout(() => suggest.classList.add('d-none'), 200);
+  });
+  clearBtn?.addEventListener('click', () => {
+    searchInput.value = '';
+    const valueInput = picker.querySelector('.daily-op-picker-value');
+    if (valueInput) valueInput.value = '';
+    const amountInput = tr.querySelector('.daily-op-amount');
+    if (amountInput) amountInput.value = '';
+    suggest.classList.add('d-none');
+    searchInput.focus();
+    updateOperationsTotal();
+  });
+}
+
 function createOperationRowHtml(op = {}) {
   const amountVal =
     op.amount != null && Number(op.amount) > 0
@@ -694,11 +849,33 @@ function createOperationRowHtml(op = {}) {
         ? formatAmountInput(op.amount)
         : dailyFormatInput(op.amount)
       : '';
+  const companionVal =
+    op.companion_amount != null && Number(op.companion_amount) > 0
+      ? formatAmountFieldValue(op.companion_amount)
+      : '';
+  const nursingVal =
+    op.nursing_point_amount != null && Number(op.nursing_point_amount) > 0
+      ? formatAmountFieldValue(op.nursing_point_amount)
+      : '';
+  const assistantVal =
+    op.patient_assistant_amount != null && Number(op.patient_assistant_amount) > 0
+      ? formatAmountFieldValue(op.patient_assistant_amount)
+      : '';
+  const dateVal = op.entry_date
+    ? String(op.entry_date).slice(0, 10)
+    : document.getElementById('daily-entry-date')?.value?.trim() || getLocalDateString();
   const startTimeVal = formatOperationTimeForInput(op.operation_start_time);
   const endTimeVal = formatOperationTimeForInput(op.operation_end_time);
+  const rowTotal =
+    (Number(op.amount) || 0) +
+    (Number(op.companion_amount) || 0) +
+    (Number(op.nursing_point_amount) || 0) +
+    (Number(op.patient_assistant_amount) || 0);
+  const rowTotalVal = rowTotal > 0 ? formatAmountFieldValue(rowTotal) : '';
   return `
     <td class="daily-col-serial"><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1"></td>
-    <td><input type="text" class="form-control form-control-sm daily-op-name" value="${dailyEscapeAttr(op.operation_name || '')}" autocomplete="off"></td>
+    <td><input type="date" class="form-control form-control-sm daily-op-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
+    <td>${buildOperationNamePickerHtml(op.operation_name || '')}</td>
     <td><input type="time" class="form-control form-control-sm daily-op-start-time" value="${dailyEscapeAttr(startTimeVal)}" autocomplete="off"></td>
     <td><input type="time" class="form-control form-control-sm daily-op-end-time" value="${dailyEscapeAttr(endTimeVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-op-surgeon" value="${dailyEscapeAttr(op.surgeon_name || '')}" autocomplete="off"></td>
@@ -706,6 +883,10 @@ function createOperationRowHtml(op = {}) {
     <td><input type="text" class="form-control form-control-sm daily-op-assistant" value="${dailyEscapeAttr(op.assistant_surgeon || '')}" autocomplete="off"></td>
     <td><select class="form-select form-select-sm daily-op-case-type fw-bold">${buildOperationCaseTypeOptions(op.case_type || 'special')}</select></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-op-amount comma-amount" value="${dailyEscapeAttr(amountVal)}" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-op-companion comma-amount" value="${dailyEscapeAttr(companionVal)}" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-op-nursing comma-amount" value="${dailyEscapeAttr(nursingVal)}" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-op-assistant-amt comma-amount" value="${dailyEscapeAttr(assistantVal)}" autocomplete="off"></td>
+    <td><input type="text" class="form-control form-control-sm daily-op-row-total bg-light fw-bold" readonly value="${dailyEscapeAttr(rowTotalVal)}"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-op-remove" title="حذف">×</button></td>`;
 }
 
@@ -733,8 +914,12 @@ function applyOperationCaseTypeStyle(select) {
 }
 
 function bindOperationRowEvents(tr) {
-  tr.querySelectorAll('.daily-op-amount').forEach((el) => {
-    el.addEventListener('input', updateOperationsTotal);
+  const onChargeChange = () => {
+    updateOperationRowTotal(tr);
+    updateOperationsTotal();
+  };
+  tr.querySelectorAll('.daily-op-amount, .daily-op-companion, .daily-op-nursing, .daily-op-assistant-amt').forEach((el) => {
+    el.addEventListener('input', onChargeChange);
   });
   tr.querySelector('.daily-op-remove')?.addEventListener('click', () => {
     tr.remove();
@@ -749,6 +934,8 @@ function bindOperationRowEvents(tr) {
   }
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
   bindDailyAmountRecalc(tr);
+  bindOperationNamePicker(tr);
+  updateOperationRowTotal(tr);
 }
 
 function ensureOperationRows() {
@@ -767,6 +954,7 @@ function addOperationRow(op = {}) {
   tr.innerHTML = createOperationRowHtml(op);
   tbody.appendChild(tr);
   bindOperationRowEvents(tr);
+  updateOperationRowTotal(tr);
   renumberPanelRowSerials('#daily-operations-tbody .daily-operation-row');
   updateOperationsTotal();
 }
@@ -774,13 +962,22 @@ function addOperationRow(op = {}) {
 function collectOperationsFromTable() {
   const rows = [];
   document.querySelectorAll('#daily-operations-tbody .daily-operation-row').forEach((tr) => {
-    const operation_name = tr.querySelector('.daily-op-name')?.value?.trim() || '';
+    const operation_name = getOperationNameFromRow(tr);
     const amount = dailyParseAmount(tr.querySelector('.daily-op-amount')?.value);
+    const companion_amount = dailyParseAmount(tr.querySelector('.daily-op-companion')?.value);
+    const nursing_point_amount = dailyParseAmount(tr.querySelector('.daily-op-nursing')?.value);
+    const patient_assistant_amount = dailyParseAmount(tr.querySelector('.daily-op-assistant-amt')?.value);
     const operation_start_time = tr.querySelector('.daily-op-start-time')?.value || '';
     const operation_end_time = tr.querySelector('.daily-op-end-time')?.value || '';
     const duration_hours = computeOperationDurationHours(operation_start_time, operation_end_time);
-    if (!operation_name && amount <= 0) return;
+    const entry_date =
+      tr.querySelector('.daily-op-date')?.value?.trim() ||
+      document.getElementById('daily-entry-date')?.value?.trim() ||
+      getLocalDateString();
+    const rowTotal = getOperationRowTotal(tr);
+    if (!operation_name && rowTotal <= 0) return;
     rows.push({
+      entry_date,
       operation_name,
       operation_start_time,
       operation_end_time,
@@ -790,12 +987,15 @@ function collectOperationsFromTable() {
       assistant_surgeon: tr.querySelector('.daily-op-assistant')?.value?.trim() || '',
       case_type: tr.querySelector('.daily-op-case-type')?.value || 'special',
       amount,
+      companion_amount,
+      nursing_point_amount,
+      patient_assistant_amount,
     });
   });
   return rows;
 }
 
-async function loadOperationsForToday() {
+async function loadOperationsForPatient() {
   const tbody = document.getElementById('daily-operations-tbody');
   if (!tbody) return;
   const fileNumber = getStayFileNumber();
@@ -807,9 +1007,8 @@ async function loadOperationsForToday() {
   }
   try {
     await refreshOperationsTotalsCache();
-    const today = getLocalDateString();
     const ops = await apiJson(
-      `${DAILY_API}/operations?file_number=${encodeURIComponent(fileNumber)}&entry_date=${encodeURIComponent(today)}`
+      `${DAILY_API}/operations?file_number=${encodeURIComponent(fileNumber)}`
     );
     tbody.innerHTML = '';
     if (ops.length) {
@@ -827,6 +1026,10 @@ async function loadOperationsForToday() {
   }
 }
 
+async function loadOperationsForToday() {
+  return loadOperationsForPatient();
+}
+
 async function saveOperationsPanel() {
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية', 'warning');
@@ -842,8 +1045,6 @@ async function saveOperationsPanel() {
     showToast('أضف عملية واحدة على الأقل (اسم أو مبلغ)', 'warning');
     return;
   }
-  const entry_date =
-    document.getElementById('daily-entry-date')?.value?.trim() || getLocalDateString();
   try {
     dailySaveInFlight = true;
     const saveBtn = document.getElementById('daily-save-btn');
@@ -851,13 +1052,15 @@ async function saveOperationsPanel() {
     const data = await apiJson(`${DAILY_API}/operations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_number, entry_date, operations }),
+      body: JSON.stringify({ file_number, operations }),
     });
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_id);
     await refreshOperationsTotalsCache();
     await loadOpenPatientStay(file_number);
     const totalLabel =
-      data.final_total != null ? dailyFmt(data.final_total) : dailyFmt(operations.reduce((s, o) => s + o.amount, 0));
+      data.final_total != null
+        ? dailyFmt(data.final_total)
+        : dailyFmt(operations.reduce((s, o) => s + getOperationRowTotalFromPayload(o), 0));
     showToast(`تم الحفظ — أُضيف على الفاتورة الكبيرة (${totalLabel})`, 'success');
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');

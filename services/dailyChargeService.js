@@ -42,6 +42,7 @@ const SECTION_PICKER_CATEGORY_CODES = {
   sessions: ['PHYSIO'],
   other: ['GENERAL', 'SPINE_BUILDING', 'RF_INJECTION'],
   prosthetics: ['PROSTHETICS'],
+  operation_pick: ['SPINE_CENTER'],
 };
 
 function getSectionPickerCategoryCodes(section) {
@@ -360,15 +361,24 @@ async function resolveDefaultServiceForSection(section, priceList) {
   return await enrichFirst(fallback.rows);
 }
 
+const VIRTUAL_PICKER_SECTIONS = {
+  operation_pick: {
+    code: 'operation_pick',
+    name: 'عملية جراحية',
+    category_code: 'SPINE_CENTER',
+    input_type: 'amount',
+  },
+};
+
 async function getSectionByCode(sectionCode) {
   const sections = await listSections();
   const section = sections.find((s) => s.code === sectionCode);
-  if (!section) {
-    const err = new Error('القسم غير موجود');
-    err.status = 404;
-    throw err;
-  }
-  return section;
+  if (section) return section;
+  const virtual = VIRTUAL_PICKER_SECTIONS[String(sectionCode || '').trim()];
+  if (virtual) return virtual;
+  const err = new Error('القسم غير موجود');
+  err.status = 404;
+  throw err;
 }
 
 async function searchDailyPickerItems({ section_code, search, page = 1, limit = 20 }) {
@@ -1094,10 +1104,10 @@ async function getSupplementalInvoiceItems(fileNumber, fromDate, toDate) {
   const to = normalizeCalendarDate(toDate);
   const items = [];
 
-  const { listOperationsInRange } = require('./patientOperationService');
+  const { listOperationsInRange, operationChargeTotal } = require('./patientOperationService');
   const operations = await listOperationsInRange(patient.id, from, to);
   for (const op of operations) {
-    const amount = round2(op.amount);
+    const amount = round2(operationChargeTotal(op));
     if (amount <= 0) continue;
     const dateLabel = formatDailyEntryDateLabel(op.entry_date);
     const detailParts = [op.operation_name || 'عملية'];
@@ -1111,6 +1121,15 @@ async function getSupplementalInvoiceItems(fileNumber, fromDate, toDate) {
     if (op.surgeon_name) detailParts.push(`جراح: ${op.surgeon_name}`);
     if (op.anesthesia_doctor) detailParts.push(`تخدير: ${op.anesthesia_doctor}`);
     if (op.assistant_surgeon) detailParts.push(`مساعد جراح: ${op.assistant_surgeon}`);
+    if (round2(op.companion_amount) > 0) {
+      detailParts.push(`مرافق: ${round2(op.companion_amount)}`);
+    }
+    if (round2(op.nursing_point_amount) > 0) {
+      detailParts.push(`نقطة تمريض: ${round2(op.nursing_point_amount)}`);
+    }
+    if (round2(op.patient_assistant_amount) > 0) {
+      detailParts.push(`مساعد تمريض: ${round2(op.patient_assistant_amount)}`);
+    }
     items.push({
       description: buildDailyItemDescription(dateLabel, `عملية — ${detailParts.join(' — ')}`, ''),
       quantity: 1,

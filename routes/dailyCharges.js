@@ -20,6 +20,7 @@ const { upsertPatient, getPatientByFileNumber, searchPatientsForDaily } = requir
 const {
   listOperations,
   saveOperationsForDate,
+  saveOperationsForPatient,
 } = require('../services/patientOperationService');
 const {
   getOpenPatientStay,
@@ -480,15 +481,13 @@ router.get('/operations', requirePermission('daily_charges.view'), async (req, r
 router.post('/operations', requirePermission('daily_charges.manage'), async (req, res) => {
   try {
     const file_number = String(req.body.file_number || '').trim();
-    const entry_date = req.body.entry_date;
-    if (!file_number || !entry_date) {
-      return res.status(400).json({ error: 'file_number و entry_date مطلوبان' });
+    if (!file_number) {
+      return res.status(400).json({ error: 'file_number مطلوب' });
     }
     const patient = await getPatientByFileNumber(file_number);
     if (!patient) return res.status(404).json({ error: 'المريض غير موجود' });
-    const operations = await saveOperationsForDate(
+    const operations = await saveOperationsForPatient(
       patient.id,
-      entry_date,
       Array.isArray(req.body.operations) ? req.body.operations : []
     );
     const stay = await getOpenPatientStay(file_number);
