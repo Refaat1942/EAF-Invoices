@@ -1373,25 +1373,6 @@ body {
   margin: 0;
 }
 
-#view-daily .daily-operations-table th:nth-child(1),
-#view-daily .daily-operations-table td:nth-child(1) {
-  min-width: 12rem;
-}
-
-#view-daily .daily-operations-table th:nth-child(4),
-#view-daily .daily-operations-table td:nth-child(4),
-#view-daily .daily-operations-table th:nth-child(5),
-#view-daily .daily-operations-table td:nth-child(5),
-#view-daily .daily-operations-table th:nth-child(6),
-#view-daily .daily-operations-table td:nth-child(6) {
-  min-width: 9.5rem;
-}
-
-#view-daily .daily-operations-table th:nth-child(7),
-#view-daily .daily-operations-table td:nth-child(7) {
-  min-width: 11rem;
-}
-
 #view-daily .daily-op-start-time,
 #view-daily .daily-op-end-time {
   min-width: 7.75rem;
@@ -1444,22 +1425,22 @@ body {
 
 #view-daily .daily-patient-summary-table th,
 #view-daily .daily-patient-summary-table th.daily-summary-label {
-  width: 11%;
-  min-width: 7.5rem;
+  width: 16%;
+  min-width: 8rem;
   font-weight: 800;
   vertical-align: middle;
   background-color: #e8f4fc !important;
   color: #1a5276;
   border-color: #d0e3f0;
-  padding: 0.6rem 0.9rem;
+  padding: 0.7rem 1rem;
   white-space: nowrap;
 }
 
 #view-daily .daily-patient-summary-table td {
   vertical-align: middle;
   background-color: #fff;
-  padding: 0.6rem 0.9rem;
-  width: 14%;
+  padding: 0.7rem 1rem;
+  width: 34%;
 }
 
 .daily-section-toolbar {
@@ -1484,11 +1465,11 @@ body {
 .daily-tabs-sheet-panel .daily-sheet-table .daily-meta-th,
 .daily-tabs-sheet-panel .daily-sheet-table .daily-section-th {
   font-size: 0.88rem;
-  padding: 0.55rem 0.4rem;
+  padding: 0.65rem 0.55rem;
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table td {
-  padding: 0.55rem 0.5rem;
+  padding: 0.65rem 0.55rem;
   overflow: visible;
   vertical-align: middle;
 }

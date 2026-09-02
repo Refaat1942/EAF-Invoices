@@ -62,7 +62,17 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(
+  express.static(path.join(__dirname, 'public'), {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      } else if (/\.(js|css)$/.test(filePath)) {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      }
+    },
+  })
+);
 
 app.get('/api/public/branding', async (req, res) => {
   try {
@@ -98,6 +108,7 @@ app.get('/api/health', async (req, res) => {
       status: 'ok',
       app: pkg.name,
       version: pkg.version,
+      ui_build: '20260902g',
       environment: isProduction() ? 'production' : process.env.NODE_ENV || 'development',
       db: 'connected',
       time: new Date().toISOString(),

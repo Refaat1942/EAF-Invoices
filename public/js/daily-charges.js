@@ -348,8 +348,10 @@ function applyDailyTabColumnVisibility() {
 
   const addRowBtn = document.getElementById('daily-add-row-btn');
   const saveBtn = document.getElementById('daily-save-btn');
-  if (addRowBtn) addRowBtn.classList.toggle('d-none', panelTabs.includes(activeDailyTab));
+  if (addRowBtn) addRowBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
   if (saveBtn) saveBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
+
+  if (activeDailyTab === 'operations') ensureOperationRows();
 
   updateSectionTabTotal();
 
@@ -641,7 +643,8 @@ async function loadOperationsForToday() {
   const fileNumber = getStayFileNumber();
   if (!fileNumber || !dailyStayContext?.invoice?.id) {
     tbody.innerHTML = '';
-    updateOperationsTotal();
+    if (activeDailyTab === 'operations') ensureOperationRows();
+    else updateOperationsTotal();
     return;
   }
   try {
@@ -971,26 +974,32 @@ function updateDailyPatientSummaryTable(ctx) {
       <td class="fw-bold">${dailyEscapeHtml(p.name || inv.patient_name || '—')}</td>
       <th class="daily-summary-label text-nowrap">رقم الملف</th>
       <td class="fw-bold">${dailyEscapeHtml(p.file_number || inv.file_number || '—')}</td>
-      <th class="daily-summary-label text-nowrap">النوع</th>
-      <td>${dailyEscapeHtml(typeLabel)}</td>
-      <th class="daily-summary-label text-nowrap">الجنسية</th>
-      <td>${dailyEscapeHtml(p.nationality || '—')}</td>
     </tr>
     <tr>
       <th class="daily-summary-label text-nowrap">الهاتف</th>
       <td>${dailyEscapeHtml(p.phone || '—')}</td>
       <th class="daily-summary-label text-nowrap">الجنس</th>
       <td>${dailyEscapeHtml(genderLabel)}</td>
-      <th class="daily-summary-label text-nowrap">المعاملة المالية</th>
-      <td>${dailyEscapeHtml(financial)}</td>
-      <th class="daily-summary-label text-nowrap">فترة الفاتورة</th>
-      <td>${dailyEscapeHtml(period)}</td>
+    </tr>
+    <tr>
+      <th class="daily-summary-label text-nowrap">النوع</th>
+      <td>${dailyEscapeHtml(typeLabel)}</td>
+      <th class="daily-summary-label text-nowrap">الجنسية</th>
+      <td>${dailyEscapeHtml(p.nationality || '—')}</td>
     </tr>
     <tr>
       <th class="daily-summary-label text-nowrap">رقم الفاتورة</th>
       <td class="fw-bold">${dailyEscapeHtml(invLabel)}</td>
       <th class="daily-summary-label text-nowrap">حالة الفاتورة</th>
       <td><span class="badge ${statusClass}">${dailyEscapeHtml(statusLabel)}</span></td>
+    </tr>
+    <tr>
+      <th class="daily-summary-label text-nowrap">المعاملة المالية</th>
+      <td>${dailyEscapeHtml(financial)}</td>
+      <th class="daily-summary-label text-nowrap">فترة الفاتورة</th>
+      <td>${dailyEscapeHtml(period)}</td>
+    </tr>
+    <tr>
       <th class="daily-summary-label text-nowrap">إجمالي الحركة</th>
       <td class="fw-bold amount-total">${dailyFmt(dailyTotal)}</td>
       <th class="daily-summary-label text-nowrap">إجمالي الفاتورة</th>
@@ -1001,6 +1010,8 @@ function updateDailyPatientSummaryTable(ctx) {
       <td class="fw-bold text-success amount-total">${dailyFmt(balance)}</td>
       <th class="daily-summary-label text-nowrap">المحصل</th>
       <td class="fw-bold amount-total">${dailyFmt(collected)}</td>
+    </tr>
+    <tr class="table-warning">
       <th class="daily-summary-label text-nowrap">المتبقي</th>
       <td class="fw-bold text-danger amount-total">${dailyFmt(remaining)}</td>
       <th class="daily-summary-label text-nowrap"></th>
@@ -3996,6 +4007,12 @@ function renderDailySectionsTable() {
   const subhead = document.getElementById('daily-sections-subhead');
   if (!head) return;
 
+  if (activeDailyTab === 'operations' || activeDailyTab === 'free-items') {
+    syncDailySheetTableLayout();
+    applyDailyTabColumnVisibility();
+    return;
+  }
+
   if (activeDailyTab === 'stay') {
     head.innerHTML =
       '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
@@ -4983,8 +5000,10 @@ function clearDailyForm() {
     addDailyEntryRow();
   }
   const opsBody = document.getElementById('daily-operations-tbody');
-  if (opsBody) opsBody.innerHTML = '';
-  updateOperationsTotal();
+  if (opsBody) {
+    opsBody.innerHTML = '';
+    ensureOperationRows();
+  }
   updateDailyGrandTotal();
 }
 
@@ -5244,7 +5263,10 @@ document.addEventListener('DOMContentLoaded', () => {
     openDailyItemsPrint('laboratory')
   );
   document.getElementById('daily-save-btn')?.addEventListener('click', saveDailyEntry);
-  document.getElementById('daily-add-row-btn')?.addEventListener('click', () => addDailyEntryRow());
+  document.getElementById('daily-add-row-btn')?.addEventListener('click', () => {
+    if (activeDailyTab === 'operations') addOperationRow();
+    else addDailyEntryRow();
+  });
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
   document.getElementById('daily-free-add-row')?.addEventListener('click', () => addFreeItemRow());
   document.getElementById('daily-free-save-btn')?.addEventListener('click', saveFreeItems);
