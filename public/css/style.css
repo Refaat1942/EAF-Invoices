@@ -696,7 +696,7 @@ body {
 .daily-sheet-table--stay {
   table-layout: fixed;
   width: 100%;
-  max-width: 1120px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -770,8 +770,8 @@ body {
 
 .daily-main-sheet-wrap.daily-sheet-wrap,
 #daily-main-sheet-wrap.daily-sheet-wrap {
-  display: flex;
-  justify-content: center;
+  display: block;
+  width: 100%;
 }
 
 .daily-sheet-table:not(.daily-sheet-table--stay) td {
@@ -787,7 +787,7 @@ body {
 .daily-sheet-table--other {
   table-layout: fixed;
   width: 100%;
-  max-width: 1280px;
+  max-width: none;
   margin: 0 auto;
 }
 
@@ -1387,15 +1387,78 @@ body {
   background-color: #f0f7ff;
 }
 
-#view-daily .daily-patient-summary-table th {
+#view-daily .daily-patient-summary-table th,
+#view-daily .daily-patient-summary-table th.daily-summary-label {
   width: 11%;
   min-width: 7rem;
-  font-weight: 700;
+  font-weight: 800;
   vertical-align: middle;
+  background-color: #e8f4fc !important;
+  color: #1a5276;
+  border-color: #d0e3f0;
 }
 
 #view-daily .daily-patient-summary-table td {
   vertical-align: middle;
+  background-color: #fff;
+}
+
+.daily-section-toolbar {
+  padding-bottom: 0.85rem;
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 0;
+}
+
+.daily-tabs-sheet-panel {
+  margin-top: 1.35rem;
+  padding-top: 0.35rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-wrap {
+  padding: 0.85rem 1rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table {
+  font-size: 0.95rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-meta-th,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-section-th {
+  font-size: 0.88rem;
+  padding: 0.55rem 0.4rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table td {
+  padding: 0.5rem 0.4rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .form-control,
+.daily-tabs-sheet-panel .daily-sheet-table .form-control-sm {
+  font-size: 0.92rem;
+  padding: 0.35rem 0.45rem;
+}
+
+#daily-main-sheet-wrap.daily-sheet-wrap {
+  margin-top: 0.75rem;
+  width: 100%;
+  max-width: none;
+}
+
+.daily-sheet-table--medicines,
+.daily-sheet-table--supplies,
+.daily-sheet-table--lab,
+.daily-sheet-table--radiology,
+.daily-sheet-table--exams,
+.daily-sheet-table--sessions,
+.daily-sheet-table--other {
+  table-layout: fixed;
+  width: 100%;
+  max-width: none;
+  margin: 0 auto;
+}
+
+.daily-sheet-table--stay {
+  max-width: none;
 }
 
 .daily-picker-hero {

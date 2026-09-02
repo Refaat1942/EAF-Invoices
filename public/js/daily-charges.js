@@ -194,19 +194,14 @@ function applyDailyTabColumnVisibility() {
 
   const addRowBtn = document.getElementById('daily-add-row-btn');
   const saveBtn = document.getElementById('daily-save-btn');
-  const clearBtn = document.getElementById('daily-clear-btn');
   if (addRowBtn) addRowBtn.classList.toggle('d-none', panelTabs.includes(activeDailyTab));
   if (saveBtn) saveBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
-  if (clearBtn) clearBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
 
   updateSectionTabTotal();
 
   const hint = document.getElementById('daily-tab-hint');
   if (hint && activeDailyTab === 'free-items') {
     hint.textContent = 'بنود حرة — أي وصف وسعر ثم احفظ لتُضاف على الفاتورة الكبيرة مع الحركة اليومية.';
-  } else if (hint && activeDailyTab === 'stay') {
-    hint.textContent =
-      'إقامة اليوم — السعر من اللائحة تلقائياً. استخدم «ترحيل أيام الإقامة» لإنشاء الأيام الفائتة من الدخول حتى أمس.';
   } else if (hint && activeDailyTab === 'exams') {
     hint.textContent =
       'كشوفات — حالة الكشف، النوع، الطبيب، السعر، تاريخ الكشف، واسم المريض.';
@@ -226,11 +221,16 @@ function applyDailyTabColumnVisibility() {
       'أشعة — نوع الأشعة، السعر، الإجمالي، تاريخ الأشعة، والدمغة.';
   } else if (hint && activeDailyTab === 'other') {
     hint.textContent = 'خدمات متنوعة — ابحث واختر الخدمة، السعر من اللائحة تلقائياً.';
+  } else if (hint && activeDailyTab === 'stay') {
+    hint.textContent = '';
   } else if (hint && codes) {
     const label = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab)?.label || '';
     hint.textContent = `قسم «${label}» — ابحث واختر البند، السعر من اللائحة تلقائياً. احفظ لتُضاف على الفاتورة الكبيرة.`;
   } else if (hint) {
     hint.textContent = 'اختر قسماً من التبويبات أعلاه.';
+  }
+  if (hint) {
+    hint.style.display = hint.textContent?.trim() ? '' : 'none';
   }
   updateDailyClinicalContextBar();
   renderDailySectionTabs();
@@ -695,7 +695,6 @@ function showDailyPatientPicker() {
   document.getElementById('daily-patient-picker-wrap')?.classList.remove('d-none');
   document.getElementById('daily-patient-workspace')?.classList.add('d-none');
   document.getElementById('daily-change-patient-btn')?.classList.add('d-none');
-  document.getElementById('daily-simple-flow-hint')?.classList.add('d-none');
   document.getElementById('daily-patient-results-wrap')?.classList.add('d-none');
   document.getElementById('daily-patient-picker-hint')?.classList.remove('d-none');
   const searchInput = document.getElementById('daily-patient-search');
@@ -721,8 +720,6 @@ function showDailyPatientWorkspace(ctx = dailyStayContext) {
   document.getElementById('daily-patient-picker-wrap')?.classList.add('d-none');
   document.getElementById('daily-patient-workspace')?.classList.remove('d-none');
   document.getElementById('daily-change-patient-btn')?.classList.remove('d-none');
-  const hintEl = document.getElementById('daily-simple-flow-hint');
-  if (hintEl) hintEl.classList.remove('d-none');
   const tab = defaultDailyTabForPatient(ctx);
   showDailySection(tab);
   renderDailySectionTabs();
@@ -767,43 +764,43 @@ function updateDailyPatientSummaryTable(ctx) {
 
   body.innerHTML = `
     <tr>
-      <th class="bg-light text-nowrap">اسم المريض</th>
+      <th class="daily-summary-label text-nowrap">اسم المريض</th>
       <td class="fw-bold">${dailyEscapeHtml(p.name || inv.patient_name || '—')}</td>
-      <th class="bg-light text-nowrap">رقم الملف</th>
+      <th class="daily-summary-label text-nowrap">رقم الملف</th>
       <td class="fw-bold">${dailyEscapeHtml(p.file_number || inv.file_number || '—')}</td>
-      <th class="bg-light text-nowrap">النوع</th>
+      <th class="daily-summary-label text-nowrap">النوع</th>
       <td>${dailyEscapeHtml(typeLabel)}</td>
-      <th class="bg-light text-nowrap">الجنسية</th>
+      <th class="daily-summary-label text-nowrap">الجنسية</th>
       <td>${dailyEscapeHtml(p.nationality || '—')}</td>
     </tr>
     <tr>
-      <th class="bg-light text-nowrap">الهاتف</th>
+      <th class="daily-summary-label text-nowrap">الهاتف</th>
       <td>${dailyEscapeHtml(p.phone || '—')}</td>
-      <th class="bg-light text-nowrap">الجنس</th>
+      <th class="daily-summary-label text-nowrap">الجنس</th>
       <td>${dailyEscapeHtml(genderLabel)}</td>
-      <th class="bg-light text-nowrap">المعاملة المالية</th>
+      <th class="daily-summary-label text-nowrap">المعاملة المالية</th>
       <td>${dailyEscapeHtml(financial)}</td>
-      <th class="bg-light text-nowrap">فترة الفاتورة</th>
+      <th class="daily-summary-label text-nowrap">فترة الفاتورة</th>
       <td>${dailyEscapeHtml(period)}</td>
     </tr>
     <tr>
-      <th class="bg-light text-nowrap">رقم الفاتورة</th>
+      <th class="daily-summary-label text-nowrap">رقم الفاتورة</th>
       <td class="fw-bold">${dailyEscapeHtml(invLabel)}</td>
-      <th class="bg-light text-nowrap">حالة الفاتورة</th>
+      <th class="daily-summary-label text-nowrap">حالة الفاتورة</th>
       <td><span class="badge ${statusClass}">${dailyEscapeHtml(statusLabel)}</span></td>
-      <th class="bg-light text-nowrap">إجمالي الحركة</th>
+      <th class="daily-summary-label text-nowrap">إجمالي الحركة</th>
       <td class="fw-bold amount-total">${dailyFmt(dailyTotal)}</td>
-      <th class="bg-light text-nowrap">إجمالي الفاتورة</th>
+      <th class="daily-summary-label text-nowrap">إجمالي الفاتورة</th>
       <td class="fw-bold text-primary amount-total">${dailyFmt(finalTotal)}</td>
     </tr>
     <tr class="table-warning">
-      <th class="bg-light text-nowrap">رصيد الحساب</th>
+      <th class="daily-summary-label text-nowrap">رصيد الحساب</th>
       <td class="fw-bold text-success amount-total">${dailyFmt(balance)}</td>
-      <th class="bg-light text-nowrap">المحصل</th>
+      <th class="daily-summary-label text-nowrap">المحصل</th>
       <td class="fw-bold amount-total">${dailyFmt(collected)}</td>
-      <th class="bg-light text-nowrap">المتبقي</th>
+      <th class="daily-summary-label text-nowrap">المتبقي</th>
       <td class="fw-bold text-danger amount-total">${dailyFmt(remaining)}</td>
-      <th class="bg-light text-nowrap"></th>
+      <th class="daily-summary-label text-nowrap"></th>
       <td></td>
     </tr>`;
 }
@@ -4989,8 +4986,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('batch-stay-submit-btn')?.addEventListener('click', submitBatchStayPost);
   document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
-  document.getElementById('daily-toggle-review-btn')?.addEventListener('click', toggleDailyInvoiceReview);
-  document.getElementById('daily-review-close-btn')?.addEventListener('click', closeDailyInvoiceReview);
   document.getElementById('daily-invoice-pdf-btn')?.addEventListener('click', openDailyInvoicePdf);
   document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
     const q = document.getElementById('daily-patient-search')?.value || '';
@@ -5043,7 +5038,6 @@ document.addEventListener('DOMContentLoaded', () => {
     openDailyItemsPrint('laboratory')
   );
   document.getElementById('daily-save-btn')?.addEventListener('click', saveDailyEntry);
-  document.getElementById('daily-clear-btn')?.addEventListener('click', clearDailyForm);
   document.getElementById('daily-add-row-btn')?.addEventListener('click', () => addDailyEntryRow());
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
   document.getElementById('daily-free-add-row')?.addEventListener('click', () => addFreeItemRow());
