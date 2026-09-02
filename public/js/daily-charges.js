@@ -118,6 +118,165 @@ function getLocalDateString() {
   return `${y}-${m}-${day}`;
 }
 
+let dailySheetSerialNext = 1;
+const dailySheetSerialMap = new Map();
+
+function dailyRowSerialCellHtml(serial = '') {
+  const val = serial ? String(serial) : '';
+  return `<td><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" value="${dailyEscapeAttr(val)}" placeholder="—"></td>`;
+}
+
+function rebuildDailySheetSerialState(entries = []) {
+  dailySheetSerialMap.clear();
+  const today = getLocalDateString();
+  const sorted = [...entries]
+    .filter((e) => fmtStayDate(e.entry_date) === today)
+    .sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+  let n = 0;
+  for (const entry of sorted) {
+    const lines = (entry.lines || []).filter((line) => lineHasChargeData(line));
+    if (lines.length) {
+      for (const line of lines) {
+        n += 1;
+        if (entry.id && line.id) dailySheetSerialMap.set(`${entry.id}:${line.id}`, n);
+        else if (entry.id && line.section_code) dailySheetSerialMap.set(`${entry.id}:${line.section_code}`, n);
+      }
+    } else if (entry.id) {
+      n += 1;
+      dailySheetSerialMap.set(`entry:${entry.id}`, n);
+    }
+  }
+  dailySheetSerialNext = n + 1;
+}
+
+function resolveDailyRowSerial(entry, line = null) {
+  if (entry?.id) {
+    const keys = [];
+    if (line?.id) keys.push(`${entry.id}:${line.id}`);
+    if (line?.section_code) keys.push(`${entry.id}:${line.section_code}`);
+    keys.push(`entry:${entry.id}`);
+    for (const key of keys) {
+      if (dailySheetSerialMap.has(key)) return dailySheetSerialMap.get(key);
+    }
+  }
+  return allocateDailyRowSerial();
+}
+
+function allocateDailyRowSerial() {
+  const n = dailySheetSerialNext;
+  dailySheetSerialNext += 1;
+  return n;
+}
+
+function stampDailyRowSerial(tr, serial) {
+  const s = serial ? String(serial) : '';
+  if (s) tr.dataset.dailySerial = s;
+  const el = tr.querySelector('.daily-row-serial');
+  if (el) el.value = s;
+}
+
+function renumberPanelRowSerials(selector) {
+  let n = 0;
+  document.querySelectorAll(selector).forEach((tr) => {
+    n += 1;
+    stampDailyRowSerial(tr, n);
+  });
+}
+
+async function fetchDailyDoctorSuggestions(search = '', selectedId = null) {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (selectedId) params.set('include_doctor_id', selectedId);
+  params.set('limit', '25');
+  return await apiJson(`/api/doctors/for-daily?${params}`);
+}
+
+function buildDailyDoctorSuggestHtml(name = '', doctorId = '') {
+  return `
+    <div class="daily-doctor-suggest-wrap position-relative">
+      <input type="search" class="form-control form-control-sm daily-exam-doctor-search" placeholder="بحث عن الطبيب..." value="${dailyEscapeAttr(name)}" autocomplete="off">
+      <input type="hidden" class="daily-exam-doctor" value="${dailyEscapeAttr(doctorId ? String(doctorId) : '')}">
+      <div class="daily-doctor-suggest-menu list-group shadow-sm d-none"></div>
+    </div>`;
+}
+
+function bindDailyDoctorSuggestWrap(tr) {
+  const wrap = tr.querySelector('.daily-doctor-suggest-wrap');
+  if (!wrap || wrap.dataset.bound === '1') return;
+  wrap.dataset.bound = '1';
+  const input = wrap.querySelector('.daily-exam-doctor-search');
+  const hidden = wrap.querySelector('.daily-exam-doctor');
+  const menu = wrap.querySelector('.daily-doctor-suggest-menu');
+  if (!input || !hidden || !menu) return;
+
+  const hideMenu = () => menu.classList.add('d-none');
+  const pickDoctor = (id, name) => {
+    hidden.value = id ? String(id) : '';
+    input.value = name || '';
+    tr.dataset.doctorId = hidden.value;
+    hideMenu();
+  };
+
+  menu.addEventListener('click', (e) => {
+    const btn = e.target.closest('.daily-doctor-suggest-opt');
+    if (!btn) return;
+    pickDoctor(btn.dataset.id, btn.textContent.trim());
+  });
+
+  input.addEventListener('input', () => {
+    clearTimeout(wrap._doctorTimer);
+    wrap._doctorTimer = setTimeout(async () => {
+      const q = input.value.trim();
+      if (!q) {
+        hidden.value = '';
+        tr.dataset.doctorId = '';
+        hideMenu();
+        return;
+      }
+      try {
+        const doctors = await fetchDailyDoctorSuggestions(q, hidden.value || null);
+        if (!doctors.length) {
+          menu.innerHTML = '<div class="list-group-item small text-muted py-2">لا نتائج</div>';
+          menu.classList.remove('d-none');
+          return;
+        }
+        menu.innerHTML = doctors
+          .map(
+            (d) =>
+              `<button type="button" class="list-group-item list-group-item-action py-2 daily-doctor-suggest-opt" data-id="${d.id}">${dailyEscapeHtml(d.name)}</button>`
+          )
+          .join('');
+        menu.classList.remove('d-none');
+      } catch {
+        hideMenu();
+      }
+    }, 280);
+  });
+
+  input.addEventListener('focus', () => {
+    if (input.value.trim()) input.dispatchEvent(new Event('input'));
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) hideMenu();
+  });
+}
+
+async function hydrateDailyDoctorSuggest(tr, doctorId) {
+  if (!doctorId) return;
+  try {
+    const doctors = await fetchDailyDoctorSuggestions('', doctorId);
+    if (!doctors[0]) return;
+    const input = tr.querySelector('.daily-exam-doctor-search');
+    const hidden = tr.querySelector('.daily-exam-doctor');
+    if (hidden) hidden.value = String(doctors[0].id);
+    if (input) input.value = doctors[0].name;
+    tr.dataset.doctorId = String(doctors[0].id);
+  } catch {
+    /* ignore */
+  }
+}
+
 function codesForActiveDailyTab() {
   if (!activeDailyTab) return null;
   const group = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab);
@@ -181,18 +340,11 @@ function applyDailyTabColumnVisibility() {
 
   const mainSheet = document.getElementById('daily-main-sheet-wrap');
   const opsPanel = document.getElementById('daily-operations-panel');
-  const glassesPanel = document.getElementById('daily-glasses-panel');
   const freePanel = document.getElementById('daily-free-items-panel');
-  const totalBar = document.getElementById('daily-section-total-bar');
   const panelTabs = ['operations', 'free-items'];
   if (mainSheet) mainSheet.style.display = panelTabs.includes(activeDailyTab) ? 'none' : '';
   if (opsPanel) opsPanel.style.display = activeDailyTab === 'operations' ? '' : 'none';
-  if (glassesPanel) glassesPanel.style.display = activeDailyTab === 'supplies' ? '' : 'none';
   if (freePanel) freePanel.style.display = activeDailyTab === 'free-items' ? '' : 'none';
-  if (totalBar) {
-    totalBar.style.display =
-      hideMeta || activeDailyTab === 'operations' || activeDailyTab === 'free-items' ? '' : 'none';
-  }
 
   const addRowBtn = document.getElementById('daily-add-row-btn');
   const saveBtn = document.getElementById('daily-save-btn');
@@ -240,7 +392,7 @@ function applyDailyTabColumnVisibility() {
 
 function updateSectionTabTotal() {
   const codes = codesForActiveDailyTab();
-  const display = document.getElementById('daily-section-total');
+  const display = document.getElementById('daily-total-display');
   if (!display) return;
   let total = 0;
   if (activeDailyTab === 'operations') {
@@ -260,7 +412,6 @@ function updateSectionTabTotal() {
       document.querySelectorAll('.daily-sup-row').forEach((tr) => {
         total += dailyParseAmount(tr.querySelector('.daily-sup-sell-total')?.value);
       });
-      total += getGlassesFinalAmount();
     } else if (activeDailyTab === 'lab') {
       document.querySelectorAll('.daily-lab-row').forEach((tr) => {
         total += getLabRowGrandTotal(tr);
@@ -294,22 +445,15 @@ function updateSectionTabTotal() {
       });
     }
   }
-  display.textContent = dailyFmt(total);
+  display.textContent = total > 0 ? dailyFmt(total) : '';
 }
 
 function updateGlassesFinalAmount() {
-  const price = dailyParseAmount(document.getElementById('daily-glasses-price')?.value);
-  const disc = dailyParseAmount(document.getElementById('daily-glasses-discount')?.value);
-  const finalEl = document.getElementById('daily-glasses-final');
-  if (!finalEl) return;
-  const final = Math.round(price * (1 - disc / 100) * 100) / 100;
-  finalEl.value = typeof formatAmountInput === 'function' ? formatAmountInput(final) : String(final);
   updateSectionTabTotal();
-  updateDailyGrandTotal();
 }
 
 function getGlassesFinalAmount() {
-  return dailyParseAmount(document.getElementById('daily-glasses-final')?.value);
+  return 0;
 }
 
 const OPERATION_CASE_OPTIONS = [
@@ -390,6 +534,7 @@ function createOperationRowHtml(op = {}) {
   const startTimeVal = formatOperationTimeForInput(op.operation_start_time);
   const endTimeVal = formatOperationTimeForInput(op.operation_end_time);
   return `
+    <td><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" placeholder="—"></td>
     <td><input type="text" class="form-control form-control-sm daily-op-name" value="${dailyEscapeAttr(op.operation_name || '')}" placeholder="اسم العملية" autocomplete="off"></td>
     <td><input type="time" class="form-control form-control-sm daily-op-start-time" value="${dailyEscapeAttr(startTimeVal)}" autocomplete="off"></td>
     <td><input type="time" class="form-control form-control-sm daily-op-end-time" value="${dailyEscapeAttr(endTimeVal)}" autocomplete="off"></td>
@@ -449,6 +594,7 @@ function addOperationRow(op = {}) {
   tr.innerHTML = createOperationRowHtml(op);
   tbody.appendChild(tr);
   bindOperationRowEvents(tr);
+  renumberPanelRowSerials('#daily-operations-tbody .daily-operation-row');
   updateOperationsTotal();
 }
 
@@ -493,6 +639,7 @@ async function loadOperationsForToday() {
     tbody.innerHTML = '';
     if (ops.length) {
       ops.forEach((op) => addOperationRow(op));
+      renumberPanelRowSerials('#daily-operations-tbody .daily-operation-row');
     } else {
       updateOperationsTotal();
     }
@@ -519,6 +666,7 @@ function createFreeItemRowHtml(item = {}) {
   const lineTotal = (Number(item.quantity) || 1) * dailyParseAmount(item.amount);
   const totalVal = lineTotal > 0 && typeof dailyFormatInput === 'function' ? dailyFormatInput(lineTotal) : '';
   return `
+    <td><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1" placeholder="—"></td>
     <td><input type="text" class="form-control form-control-sm daily-free-desc" value="${dailyEscapeHtml(item.description || '')}" placeholder="وصف البند" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-qty comma-amount" data-decimals="0" value="${qty}" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-amount comma-amount" value="${amt}" placeholder="0" autocomplete="off"></td>
@@ -557,6 +705,7 @@ function addFreeItemRow(item = {}) {
   tr.innerHTML = createFreeItemRowHtml(item);
   tbody.appendChild(tr);
   bindFreeItemRowEvents(tr);
+  renumberPanelRowSerials('#daily-free-items-tbody .daily-free-item-row');
   updateFreeItemsTotal();
 }
 
@@ -589,10 +738,6 @@ function updateFreeItemsTotal() {
   });
   const el = document.getElementById('daily-free-items-total');
   if (el) el.textContent = dailyFmt(total);
-  if (activeDailyTab === 'free-items') {
-    const sectionTotal = document.getElementById('daily-section-total');
-    if (sectionTotal) sectionTotal.textContent = dailyFmt(total);
-  }
 }
 
 async function loadFreeItemsPanel() {
@@ -704,6 +849,8 @@ function showDailyPatientPicker() {
   sessionStorage.removeItem('dailyStayFileNumber');
   dailyStayContext = null;
   activeDailyTab = '';
+  dailySheetSerialNext = 1;
+  dailySheetSerialMap.clear();
   updateDailyMilitaryAuthBanner(null);
 }
 
@@ -1139,10 +1286,7 @@ function collectPatientDemographics(mode = 'register') {
     );
   }
   if (isDaily) {
-    payload.glasses_lens_type = document.getElementById('daily-glasses-lens')?.value?.trim() || '';
-    payload.glasses_start_date = document.getElementById('daily-glasses-start')?.value || null;
-    payload.glasses_price = dailyParseAmount(document.getElementById('daily-glasses-price')?.value);
-    payload.glasses_discount_percent = dailyParseAmount(document.getElementById('daily-glasses-discount')?.value);
+    /* نظارات/بصريات — أُزيلت من شاشة المستلزمات */
   }
   return payload;
 }
@@ -1754,19 +1898,6 @@ function applyDailyStayContext(ctx) {
     if (milFrom) milFrom.value = fmtStayDate(ctx.patient.military_auth_from) || '';
     if (milTo) milTo.value = fmtStayDate(ctx.patient.military_auth_to) || '';
     if (milAmount) milAmount.value = String(ctx.patient.military_auth_amount ?? '');
-    const gLens = document.getElementById('daily-glasses-lens');
-    if (gLens) gLens.value = ctx.patient.glasses_lens_type || '';
-    const gStart = document.getElementById('daily-glasses-start');
-    if (gStart) gStart.value = fmtStayDate(ctx.patient.glasses_start_date) || '';
-    const gPrice = document.getElementById('daily-glasses-price');
-    if (gPrice && typeof setCommaAmountValue === 'function') {
-      setCommaAmountValue(gPrice, ctx.patient.glasses_price || 0);
-    }
-    const gDisc = document.getElementById('daily-glasses-discount');
-    if (gDisc && typeof setCommaAmountValue === 'function') {
-      setCommaAmountValue(gDisc, ctx.patient.glasses_discount_percent || 0);
-    }
-    updateGlassesFinalAmount();
     applyDailyPatientTypeUI(ctx.patient.patient_type || 'internal');
     if (ctx.patient.account_balance != null) {
       const balanceEl = document.getElementById('daily-stay-balance');
@@ -2360,16 +2491,7 @@ function bindExamRowEvents(tr) {
   if (caseSel) caseSel.addEventListener('change', () => onExamCaseChange(caseSel));
   const typeSel = tr.querySelector('.daily-exam-type');
   if (typeSel) typeSel.addEventListener('change', () => onExamTypeChange(typeSel));
-  const doctorSearch = tr.querySelector('.daily-exam-doctor-search');
-  const doctorSel = tr.querySelector('.daily-exam-doctor');
-  if (doctorSearch && doctorSel) {
-    doctorSearch.addEventListener('input', () => {
-      clearTimeout(tr._examDoctorSearchTimer);
-      tr._examDoctorSearchTimer = setTimeout(() => {
-        populateDailyDoctorSelect(doctorSel, '', doctorSel.value || null, doctorSearch.value.trim());
-      }, 300);
-    });
-  }
+  bindDailyDoctorSuggestWrap(tr);
   tr.querySelector('.daily-exam-stamp')?.addEventListener('input', refreshServiceRowTotals);
 }
 
@@ -2452,6 +2574,7 @@ function createStayDailyEntryRow(entry = {}) {
     : '';
 
   tr.innerHTML = `
+    ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry))}
     <td class="daily-col-date"><input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1"></td>
     <td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeId)}</select></td>
     <td class="daily-col-amount">
@@ -2556,12 +2679,10 @@ function createExamDailyEntryRow(entry = {}, examLine = null) {
   const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
 
   tr.innerHTML = `
+    ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><select class="form-select form-select-sm daily-exam-case">${buildExamCaseOptions(caseCode)}</select></td>
     <td><select class="form-select form-select-sm daily-exam-type">${buildExamTypeOptions(line.service_id, caseCode)}</select></td>
-    <td>
-      <input type="search" class="form-control form-control-sm daily-exam-doctor-search mb-1" placeholder="بحث طبيب..." autocomplete="off">
-      <select class="form-select form-select-sm daily-exam-doctor"><option value="">— الطبيب —</option></select>
-    </td>
+    <td class="daily-exam-doctor-cell">${buildDailyDoctorSuggestHtml('', entry.doctor_id || '')}</td>
     <td><input type="text" class="form-control form-control-sm daily-exam-unit-price bg-light" readonly value="${dailyEscapeAttr(priceVal)}" placeholder="سعر الكشف"></td>
     <td><input type="date" class="form-control form-control-sm daily-exam-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-exam-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
@@ -2572,7 +2693,7 @@ function createExamDailyEntryRow(entry = {}, examLine = null) {
   bindExamRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
-  populateDailyDoctorSelect(tr.querySelector('.daily-exam-doctor'), '', entry.doctor_id || null);
+  void hydrateDailyDoctorSuggest(tr, entry.doctor_id || null);
   const typeSel = tr.querySelector('.daily-exam-type');
   if (typeSel?.value) onExamTypeChange(typeSel);
   else if (priceVal) updateRowTotal(tr);
@@ -2754,6 +2875,7 @@ function createSessionsRow(entry = {}, sessionsLine = null) {
   const totalVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
 
   tr.innerHTML = `
+    ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><input type="date" class="form-control form-control-sm daily-session-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-session-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
     <td class="daily-session-type-cell">${section ? buildCatalogPickerCell(section) : ''}
@@ -2844,8 +2966,6 @@ function syncMedicineRowDisplay(tr, item, unitPrice) {
   const qty = dailyParseAmount(tr.querySelector('.daily-catalog-qty[data-section="medicines"]')?.value) || 1;
   const unit = Number(unitPrice) || getCatalogRowUnitPrice(tr, 'medicines') || 0;
   const total = Math.round(unit * qty * 100) / 100;
-  const serialEl = tr.querySelector('.daily-med-serial');
-  if (serialEl) serialEl.value = item?.code || tr.dataset.catalogCode || '';
   const unitEl = tr.querySelector('.daily-med-unit-price');
   if (unitEl) {
     unitEl.value = unit > 0 ? formatAmountFieldValue(unit) : '';
@@ -2891,8 +3011,6 @@ function syncSupplyRowDisplay(tr, item, unitPrice) {
   tr.dataset.sellUnit = String(sellUnit);
   tr.dataset.markupPercent = String(markupPct);
   if (item?.code) tr.dataset.catalogCode = item.code;
-  const serialEl = tr.querySelector('.daily-sup-serial');
-  if (serialEl) serialEl.value = item?.code || tr.dataset.catalogCode || '';
   const costUnitEl = tr.querySelector('.daily-sup-cost-unit');
   if (costUnitEl) costUnitEl.value = costUnit > 0 ? formatAmountFieldValue(costUnit) : '';
   const costTotalEl = tr.querySelector('.daily-sup-cost-total');
@@ -2917,8 +3035,6 @@ function syncSupplyRowDisplay(tr, item, unitPrice) {
 }
 
 function clearMedicineRowDisplay(tr) {
-  const serial = tr.querySelector('.daily-med-serial');
-  if (serial) serial.value = '';
   ['.daily-med-unit-price', '.daily-med-total'].forEach((sel) => {
     const el = tr.querySelector(sel);
     if (el) el.value = '';
@@ -2928,8 +3044,6 @@ function clearMedicineRowDisplay(tr) {
 
 function clearSupplyRowDisplay(tr) {
   const sectionCode = tr.dataset.sectionCode || 'supplies';
-  const serial = tr.querySelector('.daily-sup-serial');
-  if (serial) serial.value = '';
   const dateEl = tr.querySelector('.daily-sup-date');
   if (dateEl) dateEl.value = getLocalDateString();
   ['.daily-sup-cost-unit', '.daily-sup-cost-total', '.daily-sup-sell-unit', '.daily-sup-sell-total', '.daily-sup-markup'].forEach(
@@ -3016,7 +3130,7 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
       : getLocalDateString();
 
   tr.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm daily-med-serial bg-light" readonly value="${dailyEscapeAttr(serialVal)}" placeholder="—"></td>
+    ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><input type="text" class="form-control form-control-sm daily-med-invoice bg-light" readonly value="${dailyEscapeAttr(invoiceLabel)}"></td>
     <td><input type="date" class="form-control form-control-sm daily-med-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td class="daily-med-name-cell">${section ? buildCatalogPickerCell(section) : ''}
@@ -3076,7 +3190,7 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
       : '';
 
   tr.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm daily-sup-serial bg-light" readonly value="${dailyEscapeAttr(serialVal)}" placeholder="—"></td>
+    ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><input type="date" class="form-control form-control-sm daily-sup-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-invoice bg-light" readonly value="${dailyEscapeAttr(invoiceLabel)}"></td>
     <td class="daily-sup-name-cell">${section ? buildCatalogPickerCell(section) : ''}
@@ -3151,8 +3265,6 @@ function syncSimpleServiceRow(tr, item, unitPrice, mainSection, ui) {
   const unit = Number(unitPrice) || getCatalogRowUnitPrice(tr, mainSection) || 0;
   const total = Math.round(unit * qty * 100) / 100;
   if (item?.code) tr.dataset.serviceCode = item.code;
-  const serialEl = ui.serial ? tr.querySelector(ui.serial) : null;
-  if (serialEl) serialEl.value = item?.code || tr.dataset.serviceCode || '';
   const unitEl = tr.querySelector(ui.unit);
   if (unitEl) {
     unitEl.value = unit > 0 ? formatAmountFieldValue(unit) : '';
@@ -3213,7 +3325,6 @@ function bindMiscRowEvents(tr) {
   tr.querySelector(`.daily-catalog-qty[data-section="${sectionCode}"]`)?.addEventListener('input', () => {
     const picker = tr.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
     syncSimpleServiceRow(tr, picker?._selectedItem, getCatalogRowUnitPrice(tr, sectionCode), sectionCode, {
-      serial: '.daily-misc-serial',
       unit: '.daily-misc-unit-price',
       total: '.daily-misc-total',
     });
@@ -3243,7 +3354,7 @@ function createLabRow(entry = {}, analysisLine = null) {
       : getLocalDateString();
 
   tr.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm daily-lab-serial bg-light" readonly placeholder="—"></td>
+    ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><input type="date" class="form-control form-control-sm daily-lab-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td class="daily-lab-name-cell">${section ? buildCatalogPickerCell(section) : ''}
       <input type="hidden" class="daily-catalog-qty" data-section="analyses" value="${dailyEscapeAttr(qtyVal)}">
@@ -3263,7 +3374,7 @@ function createLabRow(entry = {}, analysisLine = null) {
       null,
       Number(line.unit_price) || (line.quantity ? Number(line.amount) / Number(line.quantity) : 0),
       'analyses',
-      { serial: '.daily-lab-serial', unit: '.daily-lab-unit-price', total: '.daily-lab-total' }
+      { unit: '.daily-lab-unit-price', total: '.daily-lab-total' }
     );
   }
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
@@ -3302,6 +3413,7 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
   const totalVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
 
   tr.innerHTML = `
+    ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td class="daily-rad-name-cell">${section ? buildCatalogPickerCell(section) : ''}
       <input type="hidden" class="daily-catalog-qty" data-section="xray_total" value="${dailyEscapeAttr(qtyVal)}">
       <input type="hidden" class="daily-field daily-amount" data-section="xray_total" data-type="amount"></td>
@@ -3349,7 +3461,7 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
 
   tr.innerHTML = `
-    <td><input type="text" class="form-control form-control-sm daily-misc-serial bg-light" readonly placeholder="—"></td>
+    ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td class="daily-misc-name-cell">${section ? buildCatalogPickerCell(section) : ''}
       <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
@@ -3367,7 +3479,7 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
       null,
       Number(line.unit_price) || (line.quantity ? Number(line.amount) / Number(line.quantity) : 0),
       sectionCode,
-      { serial: '.daily-misc-serial', unit: '.daily-misc-unit-price', total: '.daily-misc-total' }
+      { unit: '.daily-misc-unit-price', total: '.daily-misc-total' }
     );
   }
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
@@ -3444,7 +3556,6 @@ function onDailyCatalogPickerApplied(tr, section, item) {
     syncSessionsRowDisplay(tr, item, getCatalogRowUnitPrice(tr, 'sessions'));
   } else if (tr.classList.contains('daily-lab-row') && section.code === 'analyses') {
     syncSimpleServiceRow(tr, item, getCatalogRowUnitPrice(tr, 'analyses'), 'analyses', {
-      serial: '.daily-lab-serial',
       unit: '.daily-lab-unit-price',
       total: '.daily-lab-total',
     });
@@ -3456,7 +3567,6 @@ function onDailyCatalogPickerApplied(tr, section, item) {
   } else if (tr.classList.contains('daily-misc-row') && section.code === tr.dataset.sectionCode) {
     const sectionCode = tr.dataset.sectionCode || section.code;
     syncSimpleServiceRow(tr, item, getCatalogRowUnitPrice(tr, sectionCode), sectionCode, {
-      serial: '.daily-misc-serial',
       unit: '.daily-misc-unit-price',
       total: '.daily-misc-total',
     });
@@ -3833,6 +3943,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'stay') {
     head.innerHTML =
+      '<th class="daily-meta-th">مسلسل</th>' +
       '<th class="daily-meta-th daily-col-date">التاريخ</th>' +
       '<th class="daily-meta-th daily-col-stay-type">نوع الإقامة</th>' +
       '<th class="daily-meta-th daily-col-amount">سعر الإقامة</th>' +
@@ -3846,7 +3957,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(9, 'إجمالي الإقامة');
+    configureDailyTableFooter(10, 'إجمالي الإقامة');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -3854,6 +3965,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'sessions') {
     head.innerHTML =
+      '<th class="daily-meta-th">مسلسل</th>' +
       '<th class="daily-meta-th">تاريخ الجلسة</th>' +
       '<th class="daily-meta-th">اسم المريض</th>' +
       '<th class="daily-meta-th">نوع الجلسة</th>' +
@@ -3867,7 +3979,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(9, 'إجمالي الجلسات');
+    configureDailyTableFooter(10, 'إجمالي الجلسات');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -3875,6 +3987,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'exams') {
     head.innerHTML =
+      '<th class="daily-meta-th">مسلسل</th>' +
       '<th class="daily-meta-th">حالة الكشف</th>' +
       '<th class="daily-meta-th">نوع الكشف</th>' +
       '<th class="daily-meta-th">اسم الطبيب</th>' +
@@ -3887,7 +4000,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(8, 'إجمالي الكشوفات');
+    configureDailyTableFooter(9, 'إجمالي الكشوفات');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -3916,7 +4029,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'supplies') {
     head.innerHTML =
-      '<th class="daily-meta-th">م</th>' +
+      '<th class="daily-meta-th">مسلسل</th>' +
       '<th class="daily-meta-th">تاريخ</th>' +
       '<th class="daily-meta-th">رقم فاتورة</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
@@ -3939,7 +4052,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'lab') {
     head.innerHTML =
-      '<th class="daily-meta-th">م</th>' +
+      '<th class="daily-meta-th">مسلسل</th>' +
       '<th class="daily-meta-th">تاريخ التحليل</th>' +
       '<th class="daily-meta-th">نوع التحليل</th>' +
       '<th class="daily-meta-th">سعر التحليل</th>' +
@@ -3958,6 +4071,7 @@ function renderDailySectionsTable() {
 
   if (activeDailyTab === 'radiology') {
     head.innerHTML =
+      '<th class="daily-meta-th">مسلسل</th>' +
       '<th class="daily-meta-th">نوع الأشعة</th>' +
       '<th class="daily-meta-th">سعر الأشعة</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
@@ -3968,7 +4082,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(6, 'إجمالي الأشعة');
+    configureDailyTableFooter(7, 'إجمالي الأشعة');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -4211,6 +4325,7 @@ function addDailyEntryRow(preset = {}) {
   }
   const row = createDailyEntryRow({ ...preset, entry_date: entryDate });
   body.appendChild(row);
+  if (!row.dataset.dailySerial) stampDailyRowSerial(row, allocateDailyRowSerial());
   if (activeDailyTab === 'stay') mountStayAddonRows(row);
   setDailyTodayDate();
   updateDailyGrandTotal();
@@ -4377,17 +4492,7 @@ function updateRowTotal(tr) {
 }
 
 function updateDailyGrandTotal() {
-  let total = 0;
-  document.querySelectorAll('.daily-entry-row .daily-row-total').forEach((cell) => {
-    total += dailyParseAmount(cell.textContent);
-  });
-  total += dailyParseAmount(document.getElementById('daily-operations-total')?.textContent);
-  total += getGlassesFinalAmount();
-  const display = document.getElementById('daily-total-display');
-  if (display) {
-    const rounded = Math.round(total * 100) / 100;
-    display.textContent = rounded > 0 ? dailyFmt(rounded) : '';
-  }
+  updateSectionTabTotal();
 }
 
 async function loadDailyEntriesIntoSheet() {
@@ -4410,6 +4515,7 @@ async function loadDailyEntriesIntoSheet() {
       `${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&include_lines=1&limit=120`
     );
     if (loadId !== dailyEntriesLoadSeq) return;
+    rebuildDailySheetSerialState(entries);
     const today = getLocalDateString();
     const todayEntries = entries.filter((entry) => fmtStayDate(entry.entry_date) === today);
     if (!todayEntries.length) {
@@ -5084,8 +5190,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
   document.getElementById('daily-free-add-row')?.addEventListener('click', () => addFreeItemRow());
   document.getElementById('daily-free-save-btn')?.addEventListener('click', saveFreeItems);
-  document.getElementById('daily-glasses-price')?.addEventListener('input', updateGlassesFinalAmount);
-  document.getElementById('daily-glasses-discount')?.addEventListener('input', updateGlassesFinalAmount);
   document.getElementById('import-daily-charges-btn')?.addEventListener('click', importDailyChargesToInvoice);
 });
 

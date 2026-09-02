@@ -1433,9 +1433,56 @@ body {
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table .form-control,
-.daily-tabs-sheet-panel .daily-sheet-table .form-control-sm {
-  font-size: 0.92rem;
-  padding: 0.35rem 0.45rem;
+.daily-tabs-sheet-panel .daily-sheet-table .form-control-sm,
+.daily-tabs-sheet-panel .daily-sheet-table .form-select-sm {
+  font-size: 0.95rem;
+  padding: 0.42rem 0.5rem;
+  min-width: 5.5rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table input[type="date"],
+.daily-tabs-sheet-panel .daily-sheet-table .daily-exam-date,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-med-date,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-sup-date,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-lab-date,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-rad-date,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-session-date,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-row-date {
+  background: #e8f4fc !important;
+  color: #1a5276;
+  font-weight: 800;
+  border-color: #7eb8da;
+  min-width: 10.5rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-row-serial {
+  min-width: 3.25rem;
+  max-width: 4rem;
+  font-weight: 800;
+  color: #1a5276;
+}
+
+.daily-exam-doctor-cell {
+  min-width: 14rem;
+}
+
+.daily-doctor-suggest-wrap .daily-doctor-suggest-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.daily-tabs-sheet-panel .daily-med-name-cell,
+.daily-tabs-sheet-panel .daily-sup-name-cell,
+.daily-tabs-sheet-panel .daily-lab-name-cell,
+.daily-tabs-sheet-panel .daily-rad-name-cell,
+.daily-tabs-sheet-panel .daily-misc-name-cell,
+.daily-tabs-sheet-panel .daily-session-type-cell {
+  min-width: 12rem;
 }
 
 #daily-main-sheet-wrap.daily-sheet-wrap {
