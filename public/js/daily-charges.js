@@ -1057,6 +1057,7 @@ async function saveOperationsPanel() {
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_id);
     await refreshOperationsTotalsCache();
     await loadOpenPatientStay(file_number);
+    await loadOperationsForPatient();
     const totalLabel =
       data.final_total != null
         ? dailyFmt(data.final_total)
@@ -1250,7 +1251,7 @@ function showDailySection(sectionId) {
   renderDailySectionsTable();
   applyDailyTabColumnVisibility();
   if (sectionId === 'free-items') void loadFreeItemsPanel();
-  if (sectionId === 'operations') ensureOperationRows();
+  if (sectionId === 'operations') void loadOperationsForPatient();
   if (
     activeDailyTab &&
     dailyStayContext?.invoice?.id &&
@@ -5427,6 +5428,23 @@ function clearDailyForm() {
   updateDailyGrandTotal();
 }
 
+async function showDailyBuildBadge() {
+  const el = document.getElementById('daily-build-badge');
+  if (!el) return;
+  const meta = document.querySelector('meta[name="app-build"]')?.content || '';
+  try {
+    const health = await apiJson('/api/health');
+    const serverBuild = String(health.ui_build || '').trim();
+    if (serverBuild && meta && serverBuild !== meta) {
+      el.innerHTML = `<span class="text-warning fw-bold">الخادم ${serverBuild} — المتصفح ${meta}. اضغط Ctrl+F5 لتحديث الصفحة.</span>`;
+      return;
+    }
+    el.textContent = serverBuild ? `نسخة التطبيق: ${serverBuild}` : '';
+  } catch {
+    el.textContent = meta ? `نسخة التطبيق: ${meta}` : '';
+  }
+}
+
 async function initDailyChargesView(options = {}) {
   if (!dailyCan('daily_charges.view')) return;
   try {
@@ -5439,6 +5457,7 @@ async function initDailyChargesView(options = {}) {
     if (dailySectionsLoadFailed) return;
     renderDailySectionTabs();
     setDailyTodayDate();
+    void showDailyBuildBadge();
     if (typeof bindCommaAmountInputs === 'function') {
       bindCommaAmountInputs(document.getElementById('view-daily'));
     }
