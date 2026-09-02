@@ -448,6 +448,7 @@ function normalizeLine(section, rawLine = {}) {
   const inputType = section.input_type || 'amount';
   if (inputType === 'date') {
     return {
+      id: Number(rawLine.id || rawLine.line_id) || null,
       section_code: section.code,
       service_id: null,
       description: section.name,
@@ -460,6 +461,7 @@ function normalizeLine(section, rawLine = {}) {
   }
   if (inputType === 'text') {
     return {
+      id: Number(rawLine.id || rawLine.line_id) || null,
       section_code: section.code,
       service_id: rawLine.service_id || null,
       description: section.name,
@@ -749,7 +751,7 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
     }
   }
 
-  const { resolveCatalogUnitPrice } = require('./dailyEntryCatalogService');
+  const { resolveCatalogUnitPrice, computeSellingPrice } = require('./dailyEntryCatalogService');
   const unitLevel = rawLine.catalog_unit_level || normalized.catalog_unit_level;
   const unitLabel = rawLine.catalog_unit || normalized.catalog_unit;
   let selection = resolveCatalogUnitPrice(catalogItem, unitLevel || 'major');
@@ -761,11 +763,32 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
         level: byUnit.level,
         unit: byUnit.unit,
         unitPrice: round2(byUnit.price),
+        minorQuantityPerMajor: byUnit.minorQuantityPerMajor,
       };
     }
   }
 
-  const unitPrice = round2(selection.unitPrice);
+  let unitPrice = round2(selection.unitPrice);
+  const isSuppliesItem = catalogItem.category === 'Supplies' || fullSection.catalog_category === 'Supplies';
+  const costPrice = round2(catalogItem.cost_price);
+  let markupPercent = round2(catalogItem.markup_percent);
+
+  // Supplies rows let staff override the markup % per line (e.g. a special discount/uplift
+  // for a specific patient). The frontend recomputes the displayed price from cost*(1+markup/100)
+  // — honor that same override here instead of silently reverting to the catalog default.
+  if (isSuppliesItem && costPrice > 0 && rawLine.markup_percent != null && rawLine.markup_percent !== '') {
+    const overrideMarkup = round2(rawLine.markup_percent);
+    if (overrideMarkup < 0) {
+      throw new Error(`قسم «${section.name}»: نسبة الربح يجب ألا تقل عن صفر`);
+    }
+    markupPercent = overrideMarkup;
+    const minorQty = round2(selection.minorQuantityPerMajor) || 1;
+    unitPrice =
+      selection.level === 'minor' && minorQty > 1
+        ? round2(computeSellingPrice(costPrice, overrideMarkup) / minorQty)
+        : computeSellingPrice(costPrice, overrideMarkup);
+  }
+
   if (unitPrice <= 0) {
     throw new Error(`قسم «${section.name}»: الصنف «${catalogItem.name}» ليس له سعر صالح في الكتالوج`);
   }
@@ -778,9 +801,9 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
   normalized.quantity = qty;
   normalized.amount = round2(unitPrice * qty);
   normalized.description = catalogItem.name;
-  if (catalogItem.category === 'Supplies' || fullSection.catalog_category === 'Supplies') {
-    normalized.cost_price = round2(catalogItem.cost_price);
-    normalized.markup_percent = round2(catalogItem.markup_percent);
+  if (isSuppliesItem) {
+    normalized.cost_price = costPrice;
+    normalized.markup_percent = markupPercent;
   }
   return normalized;
 }
@@ -843,6 +866,20 @@ async function prepareEntrySaveContext(data) {
   const sectionsWithServices = await getSectionsWithServices();
   const rawLines = Array.isArray(data.lines) ? data.lines : [];
   const lines = [];
+
+  // A line whose section_code doesn't match any known section would otherwise be
+  // silently skipped below (never validated, never persisted, no error shown) —
+  // fail loudly instead so a section rename/typo can never cause silent data loss.
+  const knownSectionCodes = new Set(sections.map((s) => s.code));
+  const badCodes = new Set(
+    rawLines
+      .map((line) => String(line?.section_code || '').trim())
+      .filter((code) => !code || !knownSectionCodes.has(code))
+  );
+  if (badCodes.size) {
+    const label = [...badCodes].map((c) => c || '(بدون قسم)').join(', ');
+    throw new Error(`بند بقسم غير معروف: ${label} — أعد تحميل الصفحة وحاول مرة أخرى`);
+  }
 
   for (const section of sections) {
     const matching = rawLines.filter((line) => line.section_code === section.code);
@@ -1096,12 +1133,14 @@ async function persistEntryInTransaction(client, data, user, context = null) {
       if (existingLineId && oldById[existingLineId]) {
         await client.query(
           `UPDATE patient_daily_entry_lines SET
-            service_id = $1, catalog_item_id = $2, description = $3, quantity = $4,
-            unit_price = $5, amount = $6, cost_price = $7, markup_percent = $8,
-            catalog_unit = $9, catalog_unit_level = $10,
-            extra_date = $11, extra_text = $12, weight = $13, sort_order = $14
-           WHERE id = $15`,
+            section_code = $1,
+            service_id = $2, catalog_item_id = $3, description = $4, quantity = $5,
+            unit_price = $6, amount = $7, cost_price = $8, markup_percent = $9,
+            catalog_unit = $10, catalog_unit_level = $11,
+            extra_date = $12, extra_text = $13, weight = $14, sort_order = $15
+           WHERE id = $16`,
           [
+            line.section_code,
             line.service_id,
             line.catalog_item_id || null,
             line.description,

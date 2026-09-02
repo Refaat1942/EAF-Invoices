@@ -2412,12 +2412,17 @@ function collectExamLinesFromRow(tr) {
       amount,
       quantity: 1,
     };
+    if (tr.dataset.examLineId) line.id = Number(tr.dataset.examLineId);
     const dateEl = tr.querySelector('.daily-exam-date');
     if (dateEl?.value) line.extra_date = dateEl.value;
     lines.push(line);
   }
   const stamp = dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value);
-  if (stamp > 0) lines.push({ section_code: 'consultation_stamp', amount: stamp, quantity: 1 });
+  if (stamp > 0) {
+    const stampLine = { section_code: 'consultation_stamp', amount: stamp, quantity: 1 };
+    if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
+    lines.push(stampLine);
+  }
   const snapshot = tr._entryLinesSnapshot || [];
   const preserved = snapshot.filter((line) => !viewCodes.has(line.section_code) && lineHasChargeData(line));
   return [...preserved, ...lines];
@@ -2537,6 +2542,8 @@ function createExamDailyEntryRow(entry = {}, examLine = null) {
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
   if (entry.doctor_id) tr.dataset.doctorId = String(entry.doctor_id);
   if (line.section_code) tr.dataset.examSectionCode = line.section_code;
+  if (line.id) tr.dataset.examLineId = String(line.id);
+  if (stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
   const caseCode = line.section_code || '';
@@ -2719,6 +2726,9 @@ function createSessionsRow(entry = {}, sessionsLine = null) {
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
   if (line.service_id) tr.dataset.serviceId = String(line.service_id);
+  if (line.id) tr.dataset.lineId = String(line.id);
+  if (dateLine.id) tr.dataset.dateLineId = String(dateLine.id);
+  if (detailLine.id) tr.dataset.detailLineId = String(detailLine.id);
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
   const { morning, evening } = parseSessionsDetail(detailLine.extra_text);
@@ -2782,16 +2792,20 @@ function collectSessionsLinesFromRow(tr) {
 
   const dateEl = tr.querySelector('.daily-session-date');
   if (dateEl?.value) {
-    lines.push({ section_code: 'sessions_date', extra_date: dateEl.value });
+    const dateLineOut = { section_code: 'sessions_date', extra_date: dateEl.value };
+    if (tr.dataset.dateLineId) dateLineOut.id = Number(tr.dataset.dateLineId);
+    lines.push(dateLineOut);
   }
 
   const morning = dailyParseAmount(tr.querySelector('.daily-session-morning')?.value);
   const evening = dailyParseAmount(tr.querySelector('.daily-session-evening')?.value);
   if (morning > 0 || evening > 0) {
-    lines.push({
+    const detailLineOut = {
       section_code: 'sessions_detail',
       extra_text: formatSessionsDetail(morning, evening),
-    });
+    };
+    if (tr.dataset.detailLineId) detailLineOut.id = Number(tr.dataset.detailLineId);
+    lines.push(detailLineOut);
   }
 
   const section = dailySectionsCache.find((s) => s.code === 'sessions');
@@ -2806,6 +2820,7 @@ function collectSessionsLinesFromRow(tr) {
       amount,
       quantity: qty,
     };
+    if (tr.dataset.lineId) chargeLine.id = Number(tr.dataset.lineId);
     if (unit > 0) chargeLine.unit_price = unit;
     if (lineHasChargeData(chargeLine)) lines.push(chargeLine);
   }
@@ -2988,11 +3003,13 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
   if (line.catalog_item_code) tr.dataset.catalogCode = line.catalog_item_code;
+  if (line.id) tr.dataset.lineId = String(line.id);
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const invoiceLabel = getDailyInvoiceDisplayLabel();
   const serialVal = line.catalog_item_code || '';
+  const weightVal = line.weight != null && line.weight !== '' ? formatAmountFieldValue(line.weight) : '';
   const dateVal = line.extra_date
     ? String(line.extra_date).slice(0, 10)
     : entry.entry_date
@@ -3006,6 +3023,7 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
     <td class="daily-med-name-cell">${section ? buildCatalogPickerCell(section) : ''}
       <input type="hidden" class="daily-field daily-amount" data-section="medicines" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="medicines" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-weight comma-amount" data-section="medicines" placeholder="الوزن" value="${dailyEscapeAttr(weightVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-med-unit-price bg-light" readonly placeholder="سعر الصنف"></td>
     <td><input type="text" class="form-control form-control-sm daily-med-total bg-light" readonly placeholder="الإجمالي"></td>
     <td class="text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
@@ -3042,6 +3060,7 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
   if (line.catalog_item_code) tr.dataset.catalogCode = line.catalog_item_code;
   if (line.cost_price != null) tr.dataset.costPrice = String(line.cost_price);
   if (line.markup_percent != null) tr.dataset.markupPercent = String(line.markup_percent);
+  if (line.id) tr.dataset.lineId = String(line.id);
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
@@ -3212,6 +3231,8 @@ function createLabRow(entry = {}, analysisLine = null) {
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
   if (line.service_id) tr.dataset.serviceCode = String(line.service_id);
+  if (line.id) tr.dataset.lineId = String(line.id);
+  if (stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
@@ -3259,6 +3280,9 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
   tr.className = 'daily-entry-row daily-rad-row';
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
+  if (line.id) tr.dataset.lineId = String(line.id);
+  if (stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
+  if (typeLine.id) tr.dataset.typeLineId = String(typeLine.id);
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
@@ -3320,6 +3344,7 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
   tr.dataset.sectionCode = sectionCode;
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
+  if (line.id) tr.dataset.lineId = String(line.id);
   tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
@@ -3362,7 +3387,11 @@ function collectLabLinesFromRow(tr) {
     if (lineHasChargeData(mainLine)) lines.push(mainLine);
   }
   const stamp = dailyParseAmount(tr.querySelector('.daily-lab-stamp')?.value);
-  if (stamp > 0) lines.push({ section_code: 'analyses_stamp', amount: stamp, quantity: 1 });
+  if (stamp > 0) {
+    const stampLine = { section_code: 'analyses_stamp', amount: stamp, quantity: 1 };
+    if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
+    lines.push(stampLine);
+  }
   return lines;
 }
 
@@ -3379,10 +3408,18 @@ function collectRadiologyLinesFromRow(tr) {
     const typeName = picker?._selectedItem?.name || mainLine.extra_text || '';
     if (typeName) mainLine.extra_text = typeName;
     if (lineHasChargeData(mainLine)) lines.push(mainLine);
-    if (typeName) lines.push({ section_code: 'xray_type', extra_text: typeName });
+    if (typeName) {
+      const typeLineOut = { section_code: 'xray_type', extra_text: typeName };
+      if (tr.dataset.typeLineId) typeLineOut.id = Number(tr.dataset.typeLineId);
+      lines.push(typeLineOut);
+    }
   }
   const stamp = dailyParseAmount(tr.querySelector('.daily-rad-stamp')?.value);
-  if (stamp > 0) lines.push({ section_code: 'xray_stamp', amount: stamp, quantity: 1 });
+  if (stamp > 0) {
+    const stampLine = { section_code: 'xray_stamp', amount: stamp, quantity: 1 };
+    if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
+    lines.push(stampLine);
+  }
   return lines;
 }
 
@@ -3864,6 +3901,7 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">تاريخ</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
       '<th class="daily-meta-th">الكمية</th>' +
+      '<th class="daily-meta-th">الوزن</th>' +
       '<th class="daily-meta-th">سعر الصنف</th>' +
       '<th class="daily-meta-th">الإجمالي</th>' +
       '<th class="daily-meta-th"></th>';
@@ -3871,7 +3909,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(8, 'إجمالي الأدوية');
+    configureDailyTableFooter(9, 'إجمالي الأدوية');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -4231,7 +4269,7 @@ function collectLineForSection(tr, section) {
   const weightInput = tr.querySelector(`.daily-weight[data-section="${section.code}"]`);
   const weightRaw = weightInput?.value?.trim();
   const weight = weightRaw ? Number(weightRaw.replace(/,/g, '')) : null;
-  return {
+  const line = {
     section_code: section.code,
     catalog_item_id: pickerFields.catalog_item_id ?? null,
     catalog_unit_level: pickerFields.catalog_unit_level ?? null,
@@ -4241,6 +4279,10 @@ function collectLineForSection(tr, section) {
     quantity: qty,
     weight: Number.isFinite(weight) ? weight : null,
   };
+  // Preserve the existing DB row id (set on the <tr> when the row was hydrated from a
+  // saved entry) so a re-save UPDATEs the line instead of deleting + reinserting it.
+  if (tr.dataset.lineId) line.id = Number(tr.dataset.lineId);
+  return line;
 }
 
 function lineHasChargeData(line) {

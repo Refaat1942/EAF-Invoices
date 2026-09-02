@@ -49,11 +49,11 @@ router.put('/:id', requirePermission('users.*'), async (req, res) => {
 
 router.delete('/:id', requirePermission('users.*'), async (req, res) => {
   try {
-    const ok = await deleteUser(Number(req.params.id));
+    const ok = await deleteUser(Number(req.params.id), req.session.user);
     if (!ok) return res.status(404).json({ error: 'لا يمكن حذف هذا المستخدم' });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 

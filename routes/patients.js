@@ -34,7 +34,7 @@ router.get('/by-file/:fileNumber', requirePermission('patients.view'), async (re
 router.put('/balance', requirePermission('patients.manage'), async (req, res) => {
   try {
     const { file_number, name, account_balance } = req.body;
-    const patient = await setPatientBalance(file_number, account_balance, name);
+    const patient = await setPatientBalance(file_number, account_balance, name, req.session.user);
     res.json(patient);
   } catch (err) {
     res.status(400).json({ error: err.message });
