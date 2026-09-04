@@ -134,6 +134,7 @@ app.use('/api/doctors', require('./routes/doctors'));
 app.use('/api/pricing', require('./routes/pricing'));
 app.use('/api/settings', settingsRoutes);
 app.use('/api/audit', require('./routes/audit'));
+app.use('/api/analytics', require('./routes/analytics'));
 app.use('/download', downloadRoutes);
 
 app.get('*', (req, res) => {

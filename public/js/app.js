@@ -6,7 +6,7 @@ const AUTH_API = '/api/auth';
 const USERS_API = '/api/users';
 const PATIENTS_API = '/api/patients';
 let currentInvoiceId = null;
-let currentUser = null;
+let lastLoadedInvoice = null;
 let currentInvoiceStatus = null;
 let invoiceFollowUpMode = false;
 let followUpPatientSnapshot = null;
@@ -363,10 +363,11 @@ function renderInvoicePatientRegistrationSummary(inv) {
     inv.admission_date
       ? `${fmtInvoiceSummaryDate(inv.admission_date)} → ${fmtInvoiceSummaryDate(inv.discharge_date) || '—'}`
       : '—';
-  const balance = p.account_balance ?? 0;
-  const remaining = inv.remaining ?? inv.outstanding_amount ?? 0;
-  const collected = inv.total_collected ?? 0;
-  const finalTotal = inv.final_total ?? 0;
+  const balance = Number(p.account_balance) || 0;
+  const collected = Number(inv.total_collected) || 0;
+  const finalTotal = Number(inv.final_total) || 0;
+  const invoiceDue = Number(inv.remaining ?? inv.outstanding_amount) || 0;
+  const balanceAfter = Math.round((balance - finalTotal) * 100) / 100;
   const cell = (value) => escapeHtml(value ?? '—');
 
   body.innerHTML = `
@@ -406,11 +407,15 @@ function renderInvoicePatientRegistrationSummary(inv) {
       <th class="invoice-patient-summary-label">رصيد الحساب</th>
       <td class="fw-bold text-success">${fmt(balance)}</td>
     </tr>
-    <tr class="table-warning">
+    <tr>
       <th class="invoice-patient-summary-label">المحصل</th>
       <td class="fw-bold">${fmt(collected)}</td>
-      <th class="invoice-patient-summary-label">المتبقي</th>
-      <td class="fw-bold text-danger">${fmt(remaining)}</td>
+      <th class="invoice-patient-summary-label">متبقي الدفع على الفاتورة</th>
+      <td class="fw-bold ${invoiceDue > 0.009 ? 'text-danger' : ''}">${fmt(invoiceDue)}</td>
+    </tr>
+    <tr class="table-success">
+      <th class="invoice-patient-summary-label">رصيد بعد الفاتورة</th>
+      <td class="fw-bold text-success" colspan="3">${fmt(balanceAfter)} <span class="small text-muted">(${fmt(balance)} − ${fmt(finalTotal)})</span></td>
     </tr>`;
   panel.style.display = '';
 }
@@ -544,6 +549,8 @@ function applyPermissions() {
 
   const hubReports = document.getElementById('hub-tile-reports');
   if (hubReports) hubReports.style.display = can('reports.view') ? '' : 'none';
+  const hubAnalytics = document.getElementById('hub-tile-analytics');
+  if (hubAnalytics) hubAnalytics.style.display = can('reports.view') ? '' : 'none';
 
   document.getElementById('import-daily-charges-btn').style.display =
     can('invoices.create') || can('invoices.edit') ? '' : 'none';
@@ -805,16 +812,22 @@ function fillInvoiceAggregateRow(tr, part = {}, pay = {}) {
   tr.dataset.sectionAggregate = '1';
   tr.classList.add('invoice-section-aggregate-row');
   if (part.sectionCode) tr.dataset.sectionCode = part.sectionCode;
-  tr.querySelector('[data-field="description"]').value = part.label || '';
-  tr.querySelector('[data-field="quantity"]').value = '';
-  tr.querySelector('[data-field="amount"]').value = '';
+  const descEl = tr.querySelector('[data-field="description"]');
+  const qtyEl = tr.querySelector('[data-field="quantity"]');
+  const amtEl = tr.querySelector('[data-field="amount"]');
+  if (descEl) descEl.value = part.label || '';
+  if (qtyEl) qtyEl.value = '';
+  if (amtEl) amtEl.value = '';
   const totalEl = tr.querySelector('[data-field="total"]');
   if (totalEl) totalEl.value = part.total > 0 ? fmt(part.total) : '';
   const pctField = tr.querySelector('[data-field="discount_percent"]');
   if (pctField) pctField.value = '0%';
-  tr.querySelector('[data-field="receipt_date"]').value = pay.receipt_date || '';
-  tr.querySelector('[data-field="receipt_number"]').value = pay.receipt_number || '';
-  tr.querySelector('[data-field="pay_amount"]').value = pay.amount ? formatAmountInput(pay.amount) : '';
+  const receiptDateEl = tr.querySelector('[data-field="receipt_date"]');
+  const receiptNumEl = tr.querySelector('[data-field="receipt_number"]');
+  const payAmtEl = tr.querySelector('[data-field="pay_amount"]');
+  if (receiptDateEl) receiptDateEl.value = pay.receipt_date || '';
+  if (receiptNumEl) receiptNumEl.value = pay.receipt_number || '';
+  if (payAmtEl) payAmtEl.value = pay.amount ? formatAmountInput(pay.amount) : '';
   tr.querySelectorAll(
     '[data-field="description"], [data-field="quantity"], [data-field="amount"], [data-field="total"], [data-field="discount_percent"]'
   ).forEach((el) => {
@@ -830,7 +843,8 @@ function fillInvoiceAggregateRow(tr, part = {}, pay = {}) {
 
 function fillInvoiceItemRow(row, item = {}, pay = {}) {
   if (!row || row.dataset.sectionHeader || row.dataset.sectionAggregate) return;
-  row.querySelector('[data-field="description"]').value = item.description || '';
+  const descEl = row.querySelector('[data-field="description"]');
+  if (descEl) descEl.value = item.description || '';
   const itemIdEl = row.querySelector('[data-field="invoice_item_id"]');
   if (itemIdEl) itemIdEl.value = item.id || '';
   const serviceIdEl = row.querySelector('[data-field="service_id"]');
@@ -838,8 +852,10 @@ function fillInvoiceItemRow(row, item = {}, pay = {}) {
   if (item.discountable_snapshot === false) row.dataset.discountOverride = 'false';
   else if (item.discountable_snapshot === true) row.dataset.discountOverride = 'true';
   else delete row.dataset.discountOverride;
-  row.querySelector('[data-field="quantity"]').value = item.quantity ? formatAmountInput(item.quantity, 0) : '';
-  row.querySelector('[data-field="amount"]').value = item.amount ? formatAmountInput(item.amount) : '';
+  const qtyEl = row.querySelector('[data-field="quantity"]');
+  const amtEl = row.querySelector('[data-field="amount"]');
+  if (qtyEl) qtyEl.value = item.quantity ? formatAmountInput(item.quantity, 0) : '';
+  if (amtEl) amtEl.value = item.amount ? formatAmountInput(item.amount) : '';
   const totalEl = row.querySelector('[data-field="total"]');
   if (totalEl) {
     if (item.total != null && item.total !== '') {
@@ -854,9 +870,12 @@ function fillInvoiceItemRow(row, item = {}, pay = {}) {
   }
   const pctField = row.querySelector('[data-field="discount_percent"]');
   if (pctField) pctField.value = `${item.item_discount_percent || 0}%`;
-  row.querySelector('[data-field="receipt_date"]').value = pay.receipt_date || '';
-  row.querySelector('[data-field="receipt_number"]').value = pay.receipt_number || '';
-  row.querySelector('[data-field="pay_amount"]').value = pay.amount ? formatAmountInput(pay.amount) : '';
+  const receiptDateEl = row.querySelector('[data-field="receipt_date"]');
+  const receiptNumEl = row.querySelector('[data-field="receipt_number"]');
+  const payAmtEl = row.querySelector('[data-field="pay_amount"]');
+  if (receiptDateEl) receiptDateEl.value = pay.receipt_date || '';
+  if (receiptNumEl) receiptNumEl.value = pay.receipt_number || '';
+  if (payAmtEl) payAmtEl.value = pay.amount ? formatAmountInput(pay.amount) : '';
   if (item.daily_entry_line_id) row.dataset.dailyLineId = item.daily_entry_line_id;
   else delete row.dataset.dailyLineId;
   if (item.daily_entry_id) row.dataset.dailyEntryId = item.daily_entry_id;
@@ -908,7 +927,7 @@ function bindEvents() {
         if (typeof window.initPatientRegistration === 'function') window.initPatientRegistration();
         return;
       }
-      if (view === 'create' && !options.keepForm) {
+      if (view === 'create') {
         showToast('افتح المريض من الحركة اليومية لمراجعة الفاتورة', 'info');
         switchView('daily');
         return;
@@ -1538,6 +1557,7 @@ function createStayEntryRow(entry = {}) {
 
 function initStayEntries(entries = []) {
   const tbody = document.getElementById('stay-entries-tbody');
+  if (!tbody) return;
   tbody.innerHTML = '';
   const list = entries.length ? entries : [{}];
   list.forEach((entry) => tbody.appendChild(createStayEntryRow(entry)));
@@ -1607,18 +1627,22 @@ function onStayEntryInput(e) {
 
 function onStayEntryRowChange(row) {
   if (!row) return;
-  const fromDate = row.querySelector('[data-field="from_date"]').value;
-  const toDate = row.querySelector('[data-field="to_date"]').value;
+  const fromDateEl = row.querySelector('[data-field="from_date"]');
+  const toDateEl = row.querySelector('[data-field="to_date"]');
+  const fromDate = fromDateEl?.value || '';
+  const toDate = toDateEl?.value || '';
   const daysInput = row.querySelector('[data-field="days"]');
-  const rate = parseDisplayAmount(row.querySelector('[data-field="daily_rate"]').value);
+  const rateEl = row.querySelector('[data-field="daily_rate"]');
+  const rate = parseDisplayAmount(rateEl?.value);
 
-  if (fromDate && toDate) {
+  if (fromDate && toDate && daysInput) {
     daysInput.value = formatAmountInput(calcDaysBetween(fromDate, toDate), 0);
   }
 
-  const days = parseDisplayAmount(daysInput.value);
+  const days = parseDisplayAmount(daysInput?.value);
   const total = Math.round(days * rate * 100) / 100;
-  row.querySelector('[data-field="total"]').value = total ? fmt(total) : '';
+  const totalEl = row.querySelector('[data-field="total"]');
+  if (totalEl) totalEl.value = total ? fmt(total) : '';
   syncStayDaysFromEntries();
   updateStayEntryTotalsLocal();
   syncStayEntriesToItemRows();
@@ -1656,23 +1680,25 @@ function collectStayEntries() {
 }
 
 function syncStayDaysFromEntries() {
+  const stayDaysEl = document.getElementById('stay_days');
+  if (!stayDaysEl) return;
   const entries = collectStayEntries().filter((e) => e.stay_type_id || e.from_date || e.to_date);
   if (entries.length) {
     const totalDays = entries.reduce((sum, entry) => sum + (Number(entry.days) || 0), 0);
-    document.getElementById('stay_days').value = totalDays;
+    stayDaysEl.value = totalDays;
   } else {
     autoStayDays();
   }
 }
 
 function prefillStayEntryDatesFromAdmission() {
-  const admission = document.getElementById('admission_date').value;
-  const discharge = document.getElementById('discharge_date').value;
+  const admission = document.getElementById('admission_date')?.value || '';
+  const discharge = document.getElementById('discharge_date')?.value || '';
   document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
     const fromInput = row.querySelector('[data-field="from_date"]');
     const toInput = row.querySelector('[data-field="to_date"]');
-    if (!fromInput.value && admission) fromInput.value = admission;
-    if (!toInput.value && discharge) toInput.value = discharge;
+    if (fromInput && !fromInput.value && admission) fromInput.value = admission;
+    if (toInput && !toInput.value && discharge) toInput.value = discharge;
     onStayEntryRowChange(row);
   });
 }
@@ -1923,14 +1949,15 @@ function syncPatientCreditPaymentMethod(amount) {
 }
 
 async function loadPatientBalance() {
-  const fileNumber = document.getElementById('file_number').value.trim();
+  const fileNumber = document.getElementById('file_number')?.value?.trim() || '';
   const hint = document.getElementById('patient-balance-hint');
   const creditWrap = document.getElementById('patient-credit-wrap');
+  const balanceEl = document.getElementById('balance');
   if (!fileNumber) {
     patientAccountBalance = null;
-    hint.style.display = 'none';
-    creditWrap.style.display = 'none';
-    document.getElementById('balance').value = formatAmountInput(0);
+    if (hint) hint.style.display = 'none';
+    if (creditWrap) creditWrap.style.display = 'none';
+    if (balanceEl) balanceEl.value = formatAmountInput(0);
     syncPatientBalanceField();
     autoApplyPatientCreditToRows();
     await recalculate({ skipAutoCredit: true });
@@ -1941,16 +1968,18 @@ async function loadPatientBalance() {
     const patient = await res.json();
     const balance = Number(patient.account_balance) || 0;
     patientAccountBalance = balance;
-    document.getElementById('patient-balance-display').textContent = fmt(balance);
-    hint.style.display = '';
+    const balanceDisplay = document.getElementById('patient-balance-display');
+    if (balanceDisplay) balanceDisplay.textContent = fmt(balance);
+    if (hint) hint.style.display = '';
     if (!isInvoiceFollowUpLocked()) {
-      document.getElementById('edit-patient-balance-btn').style.display = can('patients.manage') ? '' : 'none';
+      const editBtn = document.getElementById('edit-patient-balance-btn');
+      if (editBtn) editBtn.style.display = can('patients.manage') ? '' : 'none';
     }
-    creditWrap.style.display = fileNumber ? '' : 'none';
+    if (creditWrap) creditWrap.style.display = fileNumber ? '' : 'none';
     autoApplyPatientCreditToRows();
     await recalculate({ skipAutoCredit: true });
   } catch {
-    hint.style.display = 'none';
+    if (hint) hint.style.display = 'none';
   }
 }
 
@@ -2023,14 +2052,14 @@ function updateInvoiceActionButtons() {
 }
 
 function autoStayDays() {
-  const admission = document.getElementById('admission_date').value;
-  const discharge = document.getElementById('discharge_date').value;
-  if (admission && discharge) {
-    const start = new Date(admission);
-    const end = new Date(discharge);
-    const diff = Math.ceil((end - start) / (86400000));
-    document.getElementById('stay_days').value = Math.max(diff, 0);
-  }
+  const admission = document.getElementById('admission_date')?.value;
+  const discharge = document.getElementById('discharge_date')?.value;
+  const stayDaysEl = document.getElementById('stay_days');
+  if (!stayDaysEl || !admission || !discharge) return;
+  const start = new Date(admission);
+  const end = new Date(discharge);
+  const diff = Math.ceil((end - start) / 86400000);
+  stayDaysEl.value = Math.max(diff, 0);
 }
 
 function collectFormData() {
@@ -2091,30 +2120,30 @@ function collectFormData() {
   }
 
   return applyFollowUpSnapshotToFormData({
-    invoice_id: document.getElementById('invoice-id').value || null,
-    invoice_type: document.getElementById('invoice_type').value,
-    contracted_entity_id: document.getElementById('contracted_entity_id').value || null,
-    discount_percent: parseFloat(document.getElementById('discount_percent_display').value) || 0,
-    letter_from_date: document.getElementById('letter_from_date').value || null,
-    letter_to_date: document.getElementById('letter_to_date').value || null,
-    issue_date: document.getElementById('issue_date').value,
-    file_number: document.getElementById('file_number').value,
-    patient_name: document.getElementById('patient_name').value,
-    admission_date: document.getElementById('admission_date').value,
-    discharge_date: document.getElementById('discharge_date').value,
-    stay_days: parseDisplayAmount(document.getElementById('stay_days').value),
-    financial_treatment: document.getElementById('financial_treatment').value,
+    invoice_id: fieldVal('invoice-id') || null,
+    invoice_type: fieldVal('invoice_type'),
+    contracted_entity_id: fieldVal('contracted_entity_id') || null,
+    discount_percent: parseFloat(fieldVal('discount_percent_display')) || 0,
+    letter_from_date: fieldVal('letter_from_date') || null,
+    letter_to_date: fieldVal('letter_to_date') || null,
+    issue_date: fieldVal('issue_date'),
+    file_number: fieldVal('file_number'),
+    patient_name: fieldVal('patient_name'),
+    admission_date: fieldVal('admission_date'),
+    discharge_date: fieldVal('discharge_date'),
+    stay_days: parseDisplayAmount(fieldVal('stay_days')),
+    financial_treatment: fieldVal('financial_treatment'),
     stay_entries: invoiceFollowUpMode ? [] : collectStayEntries(),
     notes: '',
-    stamp_duty: parseDisplayAmount(document.getElementById('stamp_duty').value),
-    professional_fees: parseDisplayAmount(document.getElementById('professional_fees').value),
-    balance: hasPatientFileNumber() ? 0 : parseDisplayAmount(document.getElementById('balance').value),
-    admin_expenses_percent: parseDisplayAmount(document.getElementById('admin_expenses_percent').value),
+    stamp_duty: parseDisplayAmount(fieldVal('stamp_duty')),
+    professional_fees: parseDisplayAmount(fieldVal('professional_fees')),
+    balance: hasPatientFileNumber() ? 0 : parseDisplayAmount(fieldVal('balance')),
+    admin_expenses_percent: parseDisplayAmount(fieldVal('admin_expenses_percent')),
     method_payments: methodPayments,
-    employee_name: document.getElementById('employee_name').value,
-    auditor_name: document.getElementById('auditor_name').value,
-    captain_name: document.getElementById('captain_name').value,
-    manager_name: document.getElementById('manager_name').value,
+    employee_name: fieldVal('employee_name'),
+    auditor_name: fieldVal('auditor_name'),
+    captain_name: fieldVal('captain_name'),
+    manager_name: fieldVal('manager_name'),
     items,
     payments,
   });
@@ -2163,7 +2192,9 @@ async function recalculate(options = {}) {
     updateCalculationFlowUI(totals);
     updateCalculationValidationUI(totals);
     applyItemDiscountPercents((totals.items || []).filter((item) => !item.is_stay_entry));
-    updateStayEntriesFromTotals(totals.stay_entries || []);
+    if (!invoiceFollowUpMode) {
+      updateStayEntriesFromTotals(totals.stay_entries || []);
+    }
     if (typeof syncDailyChargeRowsFromTotals === 'function') {
       syncDailyChargeRowsFromTotals(totals.items || []);
     }
@@ -2434,66 +2465,109 @@ async function submitInvoiceReturns() {
 }
 
 function updateStayEntriesFromTotals(entries) {
+  if (invoiceFollowUpMode) return;
+  const list = entries || [];
   document.querySelectorAll('#stay-entries-tbody tr').forEach((row, i) => {
-    const entry = entries[i];
+    const entry = list[i];
     if (!entry) return;
-    row.querySelector('[data-field="days"]').value = entry.days ?? '';
-    row.querySelector('[data-field="total"]').value = entry.total ? fmt(entry.total) : '';
+    const daysEl = row.querySelector('[data-field="days"]');
+    const totalEl = row.querySelector('[data-field="total"]');
+    if (daysEl) daysEl.value = entry.days ?? '';
+    if (totalEl) totalEl.value = entry.total ? fmt(entry.total) : '';
   });
-  if (Number(entries.length)) {
-    document.getElementById('stay-subtotal-display').innerHTML = fmtDual(
-      entries.reduce((sum, entry) => sum + (Number(entry.total_raw ?? entry.total) || 0), 0),
-      entries.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0)
+  const staySubtotalEl = document.getElementById('stay-subtotal-display');
+  if (list.length && staySubtotalEl) {
+    staySubtotalEl.innerHTML = fmtDual(
+      list.reduce((sum, entry) => sum + (Number(entry.total_raw ?? entry.total) || 0), 0),
+      list.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0)
     );
   }
 }
 
+function refreshFollowUpPatientSummary(totals) {
+  if (!invoiceFollowUpMode || !lastLoadedInvoice) return;
+  renderInvoicePatientRegistrationSummary({
+    ...lastLoadedInvoice,
+    final_total: totals?.final_total ?? lastLoadedInvoice.final_total,
+    total_collected: totals?.total_collected ?? lastLoadedInvoice.total_collected,
+    remaining: totals?.remaining ?? lastLoadedInvoice.remaining,
+    patient_context: lastLoadedInvoice.patient_context,
+  });
+}
+
+function setSummaryEl(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+
 function updateSummaryDisplay(t) {
-  document.getElementById('sum_items').innerHTML = fmtDual(t.items_subtotal_raw, t.items_subtotal);
+  setSummaryEl('sum_items', fmtDual(t.items_subtotal_raw, t.items_subtotal));
   const hasStay = Number(t.stay_subtotal) > 0;
-  document.getElementById('sum_stay_wrap').style.display = hasStay ? '' : 'none';
+  const stayWrap = document.getElementById('sum_stay_wrap');
+  if (stayWrap) stayWrap.style.display = hasStay ? '' : 'none';
   if (hasStay) {
-    document.getElementById('sum_stay').innerHTML = fmtDual(t.stay_subtotal_raw, t.stay_subtotal);
-    document.getElementById('stay-subtotal-display').innerHTML = fmtDual(t.stay_subtotal_raw, t.stay_subtotal);
+    setSummaryEl('sum_stay', fmtDual(t.stay_subtotal_raw, t.stay_subtotal));
+    setSummaryEl('stay-subtotal-display', fmtDual(t.stay_subtotal_raw, t.stay_subtotal));
   }
-  document.getElementById('sum_fees').innerHTML = fmtDual(
-    (t.stamp_duty_raw || 0) + (t.professional_fees_raw || 0),
-    (t.stamp_duty || 0) + (t.professional_fees || 0)
+  setSummaryEl(
+    'sum_fees',
+    fmtDual(
+      (t.stamp_duty_raw || 0) + (t.professional_fees_raw || 0),
+      (t.stamp_duty || 0) + (t.professional_fees || 0)
+    )
   );
-  document.getElementById('sum_admin').innerHTML = fmtDual(t.admin_expenses_raw, t.admin_expenses);
-  document.getElementById('sum_after_admin').innerHTML = fmtDual(t.total_after_admin_raw, t.total_after_admin);
+  setSummaryEl('sum_admin', fmtDual(t.admin_expenses_raw, t.admin_expenses));
+  setSummaryEl('sum_after_admin', fmtDual(t.total_after_admin_raw, t.total_after_admin));
 
   const hasDiscount = Number(t.discount_amount) > 0 || Number(t.discount_percent) > 0;
-  document.getElementById('sum_discount_wrap').style.display = hasDiscount ? '' : 'none';
-  document.getElementById('sum_net_wrap').style.display = hasDiscount ? '' : 'none';
+  const discountWrap = document.getElementById('sum_discount_wrap');
+  const netWrap = document.getElementById('sum_net_wrap');
+  if (discountWrap) discountWrap.style.display = hasDiscount ? '' : 'none';
+  if (netWrap) netWrap.style.display = hasDiscount ? '' : 'none';
   if (hasDiscount) {
-    document.getElementById('sum_discount').innerHTML = fmtDual(t.discount_amount_raw, t.discount_amount);
+    setSummaryEl('sum_discount', fmtDual(t.discount_amount_raw, t.discount_amount));
     const netRaw = t.net_after_discount_raw ?? t.items_subtotal_after_discount_raw;
     const netRounded = t.net_after_discount ?? t.items_subtotal_after_discount;
-    document.getElementById('sum_net').innerHTML = fmtDual(netRaw, netRounded);
+    setSummaryEl('sum_net', fmtDual(netRaw, netRounded));
   }
 
-  document.getElementById('sum_final').innerHTML = fmtDual(t.final_total_raw, t.final_total);
-  document.getElementById('sum_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
-  document.getElementById('sum_remaining').innerHTML = fmtDual(
-    t.outstanding_amount_raw ?? t.remaining_raw,
-    t.outstanding_amount ?? t.remaining
+  setSummaryEl('sum_final', fmtDual(t.final_total_raw, t.final_total));
+  setSummaryEl('sum_collected', fmtDual(t.total_collected_raw, t.total_collected));
+  setSummaryEl(
+    'sum_remaining',
+    fmtDual(t.outstanding_amount_raw ?? t.remaining_raw, t.outstanding_amount ?? t.remaining)
   );
+
+  const balanceAfterWrap = document.getElementById('sum_balance_after_wrap');
+  const balanceAfterEl = document.getElementById('sum_balance_after');
+  if (balanceAfterWrap && balanceAfterEl) {
+    const accountBalance =
+      lastLoadedInvoice?.patient_context?.patient?.account_balance ?? getPatientAccountBalance();
+    if (hasPatientFileNumber() && accountBalance != null) {
+      const balanceAfter =
+        Math.round((Number(accountBalance) - (Number(t.final_total) || 0)) * 100) / 100;
+      balanceAfterEl.innerHTML = fmtDual(balanceAfter, balanceAfter);
+      balanceAfterWrap.style.display = '';
+    } else {
+      balanceAfterWrap.style.display = 'none';
+    }
+  }
 
   const refundableRaw = Number(t.refundable_amount_raw) || 0;
   const refundable = Number(t.refundable_amount) || 0;
   const showRefundable = refundableRaw > 0.009;
-  document.getElementById('sum_refundable_wrap').style.display = showRefundable ? '' : 'none';
+  const refundableWrap = document.getElementById('sum_refundable_wrap');
+  if (refundableWrap) refundableWrap.style.display = showRefundable ? '' : 'none';
   if (showRefundable) {
-    document.getElementById('sum_refundable').innerHTML = fmtDual(refundableRaw, refundable);
+    setSummaryEl('sum_refundable', fmtDual(refundableRaw, refundable));
   }
 
-  document.getElementById('display_final_total').innerHTML = fmtDual(t.final_total_raw, t.final_total);
-  document.getElementById('display_total_collected').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
-  document.getElementById('display_total_collected2').innerHTML = fmtDual(t.total_collected_raw, t.total_collected);
-  document.getElementById('display_remaining').innerHTML = fmtDual(
-    t.outstanding_amount_raw ?? t.remaining_raw,
-    t.outstanding_amount ?? t.remaining
+  setSummaryEl('display_final_total', fmtDual(t.final_total_raw, t.final_total));
+  setSummaryEl('display_total_collected', fmtDual(t.total_collected_raw, t.total_collected));
+  setSummaryEl('display_total_collected2', fmtDual(t.total_collected_raw, t.total_collected));
+  setSummaryEl(
+    'display_remaining',
+    fmtDual(t.outstanding_amount_raw ?? t.remaining_raw, t.outstanding_amount ?? t.remaining)
   );
   const refundableRow = document.getElementById('display-refundable-row');
   if (refundableRow) refundableRow.style.display = showRefundable ? '' : 'none';
@@ -2503,6 +2577,7 @@ function updateSummaryDisplay(t) {
   updatePatientCreditSummary(t);
   updatePaymentRowHints();
   updatePaymentValidationUI(t);
+  refreshFollowUpPatientSummary(t);
 }
 
 function updateCalculationFlowUI(t) {
@@ -2908,12 +2983,22 @@ function resetForm() {
   recalculate();
 }
 
+function setFieldValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value;
+}
+
+function fieldVal(id, fallback = '') {
+  return document.getElementById(id)?.value ?? fallback;
+}
+
 async function loadInvoiceForEdit(id, options = {}) {
   try {
     const res = await apiFetch(`${API}/${id}`);
     const inv = await res.json();
     if (!res.ok) throw new Error(inv.error);
 
+    lastLoadedInvoice = inv;
     currentInvoiceId = inv.id;
     switchView('create', { keepForm: true });
 
@@ -2928,7 +3013,7 @@ async function loadInvoiceForEdit(id, options = {}) {
       updateInvoicePatientSummary(inv);
     }
 
-    document.getElementById('invoice-id').value = inv.id;
+    setFieldValue('invoice-id', inv.id);
     if (followUp) {
       document.getElementById('form-title').textContent = inv.serial_number
         ? `مراجعة الفاتورة ${inv.serial_number}`
@@ -2938,37 +3023,36 @@ async function loadInvoiceForEdit(id, options = {}) {
     }
     updateInvoiceStatusUI(inv.status, inv.serial_number);
 
-    document.getElementById('invoice_type').value = inv.invoice_type;
+    setFieldValue('invoice_type', inv.invoice_type);
     toggleContractedFields();
     await loadContractedEntities(inv.contracted_entity_id || null);
-    if (inv.contracted_entity_id) {
-      document.getElementById('contracted_entity_id').value = inv.contracted_entity_id;
-    }
-    document.getElementById('discount_percent_display').value = inv.discount_percent || 0;
-    document.getElementById('letter_from_date').value = fmtDate(inv.letter_from_date);
-    document.getElementById('letter_to_date').value = fmtDate(inv.letter_to_date);
+    if (inv.contracted_entity_id) setFieldValue('contracted_entity_id', inv.contracted_entity_id);
+    setFieldValue('discount_percent_display', inv.discount_percent || 0);
+    setFieldValue('letter_from_date', fmtDate(inv.letter_from_date));
+    setFieldValue('letter_to_date', fmtDate(inv.letter_to_date));
     if (inv.created_by_name) {
       document.getElementById('created_by_display').textContent = inv.created_by_name;
       document.getElementById('created-by-wrap').style.display = '';
     } else {
       document.getElementById('created-by-wrap').style.display = 'none';
     }
-    document.getElementById('patient_name').value = inv.patient_name;
-    document.getElementById('file_number').value = inv.file_number || '';
+    setFieldValue('patient_name', inv.patient_name);
+    setFieldValue('file_number', inv.file_number || '');
     await loadPatientBalance();
-    document.getElementById('issue_date').value = fmtDate(inv.issue_date || inv.created_at);
-    document.getElementById('admission_date').value = fmtDate(inv.admission_date);
-    document.getElementById('discharge_date').value = fmtDate(inv.discharge_date);
-    document.getElementById('stay_days').value = inv.stay_days != null && inv.stay_days !== '' ? formatAmountInput(inv.stay_days, 0) : '';
+    setFieldValue('issue_date', fmtDate(inv.issue_date || inv.created_at));
+    setFieldValue('admission_date', fmtDate(inv.admission_date));
+    setFieldValue('discharge_date', fmtDate(inv.discharge_date));
+    setFieldValue(
+      'stay_days',
+      inv.stay_days != null && inv.stay_days !== '' ? formatAmountInput(inv.stay_days, 0) : ''
+    );
     await loadFinancialTreatments({ financial_treatment: inv.financial_treatment || '' });
     await loadStayTypes();
     initStayEntries(inv.stay_entries || []);
-    document.getElementById('stamp_duty').value = formatAmountInput(inv.stamp_duty ?? 0);
-    document.getElementById('professional_fees').value = formatAmountInput(inv.professional_fees ?? 0);
-    if (!inv.file_number) {
-      document.getElementById('balance').value = formatAmountInput(inv.balance ?? 0);
-    }
-    document.getElementById('admin_expenses_percent').value = formatAmountInput(inv.admin_expenses_percent ?? 0);
+    setFieldValue('stamp_duty', formatAmountInput(inv.stamp_duty ?? 0));
+    setFieldValue('professional_fees', formatAmountInput(inv.professional_fees ?? 0));
+    if (!inv.file_number) setFieldValue('balance', formatAmountInput(inv.balance ?? 0));
+    setFieldValue('admin_expenses_percent', formatAmountInput(inv.admin_expenses_percent ?? 0));
 
     const paymentValues = {};
     const paymentMeta = {};
@@ -2984,10 +3068,10 @@ async function loadInvoiceForEdit(id, options = {}) {
     }
     await loadPaymentMethodsForm(paymentValues, paymentMeta);
 
-    document.getElementById('employee_name').value = inv.employee_name;
-    document.getElementById('auditor_name').value = inv.auditor_name;
-    document.getElementById('captain_name').value = inv.captain_name;
-    document.getElementById('manager_name').value = inv.manager_name;
+    setFieldValue('employee_name', inv.employee_name);
+    setFieldValue('auditor_name', inv.auditor_name);
+    setFieldValue('captain_name', inv.captain_name);
+    setFieldValue('manager_name', inv.manager_name);
 
     const invItems = inv.items || [];
     const invPayments = inv.payments || [];
@@ -3056,6 +3140,9 @@ function switchView(view, options = {}) {
     currentSettingsSection = '';
     applySettingsSectionPermissions();
     loadSettingsPage();
+  }
+  if (view === 'analytics' && typeof initAnalyticsDashboard === 'function') {
+    initAnalyticsDashboard();
   }
   if (view === 'patient-register' && typeof initPatientRegistration === 'function') initPatientRegistration();
   if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView(options);
