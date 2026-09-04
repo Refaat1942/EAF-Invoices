@@ -5498,8 +5498,10 @@ async function initDailyChargesView(options = {}) {
 function appendInvoiceItemRow(item) {
   let targetRow = null;
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.staySync) return;
-    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+    if (row.dataset.staySync || row.dataset.sectionHeader || row.dataset.sectionAggregate) return;
+    const descEl = row.querySelector('[data-field="description"]');
+    if (!descEl) return;
+    const desc = descEl.value?.trim();
     if (!desc && !targetRow) targetRow = row;
   });
   if (!targetRow) {
@@ -5508,10 +5510,14 @@ function appendInvoiceItemRow(item) {
     targetRow = rows[rows.length - 1];
   }
   if (!targetRow) return;
-  targetRow.querySelector('[data-field="description"]').value = item.description || '';
+  const descEl = targetRow.querySelector('[data-field="description"]');
+  const qtyEl = targetRow.querySelector('[data-field="quantity"]');
+  const amtEl = targetRow.querySelector('[data-field="amount"]');
+  if (!descEl || !qtyEl || !amtEl) return;
+  descEl.value = item.description || '';
   const serviceIdEl = targetRow.querySelector('[data-field="service_id"]');
   if (serviceIdEl) serviceIdEl.value = item.service_id || '';
-  targetRow.querySelector('[data-field="quantity"]').value =
+  qtyEl.value =
     item.quantity != null && item.quantity !== ''
       ? typeof formatAmountInput === 'function'
         ? formatAmountInput(item.quantity, 0)
@@ -5519,7 +5525,7 @@ function appendInvoiceItemRow(item) {
       : typeof formatAmountInput === 'function'
         ? formatAmountInput(1, 0)
         : 1;
-  targetRow.querySelector('[data-field="amount"]').value =
+  amtEl.value =
     item.amount != null && item.amount !== ''
       ? typeof formatAmountInput === 'function'
         ? formatAmountInput(item.amount)

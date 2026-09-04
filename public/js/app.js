@@ -1454,8 +1454,10 @@ function findItemRowByStayKey(key) {
 
 function findFirstEmptyItemRow() {
   for (const row of document.querySelectorAll('#items-tbody tr')) {
-    if (row.dataset.staySync) continue;
-    const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+    if (row.dataset.staySync || row.dataset.sectionHeader || row.dataset.sectionAggregate) continue;
+    const descEl = row.querySelector('[data-field="description"]');
+    if (!descEl) continue;
+    const desc = descEl.value?.trim();
     const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
     const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     if (!desc && !qty && !amt) return row;
@@ -1657,21 +1659,22 @@ function onStayEntryRowChange(row) {
 function updateStayEntryTotalsLocal() {
   let subtotal = 0;
   document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
-    const days = parseDisplayAmount(row.querySelector('[data-field="days"]').value);
-    const rate = parseDisplayAmount(row.querySelector('[data-field="daily_rate"]').value);
+    const days = parseDisplayAmount(row.querySelector('[data-field="days"]')?.value);
+    const rate = parseDisplayAmount(row.querySelector('[data-field="daily_rate"]')?.value);
     subtotal += Math.round(days * rate * 100) / 100;
   });
-  document.getElementById('stay-subtotal-display').textContent = fmt(subtotal);
+  const subtotalEl = document.getElementById('stay-subtotal-display');
+  if (subtotalEl) subtotalEl.textContent = fmt(subtotal);
 }
 
 function collectStayEntries() {
   const entries = [];
   document.querySelectorAll('#stay-entries-tbody tr').forEach((row) => {
-    const stayTypeId = row.querySelector('[data-field="stay_type_id"]').value;
-    const fromDate = row.querySelector('[data-field="from_date"]').value;
-    const toDate = row.querySelector('[data-field="to_date"]').value;
-    const days = row.querySelector('[data-field="days"]').value;
-    const dailyRate = row.querySelector('[data-field="daily_rate"]').value;
+    const stayTypeId = row.querySelector('[data-field="stay_type_id"]')?.value;
+    const fromDate = row.querySelector('[data-field="from_date"]')?.value;
+    const toDate = row.querySelector('[data-field="to_date"]')?.value;
+    const days = row.querySelector('[data-field="days"]')?.value;
+    const dailyRate = row.querySelector('[data-field="daily_rate"]')?.value;
     if (!stayTypeId && !fromDate && !toDate && !parseDisplayAmount(dailyRate)) return;
     entries.push({
       stay_type_id: stayTypeId || null,
@@ -1953,7 +1956,8 @@ function syncPatientCreditPaymentMethod(amount) {
   });
 }
 
-async function loadPatientBalance() {
+async function loadPatientBalance(options = {}) {
+  const skipRecalculate = options.skipRecalculate === true;
   const fileNumber = document.getElementById('file_number')?.value?.trim() || '';
   const hint = document.getElementById('patient-balance-hint');
   const creditWrap = document.getElementById('patient-credit-wrap');
@@ -1965,7 +1969,7 @@ async function loadPatientBalance() {
     if (balanceEl) balanceEl.value = formatAmountInput(0);
     syncPatientBalanceField();
     autoApplyPatientCreditToRows();
-    await recalculate({ skipAutoCredit: true });
+    if (!skipRecalculate) await recalculate({ skipAutoCredit: true });
     return;
   }
   try {
@@ -1982,7 +1986,7 @@ async function loadPatientBalance() {
     }
     if (creditWrap) creditWrap.style.display = fileNumber ? '' : 'none';
     autoApplyPatientCreditToRows();
-    await recalculate({ skipAutoCredit: true });
+    if (!skipRecalculate) await recalculate({ skipAutoCredit: true });
   } catch {
     if (hint) hint.style.display = 'none';
   }
@@ -2197,7 +2201,12 @@ async function recalculate(options = {}) {
       throw new Error(totals.error || 'فشل حساب الفاتورة');
     }
     lastCalculationTotals = totals;
-    refreshInvoiceDisplayFromCalculatedItems(totals.items || []);
+    if (invoiceFollowUpMode) {
+      syncInvoiceRowsFromCalculatedItems(totals.items || []);
+      if (isInvoiceFollowUpLocked()) lockDailyInvoiceRows();
+    } else {
+      refreshInvoiceDisplayFromCalculatedItems(totals.items || []);
+    }
     updateSummaryDisplay(totals);
     updateSummaryTable(totals);
     updatePaymentValidationUI(totals);
@@ -2207,7 +2216,7 @@ async function recalculate(options = {}) {
     if (!invoiceFollowUpMode) {
       updateStayEntriesFromTotals(totals.stay_entries || []);
     }
-    if (typeof syncDailyChargeRowsFromTotals === 'function') {
+    if (typeof syncDailyChargeRowsFromTotals === 'function' && !invoiceFollowUpMode) {
       syncDailyChargeRowsFromTotals(totals.items || []);
     }
     if (isInvoiceFollowUpLocked()) lockDailyInvoiceRows();
@@ -3053,7 +3062,7 @@ async function loadInvoiceForEdit(id, options = {}) {
     }
     setFieldValue('patient_name', inv.patient_name);
     setFieldValue('file_number', inv.file_number || '');
-    await loadPatientBalance();
+    await loadPatientBalance({ skipRecalculate: true });
     setFieldValue('issue_date', fmtDate(inv.issue_date || inv.created_at));
     setFieldValue('admission_date', fmtDate(inv.admission_date));
     setFieldValue('discharge_date', fmtDate(inv.discharge_date));
