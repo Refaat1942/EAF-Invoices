@@ -6,8 +6,8 @@
   <title>نظام الفواتير — مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-  <meta name="app-build" content="20260902r">
-  <link href="/css/style.css?v=20260902r" rel="stylesheet">
+  <meta name="app-build" content="20260904a">
+  <link href="/css/style.css?v=20260904a" rel="stylesheet">
 </head>
 <body>
   <!-- Login Screen -->
@@ -276,17 +276,23 @@
               <span class="badge bg-light text-dark fw-bold" id="edit-serial" style="display:none"></span>
             </div>
             <div class="card-body">
-              <div class="alert alert-light border fw-bold mb-3" id="invoice-followup-banner" style="display:none">
-                📋 مراجعة فاتورة المريض — بيانات المريض والإقامة من صفحة الحركة اليومية. راجع المدفوعات ثم أرسل للاعتماد.
-                <span class="badge bg-warning text-dark ms-2" id="invoice-followup-admin-badge" style="display:none">صلاحية مسؤول — تعديل كامل</span>
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold ms-2" id="goto-daily-from-invoice-btn">← العودة للمريض</button>
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3" id="invoice-followup-banner" style="display:none">
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="goto-daily-from-invoice-btn">← العودة للمريض</button>
+                <span class="badge bg-warning text-dark" id="invoice-followup-admin-badge" style="display:none">صلاحية مسؤول — تعديل كامل</span>
               </div>
               <form id="invoice-form">
                 <input type="hidden" id="invoice-id">
 
-                <div id="invoice-patient-data-summary" class="alert alert-light border mb-3 fw-bold" style="display:none" aria-live="polite"></div>
+                <div id="invoice-patient-data-summary" class="card shadow-sm border mb-3" style="display:none" aria-live="polite">
+                  <div class="card-header bg-light fw-bold py-2">بيانات المريض (من التسجيل)</div>
+                  <div class="table-responsive">
+                    <table class="table table-bordered table-sm mb-0 invoice-patient-summary-table">
+                      <tbody id="invoice-patient-summary-body"></tbody>
+                    </table>
+                  </div>
+                </div>
 
-                <div class="invoice-meta-section mb-4" id="invoice-patient-data-section">
+                <div class="invoice-meta-section mb-4 d-none" id="invoice-patient-data-section">
                   <div class="row g-3 mb-3">
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">نوع الفاتورة *</label>
@@ -361,12 +367,8 @@
                     </div>
                   </div>
 
-                  <div class="row g-3 mb-3">
+                  <div class="row g-3 mb-3 d-none" id="invoice-stay-section">
                     <div class="col-12">
-                      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                        <label class="form-label fw-bold mb-0">تفاصيل الإقامة <span class="text-muted fw-normal">(يمكن إضافة أكثر من نوع)</span></label>
-                        <button type="button" class="btn btn-outline-primary btn-sm fw-bold" id="add-stay-entry-btn">+ إضافة إقامة</button>
-                      </div>
                       <div class="table-responsive stay-entries-wrap">
                         <table class="table table-bordered table-sm stay-entries-table mb-2">
                           <thead class="table-light">
@@ -394,19 +396,8 @@
                   </div>
                 </div>
 
-                  <div class="row g-3 mb-3">
-                    <div class="col-12">
-                      <label class="form-label fw-bold">ملاحظات</label>
-                      <input type="text" class="form-control" id="notes">
-                    </div>
-                  </div>
-
                 <!-- Main Table -->
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-                  <div>
-                    <small class="text-muted d-block">اكتب في «البيان» لاختيار خدمة من اللائحة — السعر يُملأ تلقائيًا وأنت تدخل الكمية فقط</small>
-                    <small class="text-muted" id="invoice-stay-sync-hint">اختيار نوع الإقامة بالأعلى ينزل تلقائيًا في جدول البيان</small>
-                  </div>
                   <span class="badge bg-light text-dark border" id="catalog-status-badge">جاري تحميل اللائحة...</span>
                 </div>
                 <div class="table-responsive mb-3">
@@ -1423,6 +1414,10 @@
                   <label class="form-label fw-bold small mb-1">أجنبي بدون إقامة %</label>
                   <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-foreign-non-resident">
                 </div>
+                <div class="col-md-2">
+                  <label class="form-label fw-bold small mb-1">هامش المستلزمات %</label>
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-supplies-markup">
+                </div>
                 <div class="col-md-2 d-flex align-items-end">
                   <button type="button" class="btn btn-sm btn-success fw-bold w-100" id="pricing-save-settings-btn">حفظ الإعدادات</button>
                 </div>
@@ -1875,10 +1870,10 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
-  <script src="/js/daily-section-bundles.js?v=20260902r"></script>
-  <script src="/js/app.js?v=20260902r"></script>
-  <script src="/js/daily-picker.js?v=20260902r"></script>
-  <script src="/js/daily-charges.js?v=20260902r"></script>
+  <script src="/js/daily-section-bundles.js?v=20260904a"></script>
+  <script src="/js/app.js?v=20260904a"></script>
+  <script src="/js/daily-picker.js?v=20260904a"></script>
+  <script src="/js/daily-charges.js?v=20260904a"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>
 </body>

@@ -964,20 +964,15 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
   const costPrice = round2(catalogItem.cost_price);
   let markupPercent = round2(catalogItem.markup_percent);
 
-  // Supplies rows let staff override the markup % per line (e.g. a special discount/uplift
-  // for a specific patient). The frontend recomputes the displayed price from cost*(1+markup/100)
-  // — honor that same override here instead of silently reverting to the catalog default.
-  if (isSuppliesItem && costPrice > 0 && rawLine.markup_percent != null && rawLine.markup_percent !== '') {
-    const overrideMarkup = round2(rawLine.markup_percent);
-    if (overrideMarkup < 0) {
-      throw new Error(`قسم «${section.name}»: نسبة الربح يجب ألا تقل عن صفر`);
-    }
-    markupPercent = overrideMarkup;
+  if (isSuppliesItem && costPrice > 0) {
+    const { getDefaultSuppliesMarkupPercent } = require('./priceListService');
+    const { computeSellingPrice } = require('./dailyEntryCatalogService');
+    markupPercent = await getDefaultSuppliesMarkupPercent();
     const minorQty = round2(selection.minorQuantityPerMajor) || 1;
     unitPrice =
       selection.level === 'minor' && minorQty > 1
-        ? round2(computeSellingPrice(costPrice, overrideMarkup) / minorQty)
-        : computeSellingPrice(costPrice, overrideMarkup);
+        ? round2(computeSellingPrice(costPrice, markupPercent) / minorQty)
+        : computeSellingPrice(costPrice, markupPercent);
   }
 
   if (unitPrice <= 0) {

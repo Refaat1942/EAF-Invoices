@@ -59,7 +59,7 @@ function prorateSuppliesFields(item, originalQuantity, netQuantity) {
   const supplies_margin_raw =
     marginSnapshot > 0 && originalQuantity > 0
       ? round2(marginSnapshot * (netQuantity / originalQuantity))
-      : round2(unitPrice * netQuantity - supplies_cost_raw);
+      : round2(Math.max(0, unitPrice * netQuantity - supplies_cost_raw));
   const supplies_selling_raw = round2(unitPrice * netQuantity);
 
   return { supplies_cost_raw, supplies_margin_raw, supplies_selling_raw };

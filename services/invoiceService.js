@@ -53,7 +53,7 @@ function preserveDailyPatientHeaderFromExisting(data, existing, actor = null) {
     if (existing[key] !== undefined && existing[key] !== null) out[key] = existing[key];
     else if (key in existing) out[key] = existing[key];
   }
-  out.stay_entries = existing.stay_entries || [];
+  out.stay_entries = [];
   return out;
 }
 
@@ -198,6 +198,7 @@ async function prepareCalculationData(data, client = null) {
     calcData.admission_date &&
     calcData.include_daily_charges !== false
   ) {
+    calcData.stay_entries = [];
     const fromDate = fmtDateOnly(calcData.admission_date);
     let toDate = fmtDateOnly(calcData.discharge_date);
     if (!toDate && fromDate) toDate = fromDate;
@@ -379,6 +380,33 @@ async function saveStayEntries(client, invoiceId, stayEntries = []) {
   }
 }
 
+async function buildInvoicePatientContext(invoice) {
+  const fn = String(invoice?.file_number || '').trim();
+  if (!fn) return null;
+  const patient = await getPatientByFileNumber(fn);
+  if (!patient) return { patient: { file_number: fn, name: invoice.patient_name || '' } };
+
+  let stay_grade_name = '';
+  if (patient.stay_grade_id) {
+    const stayGrade = await getStayTypeById(Number(patient.stay_grade_id));
+    stay_grade_name = stayGrade?.name || '';
+  }
+
+  let room_assignment = null;
+  if (patient.id) {
+    const { getAssignmentForDate } = require('./patientRoomService');
+    room_assignment = await getAssignmentForDate(patient.id, fmtDateOnly(invoice.admission_date));
+  }
+
+  let entity_name = '';
+  if (invoice.contracted_entity_id) {
+    const entity = await getContractedEntityById(Number(invoice.contracted_entity_id));
+    entity_name = entity?.name || '';
+  }
+
+  return { patient, room_assignment, stay_grade_name, entity_name };
+}
+
 async function getInvoiceById(id, client = null) {
   const run = client ? client.query.bind(client) : query;
   const { rows } = await run('SELECT * FROM invoices WHERE id = $1', [id]);
@@ -420,6 +448,7 @@ async function getInvoiceById(id, client = null) {
     method_payments: methodPayments,
     stay_entries: stayEntries,
     returns,
+    patient_context: await buildInvoicePatientContext(invoice),
   };
 }
 

@@ -330,33 +330,78 @@ function fmtInvoiceSummaryDate(value) {
   }
 }
 
-function updateInvoicePatientSummary() {
+const INVOICE_TYPE_LABELS = {
+  civil: 'مدني (خاص)',
+  contracted: 'جهات متعاقدة',
+  non_contracted: 'جهات غير متعاقدة',
+  military: 'عسكري',
+  hospital: 'حالة مستشفى',
+  special: 'حالة خاصة',
+  operations: 'عمليات',
+};
+
+function renderInvoicePatientRegistrationSummary(inv) {
   const panel = document.getElementById('invoice-patient-data-summary');
-  if (!panel) return;
-  const balanceText = document.getElementById('patient-balance-display')?.textContent || '0';
-  const entityWrap = document.getElementById('contracted-entity-wrap');
-  const entityVisible = entityWrap && entityWrap.style.display !== 'none';
-  const entityLabel = entityVisible ? getInvoiceSelectLabel('contracted_entity_id') : '';
-  panel.innerHTML = `
-    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
-      <div>
-        <span class="text-muted small d-block mb-1">بيانات المريض (من الحركة اليومية)</span>
-        <strong class="fs-5">${escapeHtml(document.getElementById('patient_name')?.value || '—')}</strong>
-        <span class="text-muted ms-2">ملف ${escapeHtml(document.getElementById('file_number')?.value || '—')}</span>
-      </div>
-      <span class="badge bg-primary">${escapeHtml(getInvoiceSelectLabel('invoice_type'))}</span>
-    </div>
-    <div class="row g-2 small">
-      <div class="col-md-3"><span class="text-muted">الدخول:</span> ${fmtInvoiceSummaryDate(document.getElementById('admission_date')?.value)}</div>
-      <div class="col-md-3"><span class="text-muted">الخروج:</span> ${fmtInvoiceSummaryDate(document.getElementById('discharge_date')?.value)}</div>
-      <div class="col-md-2"><span class="text-muted">الأيام:</span> ${escapeHtml(document.getElementById('stay_days')?.value || '0')}</div>
-      <div class="col-md-4"><span class="text-muted">المعاملة المالية:</span> ${escapeHtml(getInvoiceSelectLabel('financial_treatment'))}</div>
-      ${entityLabel ? `<div class="col-md-4"><span class="text-muted">الجهة:</span> ${escapeHtml(entityLabel)}</div>` : ''}
-      <div class="col-md-3"><span class="text-muted">رصيد الحساب:</span> ${escapeHtml(balanceText)}</div>
-      <div class="col-md-3"><span class="text-muted">تاريخ الإصدار:</span> ${fmtInvoiceSummaryDate(document.getElementById('issue_date')?.value)}</div>
-    </div>
-    <p class="small text-muted mt-2 mb-0">لتعديل بيانات المريض أو الإقامة ارجع إلى الحركة اليومية أو تسجيل المريض.</p>
-  `;
+  const body = document.getElementById('invoice-patient-summary-body');
+  if (!panel || !body) return;
+
+  const ctx = inv?.patient_context || {};
+  const p = ctx.patient || {};
+  const room = ctx.room_assignment || {};
+  const typeLabel = INVOICE_TYPE_LABELS[inv?.invoice_type] || inv?.invoice_type_label || inv?.invoice_type || '—';
+  const genderLabel = p.gender === 'male' ? 'ذكر' : p.gender === 'female' ? 'أنثى' : p.gender || '—';
+  const patientType = p.patient_type === 'external' ? 'خارجي' : p.patient_type === 'internal' ? 'داخلي' : '—';
+  const row = (label, value) =>
+    `<tr><th class="text-nowrap bg-light">${escapeHtml(label)}</th><td class="fw-bold">${escapeHtml(value ?? '—')}</td></tr>`;
+
+  const rows = [
+    row('اسم المريض', p.name || inv.patient_name),
+    row('رقم الملف', p.file_number || inv.file_number),
+    row('رقم التليفون', p.phone),
+    row('تليفون آخر', p.other_phone),
+    row('الجنسية', p.nationality),
+    row('الجنس', genderLabel),
+    row('السن', p.age),
+    row('نوع المريض', patientType),
+    row('درجة الإقامة', ctx.stay_grade_name),
+    row('تاريخ الدخول', fmtInvoiceSummaryDate(inv.admission_date)),
+    row('تاريخ الخروج', fmtInvoiceSummaryDate(inv.discharge_date)),
+    row('المعاملة المالية', inv.financial_treatment || p.financial_treatment),
+    row('رصيد الحساب', document.getElementById('patient-balance-display')?.textContent || fmt(p.account_balance ?? 0)),
+    row('نوع التعامل', typeLabel),
+  ];
+
+  if (ctx.entity_name || inv.contracted_entity_name) {
+    rows.push(row('الجهة', ctx.entity_name || inv.contracted_entity_name));
+  }
+  if (inv.letter_from_date || inv.letter_to_date) {
+    rows.push(
+      row('جواب التعاقد', `${fmtInvoiceSummaryDate(inv.letter_from_date)} → ${fmtInvoiceSummaryDate(inv.letter_to_date)}`)
+    );
+  }
+  if (p.patient_type !== 'external') {
+    rows.push(
+      row('الغرفة / الجناح', room.stay_type_name),
+      row('الدور', p.floor || room.floor),
+      row('مرافق', room.companion_amount != null ? fmt(room.companion_amount) : ''),
+      row('نقطة التمريض', room.nursing_point_amount != null ? fmt(room.nursing_point_amount) : ''),
+      row('التمريض المساعد', room.patient_assistant_amount != null ? fmt(room.patient_assistant_amount) : ''),
+      row('تأمين الغرفة', p.room_insurance_amount != null ? fmt(p.room_insurance_amount) : '')
+    );
+  }
+  if (p.military_auth_from || p.military_auth_to || p.military_auth_amount) {
+    rows.push(
+      row('تصديق عسكري', `${fmtInvoiceSummaryDate(p.military_auth_from)} → ${fmtInvoiceSummaryDate(p.military_auth_to)}`),
+      row('مبلغ التصديق', p.military_auth_amount != null ? fmt(p.military_auth_amount) : '')
+    );
+  }
+
+  body.innerHTML = rows.join('');
+  panel.style.display = '';
+}
+
+function updateInvoicePatientSummary(inv) {
+  if (inv) renderInvoicePatientRegistrationSummary(inv);
 }
 
 function applyInvoiceFollowUpPaymentsOnly() {
@@ -397,36 +442,30 @@ function applyInvoiceFollowUpMode(enabled) {
   if (adminBadge) adminBadge.style.display = enabled && canInvoiceFullFollowUpEdit() ? '' : 'none';
 
   const editBalanceBtn = document.getElementById('edit-patient-balance-btn');
-  const manualEntryIds = ['add-row-btn', 'remove-row-btn', 'add-stay-entry-btn', 'import-daily-charges-btn'];
-  const stayWrap = document.querySelector('.stay-entries-wrap');
-  const stayHint = document.getElementById('invoice-stay-sync-hint');
+  const manualEntryIds = ['add-row-btn', 'remove-row-btn', 'import-daily-charges-btn'];
+  const staySection = document.getElementById('invoice-stay-section');
 
-  if (locked) {
-    if (patientSection) patientSection.style.display = 'none';
-    if (patientSummary) {
-      patientSummary.style.display = '';
-      updateInvoicePatientSummary();
-    }
+  if (enabled) {
+    if (patientSection) patientSection.classList.add('d-none');
+    if (patientSummary) patientSummary.style.display = '';
+    if (staySection) staySection.classList.add('d-none');
     if (editBalanceBtn) editBalanceBtn.style.display = 'none';
     manualEntryIds.forEach((id) => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
-    if (stayWrap) stayWrap.style.display = 'none';
-    if (stayHint) stayHint.style.display = 'none';
     lockDailyInvoiceRows();
     applyInvoiceFollowUpPaymentsOnly();
     return;
   }
 
-  if (patientSection) patientSection.style.display = '';
+  if (patientSection) patientSection.classList.remove('d-none');
   if (patientSummary) patientSummary.style.display = 'none';
   manualEntryIds.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.style.display = '';
   });
-  if (stayWrap) stayWrap.style.display = '';
-  if (stayHint) stayHint.style.display = '';
+  if (staySection) staySection.classList.remove('d-none');
 }
 
 function lockDailyInvoiceRows() {
@@ -859,7 +898,7 @@ function bindEvents() {
     }
   });
 
-  document.getElementById('add-stay-entry-btn').addEventListener('click', () => {
+  document.getElementById('add-stay-entry-btn')?.addEventListener('click', () => {
     addStayEntryRow();
     bindStayEntryTriggers();
   });
@@ -1975,8 +2014,8 @@ function collectFormData() {
     discharge_date: document.getElementById('discharge_date').value,
     stay_days: parseDisplayAmount(document.getElementById('stay_days').value),
     financial_treatment: document.getElementById('financial_treatment').value,
-    stay_entries: collectStayEntries(),
-    notes: document.getElementById('notes').value,
+    stay_entries: invoiceFollowUpMode ? [] : collectStayEntries(),
+    notes: '',
     stamp_duty: parseDisplayAmount(document.getElementById('stamp_duty').value),
     professional_fees: parseDisplayAmount(document.getElementById('professional_fees').value),
     balance: hasPatientFileNumber() ? 0 : parseDisplayAmount(document.getElementById('balance').value),
@@ -2789,6 +2828,9 @@ async function loadInvoiceForEdit(id, options = {}) {
       followUpPatientSnapshot = null;
     }
     applyInvoiceFollowUpMode(followUp && inv.status !== 'approved');
+    if (followUp && inv.status !== 'approved') {
+      updateInvoicePatientSummary(inv);
+    }
 
     document.getElementById('invoice-id').value = inv.id;
     if (followUp) {
@@ -2825,7 +2867,6 @@ async function loadInvoiceForEdit(id, options = {}) {
     await loadFinancialTreatments({ financial_treatment: inv.financial_treatment || '' });
     await loadStayTypes();
     initStayEntries(inv.stay_entries || []);
-    document.getElementById('notes').value = inv.notes || '';
     document.getElementById('stamp_duty').value = formatAmountInput(inv.stamp_duty ?? 0);
     document.getElementById('professional_fees').value = formatAmountInput(inv.professional_fees ?? 0);
     if (!inv.file_number) {
@@ -2884,7 +2925,6 @@ async function loadInvoiceForEdit(id, options = {}) {
     await recalculate();
     if (isInvoiceFollowUpLocked()) {
       lockDailyInvoiceRows();
-      updateInvoicePatientSummary();
     }
     if (inv.status === 'approved') loadQR(inv.id);
     updateInvoiceActionButtons();
@@ -4635,6 +4675,10 @@ async function loadPricingSection() {
     }
 
     document.getElementById('pricing-admin-fee-rate').value = formatAmountInput(settings.administrative_fee_rate ?? 12);
+    document.getElementById('pricing-supplies-markup').value = formatAmountInput(
+      settings.default_supplies_markup_percent ?? 20,
+      0
+    );
     document.getElementById('pricing-file-opening-fee').value = formatAmountInput(settings.file_opening_fee ?? 50);
     document.getElementById('pricing-ambulance-fee').value = formatAmountInput(settings.ambulance_rental_cairo ?? 3000);
     document.getElementById('pricing-foreign-resident').value = formatAmountInput(settings.foreign_resident_multiplier ?? 150);
@@ -4909,6 +4953,9 @@ async function savePricingSettings() {
   try {
     const body = {
       administrative_fee_rate: parseDisplayAmount(document.getElementById('pricing-admin-fee-rate').value),
+      default_supplies_markup_percent: parseDisplayAmount(
+        document.getElementById('pricing-supplies-markup').value
+      ),
       file_opening_fee: parseDisplayAmount(document.getElementById('pricing-file-opening-fee').value),
       ambulance_rental_cairo: parseDisplayAmount(document.getElementById('pricing-ambulance-fee').value),
       foreign_resident_multiplier: parseDisplayAmount(document.getElementById('pricing-foreign-resident').value),

@@ -69,10 +69,12 @@ router.get('/sections', requirePermission('daily_charges.view'), async (req, res
   try {
     const withServices = req.query.with_services === '1';
     const { getCurrentBusinessDateString } = require('../services/dailyChargeService');
+    const { getDefaultSuppliesMarkupPercent } = require('../services/priceListService');
     const sections = withServices ? await getSectionsWithServices() : await listSections();
     res.json({
       business_date: getCurrentBusinessDateString(),
       sections,
+      default_supplies_markup_percent: await getDefaultSuppliesMarkupPercent(),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

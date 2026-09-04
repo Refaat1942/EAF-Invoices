@@ -122,6 +122,7 @@ let dailyStayGradesCache = [];
 let dailySpecialtiesCache = [];
 let dailyCompanionServicesCache = [];
 let dailyExamServicesCache = [];
+let dailySuppliesMarkupPercent = 20;
 
 function dailyEscapeHtml(text) {
   if (typeof escapeHtml === 'function') return escapeHtml(text);
@@ -523,7 +524,7 @@ function applyDailyTabColumnVisibility() {
     hint.textContent = 'أدوية — ابحث عن الصنف، السعر من الكتالوج. الإجمالي في أسفل الجدول.';
   } else if (hint && activeDailyTab === 'supplies') {
     hint.textContent =
-      'مستلزمات — م، تاريخ، رقم الفاتورة، الصنف، العدد، السعر والإجمالي، سعر/إجمالي المستلزم، ونسبة هامش الربح.';
+      'مستلزمات — م، تاريخ، رقم الفاتورة، الصنف، العدد، سعر البيع والإجمالي، سعر/إجمالي التكلفة (هامش الربح من الإعدادات).';
   } else if (hint && activeDailyTab === 'sessions') {
     hint.textContent =
       'جلسات — تاريخ الجلسة، اسم المريض، نوع الجلسة، صباحي/مسائي، العدد، السعر، والإجمالي.';
@@ -2696,6 +2697,9 @@ async function loadDailySections() {
     } else {
       dailySectionsCache = payload.sections || [];
       dailyBusinessDate = payload.business_date || null;
+      if (payload.default_supplies_markup_percent != null) {
+        dailySuppliesMarkupPercent = Number(payload.default_supplies_markup_percent) || 20;
+      }
     }
   } catch (err) {
     dailySectionsLoadFailed = true;
@@ -3499,20 +3503,26 @@ function calcSupplyMarkupPercent(costUnit, sellUnit, fallback = 0) {
   return Math.round(((sell - cost) / cost) * 10000) / 100;
 }
 
+function calcSupplySellUnit(costUnit, fallbackSell = 0) {
+  const cost = Number(costUnit) || 0;
+  const markup = Number(dailySuppliesMarkupPercent) || 0;
+  if (cost > 0 && markup >= 0) {
+    return Math.round(cost * (1 + markup / 100) * 100) / 100;
+  }
+  return Number(fallbackSell) || 0;
+}
+
 function syncSupplyRowDisplay(tr, item, unitPrice) {
   if (!tr) return;
   const sectionCode = tr.dataset.sectionCode || 'supplies';
   const qty =
     dailyParseAmount(tr.querySelector(`.daily-catalog-qty[data-section="${sectionCode}"]`)?.value) || 1;
   const costUnit = Number(item?.cost_price) || Number(tr.dataset.costPrice) || 0;
-  const sellUnit = Number(unitPrice) || Number(tr.dataset.sellUnit) || getCatalogRowUnitPrice(tr, sectionCode) || 0;
+  const catalogSell = Number(unitPrice) || Number(tr.dataset.sellUnit) || getCatalogRowUnitPrice(tr, sectionCode) || 0;
+  const sellUnit = calcSupplySellUnit(costUnit, catalogSell);
   const costTotal = Math.round(costUnit * qty * 100) / 100;
   const sellTotal = Math.round(sellUnit * qty * 100) / 100;
-  const markupPct = calcSupplyMarkupPercent(
-    costUnit,
-    sellUnit,
-    item?.markup_percent ?? tr.dataset.markupPercent
-  );
+  const markupPct = Number(dailySuppliesMarkupPercent) || 0;
   tr.dataset.costPrice = String(costUnit);
   tr.dataset.sellUnit = String(sellUnit);
   tr.dataset.markupPercent = String(markupPct);
@@ -3525,10 +3535,6 @@ function syncSupplyRowDisplay(tr, item, unitPrice) {
   if (sellUnitEl) sellUnitEl.value = sellUnit > 0 ? formatAmountFieldValue(sellUnit) : '';
   const sellTotalEl = tr.querySelector('.daily-sup-sell-total');
   if (sellTotalEl) sellTotalEl.value = sellTotal > 0 ? formatAmountFieldValue(sellTotal) : '';
-  const markupEl = tr.querySelector('.daily-sup-markup');
-  if (markupEl) {
-    markupEl.value = markupPct > 0 ? formatAmountFieldValue(markupPct, 0) : '';
-  }
   const hidden = tr.querySelector(`.daily-field.daily-amount[data-section="${sectionCode}"]`);
   if (hidden) {
     hidden.value = String(sellTotal);
@@ -3552,7 +3558,7 @@ function clearSupplyRowDisplay(tr) {
   const sectionCode = tr.dataset.sectionCode || 'supplies';
   const dateEl = tr.querySelector('.daily-sup-date');
   if (dateEl) dateEl.value = getLocalDateString();
-  ['.daily-sup-cost-unit', '.daily-sup-cost-total', '.daily-sup-sell-unit', '.daily-sup-sell-total', '.daily-sup-markup'].forEach(
+  ['.daily-sup-cost-unit', '.daily-sup-cost-total', '.daily-sup-sell-unit', '.daily-sup-sell-total'].forEach(
     (sel) => {
       const el = tr.querySelector(sel);
       if (el) el.value = '';
@@ -3586,20 +3592,7 @@ function bindSupplyRowEvents(tr) {
   if (qtyInput) {
     qtyInput.addEventListener('input', () => {
       const picker = tr.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
-      const sellUnit =
-        Number(tr.dataset.sellUnit) || getCatalogRowUnitPrice(tr, sectionCode);
-      syncSupplyRowDisplay(tr, picker?._selectedItem, sellUnit);
-    });
-  }
-  const markupInput = tr.querySelector('.daily-sup-markup');
-  if (markupInput) {
-    markupInput.addEventListener('input', () => {
-      const costUnit = dailyParseAmount(tr.querySelector('.daily-sup-cost-unit')?.value);
-      const markup = dailyParseAmount(markupInput.value);
-      if (costUnit <= 0) return;
-      const sellUnit = Math.round(costUnit * (1 + markup / 100) * 100) / 100;
-      tr.dataset.markupPercent = String(markup);
-      syncSupplyRowDisplay(tr, { cost_price: costUnit, markup_percent: markup }, sellUnit);
+      syncSupplyRowDisplay(tr, picker?._selectedItem, getCatalogRowUnitPrice(tr, sectionCode));
     });
   }
   bindDailyAmountRecalc(tr);
@@ -3695,10 +3688,6 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
     : entry.entry_date
       ? String(entry.entry_date).slice(0, 10)
       : getLocalDateString();
-  const markupVal =
-    line.markup_percent != null && Number(line.markup_percent) > 0
-      ? formatAmountFieldValue(line.markup_percent, 0)
-      : '';
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
@@ -3711,7 +3700,6 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
     <td><input type="text" class="form-control form-control-sm daily-sup-sell-total bg-light" readonly></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-cost-unit bg-light" readonly></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-cost-total bg-light" readonly></td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-sup-markup comma-amount bg-light" data-decimals="0" value="${dailyEscapeAttr(markupVal)}" autocomplete="off"></td>
     <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindSupplyRowEvents(tr);
@@ -3752,9 +3740,8 @@ function collectSupplyLinesFromRow(tr) {
   const line = collectLineForSection(tr, section);
   const costUnit = dailyParseAmount(tr.querySelector('.daily-sup-cost-unit')?.value);
   const sellUnit = dailyParseAmount(tr.querySelector('.daily-sup-sell-unit')?.value);
-  const markup = dailyParseAmount(tr.querySelector('.daily-sup-markup')?.value);
   if (costUnit > 0) line.cost_price = costUnit;
-  if (markup > 0) line.markup_percent = markup;
+  if (dailySuppliesMarkupPercent > 0) line.markup_percent = dailySuppliesMarkupPercent;
   if (sellUnit > 0) line.unit_price = sellUnit;
   const dateEl = tr.querySelector('.daily-sup-date');
   if (dateEl?.value) line.extra_date = dateEl.value;
@@ -4556,13 +4543,12 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">الإجمالي</th>' +
       '<th class="daily-meta-th">سعر المستلزم</th>' +
       '<th class="daily-meta-th">إجمالي المستلزم</th>' +
-      '<th class="daily-meta-th">هامش الربح %</th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(12, 'إجمالي المستلزمات (كل الأيام)');
+    configureDailyTableFooter(11, 'إجمالي المستلزمات (كل الأيام)');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;

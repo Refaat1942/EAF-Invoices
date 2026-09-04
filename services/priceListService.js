@@ -138,6 +138,7 @@ async function setDefaultPriceList(id) {
 async function getPricingSettings() {
   const keys = [
     'administrative_fee_rate',
+    'default_supplies_markup_percent',
     'file_opening_fee',
     'ambulance_rental_cairo',
     'foreign_resident_multiplier',
@@ -154,6 +155,7 @@ async function getPricingSettings() {
 async function savePricingSettings(data) {
   const allowed = [
     'administrative_fee_rate',
+    'default_supplies_markup_percent',
     'file_opening_fee',
     'ambulance_rental_cairo',
     'foreign_resident_multiplier',
@@ -166,6 +168,12 @@ async function savePricingSettings(data) {
   return getPricingSettings();
 }
 
+async function getDefaultSuppliesMarkupPercent() {
+  const { getSetting } = require('./settingsService');
+  const n = Number(await getSetting('default_supplies_markup_percent', '20'));
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : 20;
+}
+
 module.exports = {
   listPriceLists,
   getDefaultPriceList,
@@ -174,4 +182,5 @@ module.exports = {
   setDefaultPriceList,
   getPricingSettings,
   savePricingSettings,
+  getDefaultSuppliesMarkupPercent,
 };

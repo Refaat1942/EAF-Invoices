@@ -709,6 +709,7 @@ async function runMigrations() {
 
   const pricingSettings = [
     ['administrative_fee_rate', '12'],
+    ['default_supplies_markup_percent', '20'],
     ['file_opening_fee', '50'],
     ['ambulance_rental_cairo', '3000'],
     ['foreign_resident_multiplier', '150'],
