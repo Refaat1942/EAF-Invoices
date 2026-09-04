@@ -1497,9 +1497,13 @@ function syncStayEntriesToItemRows() {
     itemRow.classList.add('stay-sync-row');
 
     const desc = stayName ? `إقامة - ${stayName}` : 'إقامة';
-    itemRow.querySelector('[data-field="description"]').value = desc;
-    itemRow.querySelector('[data-field="quantity"]').value = days ? formatAmountInput(days, 0) : '';
-    itemRow.querySelector('[data-field="amount"]').value = rate ? formatAmountInput(rate) : '';
+    const descInput = itemRow.querySelector('[data-field="description"]');
+    const qtyInput = itemRow.querySelector('[data-field="quantity"]');
+    const amtInput = itemRow.querySelector('[data-field="amount"]');
+    if (!descInput || !qtyInput || !amtInput) return;
+    descInput.value = desc;
+    qtyInput.value = days ? formatAmountInput(days, 0) : '';
+    amtInput.value = rate ? formatAmountInput(rate) : '';
 
     const matched = findCatalogServiceByName(stayName);
     const serviceIdEl = itemRow.querySelector('[data-field="service_id"]');
@@ -1616,7 +1620,8 @@ function onStayTypeSelect(e) {
   const option = e.target.selectedOptions[0];
   const rate = option?.dataset?.rate;
   if (rate !== undefined && rate !== '') {
-    row.querySelector('[data-field="daily_rate"]').value = rate;
+    const rateEl = row?.querySelector('[data-field="daily_rate"]');
+    if (rateEl) rateEl.value = rate;
   }
   onStayEntryRowChange(row);
 }
@@ -2069,13 +2074,20 @@ function collectFormData() {
 
   rows.forEach((row) => {
     if (row.dataset.staySync || row.dataset.sectionHeader || row.dataset.sectionAggregate) return;
-    const desc = row.querySelector('[data-field="description"]').value.trim();
-    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]').value);
-    const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]').value);
-    const payAmt = parseDisplayAmount(row.querySelector('[data-field="pay_amount"]').value);
+    const descEl = row.querySelector('[data-field="description"]');
+    const qtyEl = row.querySelector('[data-field="quantity"]');
+    const amtEl = row.querySelector('[data-field="amount"]');
+    const payAmtEl = row.querySelector('[data-field="pay_amount"]');
+    const receiptDateEl = row.querySelector('[data-field="receipt_date"]');
+    const receiptNumEl = row.querySelector('[data-field="receipt_number"]');
+    if (!descEl || !qtyEl || !amtEl) return;
+    const desc = descEl.value.trim();
+    const qty = parseDisplayAmount(qtyEl.value);
+    const amt = parseDisplayAmount(amtEl.value);
+    const payAmt = parseDisplayAmount(payAmtEl?.value);
     const creditAmt = parseDisplayAmount(row.querySelector('[data-field="patient_credit_applied"]')?.value);
-    const receiptDate = row.querySelector('[data-field="receipt_date"]').value;
-    const receiptNum = row.querySelector('[data-field="receipt_number"]').value;
+    const receiptDate = receiptDateEl?.value || '';
+    const receiptNum = receiptNumEl?.value || '';
 
     if (desc || qty || amt) {
       const serviceIdEl = row.querySelector('[data-field="service_id"]');
@@ -2572,7 +2584,7 @@ function updateSummaryDisplay(t) {
   const refundableRow = document.getElementById('display-refundable-row');
   if (refundableRow) refundableRow.style.display = showRefundable ? '' : 'none';
   if (showRefundable) {
-    document.getElementById('display_refundable').innerHTML = fmtDual(refundableRaw, refundable);
+    setSummaryEl('display_refundable', fmtDual(refundableRaw, refundable));
   }
   updatePatientCreditSummary(t);
   updatePaymentRowHints();
@@ -2582,6 +2594,7 @@ function updateSummaryDisplay(t) {
 
 function updateCalculationFlowUI(t) {
   const list = document.getElementById('calculation-flow-list');
+  if (!list) return;
   const steps = t.calculation_steps || [];
   if (!steps.length) {
     list.innerHTML = '<li class="text-muted small">أدخل البيانات لعرض مسار الحساب...</li>';
@@ -2803,7 +2816,9 @@ function updateSummaryTable(t) {
       ? `<tr><td>${fmtDual(t.stay_subtotal_raw, t.stay_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي تكلفة الإقامة</td><td></td><td></td><td></td></tr>`
       : '';
 
-  document.getElementById('summary-tfoot').innerHTML = `
+  const tfoot = document.getElementById('summary-tfoot');
+  if (!tfoot) return;
+  tfoot.innerHTML = `
     ${stayRows}
     <tr><td>${fmtDual(t.items_subtotal_raw, t.items_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي البنود</td><td></td><td></td><td></td></tr>
     <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td></td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td></tr>
@@ -3048,7 +3063,9 @@ async function loadInvoiceForEdit(id, options = {}) {
     );
     await loadFinancialTreatments({ financial_treatment: inv.financial_treatment || '' });
     await loadStayTypes();
-    initStayEntries(inv.stay_entries || []);
+    if (!invoiceFollowUpMode) {
+      initStayEntries(inv.stay_entries || []);
+    }
     setFieldValue('stamp_duty', formatAmountInput(inv.stamp_duty ?? 0));
     setFieldValue('professional_fees', formatAmountInput(inv.professional_fees ?? 0));
     if (!inv.file_number) setFieldValue('balance', formatAmountInput(inv.balance ?? 0));
