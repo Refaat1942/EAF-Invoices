@@ -496,6 +496,48 @@ async function runMigrations() {
   `);
 
   await query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id SERIAL PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      user_name TEXT DEFAULT '',
+      action VARCHAR(64) NOT NULL,
+      entity_type VARCHAR(64) NOT NULL,
+      entity_id TEXT,
+      entity_label TEXT DEFAULT '',
+      severity VARCHAR(16) DEFAULT 'info',
+      ip_address TEXT,
+      request_id TEXT,
+      details JSONB DEFAULT '{}'::jsonb
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs (created_at DESC)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action)`);
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs (entity_type, entity_id)`
+  );
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS system_alerts (
+      id SERIAL PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      alert_type VARCHAR(64) NOT NULL,
+      severity VARCHAR(16) DEFAULT 'warning',
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      entity_type VARCHAR(64),
+      entity_id TEXT,
+      is_read BOOLEAN DEFAULT FALSE,
+      read_at TIMESTAMPTZ,
+      read_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      details JSONB DEFAULT '{}'::jsonb
+    )
+  `);
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_system_alerts_unread ON system_alerts (created_at DESC) WHERE is_read = FALSE`
+  );
+
+  await query(`
     CREATE TABLE IF NOT EXISTS patients (
       id SERIAL PRIMARY KEY,
       file_number VARCHAR(100) UNIQUE NOT NULL,

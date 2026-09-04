@@ -599,7 +599,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
     patientId = linkedPatient?.id || null;
   }
 
-  return withTransaction(async (client) => {
+  const saved = await withTransaction(async (client) => {
     let serialNumber = null;
     let fiscalYear = null;
     let serialSequence = null;
@@ -877,10 +877,41 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
 
     return getInvoiceById(invoiceId, client);
   });
+
+  try {
+    const { writeAuditLog } = require('./auditLogService');
+    const { evaluateInvoiceAlerts } = require('./alertService');
+    const action =
+      saveMode === 'submit'
+        ? 'invoice.submit'
+        : existingId
+          ? 'invoice.update'
+          : 'invoice.create';
+    await writeAuditLog({
+      user: actor,
+      action,
+      entity_type: 'invoice',
+      entity_id: String(saved.id),
+      entity_label: `فاتورة #${saved.id} — ${saved.patient_name || ''} (${saved.file_number || ''})`,
+      details: {
+        status: saved.status,
+        save_mode: saveMode,
+        final_total: saved.final_total,
+        total_collected: saved.total_collected,
+        patient_credit_applied: saved.patient_credit_applied,
+        remaining: saved.remaining,
+      },
+    });
+    await evaluateInvoiceAlerts(saved, totals);
+  } catch (auditErr) {
+    console.error('[audit] invoice save:', auditErr.message);
+  }
+
+  return saved;
 }
 
 async function approveInvoice(id, reviewer) {
-  return withTransaction(async (client) => {
+  const approved = await withTransaction(async (client) => {
     const { rows } = await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id]);
     if (!rows.length) throw new Error('الفاتورة غير موجودة');
     const invoice = rows[0];
@@ -931,14 +962,56 @@ async function approveInvoice(id, reviewer) {
 
     return getInvoiceById(id, client);
   });
+
+  try {
+    const { writeAuditLog } = require('./auditLogService');
+    await writeAuditLog({
+      user: reviewer,
+      action: 'invoice.approve',
+      entity_type: 'invoice',
+      entity_id: String(approved.id),
+      entity_label: `فاتورة ${approved.serial_number || '#' + approved.id} — ${approved.patient_name || ''}`,
+      severity: 'info',
+      details: {
+        serial_number: approved.serial_number,
+        final_total: approved.final_total,
+        total_collected: approved.total_collected,
+      },
+    });
+  } catch (auditErr) {
+    console.error('[audit] invoice approve:', auditErr.message);
+  }
+
+  return approved;
 }
 
-async function deleteInvoice(id) {
-  const { rows } = await query('SELECT status FROM invoices WHERE id = $1', [id]);
-  if (rows.length && rows[0].status === 'approved') {
+async function deleteInvoice(id, actor = null) {
+  const { rows } = await query(
+    'SELECT id, status, patient_name, file_number, serial_number FROM invoices WHERE id = $1',
+    [id]
+  );
+  if (!rows.length) return false;
+  if (rows[0].status === 'approved') {
     throw new Error('لا يمكن حذف فاتورة معتمدة');
   }
+  const snapshot = rows[0];
   const { rowCount } = await query('DELETE FROM invoices WHERE id = $1', [id]);
+  if (rowCount > 0) {
+    try {
+      const { writeAuditLog } = require('./auditLogService');
+      await writeAuditLog({
+        user: actor,
+        action: 'invoice.delete',
+        entity_type: 'invoice',
+        entity_id: String(snapshot.id),
+        entity_label: `فاتورة #${snapshot.id} — ${snapshot.patient_name || ''}`,
+        severity: 'warning',
+        details: { status: snapshot.status, serial_number: snapshot.serial_number },
+      });
+    } catch (auditErr) {
+      console.error('[audit] invoice delete:', auditErr.message);
+    }
+  }
   return rowCount > 0;
 }
 

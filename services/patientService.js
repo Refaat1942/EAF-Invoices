@@ -167,6 +167,33 @@ async function setPatientBalance(fileNumber, balance, name = '', actor = null) {
       );
     }
     return rows[0];
+  }).then(async (updated) => {
+    try {
+      const { writeAuditLog } = require('./auditLogService');
+      const { createAlert } = require('./alertService');
+      await writeAuditLog({
+        user: actor,
+        action: 'patient.balance_adjust',
+        entity_type: 'patient',
+        entity_id: String(fileNumber),
+        entity_label: `${updated.name || fileNumber} (${fileNumber})`,
+        details: { previous_balance: previousBalance, new_balance: newBalance, delta },
+      });
+      if (newBalance < 0) {
+        await createAlert({
+          alert_type: 'patient_negative_balance',
+          severity: 'warning',
+          title: 'رصيد مريض سالب',
+          message: `المريض ${updated.name || fileNumber} (${fileNumber}): رصيد ${newBalance}`,
+          entity_type: 'patient',
+          entity_id: String(fileNumber),
+          details: { account_balance: newBalance },
+        });
+      }
+    } catch (auditErr) {
+      console.error('[audit] patient balance:', auditErr.message);
+    }
+    return updated;
   });
 }
 

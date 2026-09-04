@@ -108,7 +108,7 @@ app.get('/api/health', async (req, res) => {
       status: 'ok',
       app: pkg.name,
       version: pkg.version,
-      ui_build: '20260904c',
+      ui_build: '20260905a',
       environment: isProduction() ? 'production' : process.env.NODE_ENV || 'development',
       db: 'connected',
       time: new Date().toISOString(),
@@ -133,6 +133,7 @@ app.use('/api/daily-charges', require('./routes/dailyCharges'));
 app.use('/api/doctors', require('./routes/doctors'));
 app.use('/api/pricing', require('./routes/pricing'));
 app.use('/api/settings', settingsRoutes);
+app.use('/api/audit', require('./routes/audit'));
 app.use('/download', downloadRoutes);
 
 app.get('*', (req, res) => {

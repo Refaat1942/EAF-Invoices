@@ -254,7 +254,7 @@ router.put('/:id', requirePermission('invoices.edit'), async (req, res) => {
 
 router.delete('/:id', requirePermission('invoices.delete'), async (req, res) => {
   try {
-    const deleted = await deleteInvoice(Number(req.params.id));
+    const deleted = await deleteInvoice(Number(req.params.id), req.session.user);
     if (!deleted) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
     res.json({ success: true });
   } catch (err) {

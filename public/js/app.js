@@ -259,6 +259,8 @@ function showApp() {
   if (hubWelcome) {
     hubWelcome.textContent = `مرحبًا ${currentUser.full_name || currentUser.username}`;
   }
+  if (typeof initAuditAdmin === 'function') initAuditAdmin();
+  if (typeof initAssistant === 'function') initAssistant();
   applyPermissions();
   bindEvents();
   loadInvoiceTypes();
@@ -1127,6 +1129,19 @@ function getPaymentRemainingExcluding(excludeInput = null) {
   return Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
 }
 
+function sumPaymentMethodsByCode() {
+  const totals = { cash: 0, bank_transfer: 0, check: 0, patient_credit: 0, other: 0 };
+  document.querySelectorAll('.payment-method-input').forEach((input) => {
+    const code = input.dataset.methodCode || 'other';
+    const amount = parseDisplayAmount(input.value);
+    if (totals[code] !== undefined) totals[code] += amount;
+    else totals.other += amount;
+  });
+  totals.cash_total = Math.round((totals.cash + totals.bank_transfer + totals.check) * 100) / 100;
+  totals.patient_credit = Math.round(totals.patient_credit * 100) / 100;
+  return totals;
+}
+
 function updatePaymentRowHints() {
   const finalTotal = getInvoiceFinalTotalForPayment();
   let paid = 0;
@@ -1162,17 +1177,19 @@ function updatePaymentRowHints() {
     finalTotal,
     paid,
     remaining,
-    Number(lastCalculationTotals?.refundable_amount) || 0
+    Number(lastCalculationTotals?.refundable_amount) || 0,
+    sumPaymentMethodsByCode()
   );
 }
 
-function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0) {
+function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0, methodTotals = null) {
   const finalEl = document.getElementById('split-final-total');
   const paidEl = document.getElementById('split-paid-total');
   const remainingEl = document.getElementById('split-remaining-total');
   const remainingWrap = document.querySelector('.payment-split-summary .split-remaining');
   const refundableWrap = document.getElementById('split-refundable-wrap');
   const refundableEl = document.getElementById('split-refundable-total');
+  const breakdownEl = document.getElementById('split-payment-breakdown');
   if (!finalEl || !paidEl || !remainingEl) return;
 
   finalEl.textContent = fmt(finalTotal);
@@ -1186,6 +1203,21 @@ function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0) 
     const show = refundable > 0.009;
     refundableWrap.style.display = show ? '' : 'none';
     if (show) refundableEl.textContent = fmt(refundable);
+  }
+  if (breakdownEl) {
+    const mt = methodTotals || sumPaymentMethodsByCode();
+    const parts = [];
+    if (mt.cash_total > 0.009) parts.push(`نقدي/تحويل/شيك: ${fmt(mt.cash_total)}`);
+    if (mt.patient_credit > 0.009) {
+      parts.push(`خصم من رصيد المريض: ${fmt(mt.patient_credit)} (مش تحصيل نقدي)`);
+    }
+    if (parts.length) {
+      breakdownEl.style.display = '';
+      breakdownEl.textContent = `تفصيل المدفوع: ${parts.join(' — ')}`;
+    } else {
+      breakdownEl.style.display = 'none';
+      breakdownEl.textContent = '';
+    }
   }
 }
 
@@ -1798,6 +1830,12 @@ function syncPatientBalanceField() {
   }
 }
 
+function shouldAutoApplyPatientCredit() {
+  if (!hasPatientFileNumber()) return false;
+  if (isInvoiceFollowUpLocked()) return false;
+  return true;
+}
+
 function autoApplyPatientCreditToRows() {
   if (!hasPatientFileNumber()) {
     document.querySelectorAll('#items-tbody tr [data-field="patient_credit_applied"]').forEach((input) => {
@@ -1807,6 +1845,7 @@ function autoApplyPatientCreditToRows() {
     });
     return false;
   }
+  if (!shouldAutoApplyPatientCredit()) return false;
 
   const finalTotal = Number(lastCalculationTotals?.final_total) || sumBillableLineTotals();
   const creditPool = computeInvoicePatientCredit(finalTotal);
@@ -1824,7 +1863,7 @@ function autoApplyPatientCreditToRows() {
 }
 
 function syncPatientCreditPaymentOnly(totals) {
-  if (!hasPatientFileNumber()) return false;
+  if (!shouldAutoApplyPatientCredit()) return false;
 
   const creditTotal = computeInvoicePatientCredit(Number(totals?.final_total) || 0);
   let changed = false;
@@ -2564,7 +2603,13 @@ function updatePaymentValidationUI(t) {
   if (validation.is_balanced || Math.abs(Number(t.remaining) || 0) < 0.01) {
     banner.className = 'payment-validation-banner is-balanced';
     const remaining = Number(t.remaining) || 0;
-    banner.textContent = `✓ متطابق: التحصيل (${fmt(collected)}) + المتبقي (${fmt(remaining)}) = الإجمالي (${fmt(finalTotal)})`;
+    const credit = Number(t.patient_credit_applied) || 0;
+    const cashCollected = Math.max(0, collected - credit);
+    const creditNote =
+      credit > 0.009
+        ? ` — نقدي: ${fmt(cashCollected)} | رصيد مريض: ${fmt(credit)} (خصم مش تحصيل)`
+        : '';
+    banner.textContent = `✓ متطابق: التحصيل (${fmt(collected)}) + المتبقي (${fmt(remaining)}) = الإجمالي (${fmt(finalTotal)})${creditNote}`;
     statusEl.textContent = '✓ متطابق';
     statusEl.className = 'fw-black text-success';
     return;
@@ -3927,6 +3972,7 @@ function showSettingsSection(section) {
   if (section === 'backup' && can('settings.*')) loadBackupSection();
   if (section === 'doctors' && typeof loadDoctorsSection === 'function') loadDoctorsSection();
   if (section === 'item-catalog' && typeof loadItemCatalogSection === 'function') loadItemCatalogSection();
+  if (section === 'audit-monitor' && typeof loadAuditMonitorSection === 'function') loadAuditMonitorSection();
 }
 
 function formatBackupBytes(bytes) {
