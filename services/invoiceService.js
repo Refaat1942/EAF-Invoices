@@ -22,6 +22,18 @@ const { getStayTypeById } = require('./stayTypeService');
 const { resolveServiceForInvoice } = require('./serviceCatalogService');
 const { getSetting } = require('./settingsService');
 
+const LEGACY_CAPTAIN_NAMES = new Set([
+  'نقيب / عمرو صالح محمد',
+  'نقيب/ عمرو صالح محمد',
+  'نقيب /عمرو صالح محمد',
+]);
+
+function normalizeCaptainName(name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed || LEGACY_CAPTAIN_NAMES.has(trimmed)) return 'نقيب عمرو صالح';
+  return trimmed;
+}
+
 const DAILY_PATIENT_HEADER_KEYS = [
   'patient_name',
   'file_number',
@@ -281,6 +293,7 @@ async function attachInvoiceLabels(invoice, typeMap) {
     invoice_type_label: labels[invoice.invoice_type] || invoice.invoice_type,
     fiscal_year_label: fiscalYear ? formatFiscalYearLabel(fiscalYear) : null,
     status_label: STATUS_LABELS[invoice.status] || invoice.status || '',
+    captain_name: normalizeCaptainName(invoice.captain_name),
   };
 }
 
@@ -1689,4 +1702,5 @@ module.exports = {
   saveFreeInvoiceItems,
   buildCalcDataFromInvoice,
   recalculateAndPersistInvoiceTotals,
+  normalizeCaptainName,
 };

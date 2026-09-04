@@ -8,6 +8,7 @@ const { round2 } = require('../services/calculations');
 const { enrichInvoice } = require('../services/pdfService');
 const {
   aggregateCustomerFacingLines,
+  buildCustomerPrintLines,
   DEFAULT_SECTION_LABELS,
 } = require('../services/invoicePresentationService');
 
@@ -271,6 +272,87 @@ function testPdfLabelsWithoutProductNames() {
   console.log('OK customer PDF shows bundle totals not line detail');
 }
 
+function testStayBundleShowsDetailInPrint() {
+  const items = [
+    {
+      section_code: 'accommodation',
+      section_name: 'إقامة',
+      description: 'إقامة رعاية مركزة',
+      quantity: 1,
+      amount: 5000,
+      total: 5000,
+      total_raw: 5000,
+      daily_entry_line_id: 701,
+    },
+    {
+      section_code: 'nursing_point',
+      section_name: 'نقطة تمريض',
+      description: 'نقطة تمريض',
+      quantity: 1,
+      amount: 500,
+      total: 500,
+      total_raw: 500,
+      daily_entry_line_id: 702,
+    },
+    {
+      section_code: 'patient_assistant',
+      section_name: 'مساعد تمريض',
+      description: 'مساعد تمريض',
+      quantity: 1,
+      amount: 500,
+      total: 500,
+      total_raw: 500,
+      daily_entry_line_id: 703,
+    },
+    makeCatalogItem('supplies', 'المستلزمات', 487, { idx: 1 }),
+  ];
+  const display = buildCustomerPrintLines(items);
+  assertEq(display.length, 5, 'stay header + 3 stay lines + supplies aggregate');
+  assert(display[0]._section_header, 'first row is stay header');
+  assertEq(display[0].description, 'إقامة ورعاية', 'stay header label');
+  assertEq(display[1].total, 5000, 'accommodation line total');
+  assertEq(display[4].description, 'المستلزمات', 'supplies still aggregated');
+  console.log('OK stay bundle shows detail in print lines');
+}
+
+function testPdfStayDetailAndCaptainName() {
+  const { buildInvoiceHtml } = require('../services/pdfService');
+  const { normalizeCaptainName } = require('../services/invoiceService');
+  assertEq(normalizeCaptainName('نقيب / عمرو صالح محمد'), 'نقيب عمرو صالح', 'legacy captain normalized');
+  const invoice = enrichInvoice({
+    patient_name: 'ahmed adel',
+    file_number: '06',
+    captain_name: 'نقيب / عمرو صالح محمد',
+    items: [
+      {
+        section_code: 'patient_assistant',
+        section_name: 'مساعد تمريض',
+        description: 'مساعد تمريض',
+        quantity: 1,
+        amount: 6000,
+        total: 6000,
+        total_raw: 6000,
+        daily_entry_line_id: 801,
+      },
+      makeCatalogItem('supplies', 'المستلزمات', 487, { idx: 1 }),
+    ],
+    stamp_duty: 0,
+    professional_fees: 0,
+    admin_expenses_percent: 12,
+    discount_percent: 0,
+    payments: [],
+    method_payments: [],
+    stay_entries: [],
+  });
+  const html = buildInvoiceHtml(invoice, { showQr: false });
+  assert(html.includes('إقامة ورعاية'), 'PDF contains stay section header');
+  assert(html.includes('مساعد تمريض'), 'PDF contains stay line detail');
+  assert(html.includes('نقيب عمرو صالح'), 'PDF contains normalized captain name');
+  assert(!html.includes('نقيب / عمرو صالح محمد'), 'PDF hides legacy captain name');
+  assert(html.includes('رئيس حسابات المرضى'), 'PDF contains captain role label');
+  console.log('OK PDF stay detail and captain name');
+}
+
 function main() {
   testThreeMedicinesAggregateToOneRow();
   testTwoSuppliesAggregateToOneRow();
@@ -279,6 +361,8 @@ function main() {
   testGrandTotalUnchanged();
   testPartialReturnAggregatedMedicinesTotal();
   testInvoiceItemsCountUnchanged();
+  testStayBundleShowsDetailInPrint();
+  testPdfStayDetailAndCaptainName();
   testPdfLabelsWithoutProductNames();
   console.log('ALL INVOICE PRESENTATION TESTS PASSED');
 }

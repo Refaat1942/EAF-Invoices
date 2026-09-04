@@ -1,5 +1,6 @@
 const { formatDual, round2, calculateInvoiceTotals } = require('./calculations');
-const { aggregateInvoiceSectionTotals } = require('./invoicePresentationService');
+const { buildCustomerPrintLines } = require('./invoicePresentationService');
+const { normalizeCaptainName } = require('./invoiceService');
 const { CENTER_NAME } = require('../config/branding');
 
 const { formatAmountAr } = require('./amountFormat');
@@ -155,6 +156,7 @@ function enrichInvoice(invoice) {
     items: mergedItems,
     stay_entries: totals.stay_entries || invoice.stay_entries || [],
     invoice_type_label: invoice.invoice_type_label || invoice.invoice_type,
+    captain_name: normalizeCaptainName(invoice.captain_name),
   };
 }
 
@@ -172,9 +174,10 @@ function formatItemQuantityDisplay(item) {
 function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
   const inv = enrichInvoice(invoice);
-  const displayItems = aggregateInvoiceSectionTotals(inv.items || []);
+  const displayItems = buildCustomerPrintLines(inv.items || []);
 
   const realItems = displayItems.filter((i) => {
+    if (i._section_header) return true;
     if (i._customer_display_aggregate) return true;
     return formatInvoiceLineDescription(i) || i.quantity || i.amount;
   });
@@ -392,6 +395,11 @@ function buildInvoiceHtml(invoice, options = {}) {
       font-size: 10px;
       min-width: 22%;
     }
+    .sig-title {
+      font-size: 9px;
+      font-weight: 900;
+      margin-bottom: 2px;
+    }
     .sig-line {
       border-top: 1px solid #000;
       margin-top: 28px;
@@ -409,6 +417,12 @@ function buildInvoiceHtml(invoice, options = {}) {
       font-weight: 900;
       font-size: 11px;
       background: #c0c0c0 !important;
+    }
+    .print-section-header td {
+      background: #f0f7ff !important;
+      font-weight: 900 !important;
+      text-align: right !important;
+      padding-right: 8px !important;
     }
     .stay-table {
       width: 100%;
@@ -557,10 +571,10 @@ function buildInvoiceHtml(invoice, options = {}) {
     </div>
 
     <div class="signatures">
-      <div class="sig-block"><div class="sig-line">${escapeHtml(inv.captain_name)}</div></div>
-      <div class="sig-block"><div class="sig-line">${escapeHtml(inv.manager_name)}</div></div>
-      <div class="sig-block"><div class="sig-line">${escapeHtml(inv.auditor_name || 'المراجع المالي')}</div></div>
-      <div class="sig-block"><div class="sig-line">${escapeHtml(inv.employee_name || 'الموظف المختص')}</div></div>
+      <div class="sig-block"><div class="sig-title">رئيس حسابات المرضى</div><div class="sig-line">${escapeHtml(inv.captain_name)}</div></div>
+      <div class="sig-block"><div class="sig-title">المدير المالي</div><div class="sig-line">${escapeHtml(inv.manager_name)}</div></div>
+      <div class="sig-block"><div class="sig-title">المراجع المالي</div><div class="sig-line">${escapeHtml(inv.auditor_name || 'المراجع المالي')}</div></div>
+      <div class="sig-block"><div class="sig-title">الموظف المختص</div><div class="sig-line">${escapeHtml(inv.employee_name || 'الموظف المختص')}</div></div>
     </div>
     ${inv.created_by_name ? `<div class="created-by-footer">أُنشئت بواسطة: ${escapeHtml(inv.created_by_name)}</div>` : ''}
   </div>
@@ -592,6 +606,14 @@ function buildCombinedRows(items, payments) {
   for (let i = 0; i < items.length; i++) {
     const item = items[i] || {};
     const pay = payments[i] || {};
+    if (item._section_header) {
+      html += `<tr class="print-section-header">
+        <td colspan="4"></td>
+        <td class="desc">${escapeHtml(String(item.description || '').trim())}</td>
+        <td colspan="3"></td>
+      </tr>`;
+      continue;
+    }
     const isAggregate = Boolean(item._customer_display_aggregate);
     const lineDesc = isAggregate
       ? String(item.description || '').trim()
