@@ -87,6 +87,33 @@ const suppliesTotals = calculateInvoiceTotals({
 assertEq(suppliesTotals.supplies_cost_total_raw, 200, 'supplies cost');
 assertEq(suppliesTotals.supplies_margin_total_raw, 100, 'supplies margin');
 assertEq(suppliesTotals.supplies_selling_total_raw, 300, 'supplies selling');
+
+const stayNotSupplies = calculateInvoiceTotals({
+  ...base,
+  items: [
+    {
+      description: 'إقامة',
+      quantity: 1,
+      amount: 6000,
+      section_code: 'accommodation',
+      daily_entry_line_id: 88,
+    },
+    {
+      description: 'مستلزم',
+      quantity: 1,
+      amount: 120,
+      section_code: 'supplies',
+      daily_entry_line_id: 99,
+      cost_price: 100,
+      supplies_cost_raw: 100,
+      supplies_margin_raw: 20,
+      supplies_selling_raw: 120,
+    },
+  ],
+});
+assertEq(stayNotSupplies.supplies_margin_total_raw, 20, 'only supplies margin counted');
+assertEq(stayNotSupplies.manual_items_subtotal_raw, 6120, 'stay + supplies subtotal');
+
 assertEq(suppliesTotals.daily_items_subtotal_raw, 300, 'daily subtotal');
 
 // Final total with discount and payments

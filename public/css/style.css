@@ -1022,6 +1022,26 @@ body {
   min-width: 6rem;
 }
 
+.invoice-desc-header,
+.invoice-table thead tr:first-child th:nth-child(2) {
+  background: #1a5276 !important;
+  color: #fff !important;
+}
+
+.invoice-patient-summary-table th,
+.invoice-patient-summary-table td {
+  vertical-align: middle;
+  padding: 0.45rem 0.65rem;
+}
+
+.invoice-patient-summary-label {
+  width: 12%;
+  background: #f8fafc;
+  color: #1a5276;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .invoice-section-header-row td {
   background: #f0f7ff;
   border-top: 2px solid #1a5276;

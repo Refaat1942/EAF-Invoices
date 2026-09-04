@@ -347,61 +347,88 @@ function renderInvoicePatientRegistrationSummary(inv) {
 
   const ctx = inv?.patient_context || {};
   const p = ctx.patient || {};
-  const room = ctx.room_assignment || {};
-  const typeLabel = INVOICE_TYPE_LABELS[inv?.invoice_type] || inv?.invoice_type_label || inv?.invoice_type || '—';
+  const typeLabel = p.patient_type === 'external' ? 'خارجي' : p.patient_type === 'internal' ? 'داخلي' : '—';
   const genderLabel = p.gender === 'male' ? 'ذكر' : p.gender === 'female' ? 'أنثى' : p.gender || '—';
-  const patientType = p.patient_type === 'external' ? 'خارجي' : p.patient_type === 'internal' ? 'داخلي' : '—';
-  const row = (label, value) =>
-    `<tr><th class="text-nowrap bg-light">${escapeHtml(label)}</th><td class="fw-bold">${escapeHtml(value ?? '—')}</td></tr>`;
+  const invLabel = inv.serial_number ? inv.serial_number : inv.id ? `#${inv.id}` : '—';
+  const statusLabel = inv.status_label || inv.status || '—';
+  const statusClass =
+    inv.status === 'pending_review'
+      ? 'bg-warning text-dark'
+      : inv.status === 'approved'
+        ? 'bg-success'
+        : 'bg-secondary';
+  const period =
+    inv.admission_date
+      ? `${fmtInvoiceSummaryDate(inv.admission_date)} → ${fmtInvoiceSummaryDate(inv.discharge_date) || '—'}`
+      : '—';
+  const balance = p.account_balance ?? 0;
+  const remaining = inv.remaining ?? inv.outstanding_amount ?? 0;
+  const collected = inv.total_collected ?? 0;
+  const finalTotal = inv.final_total ?? 0;
+  const cell = (value) => escapeHtml(value ?? '—');
 
-  const rows = [
-    row('اسم المريض', p.name || inv.patient_name),
-    row('رقم الملف', p.file_number || inv.file_number),
-    row('رقم التليفون', p.phone),
-    row('تليفون آخر', p.other_phone),
-    row('الجنسية', p.nationality),
-    row('الجنس', genderLabel),
-    row('السن', p.age),
-    row('نوع المريض', patientType),
-    row('درجة الإقامة', ctx.stay_grade_name),
-    row('تاريخ الدخول', fmtInvoiceSummaryDate(inv.admission_date)),
-    row('تاريخ الخروج', fmtInvoiceSummaryDate(inv.discharge_date)),
-    row('المعاملة المالية', inv.financial_treatment || p.financial_treatment),
-    row('رصيد الحساب', document.getElementById('patient-balance-display')?.textContent || fmt(p.account_balance ?? 0)),
-    row('نوع التعامل', typeLabel),
-  ];
-
-  if (ctx.entity_name || inv.contracted_entity_name) {
-    rows.push(row('الجهة', ctx.entity_name || inv.contracted_entity_name));
-  }
-  if (inv.letter_from_date || inv.letter_to_date) {
-    rows.push(
-      row('جواب التعاقد', `${fmtInvoiceSummaryDate(inv.letter_from_date)} → ${fmtInvoiceSummaryDate(inv.letter_to_date)}`)
-    );
-  }
-  if (p.patient_type !== 'external') {
-    rows.push(
-      row('الغرفة / الجناح', room.stay_type_name),
-      row('الدور', p.floor || room.floor),
-      row('مرافق', room.companion_amount != null ? fmt(room.companion_amount) : ''),
-      row('نقطة التمريض', room.nursing_point_amount != null ? fmt(room.nursing_point_amount) : ''),
-      row('التمريض المساعد', room.patient_assistant_amount != null ? fmt(room.patient_assistant_amount) : ''),
-      row('تأمين الغرفة', p.room_insurance_amount != null ? fmt(p.room_insurance_amount) : '')
-    );
-  }
-  if (p.military_auth_from || p.military_auth_to || p.military_auth_amount) {
-    rows.push(
-      row('تصديق عسكري', `${fmtInvoiceSummaryDate(p.military_auth_from)} → ${fmtInvoiceSummaryDate(p.military_auth_to)}`),
-      row('مبلغ التصديق', p.military_auth_amount != null ? fmt(p.military_auth_amount) : '')
-    );
-  }
-
-  body.innerHTML = rows.join('');
+  body.innerHTML = `
+    <tr>
+      <th class="invoice-patient-summary-label">اسم المريض</th>
+      <td class="fw-bold">${cell(p.name || inv.patient_name)}</td>
+      <th class="invoice-patient-summary-label">رقم الملف</th>
+      <td class="fw-bold">${cell(p.file_number || inv.file_number)}</td>
+    </tr>
+    <tr>
+      <th class="invoice-patient-summary-label">الهاتف</th>
+      <td>${cell(p.phone)}</td>
+      <th class="invoice-patient-summary-label">الجنس</th>
+      <td>${cell(genderLabel)}</td>
+    </tr>
+    <tr>
+      <th class="invoice-patient-summary-label">النوع</th>
+      <td>${cell(typeLabel)}</td>
+      <th class="invoice-patient-summary-label">الجنسية</th>
+      <td>${cell(p.nationality)}</td>
+    </tr>
+    <tr>
+      <th class="invoice-patient-summary-label">رقم الفاتورة</th>
+      <td class="fw-bold">${cell(invLabel)}</td>
+      <th class="invoice-patient-summary-label">حالة الفاتورة</th>
+      <td><span class="badge ${statusClass}">${cell(statusLabel)}</span></td>
+    </tr>
+    <tr>
+      <th class="invoice-patient-summary-label">المعاملة المالية</th>
+      <td>${cell(inv.financial_treatment || p.financial_treatment)}</td>
+      <th class="invoice-patient-summary-label">فترة الفاتورة</th>
+      <td>${cell(period)}</td>
+    </tr>
+    <tr class="table-warning">
+      <th class="invoice-patient-summary-label">إجمالي الفاتورة</th>
+      <td class="fw-bold text-primary">${fmt(finalTotal)}</td>
+      <th class="invoice-patient-summary-label">رصيد الحساب</th>
+      <td class="fw-bold text-success">${fmt(balance)}</td>
+    </tr>
+    <tr class="table-warning">
+      <th class="invoice-patient-summary-label">المحصل</th>
+      <td class="fw-bold">${fmt(collected)}</td>
+      <th class="invoice-patient-summary-label">المتبقي</th>
+      <td class="fw-bold text-danger">${fmt(remaining)}</td>
+    </tr>`;
   panel.style.display = '';
+}
+
+function updateInvoicePreviewButtons(inv) {
+  const showPrint = Boolean(inv?.id);
+  const showDownload = inv?.status === 'approved';
+  const previewBtn = document.getElementById('preview-btn');
+  const pdfBtn = document.getElementById('download-pdf-btn');
+  const docxBtn = document.getElementById('download-docx-btn');
+  if (previewBtn) previewBtn.style.display = showPrint ? 'inline-block' : 'none';
+  if (pdfBtn) pdfBtn.style.display = showDownload ? 'inline-block' : 'none';
+  if (docxBtn) docxBtn.style.display = showDownload ? 'inline-block' : 'none';
+  const topPreview = document.getElementById('invoice-preview-top-btn');
+  if (topPreview) topPreview.style.display = showPrint ? 'inline-block' : 'none';
 }
 
 function updateInvoicePatientSummary(inv) {
   if (inv) renderInvoicePatientRegistrationSummary(inv);
+  updateInvoicePreviewButtons(inv);
 }
 
 function applyInvoiceFollowUpPaymentsOnly() {
@@ -696,6 +723,7 @@ function inferInvoiceItemSectionKey(item) {
 }
 
 function invoiceGroupShouldAggregate(key, groupItems = []) {
+  if (key === 'stay') return false;
   if (key === '__manual__') {
     return groupItems.every((item) => item.daily_entry_line_id || item.daily_entry_id);
   }
@@ -744,6 +772,14 @@ function buildInvoiceItemsRenderPlan(items = []) {
         count: groupItems.length,
       });
       continue;
+    }
+    if (key !== '__manual__') {
+      plan.push({
+        type: 'header',
+        label: getInvoiceSectionLabel(groupItems[0]),
+        sectionKey: key,
+        count: groupItems.length,
+      });
     }
     for (const item of groupItems) {
       plan.push({ type: 'item', item });
@@ -802,6 +838,14 @@ function fillInvoiceItemRow(row, item = {}, pay = {}) {
   else delete row.dataset.discountOverride;
   row.querySelector('[data-field="quantity"]').value = item.quantity ? formatAmountInput(item.quantity, 0) : '';
   row.querySelector('[data-field="amount"]').value = item.amount ? formatAmountInput(item.amount) : '';
+  const totalEl = row.querySelector('[data-field="total"]');
+  if (totalEl) {
+    if (item.total != null && item.total !== '') {
+      totalEl.value = fmt(item.total);
+    } else {
+      updateInvoiceRowLineTotal(row);
+    }
+  }
   const creditField = row.querySelector('[data-field="patient_credit_applied"]');
   if (creditField) {
     creditField.value = item.patient_credit_applied ? formatAmountInput(item.patient_credit_applied) : '';
@@ -828,6 +872,10 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
   let rowIndex = 0;
   let paymentIndex = 0;
   for (const part of plan) {
+    if (part.type === 'header') {
+      tbody.appendChild(createInvoiceSectionHeaderRow(part.label, part.count));
+      continue;
+    }
     if (part.type === 'aggregate') {
       const tr = createRow(rowIndex++);
       tbody.appendChild(tr);
@@ -915,6 +963,9 @@ function bindEvents() {
   document.getElementById('download-pdf-btn').addEventListener('click', () => downloadFile('pdf'));
   document.getElementById('download-docx-btn').addEventListener('click', () => downloadFile('docx'));
   document.getElementById('preview-btn').addEventListener('click', () => {
+    if (currentInvoiceId) window.open(`${API}/${currentInvoiceId}/preview`, '_blank');
+  });
+  document.getElementById('invoice-preview-top-btn')?.addEventListener('click', () => {
     if (currentInvoiceId) window.open(`${API}/${currentInvoiceId}/preview`, '_blank');
   });
 
@@ -2783,7 +2834,7 @@ function resetForm() {
   document.getElementById('form-title').textContent = 'إنشاء فاتورة جديدة';
   document.getElementById('issue_date').value = new Date().toISOString().slice(0, 10);
   updateInvoiceStatusUI(null);
-  document.getElementById('captain_name').value = 'نقيب / عمرو صالح محمد';
+  document.getElementById('captain_name').value = 'نقيب عمرو صالح';
   document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر - المدير المالي';
   document.getElementById('admin_expenses_percent').value = formatAmountInput(12);
   document.getElementById('stamp_duty').value = formatAmountInput(0);
@@ -2912,8 +2963,9 @@ async function loadInvoiceForEdit(id, options = {}) {
     renderInvoiceReturnsHistory(currentInvoiceReturns);
 
     ['download-pdf-btn', 'download-docx-btn', 'preview-btn'].forEach((id) => {
-      document.getElementById(id).style.display = inv.status === 'approved' ? 'inline-block' : 'none';
+      document.getElementById(id).style.display = 'none';
     });
+    updateInvoicePreviewButtons(inv);
 
     if (inv.status === 'approved') {
       setFormReadonly(true);

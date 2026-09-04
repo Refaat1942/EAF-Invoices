@@ -1674,7 +1674,8 @@ function applyInvoiceSuppliesSnapshots(item) {
 
 function attachSuppliesMarkupFields(item, lineCtx = null) {
   const sectionCode = item.section_code || lineCtx?.section_code;
-  const isSupplies = sectionCode === 'supplies';
+  const isSupplies = sectionCode === 'supplies' || sectionCode === 'cosmetics';
+  if (!isSupplies) return item;
   const qty = round2(item.quantity || lineCtx?.quantity || 1) || 1;
   const unitPrice = round2(item.amount || lineCtx?.unit_price || 0);
   const costPrice = round2(lineCtx?.cost_price ?? item.cost_price ?? 0);
@@ -1691,7 +1692,6 @@ function attachSuppliesMarkupFields(item, lineCtx = null) {
     supplies_margin_raw: lineMargin,
     supplies_selling_raw: lineSelling,
   };
-  if (!isSupplies) return result;
   return {
     ...result,
     cost_price_snapshot: costPrice,

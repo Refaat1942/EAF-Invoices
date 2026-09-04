@@ -143,7 +143,7 @@ async function initDatabase() {
       remaining_raw NUMERIC(14,4) DEFAULT 0,
       employee_name TEXT DEFAULT '',
       auditor_name TEXT DEFAULT '',
-      captain_name TEXT DEFAULT 'نقيب / عمرو صالح محمد',
+      captain_name TEXT DEFAULT 'نقيب عمرو صالح',
       manager_name TEXT DEFAULT 'رائد / جمال عبد الناصر - المدير المالي',
       qr_token UUID UNIQUE NOT NULL,
       file_password TEXT DEFAULT '',

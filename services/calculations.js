@@ -36,18 +36,16 @@ function prorateByNetRatio(value, originalQuantity, netQuantity) {
   return round2(total * (netQuantity / originalQuantity));
 }
 
+function isSuppliesLineItem(item) {
+  const code = String(item?.section_code || '').trim();
+  return code === 'supplies' || code === 'cosmetics';
+}
+
 function prorateSuppliesFields(item, originalQuantity, netQuantity) {
   const unitPrice = round2(item.amount) || 0;
   const unitCost = round2(item.cost_price_snapshot ?? item.cost_price ?? 0);
-  const hasSupplies =
-    item.daily_entry_line_id ||
-    item.section_code === 'supplies' ||
-    unitCost > 0 ||
-    item.margin_amount_snapshot != null ||
-    item.supplies_cost_raw ||
-    item.supplies_margin_raw;
 
-  if (!hasSupplies) {
+  if (!isSuppliesLineItem(item)) {
     return { supplies_cost_raw: 0, supplies_margin_raw: 0, supplies_selling_raw: 0 };
   }
 
@@ -99,17 +97,13 @@ function sumSuppliesMarkup(items = []) {
   let marginRaw = 0;
   let sellingRaw = 0;
   for (const item of items) {
-    if (!item.daily_entry_line_id && !item.supplies_cost_raw) continue;
+    if (!isSuppliesLineItem(item)) continue;
     const lineCost = Number(item.supplies_cost_raw);
     const lineMargin = Number(item.supplies_margin_raw);
     const lineSelling = Number(item.supplies_selling_raw ?? item.total_raw);
-    if (lineCost > 0 || lineMargin > 0) {
-      costRaw += lineCost > 0 ? lineCost : 0;
-      marginRaw += lineMargin > 0 ? lineMargin : 0;
-      sellingRaw += lineSelling > 0 ? lineSelling : 0;
-    } else if (item.section_code === 'supplies' && item.daily_entry_line_id) {
-      sellingRaw += Number(item.total_raw) || 0;
-    }
+    costRaw += lineCost > 0 ? lineCost : 0;
+    marginRaw += lineMargin > 0 ? lineMargin : 0;
+    sellingRaw += lineSelling > 0 ? lineSelling : 0;
   }
   return {
     supplies_cost_total_raw: round2(costRaw),

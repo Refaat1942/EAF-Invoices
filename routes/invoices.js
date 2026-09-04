@@ -293,16 +293,17 @@ router.get('/:id/preview', requirePermission('invoices.view'), async (req, res) 
   try {
     const invoice = await getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).send('Not found');
-    if (!invoice.qr_token) {
-      return res.status(400).send('المعاينة متاحة فقط للفواتير المعتمدة');
-    }
 
     const baseUrl = getBaseUrl(req);
     const logoUrl = await getLogoUrl(baseUrl);
-    const downloadUrl = `${baseUrl}/download/${invoice.qr_token}`;
-    const qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
+    const showQr = Boolean(invoice.qr_token);
+    let qrDataUrl = null;
+    if (showQr) {
+      const downloadUrl = `${baseUrl}/download/${invoice.qr_token}`;
+      qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
+    }
 
-    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: true, qrDataUrl });
+    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr, qrDataUrl });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
