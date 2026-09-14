@@ -1079,6 +1079,8 @@ function bindEvents() {
   document.getElementById('pricing-services-table')?.addEventListener('click', onPricingTableSortClick);
   document.getElementById('pricing-clone-btn')?.addEventListener('click', cloneCurrentPriceList);
   document.getElementById('pricing-add-category-btn')?.addEventListener('click', addPricingCategory);
+  document.getElementById('pricing-edit-category-btn')?.addEventListener('click', editPricingCategory);
+  document.getElementById('pricing-delete-category-btn')?.addEventListener('click', deletePricingCategory);
   document.getElementById('pricing-delete-section-services-btn')?.addEventListener('click', deleteSectionServices);
   document.getElementById('pricing-delete-all-services-btn')?.addEventListener('click', deleteAllPricingServices);
   document.getElementById('pricing-add-service-btn')?.addEventListener('click', () => openServiceEditor());
@@ -4961,21 +4963,24 @@ function getSelectedPricingSection() {
     return {
       value,
       label: tpl?.label || cat?.name || 'القسم',
-      categoryId: cat?.id || null,
+      categoryId: cat?.id || tpl?.category_id || null,
       categoryCode: tpl?.category_code || cat?.code || null,
       templateKey,
+      isCustom: !!tpl?.custom,
       isAll: false,
     };
   }
   if (value.startsWith('cat:')) {
     const categoryId = Number(value.slice(4));
     const cat = pricingCategoriesCache.find((c) => c.id === categoryId);
+    const templateKey = cat?.code ? `custom_${cat.code}` : null;
     return {
       value,
       label: cat?.name || 'القسم',
       categoryId: categoryId || null,
       categoryCode: cat?.code || null,
-      templateKey: null,
+      templateKey,
+      isCustom: true,
       isAll: false,
     };
   }
@@ -5013,6 +5018,21 @@ function updatePricingSectionUi() {
       ? `حذف جميع خدمات ${section.label}`
       : 'اختر قسماً له خدمات محفوظة';
   }
+  const editCatBtn = document.getElementById('pricing-edit-category-btn');
+  if (editCatBtn) {
+    editCatBtn.disabled = section.isAll || !section.categoryId;
+    editCatBtn.title = section.categoryId ? `تعديل قسم ${section.label}` : 'اختر قسماً';
+  }
+  const deleteCatBtn = document.getElementById('pricing-delete-category-btn');
+  if (deleteCatBtn) {
+    const canDelete = !section.isAll && section.categoryId && section.isCustom;
+    deleteCatBtn.disabled = !canDelete;
+    deleteCatBtn.title = canDelete
+      ? `حذف قسم ${section.label}`
+      : section.isAll
+        ? 'اختر قسماً'
+        : 'لا يمكن حذف أقسام النظام الأساسية';
+  }
   document.querySelectorAll('#pricing-services-table .pricing-sort-th').forEach((th) => {
     th.classList.remove('sort-active', 'sort-asc', 'sort-desc');
     if (th.dataset.sort === pricingTableSort.column) {
@@ -5022,8 +5042,12 @@ function updatePricingSectionUi() {
 }
 
 async function loadPricingTemplates() {
+  if (!currentPricingListId) {
+    pricingTemplatesCache = [];
+    return;
+  }
   try {
-    const res = await apiFetch(`${PRICING_API}/import-templates`);
+    const res = await apiFetch(`${PRICING_API}/import-templates?price_list_id=${currentPricingListId}`);
     pricingTemplatesCache = res.ok ? await res.json() : [];
   } catch {
     pricingTemplatesCache = [];
@@ -5034,15 +5058,10 @@ function populatePricingSectionSelect() {
   const select = document.getElementById('pricing-section-select');
   if (!select) return;
   const previous = select.value;
-  const templateCodes = new Set(pricingTemplatesCache.map((t) => t.category_code).filter(Boolean));
   const options = ['<option value="all">— كل الأقسام —</option>'];
 
   for (const tpl of pricingTemplatesCache) {
     options.push(`<option value="tpl:${escapeHtml(tpl.key)}">${escapeHtml(tpl.label)}</option>`);
-  }
-  for (const cat of pricingCategoriesCache) {
-    if (templateCodes.has(cat.code)) continue;
-    options.push(`<option value="cat:${cat.id}">${escapeHtml(cat.name)}</option>`);
   }
 
   select.innerHTML = options.join('');
@@ -5240,7 +5259,13 @@ function downloadPricingTemplate() {
     showToast('اختر قسماً له قالب Excel (مثل التحاليل أو الكشوفات)', 'warning');
     return;
   }
-  window.open(`${PRICING_API}/import-template/${encodeURIComponent(section.templateKey)}`, '_blank');
+  const params = new URLSearchParams();
+  if (currentPricingListId) params.set('price_list_id', currentPricingListId);
+  const qs = params.toString();
+  window.open(
+    `${PRICING_API}/import-template/${encodeURIComponent(section.templateKey)}${qs ? `?${qs}` : ''}`,
+    '_blank'
+  );
 }
 
 async function importPricingSectionExcel(e) {
@@ -5367,10 +5392,73 @@ async function addPricingCategory() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    showToast(`تم إضافة قسم «${name.trim()}»`, 'success');
+    showToast(`تم إضافة قسم «${name.trim()}» — يمكنك تحميل قالب Excel ورفع الخدمات`, 'success');
+    await loadPricingTemplates();
     await loadPricingCategories();
     populatePricingSectionSelect();
-    document.getElementById('pricing-section-select').value = `cat:${data.id}`;
+    document.getElementById('pricing-section-select').value = `tpl:custom_${data.code}`;
+    await onPricingSectionChange();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function editPricingCategory() {
+  const section = getSelectedPricingSection();
+  if (section.isAll || !section.categoryId) {
+    showToast('اختر قسماً محدداً أولاً', 'warning');
+    return;
+  }
+  const cat = pricingCategoriesCache.find((c) => c.id === section.categoryId);
+  const name = prompt('اسم القسم:', cat?.name || section.label);
+  if (!name?.trim()) return;
+  try {
+    const res = await apiFetch(`${PRICING_API}/categories/${section.categoryId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(`تم تعديل القسم إلى «${name.trim()}»`, 'success');
+    await loadPricingTemplates();
+    await loadPricingCategories();
+    populatePricingSectionSelect();
+    if (section.templateKey) {
+      document.getElementById('pricing-section-select').value = `tpl:${section.templateKey}`;
+    }
+    await onPricingSectionChange();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function deletePricingCategory() {
+  const section = getSelectedPricingSection();
+  if (section.isAll || !section.categoryId) {
+    showToast('اختر قسماً محدداً أولاً', 'warning');
+    return;
+  }
+  if (!section.isCustom) {
+    showToast('لا يمكن حذف أقسام النظام الأساسية (تحاليل، أشعة، …)', 'warning');
+    return;
+  }
+  if (
+    !confirm(
+      `حذف قسم «${section.label}» وجميع خدماته؟\nلا يمكن التراجع عن هذا الإجراء.`
+    )
+  ) {
+    return;
+  }
+  try {
+    const res = await apiFetch(`${PRICING_API}/categories/${section.categoryId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(`تم حذف القسم (${data.services_removed || 0} خدمة)`, 'success');
+    document.getElementById('pricing-section-select').value = 'all';
+    await loadPricingTemplates();
+    await loadPricingCategories();
+    populatePricingSectionSelect();
     await onPricingSectionChange();
   } catch (err) {
     showToast(err.message, 'danger');

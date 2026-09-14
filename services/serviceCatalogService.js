@@ -5,15 +5,49 @@ const { formatServiceUnitLabel } = require('./serviceUnitLabels');
 
 const HIDDEN_CATEGORY_NAMES = new Set([
   'نوع الخدمة',
+  'نوع الخدمة الطبية',
   'البيان',
   'الخدمة',
   'م',
   'قسم',
   'قسم التقييم',
+  'قسم التقييم والجلسات',
   'جلسة',
   'نوع الجلسة',
   'الجلسة',
+  'قيمة الكشف',
+  'درجة الإقامة',
+  'إقامة المرافق',
+  'اسم الجهاز',
+  'وصف الخدمة',
 ]);
+
+const BUILTIN_CATEGORY_CODES = new Set([
+  'MEDICAL_EXAMS',
+  'LAB',
+  'RADIOLOGY',
+  'RF_INJECTION',
+  'SPINE_CENTER',
+  'PHYSIO',
+  'SPINE_BUILDING',
+  'ACCOMMODATION',
+  'GENERAL',
+  'PROSTHETICS',
+  'COMPANION',
+  'NURSING',
+  'STAMPS',
+]);
+
+function isJunkCategoryName(name) {
+  const n = String(name || '').trim();
+  if (!n || HIDDEN_CATEGORY_NAMES.has(n)) return true;
+  if (/^(نوع|قيمة|درجة|وصف|اسم)\s/.test(n)) return true;
+  return false;
+}
+
+function isBuiltinCategoryCode(code) {
+  return BUILTIN_CATEGORY_CODES.has(String(code || '').trim());
+}
 
 async function listCategories(priceListId, activeOnly = true) {
   let sql = 'SELECT * FROM service_categories WHERE price_list_id = $1';
@@ -21,7 +55,12 @@ async function listCategories(priceListId, activeOnly = true) {
   if (activeOnly) sql += ' AND is_active = TRUE';
   sql += ' ORDER BY sort_order, name';
   const { rows } = await query(sql, params);
-  return rows.filter((row) => !HIDDEN_CATEGORY_NAMES.has(String(row.name || '').trim()));
+  return rows.filter((row) => !isJunkCategoryName(row.name));
+}
+
+async function getCategoryById(id) {
+  const { rows } = await query('SELECT * FROM service_categories WHERE id = $1', [id]);
+  return rows[0] || null;
 }
 
 async function createCategory(priceListId, data) {
@@ -39,6 +78,28 @@ async function createCategory(priceListId, data) {
     ]
   );
   return rows[0];
+}
+
+async function deleteCategory(id) {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query('SELECT * FROM service_categories WHERE id = $1', [id]);
+    if (!rows.length) throw new Error('القسم غير موجود');
+    const category = rows[0];
+    if (isBuiltinCategoryCode(category.code)) {
+      throw new Error('لا يمكن حذف قسم النظام الأساسي — يمكنك حذف خدماته فقط');
+    }
+    const svcCount = await client.query(
+      'SELECT COUNT(*)::int AS n FROM services WHERE category_id = $1',
+      [id]
+    );
+    await client.query('DELETE FROM services WHERE category_id = $1', [id]);
+    await client.query('DELETE FROM service_categories WHERE id = $1', [id]);
+    return {
+      deleted: true,
+      services_removed: svcCount.rows[0]?.n || 0,
+      category,
+    };
+  });
 }
 
 async function updateCategory(id, data) {
@@ -523,8 +584,12 @@ async function importServicesCsv(priceListId, rows, actor = null) {
 
 module.exports = {
   listCategories,
+  getCategoryById,
   createCategory,
   updateCategory,
+  deleteCategory,
+  isBuiltinCategoryCode,
+  isJunkCategoryName,
   listServices,
   getServiceById,
   enrichServicesWithResolvedPrices,

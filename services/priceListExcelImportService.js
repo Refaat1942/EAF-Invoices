@@ -46,6 +46,43 @@ const GENERIC_CATEGORY_NAMES = new Set([
   'قسم التقييم',
 ]);
 
+const GENERIC_SECTION_TEMPLATE = {
+  headers: ['م', 'البيان', 'السعر (ج.م)'],
+  unit: 'مرة',
+};
+
+function customTemplateKey(categoryCode) {
+  return `custom_${String(categoryCode || '').trim()}`;
+}
+
+function isCustomTemplateKey(key) {
+  return String(key || '').startsWith('custom_');
+}
+
+function builtinTemplateCategoryCodes() {
+  return new Set(Object.values(EXCEL_TEMPLATES).map((t) => t.category_code));
+}
+
+function resolveTemplate(templateKey, options = {}) {
+  if (EXCEL_TEMPLATES[templateKey]) {
+    const t = EXCEL_TEMPLATES[templateKey];
+    return { ...t, key: templateKey, category_code: t.category_code, custom: false };
+  }
+  if (isCustomTemplateKey(templateKey)) {
+    const categoryCode = templateKey.slice('custom_'.length);
+    if (!categoryCode) return null;
+    return {
+      key: templateKey,
+      label: options.category_name || categoryCode,
+      category_code: categoryCode,
+      headers: GENERIC_SECTION_TEMPLATE.headers,
+      unit: GENERIC_SECTION_TEMPLATE.unit,
+      custom: true,
+    };
+  }
+  return null;
+}
+
 const EXCEL_TEMPLATES = {
   medical_exams: {
     label: 'الكشوفات الطبية',
@@ -160,13 +197,12 @@ async function parseExcelBuffer(buffer, options = {}) {
 
   const templateKey =
     options.template_key || detectTemplateFromFilename(options.filename || '') || null;
-  if (!templateKey || !EXCEL_TEMPLATES[templateKey]) {
+  const template = resolveTemplate(templateKey, { category_name: options.category_name });
+  if (!template) {
     throw new Error(
-      'تعذر تحديد نوع القالب — استخدم ملف باسم معروف (كشوفات، تحاليل، عمليات، …) أو اختر القالب من القائمة'
+      'تعذر تحديد نوع القالب — اختر القسم من القائمة ثم ارفع ملف Excel بنفس تنسيق القالب'
     );
   }
-
-  const template = EXCEL_TEMPLATES[templateKey];
   const services = [];
   let rowIndex = 0;
 
@@ -376,8 +412,8 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
   };
 }
 
-async function buildTemplateExcel(templateKey) {
-  const template = EXCEL_TEMPLATES[templateKey];
+async function buildTemplateExcel(templateKey, options = {}) {
+  const template = resolveTemplate(templateKey, { category_name: options.category_name });
   if (!template) throw new Error('قالب غير معروف');
 
   const workbook = new ExcelJS.Workbook();
@@ -409,7 +445,24 @@ function listExcelTemplates() {
     key,
     label: t.label,
     category_code: t.category_code,
+    custom: false,
   }));
+}
+
+async function listExcelTemplatesForPriceList(priceListId) {
+  const staticTemplates = listExcelTemplates();
+  const usedCodes = builtinTemplateCategoryCodes();
+  const categories = await listCategories(priceListId, false);
+  const customTemplates = categories
+    .filter((cat) => cat.code && !usedCodes.has(cat.code))
+    .map((cat) => ({
+      key: customTemplateKey(cat.code),
+      label: cat.name,
+      category_code: cat.code,
+      category_id: cat.id,
+      custom: true,
+    }));
+  return [...staticTemplates, ...customTemplates];
 }
 
 module.exports = {
@@ -420,6 +473,10 @@ module.exports = {
   importParsedExcel,
   buildTemplateExcel,
   listExcelTemplates,
+  listExcelTemplatesForPriceList,
+  customTemplateKey,
+  isCustomTemplateKey,
+  resolveTemplate,
   removeGenericCategories,
   ensureImportCategory,
   resolveMedicalServiceCategoryCode,

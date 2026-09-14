@@ -15,6 +15,7 @@ const {
   listCategories,
   createCategory,
   updateCategory,
+  deleteCategory,
   listServices,
   getServiceById,
   createService,
@@ -36,6 +37,7 @@ const {
   importParsedExcel,
   buildTemplateExcel,
   listExcelTemplates,
+  listExcelTemplatesForPriceList,
   removeGenericCategories,
 } = require('../services/priceListExcelImportService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
@@ -177,6 +179,14 @@ router.post('/categories', requirePermission('settings.*'), async (req, res) => 
 router.put('/categories/:id', requirePermission('settings.*'), async (req, res) => {
   try {
     res.json(await updateCategory(Number(req.params.id), req.body));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/categories/:id', requirePermission('settings.*'), async (req, res) => {
+  try {
+    res.json(await deleteCategory(Number(req.params.id)));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -331,6 +341,12 @@ router.post('/import-json', requirePermission('settings.*'), longImportTimeout, 
 
 router.get('/import-templates', requirePermission('settings.*'), async (req, res) => {
   try {
+    const list = req.query.price_list_id
+      ? await getPriceListById(Number(req.query.price_list_id))
+      : await getDefaultPriceList();
+    if (list) {
+      return res.json(await listExcelTemplatesForPriceList(list.id));
+    }
     res.json(listExcelTemplates());
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -339,8 +355,20 @@ router.get('/import-templates', requirePermission('settings.*'), async (req, res
 
 router.get('/import-template/:key', requirePermission('settings.*'), async (req, res) => {
   try {
-    const buffer = await buildTemplateExcel(req.params.key);
-    const label = listExcelTemplates().find((t) => t.key === req.params.key)?.label || req.params.key;
+    const list = req.query.price_list_id
+      ? await getPriceListById(Number(req.query.price_list_id))
+      : await getDefaultPriceList();
+    let categoryName = '';
+    if (list && String(req.params.key).startsWith('custom_')) {
+      const code = req.params.key.slice('custom_'.length);
+      const cats = await listCategories(list.id, false);
+      categoryName = cats.find((c) => c.code === code)?.name || '';
+    }
+    const buffer = await buildTemplateExcel(req.params.key, { category_name: categoryName });
+    const templates = list
+      ? await listExcelTemplatesForPriceList(list.id)
+      : listExcelTemplates();
+    const label = templates.find((t) => t.key === req.params.key)?.label || req.params.key;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="eaf-template-${req.params.key}.xlsx"`);
     res.send(Buffer.from(buffer));

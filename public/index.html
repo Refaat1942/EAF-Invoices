@@ -1389,9 +1389,13 @@
                 </div>
                 <div class="col-md-4">
                   <label class="form-label fw-bold small mb-1">القسم / شيت Excel</label>
-                  <select class="form-select form-select-sm fw-bold" id="pricing-section-select">
-                    <option value="all">— كل الأقسام —</option>
-                  </select>
+                  <div class="d-flex gap-1">
+                    <select class="form-select form-select-sm fw-bold" id="pricing-section-select">
+                      <option value="all">— كل الأقسام —</option>
+                    </select>
+                    <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" id="pricing-edit-category-btn" title="تعديل القسم" disabled>✎</button>
+                    <button type="button" class="btn btn-sm btn-outline-danger fw-bold" id="pricing-delete-category-btn" title="حذف القسم" disabled>🗑</button>
+                  </div>
                 </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold small mb-1">بحث في القسم</label>
