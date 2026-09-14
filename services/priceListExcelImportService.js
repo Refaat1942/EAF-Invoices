@@ -182,10 +182,8 @@ function detectTemplateFromFilename(filename) {
   return null;
 }
 
-function serialCode(serial, rowIndex) {
-  const raw = String(serial ?? '').trim();
-  const parsed = parseInt(raw.replace(/[^\d]/g, ''), 10);
-  if (Number.isFinite(parsed) && parsed > 0) return String(parsed);
+/** كود الخدمة داخل القسم فقط: 1، 2، 3… حسب ترتيب الصف في الشيت (لا علاقة لأقسام أخرى). */
+function serialCode(_serial, rowIndex) {
   return String(rowIndex);
 }
 
@@ -345,7 +343,10 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
   const clearedCategories = new Set();
   let imported = 0;
   let updated = 0;
+  let rowSeq = 0;
+
   for (const svc of services) {
+    rowSeq += 1;
     const catCode = svc.category_code || category_code;
     const categoryId = await ensureImportCategory(priceListId, catCode, actor);
     touchedCategories.add(catCode);
@@ -368,7 +369,6 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
     const payload = {
       price_list_id: priceListId,
       category_id: categoryId,
-      code: svc.code,
       name: svc.name,
       unit: svc.unit || 'مرة',
       price: svc.price,
@@ -379,12 +379,19 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
       notes: svc.notes || '',
       metadata: svc.metadata || {},
       components: svc.components,
+      sort_order: rowSeq,
     };
     if (rows.length) {
       await updateService(rows[0].id, payload, actor);
       updated += 1;
     } else {
-      await createService(payload, actor);
+      await createService(
+        {
+          ...payload,
+          code: `__IMP_${categoryId}_${rowSeq}_${Date.now()}`,
+        },
+        actor
+      );
       imported += 1;
     }
   }

@@ -672,7 +672,7 @@ async function runMigrations() {
       metadata JSONB DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(price_list_id, code)
+      UNIQUE(price_list_id, category_id, code)
     )
   `);
 
@@ -1099,7 +1099,18 @@ async function runMigrations() {
     )
   `);
 
+  await migrateServiceCodeUniqueConstraint();
+
   await seedLookupTables();
+}
+
+async function migrateServiceCodeUniqueConstraint() {
+  await query(`ALTER TABLE services DROP CONSTRAINT IF EXISTS services_price_list_id_code_key`);
+  await query(`DROP INDEX IF EXISTS services_price_list_id_code_key`);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_services_price_list_category_code
+    ON services (price_list_id, COALESCE(category_id, 0), code)
+  `);
 }
 
 async function seedDailyChargeSections() {

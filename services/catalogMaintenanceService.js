@@ -85,13 +85,16 @@ async function renumberServiceCodes(priceListId, categoryId = null) {
   let renumbered = 0;
   await withTransaction(async (client) => {
     for (const [, list] of byCategory) {
+      for (const svc of list) {
+        await client.query(`UPDATE services SET code = $1 WHERE id = $2`, [`__rn_${svc.id}`, svc.id]);
+      }
+    }
+    for (const [, list] of byCategory) {
       let serial = 1;
       for (const svc of list) {
         const nextCode = String(serial);
-        if (String(svc.code) !== nextCode) {
-          await client.query(`UPDATE services SET code = $1 WHERE id = $2`, [nextCode, svc.id]);
-          renumbered += 1;
-        }
+        if (String(svc.code) !== nextCode) renumbered += 1;
+        await client.query(`UPDATE services SET code = $1 WHERE id = $2`, [nextCode, svc.id]);
         serial += 1;
       }
     }

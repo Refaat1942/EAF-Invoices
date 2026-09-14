@@ -568,10 +568,13 @@ async function importServicesCsv(priceListId, rows, actor = null) {
   let count = 0;
   for (const row of rows) {
     if (!row.name && !row.code) continue;
-    const existing = await query('SELECT id FROM services WHERE price_list_id = $1 AND code = $2', [
-      priceListId,
-      row.code,
-    ]);
+    let existingSql = 'SELECT id FROM services WHERE price_list_id = $1 AND code = $2';
+    const existingParams = [priceListId, row.code];
+    if (row.category_id) {
+      existingSql += ' AND category_id = $3';
+      existingParams.push(row.category_id);
+    }
+    const existing = await query(existingSql, existingParams);
     if (existing.rows.length) {
       await updateService(existing.rows[0].id, row, actor);
     } else {
