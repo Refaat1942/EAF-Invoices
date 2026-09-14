@@ -1032,8 +1032,15 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   return normalized;
 }
 
+const STAY_SECTION_CODES = new Set(['accommodation', 'companion', 'nursing_point', 'patient_assistant']);
+
+function linesIncludeStay(lines = []) {
+  return (lines || []).some((line) => STAY_SECTION_CODES.has(line.section_code));
+}
+
 async function prepareEntrySaveContext(data) {
   const patient = await resolvePatient(data.file_number, data.patient_name);
+  const patientType = String(patient.patient_type || 'internal').toLowerCase() === 'external' ? 'external' : 'internal';
   const allowBackfill = data.allow_backfill === true;
   const entryDate = allowBackfill
     ? normalizeCalendarDate(data.entry_date) || getCurrentBusinessDateString()
@@ -1073,7 +1080,11 @@ async function prepareEntrySaveContext(data) {
     }
   }
 
-  if (data.stay_type_id) {
+  if (linesIncludeStay(lines) && patientType === 'external') {
+    throw new Error('المريض الخارجي لا يُسجَّل عليه إقامة — احذف بنود الإقامة أو غيّر نوع المريض');
+  }
+
+  if (data.stay_type_id && patientType !== 'external') {
     await enrichStayLinesFromStayType(lines, data.stay_type_id, sections);
   }
 
@@ -1226,6 +1237,24 @@ async function resolveEntryDoctorFields(data, existing = null, client = null) {
   };
 }
 
+async function findStayEntryForDate(client, patientId, entryDate, excludeId = null) {
+  const params = [patientId, entryDate, [...STAY_SECTION_CODES]];
+  let sql = `
+    SELECT DISTINCT e.id
+    FROM patient_daily_entries e
+    JOIN patient_daily_entry_lines l ON l.entry_id = e.id
+    WHERE e.patient_id = $1 AND e.entry_date = $2::date
+      AND l.section_code = ANY($3::text[])`;
+  if (excludeId) {
+    sql += ` AND e.id <> $4`;
+    params.push(excludeId);
+  }
+  sql += ` ORDER BY e.id LIMIT 1`;
+  const { rows } = await client.query(sql, params);
+  if (!rows[0]?.id) return null;
+  return getEntryById(rows[0].id, client);
+}
+
 async function findDuplicateEntryForLines(client, patientId, entryDate, lines, excludeId = null) {
   const fingerprint = buildDailyLinesFingerprint(lines);
   if (!fingerprint) return null;
@@ -1267,6 +1296,9 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     const duplicate = await findDuplicateEntryForLines(client, patient.id, entryDate, lines);
     if (duplicate) {
       existing = duplicate;
+    } else if (linesIncludeStay(lines)) {
+      const stayEntry = await findStayEntryForDate(client, patient.id, entryDate);
+      if (stayEntry) existing = stayEntry;
     }
   }
 

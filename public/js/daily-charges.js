@@ -116,6 +116,14 @@ async function handleDailyTabImport(file) {
 let dailySectionsCache = [];
 let dailyCurrentEntryId = null;
 let dailyStayContext = null;
+
+function isExternalDailyPatient(ctx = dailyStayContext) {
+  return String(ctx?.patient?.patient_type || '').toLowerCase() === 'external';
+}
+
+function canUseDailyStayCharges(ctx = dailyStayContext) {
+  return !isExternalDailyPatient(ctx);
+}
 let dailyEntriesLoadSeq = 0;
 let dailyStayTypesCache = [];
 let dailyStayGradesCache = [];
@@ -1260,7 +1268,9 @@ async function saveFreeItems() {
 function renderDailySectionTabs() {
   const tabsEl = document.getElementById('daily-entry-tabs');
   if (!tabsEl) return;
+  const hideStay = !canUseDailyStayCharges();
   tabsEl.innerHTML = DAILY_TAB_GROUPS
+    .filter((g) => !(hideStay && g.id === 'stay'))
     .map((g) => {
       const active = activeDailyTab === g.id ? ' active' : '';
       return `<li class="nav-item" role="presentation">
@@ -1284,6 +1294,10 @@ function renderDailySectionTiles() {
 function showDailySection(sectionId) {
   if (sectionId) activeDailyTab = sectionId;
   if (!activeDailyTab) activeDailyTab = 'medicines';
+  if (activeDailyTab === 'stay' && !canUseDailyStayCharges()) {
+    activeDailyTab = defaultDailyTabForPatient(dailyStayContext);
+    showToast('المريض الخارجي لا يُسجَّل عليه إقامة', 'warning');
+  }
   const sectionWorkspace = document.getElementById('daily-section-workspace');
   if (sectionWorkspace) sectionWorkspace.classList.remove('d-none');
   updateFocusedSectionTitle();
@@ -1338,11 +1352,49 @@ function showDailyPatientWorkspace(ctx = dailyStayContext) {
 function updateDailyPatientHeader(ctx) {
   const changeRoomBtn = document.getElementById('daily-change-room-btn');
   const batchStayBtn = document.getElementById('daily-batch-stay-btn');
+  const convertBtn = document.getElementById('daily-convert-internal-btn');
   const p = ctx?.patient;
-  const showRoom = Boolean(ctx?.invoice?.id) && p?.patient_type !== 'external';
+  const hasInvoice = Boolean(ctx?.invoice?.id);
+  const isExternal = p?.patient_type === 'external';
+  const showRoom = hasInvoice && !isExternal;
   if (changeRoomBtn) changeRoomBtn.classList.toggle('d-none', !showRoom);
   if (batchStayBtn) batchStayBtn.classList.toggle('d-none', !showRoom);
+  if (convertBtn) convertBtn.classList.toggle('d-none', !hasInvoice || !isExternal);
   updateDailyPatientSummaryTable(ctx);
+}
+
+async function convertExternalPatientToInternal() {
+  if (!dailyCan('daily_charges.manage')) {
+    showToast('ليس لديك صلاحية التحويل', 'warning');
+    return;
+  }
+  const file_number = getStayFileNumber();
+  if (!file_number) {
+    showToast('اختر مريضًا أولًا', 'warning');
+    return;
+  }
+  if (
+    !confirm(
+      'تحويل المريض إلى قسم داخلي؟\n\nسيتم تفعيل تبويب الإقامة والرعاية وإمكانية تسجيل الغرفة.'
+    )
+  ) {
+    return;
+  }
+  try {
+    const data = await apiJson(`${DAILY_API}/convert-to-internal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_number }),
+    });
+    applyDailyStayContext(data);
+    await loadDailyStayTypes();
+    renderDailySectionTabs();
+    showDailySection('stay');
+    await loadDailyEntriesIntoSheet();
+    showToast('تم تحويل المريض إلى داخلي — يمكنك الآن تسجيل الإقامة', 'success');
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+  }
 }
 
 function updateDailyPatientSummaryTable(ctx) {
@@ -1870,6 +1922,7 @@ async function applyRoomAssignmentToRow(tr, assignment) {
 }
 
 async function applyAutoRoomToTodayRows() {
+  if (!canUseDailyStayCharges()) return;
   const assignment = dailyStayContext?.room_assignment;
   if (!assignment?.stay_type_id) return;
   const rows = document.querySelectorAll('#daily-sections-body .daily-entry-row:not(.daily-stay-addon-row)');
@@ -2205,8 +2258,22 @@ function showPatientRegisterForm(patientType) {
   if (typeof bindCommaAmountInputs === 'function') {
     bindCommaAmountInputs(document.getElementById('patient-register-form-panel'));
   }
+  void suggestPatientRegisterFileNumber(type);
   const fileInput = document.getElementById('patient-reg-file-number');
   if (fileInput) fileInput.focus();
+}
+
+async function suggestPatientRegisterFileNumber(patientType) {
+  const fileInput = document.getElementById('patient-reg-file-number');
+  if (!fileInput) return;
+  try {
+    const data = await apiJson(
+      `/api/patients/next-file-number?patient_type=${encodeURIComponent(patientType || 'internal')}`
+    );
+    if (data?.file_number) fileInput.value = data.file_number;
+  } catch {
+    /* optional hint */
+  }
 }
 
 function clearPatientRegisterForm(options = {}) {
@@ -2421,6 +2488,10 @@ function applyDailyStayContext(ctx) {
 
   updateDailyInvoicePanel(ctx);
   updateDailyPatientHeader(ctx);
+  renderDailySectionTabs();
+  if (!canUseDailyStayCharges(ctx) && activeDailyTab === 'stay') {
+    showDailySection(defaultDailyTabForPatient(ctx));
+  }
   updateDailyMilitaryAuthBanner(ctx);
   updateDailyClinicalContextBar();
   const reviewPanel = document.getElementById('daily-invoice-review-panel');
@@ -2515,7 +2586,7 @@ async function saveOpenPatientStay() {
     if (dailySectionsCache.length) await loadDailyEntriesIntoSheet();
     await loadOperationsForToday();
     await loadDailyPatientHistory();
-    await applyAutoRoomToTodayRows();
+    if (canUseDailyStayCharges(data)) await applyAutoRoomToTodayRows();
     const label = data.created ? 'تم إنشاء فاتورة مسودة' : 'تم تحديث الإقامة';
     showToast(`${label} #${data.invoice?.id}`, 'success');
   } catch (err) {
@@ -3126,7 +3197,7 @@ function createStayDailyEntryRow(entry = {}) {
   if (companionInput && companionLine.amount > 0) {
     if (typeof setCommaAmountValue === 'function') setCommaAmountValue(companionInput, companionLine.amount);
     else companionInput.value = formatAmountFieldValue(companionLine.amount);
-    if (companionLine.id) tr.dataset.lineId = String(companionLine.id);
+    if (companionLine.id) companionInput.dataset.lineId = String(companionLine.id);
   }
   const assistantInput = tr.querySelector('.daily-amount[data-section="patient_assistant"]');
   if (assistantInput && assistantLine.amount > 0) {
@@ -3155,8 +3226,11 @@ function createStayDailyEntryRow(entry = {}) {
     DailyEntryPicker.hydratePicker(tr, accSection, accLine);
   }
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
-  void onStayTypeChangeForRow(tr.querySelector('.daily-row-stay-type'));
-  updateStayAccUnitPriceDisplay(tr);
+  if (!entry.id) {
+    void onStayTypeChangeForRow(tr.querySelector('.daily-row-stay-type'));
+  } else {
+    updateStayAccUnitPriceDisplay(tr);
+  }
   updateRowTotal(tr);
   return tr;
 }
@@ -4323,6 +4397,8 @@ function collectAmountLineFromRow(rowTr, sectionCode, lines) {
   if (input?.dataset.lineId) line.id = Number(input.dataset.lineId);
   else if (rowTr.dataset.lineId && rowTr.dataset.addonSection === sectionCode) {
     line.id = Number(rowTr.dataset.lineId);
+  } else if (rowTr.classList.contains('daily-stay-row') && rowTr.dataset.lineId && sectionCode === 'companion') {
+    line.id = Number(rowTr.dataset.lineId);
   }
   lines.push(line);
 }
@@ -4728,6 +4804,7 @@ async function findAccommodationServiceForStayType(stayType) {
 }
 
 async function applyStayTypeRateToRow(tr) {
+  if (!canUseDailyStayCharges()) return;
   const select = tr.querySelector('.daily-row-stay-type');
   const stayTypeId = select?.value;
   if (!stayTypeId) return;
@@ -4823,6 +4900,10 @@ function createDailyEntryRow(entry = {}) {
 function addDailyEntryRow(preset = {}) {
   const body = document.getElementById('daily-sections-body');
   if (!body) return;
+  if (activeDailyTab === 'stay' && !canUseDailyStayCharges()) {
+    showToast('المريض الخارجي لا يُسجَّل عليه إقامة', 'warning');
+    return;
+  }
   const entryDate = getLocalDateString();
   if (activeDailyTab === 'stay' && !preset.stay_type_id) {
     preset.stay_type_id = getDefaultStayTypeIdForRow() || preset.stay_type_id;
@@ -5114,16 +5195,20 @@ async function loadDailyEntriesIntoSheet() {
       }
       addDailyEntryRow();
     } else if (activeDailyTab === 'stay') {
-      for (const entry of todayEntries) {
-        if (entry.id) {
-          if (seenEntryIds.has(entry.id)) continue;
-          seenEntryIds.add(entry.id);
+      if (!canUseDailyStayCharges()) {
+        body.innerHTML = '';
+      } else {
+        for (const entry of todayEntries) {
+          if (entry.id) {
+            if (seenEntryIds.has(entry.id)) continue;
+            seenEntryIds.add(entry.id);
+          }
+          const row = createStayDailyEntryRow(entry);
+          body.appendChild(row);
+          mountStayAddonRows(row);
         }
-        const row = createStayDailyEntryRow(entry);
-        body.appendChild(row);
-        mountStayAddonRows(row);
+        if (!body.querySelector('.daily-stay-row')) addDailyEntryRow();
       }
-      if (!body.querySelector('.daily-entry-row')) addDailyEntryRow();
     } else {
       for (const entry of todayEntries) {
         if (entry.id) {
@@ -5138,7 +5223,9 @@ async function loadDailyEntriesIntoSheet() {
     renumberSheetRowSerials();
     updateDailyGrandTotal();
     updateSectionTabTotal();
-    await applyAutoRoomToTodayRows();
+    if (activeDailyTab !== 'stay') {
+      await applyAutoRoomToTodayRows();
+    }
   } catch (err) {
     if (loadId !== dailyEntriesLoadSeq) return;
     console.error(err);
@@ -5195,12 +5282,29 @@ async function deleteDailyEntryRow(tr) {
     } else {
       tr.remove();
     }
-    if (!document.querySelector('.daily-entry-row')) addDailyEntryRow();
+    if (activeDailyTab !== 'stay' && !document.querySelector('.daily-entry-row')) addDailyEntryRow();
     renumberSheetRowSerials();
     updateDailyGrandTotal();
     return;
   }
   await deleteDailyEntryById(entryId);
+}
+
+function mergeStaySaveRows(rows) {
+  if (!rows.length) return rows;
+  const merged = { ...rows[0], lines: [...(rows[0].lines || [])] };
+  const lineMap = new Map((merged.lines || []).map((line) => [dailyLineMergeKey(line), line]));
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.entry_id && !merged.entry_id) merged.entry_id = row.entry_id;
+    if (row.stay_type_id) merged.stay_type_id = row.stay_type_id;
+    if (row.notes) merged.notes = row.notes;
+    for (const line of row.lines || []) {
+      lineMap.set(dailyLineMergeKey(line), line);
+    }
+  }
+  merged.lines = [...lineMap.values()];
+  return [merged];
 }
 
 function collectDailyRowsForSave() {
@@ -5231,6 +5335,9 @@ function collectDailyRowsForSave() {
       lines: collectDailyLinesFromRow(tr),
     });
   });
+  if (activeDailyTab === 'stay') {
+    return mergeStaySaveRows(mergeDailySaveEntries(rows));
+  }
   return mergeDailySaveEntries(rows);
 }
 
@@ -5712,6 +5819,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-change-patient-btn')?.addEventListener('click', () => {
     showDailyPatientPicker();
     void loadDailyPatientGrid();
+  });
+  document.getElementById('daily-convert-internal-btn')?.addEventListener('click', () => {
+    void convertExternalPatientToInternal();
   });
   document.getElementById('daily-goto-register-btn')?.addEventListener('click', () => {
     if (typeof switchView === 'function') switchView('patient-register');

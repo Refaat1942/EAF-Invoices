@@ -416,6 +416,19 @@ router.post('/open-stay', requirePermission('daily_charges.manage'), async (req,
   }
 });
 
+router.post('/convert-to-internal', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const file_number = req.body.file_number?.trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    const { convertExternalPatientToInternal } = require('../services/patientService');
+    const patient = await convertExternalPatientToInternal(file_number);
+    const stay = await getOpenPatientStay(file_number);
+    res.json({ ...stay, patient, converted: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/change-room', requirePermission('daily_charges.manage'), async (req, res) => {
   try {
     const file_number = req.body.file_number?.trim();

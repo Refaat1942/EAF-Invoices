@@ -931,7 +931,12 @@ async function approveInvoice(id, reviewer) {
     }
 
     const issueDate = invoice.issue_date || new Date().toISOString().slice(0, 10);
-    const serialInfo = await nextSerialNumber(client, issueDate);
+    let patientScope = 'internal';
+    if (invoice.file_number) {
+      const linkedPatient = await getPatientByFileNumber(String(invoice.file_number).trim());
+      patientScope = linkedPatient?.patient_type === 'external' ? 'external' : 'internal';
+    }
+    const serialInfo = await nextSerialNumber(client, issueDate, patientScope);
     const qrToken = uuidv4();
     const reviewerName = reviewer?.full_name || reviewer?.username || '';
 
@@ -940,15 +945,25 @@ async function approveInvoice(id, reviewer) {
         serial_number = $2,
         fiscal_year = $3,
         serial_sequence = $4,
-        qr_token = $5,
+        serial_scope = $5,
+        qr_token = $6,
         status = 'approved',
         reviewed_at = NOW(),
-        reviewed_by_user_id = $6,
-        reviewed_by_name = $7,
-        auditor_name = CASE WHEN COALESCE(auditor_name, '') = '' THEN $7 ELSE auditor_name END,
+        reviewed_by_user_id = $7,
+        reviewed_by_name = $8,
+        auditor_name = CASE WHEN COALESCE(auditor_name, '') = '' THEN $8 ELSE auditor_name END,
         updated_at = NOW()
        WHERE id = $1`,
-      [id, serialInfo.serial_number, serialInfo.fiscal_year, serialInfo.serial_sequence, qrToken, reviewer?.id || null, reviewerName]
+      [
+        id,
+        serialInfo.serial_number,
+        serialInfo.fiscal_year,
+        serialInfo.serial_sequence,
+        serialInfo.serial_scope,
+        qrToken,
+        reviewer?.id || null,
+        reviewerName,
+      ]
     );
 
     const updated = {
@@ -1653,11 +1668,12 @@ async function getOpenPatientStay(fileNumber) {
 }
 
 async function openPatientStay(data, user = null) {
-  const fileNumber = data.file_number?.trim();
+  const { resolvePatientFileNumber, bumpPatientFileCounter } = require('./patientService');
+  const patientType = String(data.patient_type || 'internal').trim().toLowerCase() === 'external' ? 'external' : 'internal';
+  const fileNumber = await resolvePatientFileNumber(patientType, data.file_number?.trim());
   const patientName = data.patient_name?.trim() || '';
   const admissionDate = fmtDateOnly(data.admission_date);
   const dischargeDate = fmtDateOnly(data.discharge_date);
-  const patientType = String(data.patient_type || 'internal').trim().toLowerCase() === 'external' ? 'external' : 'internal';
   if (!fileNumber || !patientName || !admissionDate) {
     throw new Error('رقم الملف واسم المريض وتاريخ الدخول مطلوبان');
   }
@@ -1682,6 +1698,7 @@ async function openPatientStay(data, user = null) {
     glasses_price: data.glasses_price,
     glasses_discount_percent: data.glasses_discount_percent,
   });
+  await bumpPatientFileCounter(patientType, fileNumber);
   if (patientType === 'internal') {
     if (data.account_balance !== undefined && data.account_balance !== null && data.account_balance !== '') {
       await setPatientBalance(fileNumber, data.account_balance, patientName, user);

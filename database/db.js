@@ -40,6 +40,19 @@ async function initDatabase() {
       last_number INTEGER NOT NULL DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS invoice_serial_counters (
+      fiscal_year INTEGER NOT NULL,
+      patient_scope VARCHAR(20) NOT NULL DEFAULT 'internal',
+      last_number INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (fiscal_year, patient_scope)
+    );
+
+    CREATE TABLE IF NOT EXISTS patient_file_counter (
+      patient_type VARCHAR(20) NOT NULL,
+      last_number INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (patient_type)
+    );
+
     CREATE TABLE IF NOT EXISTS stay_types (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) UNIQUE NOT NULL,
@@ -450,14 +463,17 @@ async function runMigrations() {
     const name = col.split(' ')[0];
     await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
   }
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS serial_scope VARCHAR(20)`);
+  await query(`DROP INDEX IF EXISTS idx_invoices_fiscal_serial`);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_fiscal_serial
-    ON invoices (fiscal_year, serial_sequence)
+    ON invoices (fiscal_year, serial_sequence, COALESCE(serial_scope, 'legacy'))
     WHERE fiscal_year IS NOT NULL AND serial_sequence IS NOT NULL
   `);
 
-  const { syncSerialCountersFromInvoices } = require('../services/serialService');
+  const { syncSerialCountersFromInvoices, syncPatientFileCountersFromPatients } = require('../services/serialService');
   await syncSerialCountersFromInvoices();
+  await syncPatientFileCountersFromPatients();
 
   // Phase 8 — draft workflow, patients, user permissions
   await query(`ALTER TABLE invoices ALTER COLUMN serial_number DROP NOT NULL`);

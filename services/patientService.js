@@ -316,6 +316,66 @@ async function searchPatientsForDaily(search = '', limit = 50) {
   return rows;
 }
 
+async function peekNextPatientFileNumber(patientType = 'internal') {
+  const scope = normalizePatientType(patientType);
+  const { rows } = await query(
+    'SELECT last_number FROM patient_file_counter WHERE patient_type = $1',
+    [scope]
+  );
+  const nextNumber = (rows[0]?.last_number || 0) + 1;
+  return { file_number: String(nextNumber), next_number: nextNumber, patient_type: scope };
+}
+
+async function allocateNextPatientFileNumber(patientType = 'internal', client = null) {
+  const scope = normalizePatientType(patientType);
+  const run = client ? client.query.bind(client) : query;
+  await run(
+    `INSERT INTO patient_file_counter (patient_type, last_number) VALUES ($1, 0)
+     ON CONFLICT (patient_type) DO NOTHING`,
+    [scope]
+  );
+  const { rows } = await run(
+    `UPDATE patient_file_counter SET last_number = last_number + 1
+     WHERE patient_type = $1 RETURNING last_number`,
+    [scope]
+  );
+  const nextNumber = rows[0]?.last_number || 1;
+  return String(nextNumber);
+}
+
+async function resolvePatientFileNumber(patientType, requestedFileNumber, client = null) {
+  const trimmed = String(requestedFileNumber || '').trim();
+  if (trimmed) return trimmed;
+  return allocateNextPatientFileNumber(patientType, client);
+}
+
+async function convertExternalPatientToInternal(fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) throw new Error('رقم الملف مطلوب');
+  const patient = await getPatientByFileNumber(fn);
+  if (!patient) throw new Error('المريض غير موجود');
+  if (normalizePatientType(patient.patient_type) !== 'external') {
+    throw new Error('المريض مسجّل بالفعل كمريض داخلي');
+  }
+  const data = normalizeUpsertData(fn, patient);
+  data.patient_type = 'internal';
+  await upsertPatient(fn, data);
+  return getPatientByFileNumber(fn);
+}
+
+async function bumpPatientFileCounter(patientType, fileNumber, client = null) {
+  const n = parseInt(String(fileNumber || '').trim(), 10);
+  if (!Number.isFinite(n) || n <= 0) return;
+  const scope = normalizePatientType(patientType);
+  const run = client ? client.query.bind(client) : query;
+  await run(
+    `INSERT INTO patient_file_counter (patient_type, last_number) VALUES ($1, $2)
+     ON CONFLICT (patient_type) DO UPDATE
+       SET last_number = GREATEST(patient_file_counter.last_number, EXCLUDED.last_number)`,
+    [scope, n]
+  );
+}
+
 module.exports = {
   getPatientByFileNumber,
   upsertPatient,
@@ -326,4 +386,9 @@ module.exports = {
   searchPatientsForDaily,
   normalizePatientType,
   normalizeUpsertData,
+  peekNextPatientFileNumber,
+  allocateNextPatientFileNumber,
+  resolvePatientFileNumber,
+  bumpPatientFileCounter,
+  convertExternalPatientToInternal,
 };

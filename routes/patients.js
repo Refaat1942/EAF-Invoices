@@ -4,6 +4,7 @@ const {
   setPatientBalance,
   listPatients,
   upsertPatient,
+  peekNextPatientFileNumber,
 } = require('../services/patientService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
 
@@ -14,6 +15,15 @@ router.use(requireAuth);
 router.get('/', requirePermission('patients.view'), async (req, res) => {
   try {
     res.json(await listPatients());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/next-file-number', requirePermission('patients.view'), async (req, res) => {
+  try {
+    const patientType = req.query.patient_type || 'internal';
+    res.json(await peekNextPatientFileNumber(patientType));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
