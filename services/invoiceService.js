@@ -1286,19 +1286,23 @@ async function verifyInvoiceDailyLineSync(invoiceId, fileNumber, fromDate, toDat
     if (invQty !== expQty || invAmt !== expAmt) {
       throw new Error(`بند الفاتورة للحركة #${lineId} لا يطابق الكمية أو السعر المتوقع`);
     }
-    dailyLinesSubtotal = round2(dailyLinesSubtotal + invQty * invAmt);
+    const lineTotal = round2(invItem.total ?? invQty * invAmt);
+    dailyLinesSubtotal = round2(dailyLinesSubtotal + lineTotal);
   }
 
   const manualItems = invoiceManualItems(invoice);
   let manualSubtotal = 0;
   for (const item of manualItems) {
-    manualSubtotal = round2(manualSubtotal + round2(item.quantity || 1) * round2(item.amount || 0));
+    const qty = round2(item.quantity || 1);
+    const lineTotal = round2(item.total ?? qty * round2(item.amount || 0));
+    manualSubtotal = round2(manualSubtotal + lineTotal);
   }
-  const expectedSubtotal = round2(dailyLinesSubtotal + manualSubtotal);
+  const staySubtotal = round2(invoice.stay_subtotal_raw ?? invoice.stay_subtotal ?? 0);
+  const expectedSubtotal = round2(dailyLinesSubtotal + manualSubtotal + staySubtotal);
   const invoiceSubtotal = round2(invoice.items_subtotal_raw ?? invoice.items_subtotal ?? 0);
-  if (expectedSubtotal !== invoiceSubtotal) {
+  if (Math.abs(expectedSubtotal - invoiceSubtotal) > 0.02) {
     throw new Error(
-      `إجمالي الفاتورة (${invoiceSubtotal}) لا يطابق مجموع البنود المتوقع (${expectedSubtotal})`
+      `إجمالي البنود (${invoiceSubtotal}) لا يطابق مجموع الحركة والإقامة (${expectedSubtotal})`
     );
   }
 
