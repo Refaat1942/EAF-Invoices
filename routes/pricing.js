@@ -220,7 +220,12 @@ router.delete('/services/bulk', requirePermission('settings.*'), async (req, res
       ? await getPriceListById(Number(req.body.price_list_id))
       : await getDefaultPriceList();
     if (!list) return res.status(400).json({ error: 'لا توجد لائحة أسعار' });
-    res.json(await deleteServicesBulk(list.id, { category_id: Number(req.body.category_id) }));
+    res.json(
+      await deleteServicesBulk(list.id, {
+        category_id: req.body.category_id ? Number(req.body.category_id) : undefined,
+        all: req.body.all === true,
+      })
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -190,7 +190,11 @@ async function allocateNextServiceCode(priceListId, categoryId, client = null) {
   return String(max + 1);
 }
 
-async function deleteServicesBulk(priceListId, { category_id } = {}) {
+async function deleteServicesBulk(priceListId, { category_id, all } = {}) {
+  if (all) {
+    const { rowCount } = await query('DELETE FROM services WHERE price_list_id = $1', [priceListId]);
+    return { deleted: rowCount || 0, all: true };
+  }
   if (!category_id) throw new Error('يجب تحديد القسم لحذف الخدمات');
   const { rowCount } = await query('DELETE FROM services WHERE price_list_id = $1 AND category_id = $2', [
     priceListId,

@@ -249,6 +249,21 @@ const DAILY_ITEMS_KINDS = {
 };
 
 const DAILY_SERVICE_REPORT_KINDS = {
+  stay: {
+    title: 'تقرير الإقامة — الحركة اليومية',
+    section_codes: ['accommodation', 'companion', 'nursing_point', 'patient_assistant'],
+    category_codes: ['ACCOMMODATION', 'COMPANION', 'NURSING'],
+  },
+  sessions: {
+    title: 'تقرير الجلسات — الحركة اليومية',
+    section_codes: ['sessions'],
+    category_codes: ['PHYSIO'],
+  },
+  other: {
+    title: 'تقرير الخدمات المتنوعة — الحركة اليومية',
+    section_codes: ['other', 'prosthetics'],
+    category_codes: ['GENERAL', 'PROSTHETICS', 'SPINE_BUILDING', 'RF_INJECTION'],
+  },
   radiology: {
     title: 'تقرير الأشعة — الحركة اليومية',
     category_codes: ['RADIOLOGY'],
@@ -259,9 +274,16 @@ const DAILY_SERVICE_REPORT_KINDS = {
   },
 };
 
+const DAILY_FREE_ITEMS_KINDS = {
+  free_items: {
+    title: 'تقرير البنود الحرة',
+  },
+};
+
 function resolveDailyPrintKind(kind) {
   if (DAILY_ITEMS_KINDS[kind]) return { type: 'catalog', kind };
   if (DAILY_SERVICE_REPORT_KINDS[kind]) return { type: 'service', kind };
+  if (DAILY_FREE_ITEMS_KINDS[kind]) return { type: 'free', kind };
   return null;
 }
 
@@ -411,6 +433,22 @@ async function getDailyServiceReport(kind, filters = {}) {
   if (!fileNumber) throw new Error('رقم الملف مطلوب');
 
   const { getDefaultPriceList } = require('./priceListService');
+  const sectionCodes = config.section_codes || [];
+  const categoryCodes = config.category_codes || [];
+  const matchParts = [];
+  const params = [fileNumber];
+  let i = 2;
+
+  if (sectionCodes.length) {
+    matchParts.push(`l.section_code = ANY($${i++}::text[])`);
+    params.push(sectionCodes);
+  }
+  if (categoryCodes.length) {
+    matchParts.push(`(dcs.category_code = ANY($${i}::text[]) OR sc.code = ANY($${i}::text[]))`);
+    params.push(categoryCodes);
+    i += 1;
+  }
+  if (!matchParts.length) throw new Error('نوع التقرير غير صالح');
 
   let sql = `
     SELECT e.entry_date,
@@ -435,12 +473,7 @@ async function getDailyServiceReport(kind, filters = {}) {
     WHERE p.file_number = $1
       AND COALESCE(l.amount, 0) > 0
       AND dcs.input_type = 'amount'
-      AND (
-        dcs.category_code = ANY($2::text[])
-        OR sc.code = ANY($2::text[])
-      )`;
-  const params = [fileNumber, config.category_codes];
-  let i = 3;
+      AND (${matchParts.join(' OR ')})`;
 
   if (filters.from_date) {
     sql += ` AND e.entry_date >= $${i++}::date`;
@@ -503,10 +536,98 @@ async function getDailyServiceReport(kind, filters = {}) {
   };
 }
 
+async function getDailyFreeItemsReport(filters = {}) {
+  const config = DAILY_FREE_ITEMS_KINDS.free_items;
+  const fileNumber = String(filters.file_number || '').trim();
+  if (!fileNumber) throw new Error('رقم الملف مطلوب');
+
+  const { getOpenPatientStay } = require('./invoiceService');
+  const stay = await getOpenPatientStay(fileNumber);
+  const invoiceId = stay?.invoice?.id;
+  if (!invoiceId) {
+    const patient = await getPatientByFileNumber(fileNumber);
+    return {
+      report_type: 'service',
+      kind: 'free_items',
+      title: config.title,
+      patient: { file_number: fileNumber, name: patient?.name || '' },
+      filters: {
+        file_number: fileNumber,
+        from_date: filters.from_date || null,
+        to_date: filters.to_date || null,
+      },
+      rows: [],
+      totals: { row_count: 0, total_amount: 0 },
+    };
+  }
+
+  const { rows } = await query(
+    `SELECT ii.description,
+            ii.quantity,
+            ii.amount,
+            inv.admission_date AS entry_date,
+            p.file_number,
+            p.name AS patient_name
+     FROM invoice_items ii
+     JOIN invoices inv ON inv.id = ii.invoice_id
+     JOIN patients p ON p.id = inv.patient_id
+     WHERE inv.id = $1
+       AND ii.daily_entry_line_id IS NULL
+       AND ii.daily_entry_id IS NULL
+       AND COALESCE(ii.amount, 0) > 0
+     ORDER BY ii.sort_order ASC, ii.id ASC`,
+    [invoiceId]
+  );
+
+  let totalAmount = 0;
+  const mappedRows = rows.map((row) => {
+    const qty = Number(row.quantity) || 1;
+    const unitPrice = Number(row.amount) || 0;
+    const lineTotal = unitPrice * qty;
+    totalAmount += lineTotal;
+    return {
+      patient_name: row.patient_name || '',
+      file_number: row.file_number || fileNumber,
+      entry_date: row.entry_date,
+      service_name: row.description || '—',
+      quantity: qty,
+      unit_price: unitPrice,
+      total: lineTotal,
+      service_code: '',
+      section_code: 'free_items',
+    };
+  });
+
+  const patient = mappedRows[0]
+    ? { file_number: mappedRows[0].file_number, name: mappedRows[0].patient_name }
+    : await getPatientByFileNumber(fileNumber);
+
+  return {
+    report_type: 'service',
+    kind: 'free_items',
+    title: config.title,
+    patient: {
+      file_number: patient?.file_number || fileNumber,
+      name: patient?.name || mappedRows[0]?.patient_name || '',
+    },
+    filters: {
+      file_number: fileNumber,
+      from_date: filters.from_date || null,
+      to_date: filters.to_date || null,
+    },
+    rows: mappedRows,
+    totals: {
+      row_count: mappedRows.length,
+      total_amount: Math.round(totalAmount * 100) / 100,
+    },
+  };
+}
+
 async function getDailyPrintReport(kind, filters = {}) {
   const resolved = resolveDailyPrintKind(kind);
   if (!resolved) throw new Error('نوع التقرير غير صالح');
   if (resolved.type === 'service') return getDailyServiceReport(resolved.kind, filters);
+  if (resolved.type === 'free') return getDailyFreeItemsReport(filters);
   return getDailyItemsReport(resolved.kind, filters);
 }
 

@@ -1080,6 +1080,7 @@ function bindEvents() {
   document.getElementById('pricing-clone-btn')?.addEventListener('click', cloneCurrentPriceList);
   document.getElementById('pricing-add-category-btn')?.addEventListener('click', addPricingCategory);
   document.getElementById('pricing-delete-section-services-btn')?.addEventListener('click', deleteSectionServices);
+  document.getElementById('pricing-delete-all-services-btn')?.addEventListener('click', deleteAllPricingServices);
   document.getElementById('pricing-add-service-btn')?.addEventListener('click', () => openServiceEditor());
   document.getElementById('pricing-save-settings-btn')?.addEventListener('click', savePricingSettings);
   document.getElementById('service-edit-save-btn')?.addEventListener('click', saveServiceEditor);
@@ -5371,6 +5372,32 @@ async function addPricingCategory() {
     populatePricingSectionSelect();
     document.getElementById('pricing-section-select').value = `cat:${data.id}`;
     await onPricingSectionChange();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function deleteAllPricingServices() {
+  if (!currentPricingListId) return;
+  const listName = pricingListsCache.find((l) => l.id === currentPricingListId)?.name || 'اللائحة الحالية';
+  const typed = prompt(
+    `⚠️ سيتم حذف جميع الخدمات في «${listName}» نهائياً.\n\nللتأكيد اكتب: مسح`
+  );
+  if (typed !== 'مسح') {
+    if (typed != null) showToast('تم الإلغاء — لم يُكتب «مسح»', 'warning');
+    return;
+  }
+  try {
+    const res = await apiFetch(`${PRICING_API}/services/bulk`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ price_list_id: currentPricingListId, all: true }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(`تم مسح ${data.deleted || 0} خدمة — يمكنك الآن رفع كل قسم من شيته`, 'success');
+    await loadPricingSection();
+    await loadStayTypes();
   } catch (err) {
     showToast(err.message, 'danger');
   }

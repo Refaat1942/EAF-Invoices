@@ -5725,6 +5725,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-print-both-btn')?.addEventListener('click', () =>
     openDailyItemsPrint('medicines_supplies')
   );
+  document.getElementById('daily-print-stay-btn')?.addEventListener('click', () => openDailyItemsPrint('stay'));
+  document.getElementById('daily-print-sessions-btn')?.addEventListener('click', () =>
+    openDailyItemsPrint('sessions')
+  );
+  document.getElementById('daily-print-other-btn')?.addEventListener('click', () => openDailyItemsPrint('other'));
+  document.getElementById('daily-print-free-items-btn')?.addEventListener('click', () =>
+    openDailyItemsPrint('free_items')
+  );
   document.getElementById('daily-print-radiology-btn')?.addEventListener('click', () =>
     openDailyItemsPrint('radiology')
   );
