@@ -1290,15 +1290,17 @@ async function verifyInvoiceDailyLineSync(invoiceId, fileNumber, fromDate, toDat
     dailyLinesSubtotal = round2(dailyLinesSubtotal + lineTotal);
   }
 
-  const manualItems = invoiceManualItems(invoice);
-  let manualSubtotal = 0;
-  for (const item of manualItems) {
-    const qty = round2(item.quantity || 1);
-    const lineTotal = round2(item.total ?? qty * round2(item.amount || 0));
-    manualSubtotal = round2(manualSubtotal + lineTotal);
-  }
-  const staySubtotal = round2(invoice.stay_subtotal_raw ?? invoice.stay_subtotal ?? 0);
-  const expectedSubtotal = round2(dailyLinesSubtotal + manualSubtotal + staySubtotal);
+  // إجمالي البنود يُحسب بنفس مسار حفظ الفاتورة (يشمل بنود الحركة + العمليات/النظارات
+  // والبنود اليدوية) — لا يكفي جمع بنود daily_entry_line_id فقط لأن بعض بنود الحركة
+  // (مثل العمليات) تُخزَّن بصيغة [تاريخ] بدون daily_entry_line_id.
+  const calcData = buildCalcDataFromInvoice(invoice);
+  calcData.file_number = fileNumber;
+  calcData.admission_date = fromDate;
+  calcData.discharge_date = toDate;
+  calcData.include_daily_charges = true;
+  const prepared = await prepareCalculationData(calcData);
+  const totals = calculateInvoiceTotals(prepared);
+  const expectedSubtotal = round2(totals.items_subtotal_raw ?? totals.items_subtotal ?? 0);
   const invoiceSubtotal = round2(invoice.items_subtotal_raw ?? invoice.items_subtotal ?? 0);
   if (Math.abs(expectedSubtotal - invoiceSubtotal) > 0.02) {
     throw new Error(
