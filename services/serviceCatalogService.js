@@ -81,6 +81,10 @@ async function listServices(filters = {}) {
     sql += ` AND s.category_id = $${i++}`;
     params.push(filters.category_id);
   }
+  if (filters.category_code) {
+    sql += ` AND c.code = $${i++}`;
+    params.push(filters.category_code);
+  }
   if (filters.active_only !== false) {
     sql += ' AND s.is_active = TRUE';
   }
@@ -172,8 +176,36 @@ async function recordServiceHistory(client, serviceId, payload, actor) {
   );
 }
 
+async function allocateNextServiceCode(priceListId, categoryId, client = null) {
+  const runner = client ? client.query.bind(client) : query;
+  const { rows } = await runner(
+    `SELECT code FROM services WHERE price_list_id = $1 AND category_id = $2`,
+    [priceListId, categoryId]
+  );
+  let max = 0;
+  for (const row of rows) {
+    const n = parseInt(String(row.code || '').replace(/[^\d]/g, ''), 10);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return String(max + 1);
+}
+
+async function deleteServicesBulk(priceListId, { category_id } = {}) {
+  if (!category_id) throw new Error('يجب تحديد القسم لحذف الخدمات');
+  const { rowCount } = await query('DELETE FROM services WHERE price_list_id = $1 AND category_id = $2', [
+    priceListId,
+    category_id,
+  ]);
+  return { deleted: rowCount || 0 };
+}
+
 async function createService(data, actor = null) {
   return withTransaction(async (client) => {
+    let code = String(data.code || '').trim();
+    if (!code && data.category_id) {
+      code = await allocateNextServiceCode(data.price_list_id, data.category_id, client);
+    }
+    if (!code) throw new Error('كود الخدمة مطلوب');
     const inserted = await client.query(
       `INSERT INTO services (
         price_list_id, category_id, code, name, description, unit, price, price_type,
@@ -182,7 +214,7 @@ async function createService(data, actor = null) {
       [
         data.price_list_id,
         data.category_id || null,
-        data.code,
+        code,
         data.name,
         data.description || '',
         data.unit || 'مرة',
@@ -492,6 +524,8 @@ module.exports = {
   listServices,
   getServiceById,
   enrichServicesWithResolvedPrices,
+  allocateNextServiceCode,
+  deleteServicesBulk,
   createService,
   updateService,
   bulkUpdatePrices,

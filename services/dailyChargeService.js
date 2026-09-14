@@ -845,22 +845,13 @@ async function listEntryHistory(entryId) {
 
 async function validateServiceForSection(section, serviceId, sectionsWithServices = null) {
   const catalog = sectionsWithServices || await getSectionsWithServices();
-  const full = catalog.find((s) => s.code === section.code);
-  const allowed = full?.services || [];
-
-  if (allowed.length) {
-    const found = allowed.find((s) => Number(s.id) === Number(serviceId));
-    if (!found) {
-      throw new Error(`قسم «${section.name}»: الخدمة المختارة ليست في اللائحة الحالية لهذا القسم`);
-    }
-    return found;
-  }
-
+  const full = catalog.find((s) => s.code === section.code) || section;
   const service = await getServiceById(serviceId);
   if (!service || !service.is_active) {
     throw new Error(`قسم «${section.name}»: الخدمة غير موجودة في اللائحة`);
   }
-  if (full?.category_code && service.category_code && service.category_code !== full.category_code) {
+  const sectionCategory = full.category_code || section.category_code;
+  if (sectionCategory && service.category_code && service.category_code !== sectionCategory) {
     throw new Error(`قسم «${section.name}»: الخدمة لا تنتمي لهذا القسم في اللائحة`);
   }
   return service;

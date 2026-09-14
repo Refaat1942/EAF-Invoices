@@ -1372,6 +1372,7 @@
                   <input type="file" id="pricing-import-file" accept=".docx,.json,.csv,.xlsx" hidden>
                 </label>
                 <button type="button" class="btn btn-sm btn-info fw-bold" id="pricing-clone-btn">نسخ اللائحة</button>
+                <button type="button" class="btn btn-sm btn-outline-light fw-bold" id="pricing-add-category-btn">+ قسم</button>
                 <button type="button" class="btn btn-sm btn-success fw-bold" id="pricing-add-service-btn">+ خدمة</button>
               </div>
             </div>
@@ -1402,6 +1403,7 @@
                   رفع Excel للقسم
                   <input type="file" id="pricing-section-excel-file" accept=".xlsx,.xls" hidden>
                 </label>
+                <button type="button" class="btn btn-sm btn-outline-danger fw-bold" id="pricing-delete-section-services-btn" disabled>حذف كل خدمات القسم</button>
               </div>
               <div class="row g-2 mb-3" id="pricing-stats-row"></div>
               <div id="pricing-import-status" class="alert alert-secondary py-2 mb-3" style="display:none"></div>
@@ -1904,7 +1906,7 @@
             </div>
             <div class="col-md-4">
               <label class="form-label fw-bold small">الكود</label>
-              <input type="text" class="form-control form-control-sm fw-bold" id="service-edit-code">
+              <input type="text" class="form-control form-control-sm fw-bold" id="service-edit-code" placeholder="يُولَّد تلقائياً (1، 2، 3…)" readonly>
             </div>
             <div class="col-md-4">
               <label class="form-label fw-bold small">نوع السعر</label>

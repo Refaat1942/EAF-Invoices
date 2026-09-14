@@ -145,10 +145,11 @@ function detectTemplateFromFilename(filename) {
   return null;
 }
 
-function slugCode(prefix, name, index) {
-  const base = normalizeArabic(name).replace(/[^a-z0-9]/g, '').slice(0, 24);
-  const suffix = base ? base.slice(0, 20) : `row${index}`;
-  return `${prefix}-${suffix}`.toUpperCase().slice(0, 48);
+function serialCode(serial, rowIndex) {
+  const raw = String(serial ?? '').trim();
+  const parsed = parseInt(raw.replace(/[^\d]/g, ''), 10);
+  if (Number.isFinite(parsed) && parsed > 0) return String(parsed);
+  return String(rowIndex);
 }
 
 async function parseExcelBuffer(buffer, options = {}) {
@@ -183,7 +184,7 @@ async function parseExcelBuffer(buffer, options = {}) {
       const name = [building, grade].filter(Boolean).join(' — ');
       if (!name || price <= 0) return;
       services.push({
-        code: slugCode('STAY', name, rowIndex),
+        code: serialCode(cells[0], rowIndex),
         name,
         unit: template.unit,
         price,
@@ -195,6 +196,7 @@ async function parseExcelBuffer(buffer, options = {}) {
     }
 
     if (template.composite) {
+      const serial = cells[0];
       const name = cells[1] || '';
       const total = parseAmount(cells[8]) || parseAmount(cells[cells.length - 1]);
       if (!name) return;
@@ -210,7 +212,7 @@ async function parseExcelBuffer(buffer, options = {}) {
       const price = total > 0 ? total : components.reduce((s, c) => s + (c.is_total ? 0 : c.amount), 0);
       if (price <= 0) return;
       services.push({
-        code: slugCode('OP', name, rowIndex),
+        code: serialCode(serial, rowIndex),
         name,
         unit: template.unit,
         price,
@@ -229,7 +231,7 @@ async function parseExcelBuffer(buffer, options = {}) {
     if (/^(م|البيان|نوع)/i.test(name) && price <= 0) return;
 
     const svc = {
-      code: slugCode(template.category_code.slice(0, 4), name, rowIndex),
+      code: serialCode(serial, rowIndex),
       name,
       unit: template.unit,
       price,
@@ -351,6 +353,16 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
     }
   }
 
+  const { renumberServiceCodes } = require('./catalogMaintenanceService');
+  let renumbered = 0;
+  for (const catCode of touchedCategories) {
+    const categoryId = await getCategoryId(priceListId, catCode);
+    if (categoryId) {
+      const result = await renumberServiceCodes(priceListId, categoryId);
+      renumbered += result.renumbered || 0;
+    }
+  }
+
   return {
     template_key,
     template_label,
@@ -360,6 +372,7 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
     total: imported + updated,
     parsed_rows: services.length,
     categories: [...touchedCategories],
+    renumbered,
   };
 }
 
@@ -401,6 +414,7 @@ function listExcelTemplates() {
 
 module.exports = {
   EXCEL_TEMPLATES,
+  IMPORT_CATEGORY_DEFINITIONS,
   detectTemplateFromFilename,
   parseExcelBuffer,
   importParsedExcel,

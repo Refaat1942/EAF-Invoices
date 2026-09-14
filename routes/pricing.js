@@ -20,11 +20,14 @@ const {
   createService,
   updateService,
   bulkUpdatePrices,
+  allocateNextServiceCode,
+  deleteServicesBulk,
   exportServicesExcel,
   exportServicesCsv,
   importServicesCsv,
   parseCsvServices,
 } = require('../services/serviceCatalogService');
+const { normalizePriceListCatalog } = require('../services/catalogMaintenanceService');
 const { importPriceListPayload, getPriceListStats } = require('../database/seeds/seedPriceList');
 const { parseDocxPriceList } = require('../services/docxPriceListParser');
 const { normalizeDocxImportPayload } = require('../services/priceListImportNormalizer');
@@ -185,6 +188,7 @@ router.get('/services', requirePermission('invoices.view'), async (req, res) => 
       await listServices({
         price_list_id: req.query.price_list_id ? Number(req.query.price_list_id) : undefined,
         category_id: req.query.category_id ? Number(req.query.category_id) : undefined,
+        category_code: req.query.category_code || undefined,
         search: req.query.search,
         discountable: req.query.discountable,
         active_only: req.query.all !== '1',
@@ -193,6 +197,44 @@ router.get('/services', requirePermission('invoices.view'), async (req, res) => 
     );
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/services/next-code', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const list = req.query.price_list_id
+      ? await getPriceListById(Number(req.query.price_list_id))
+      : await getDefaultPriceList();
+    if (!list) return res.status(400).json({ error: 'لا توجد لائحة أسعار' });
+    const categoryId = Number(req.query.category_id);
+    if (!categoryId) return res.status(400).json({ error: 'category_id مطلوب' });
+    res.json({ code: await allocateNextServiceCode(list.id, categoryId) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/services/bulk', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const list = req.body.price_list_id
+      ? await getPriceListById(Number(req.body.price_list_id))
+      : await getDefaultPriceList();
+    if (!list) return res.status(400).json({ error: 'لا توجد لائحة أسعار' });
+    res.json(await deleteServicesBulk(list.id, { category_id: Number(req.body.category_id) }));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/normalize-catalog', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const list = req.body.price_list_id
+      ? await getPriceListById(Number(req.body.price_list_id))
+      : await getDefaultPriceList();
+    if (!list) return res.status(400).json({ error: 'لا توجد لائحة أسعار' });
+    res.json(await normalizePriceListCatalog(list.id));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

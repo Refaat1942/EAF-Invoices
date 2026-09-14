@@ -1078,6 +1078,8 @@ function bindEvents() {
   document.getElementById('pricing-download-template-btn')?.addEventListener('click', downloadPricingTemplate);
   document.getElementById('pricing-services-table')?.addEventListener('click', onPricingTableSortClick);
   document.getElementById('pricing-clone-btn')?.addEventListener('click', cloneCurrentPriceList);
+  document.getElementById('pricing-add-category-btn')?.addEventListener('click', addPricingCategory);
+  document.getElementById('pricing-delete-section-services-btn')?.addEventListener('click', deleteSectionServices);
   document.getElementById('pricing-add-service-btn')?.addEventListener('click', () => openServiceEditor());
   document.getElementById('pricing-save-settings-btn')?.addEventListener('click', savePricingSettings);
   document.getElementById('service-edit-save-btn')?.addEventListener('click', saveServiceEditor);
@@ -1265,8 +1267,9 @@ function bindServiceSearch() {
     input.addEventListener('input', debounce(async () => {
       const q = input.value.trim();
       const row = input.closest('tr');
-      if (row?.querySelector('[data-field="service_id"]') && !row.dataset.staySync) {
-        row.querySelector('[data-field="service_id"]').value = '';
+      const serviceIdEl = row?.querySelector('[data-field="service_id"]');
+      if (serviceIdEl && !row?.dataset.staySync) {
+        serviceIdEl.value = '';
       }
       try {
         const services = await searchCatalogServices(q);
@@ -4896,8 +4899,9 @@ async function loadPricingSection() {
     document.getElementById('pricing-foreign-non-resident').value = formatAmountInput(settings.foreign_non_resident_multiplier ?? 200);
     bindCommaAmountInputs(document.getElementById('pricing-settings-card'));
 
-    await loadPricingCategories();
+    await normalizePricingCatalogQuiet();
     await loadPricingTemplates();
+    await loadPricingCategories();
     populatePricingSectionSelect();
     updatePricingSectionUi();
     await loadPricingServices();
@@ -4947,7 +4951,7 @@ function renderPricingImportStatus(listMeta) {
 function getSelectedPricingSection() {
   const value = document.getElementById('pricing-section-select')?.value || 'all';
   if (value === 'all') {
-    return { value, label: 'كل الأقسام', categoryId: null, templateKey: null, isAll: true };
+    return { value, label: 'كل الأقسام', categoryId: null, categoryCode: null, templateKey: null, isAll: true };
   }
   if (value.startsWith('tpl:')) {
     const templateKey = value.slice(4);
@@ -4957,6 +4961,7 @@ function getSelectedPricingSection() {
       value,
       label: tpl?.label || cat?.name || 'القسم',
       categoryId: cat?.id || null,
+      categoryCode: tpl?.category_code || cat?.code || null,
       templateKey,
       isAll: false,
     };
@@ -4968,11 +4973,12 @@ function getSelectedPricingSection() {
       value,
       label: cat?.name || 'القسم',
       categoryId: categoryId || null,
+      categoryCode: cat?.code || null,
       templateKey: null,
       isAll: false,
     };
   }
-  return { value: 'all', label: 'كل الأقسام', categoryId: null, templateKey: null, isAll: true };
+  return { value: 'all', label: 'كل الأقسام', categoryId: null, categoryCode: null, templateKey: null, isAll: true };
 }
 
 function updatePricingSectionUi() {
@@ -4999,6 +5005,13 @@ function updatePricingSectionUi() {
   if (table) {
     table.classList.toggle('pricing-section-active', !section.isAll);
   }
+  const deleteBtn = document.getElementById('pricing-delete-section-services-btn');
+  if (deleteBtn) {
+    deleteBtn.disabled = section.isAll || !section.categoryId;
+    deleteBtn.title = section.categoryId
+      ? `حذف جميع خدمات ${section.label}`
+      : 'اختر قسماً له خدمات محفوظة';
+  }
   document.querySelectorAll('#pricing-services-table .pricing-sort-th').forEach((th) => {
     th.classList.remove('sort-active', 'sort-asc', 'sort-desc');
     if (th.dataset.sort === pricingTableSort.column) {
@@ -5020,21 +5033,14 @@ function populatePricingSectionSelect() {
   const select = document.getElementById('pricing-section-select');
   if (!select) return;
   const previous = select.value;
-  const usedCategoryIds = new Set();
-  const usedCategoryCodes = new Set();
+  const templateCodes = new Set(pricingTemplatesCache.map((t) => t.category_code).filter(Boolean));
   const options = ['<option value="all">— كل الأقسام —</option>'];
 
   for (const tpl of pricingTemplatesCache) {
-    const cat = pricingCategoriesCache.find((c) => c.code === tpl.category_code);
-    if (cat) {
-      usedCategoryIds.add(cat.id);
-      usedCategoryCodes.add(cat.code);
-    }
     options.push(`<option value="tpl:${escapeHtml(tpl.key)}">${escapeHtml(tpl.label)}</option>`);
   }
   for (const cat of pricingCategoriesCache) {
-    if (usedCategoryIds.has(cat.id) || usedCategoryCodes.has(cat.code)) continue;
-    usedCategoryCodes.add(cat.code);
+    if (templateCodes.has(cat.code)) continue;
     options.push(`<option value="cat:${cat.id}">${escapeHtml(cat.name)}</option>`);
   }
 
@@ -5085,15 +5091,40 @@ function sortPricingServices(services) {
   });
 }
 
+async function normalizePricingCatalogQuiet() {
+  if (!currentPricingListId) return;
+  try {
+    await apiFetch(`${PRICING_API}/normalize-catalog`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ price_list_id: currentPricingListId }),
+    });
+  } catch {
+    /* تنظيم صامت — لا يوقف التحميل */
+  }
+}
+
 async function loadPricingCategories() {
   if (!currentPricingListId) return;
   const res = await apiFetch(`${PRICING_API}/categories?price_list_id=${currentPricingListId}&all=1`);
   pricingCategoriesCache = res.ok ? await res.json() : [];
   const editSelect = document.getElementById('service-edit-category');
   if (editSelect) {
-    editSelect.innerHTML = pricingCategoriesCache
-      .map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
-      .join('');
+    const seen = new Set();
+    const options = [];
+    for (const tpl of pricingTemplatesCache) {
+      const cat = pricingCategoriesCache.find((c) => c.code === tpl.category_code);
+      if (cat && !seen.has(cat.code)) {
+        seen.add(cat.code);
+        options.push(`<option value="${cat.id}">${escapeHtml(tpl.label)}</option>`);
+      }
+    }
+    for (const cat of pricingCategoriesCache) {
+      if (seen.has(cat.code)) continue;
+      seen.add(cat.code);
+      options.push(`<option value="${cat.id}">${escapeHtml(cat.name)}</option>`);
+    }
+    editSelect.innerHTML = options.join('');
   }
 }
 
@@ -5101,12 +5132,18 @@ async function loadPricingServices() {
   if (!currentPricingListId) return;
   const search = document.getElementById('pricing-search')?.value?.trim() || '';
   const section = getSelectedPricingSection();
-  const params = new URLSearchParams({ price_list_id: currentPricingListId, all: '1' });
-  if (section.categoryId) {
-    params.set('category_id', section.categoryId);
-    params.set('limit', '10000');
-  } else {
-    params.set('limit', '10000');
+  const params = new URLSearchParams({ price_list_id: currentPricingListId, all: '1', limit: '10000' });
+  if (!section.isAll) {
+    if (section.categoryId) {
+      params.set('category_id', section.categoryId);
+    } else if (section.categoryCode) {
+      params.set('category_code', section.categoryCode);
+    } else {
+      pricingServicesCache = [];
+      renderPricingServicesTable();
+      renderPricingStats(pricingListsCache.find((l) => l.id === currentPricingListId));
+      return;
+    }
   }
   if (search) params.set('search', search);
   const res = await apiFetch(`${PRICING_API}/services?${params}`);
@@ -5153,8 +5190,9 @@ async function onPricingSectionChange() {
 
 async function onPricingListChange() {
   currentPricingListId = Number(document.getElementById('pricing-list-select').value) || null;
-  await loadPricingCategories();
+  await normalizePricingCatalogQuiet();
   await loadPricingTemplates();
+  await loadPricingCategories();
   populatePricingSectionSelect();
   updatePricingSectionUi();
   await loadPricingServices();
@@ -5307,6 +5345,64 @@ async function importPricingFile(e, options = {}) {
   }
 }
 
+async function addPricingCategory() {
+  if (!currentPricingListId) return;
+  const name = prompt('اسم القسم الجديد:');
+  if (!name?.trim()) return;
+  const defaultCode = `DEPT_${Date.now().toString(36).toUpperCase()}`;
+  const code = prompt('كود القسم (حروف إنجليزية فقط):', defaultCode);
+  if (!code?.trim()) return;
+  try {
+    const res = await apiFetch(`${PRICING_API}/categories`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        price_list_id: currentPricingListId,
+        name: name.trim(),
+        code: code.trim().toUpperCase(),
+        sort_order: 99,
+        is_active: true,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(`تم إضافة قسم «${name.trim()}»`, 'success');
+    await loadPricingCategories();
+    populatePricingSectionSelect();
+    document.getElementById('pricing-section-select').value = `cat:${data.id}`;
+    await onPricingSectionChange();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function deleteSectionServices() {
+  const section = getSelectedPricingSection();
+  if (section.isAll) {
+    showToast('اختر قسماً محدداً أولاً (مثل التحاليل أو الأشعة)', 'warning');
+    return;
+  }
+  if (!section.categoryId) {
+    showToast(`قسم «${section.label}» لا يحتوي خدمات بعد — ارفع ملف Excel للقسم`, 'warning');
+    return;
+  }
+  if (!confirm(`حذف جميع خدمات قسم «${section.label}»؟\nلا يمكن التراجع عن هذا الإجراء.`)) return;
+  try {
+    const res = await apiFetch(`${PRICING_API}/services/bulk`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ price_list_id: currentPricingListId, category_id: section.categoryId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(`تم حذف ${data.deleted || 0} خدمة من «${section.label}»`, 'success');
+    await loadPricingServices();
+    await loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
 async function cloneCurrentPriceList() {
   if (!currentPricingListId) return;
   const name = prompt('اسم النسخة الجديدة من اللائحة:', 'لائحة جديدة');
@@ -5354,8 +5450,18 @@ async function openServiceEditor(id = null) {
     toggleServiceComponentsEditor();
   } else {
     const section = getSelectedPricingSection();
-    document.getElementById('service-edit-category').value = section.categoryId || '';
+    const categoryId = section.categoryId || '';
+    document.getElementById('service-edit-category').value = categoryId;
     document.getElementById('service-edit-code').value = '';
+    if (categoryId && currentPricingListId) {
+      const codeRes = await apiFetch(
+        `${PRICING_API}/services/next-code?price_list_id=${currentPricingListId}&category_id=${categoryId}`
+      );
+      if (codeRes.ok) {
+        const codeData = await codeRes.json();
+        document.getElementById('service-edit-code').value = codeData.code || '';
+      }
+    }
     document.getElementById('service-edit-name').value = '';
     document.getElementById('service-edit-unit').value = 'مرة';
     document.getElementById('service-edit-price').value = '';
@@ -5428,6 +5534,8 @@ async function saveServiceEditor() {
   };
   if (body.price_type === 'composite') body.components = collectServiceComponentsFromEditor();
   if (!body.name) return showToast('اسم الخدمة مطلوب', 'warning');
+  if (!body.category_id) return showToast('اختر القسم أولاً', 'warning');
+  if (!body.code) delete body.code;
 
   try {
     const res = await apiFetch(id ? `${PRICING_API}/services/${id}` : `${PRICING_API}/services`, {
