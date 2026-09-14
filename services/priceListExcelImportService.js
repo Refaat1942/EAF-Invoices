@@ -362,9 +362,9 @@ async function importParsedExcel(priceListId, parsed, actor = null, options = {}
     const { rows } = await query(
       `SELECT id FROM services
        WHERE price_list_id = $1 AND category_id = $2
-         AND (code = $3 OR LOWER(TRIM(name)) = LOWER(TRIM($4)))
+         AND LOWER(TRIM(name)) = LOWER(TRIM($3))
        LIMIT 1`,
-      [priceListId, categoryId, svc.code, svc.name]
+      [priceListId, categoryId, svc.name]
     );
     const payload = {
       price_list_id: priceListId,
