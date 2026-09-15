@@ -1358,12 +1358,14 @@ function showDailyPatientWorkspace(ctx = dailyStayContext, options = {}) {
 
 function updateDailyPatientHeader(ctx) {
   const changeRoomBtn = document.getElementById('daily-change-room-btn');
+  const editPatientBtn = document.getElementById('daily-edit-patient-btn');
   const convertBtn = document.getElementById('daily-convert-internal-btn');
   const p = ctx?.patient;
   const hasInvoice = Boolean(ctx?.invoice?.id);
   const isExternal = p?.patient_type === 'external';
   const showRoom = hasInvoice && !isExternal;
   if (changeRoomBtn) changeRoomBtn.classList.toggle('d-none', !showRoom);
+  if (editPatientBtn) editPatientBtn.classList.toggle('d-none', !hasInvoice);
   if (convertBtn) convertBtn.classList.toggle('d-none', !hasInvoice || !isExternal);
   updateDailyPatientSummaryTable(ctx);
 }
@@ -1428,6 +1430,11 @@ function updateDailyPatientSummaryTable(ctx) {
       ? `${fmtStayDate(inv.admission_date) || '—'} → ${fmtStayDate(inv.discharge_date) || '—'}`
       : '—';
   const financial = inv.financial_treatment || p.financial_treatment || '—';
+  const entityName = inv.contracted_entity_name || '';
+  const financialDisplay =
+    entityName && isEntityInvoiceType(inv.invoice_type)
+      ? `${financial} — ${entityName}`
+      : financial;
 
   body.innerHTML = `
     <tr>
@@ -1456,13 +1463,13 @@ function updateDailyPatientSummaryTable(ctx) {
     </tr>
     <tr>
       <th class="daily-summary-label text-nowrap">المعاملة المالية</th>
-      <td>${dailyEscapeHtml(financial)}</td>
+      <td>${dailyEscapeHtml(financialDisplay)}</td>
       <th class="daily-summary-label text-nowrap">فترة الفاتورة</th>
       <td>${dailyEscapeHtml(period)}</td>
     </tr>
     <tr>
-      <th class="daily-summary-label text-nowrap">إجمالي الحركة</th>
-      <td class="fw-bold amount-total">${dailyFmt(dailyTotal)}</td>
+      <th class="daily-summary-label text-nowrap" title="مجموع حركة المريض اليومية المسجّلة (كل الأقسام)">إجمالي الحركة</th>
+      <td class="fw-bold amount-total" title="مجموع بنود الحركة اليومية">${dailyFmt(dailyTotal)}</td>
       <th class="daily-summary-label text-nowrap">إجمالي الفاتورة</th>
       <td class="fw-bold text-primary amount-total">${dailyFmt(finalTotal)}</td>
     </tr>
@@ -2211,8 +2218,17 @@ function bustFieldAutocomplete(root) {
 }
 
 let patientRegSelectedType = null;
+let patientRegEditMode = false;
+let patientRegEditFileNumber = '';
 
 function showPatientRegisterTypePicker() {
+  patientRegEditMode = false;
+  patientRegEditFileNumber = '';
+  const fileInput = document.getElementById('patient-reg-file-number');
+  if (fileInput) fileInput.readOnly = false;
+  const saveBtn = document.getElementById('patient-reg-save-btn');
+  if (saveBtn) saveBtn.textContent = '💾 حفظ تسجيل المريض';
+  document.getElementById('patient-register-change-type')?.classList.remove('d-none');
   patientRegSelectedType = null;
   const picker = document.getElementById('patient-register-type-picker');
   const panel = document.getElementById('patient-register-form-panel');
@@ -2220,9 +2236,11 @@ function showPatientRegisterTypePicker() {
   if (panel) panel.classList.add('d-none');
 }
 
-function showPatientRegisterForm(patientType) {
+function showPatientRegisterForm(patientType, options = {}) {
   const type = String(patientType || '').toLowerCase() === 'external' ? 'external' : 'internal';
+  const isEdit = options.edit === true;
   patientRegSelectedType = type;
+  if (isEdit) patientRegEditMode = true;
   const picker = document.getElementById('patient-register-type-picker');
   const panel = document.getElementById('patient-register-form-panel');
   const typeInput = document.getElementById('patient-reg-type');
@@ -2231,7 +2249,7 @@ function showPatientRegisterForm(patientType) {
   if (picker) picker.classList.add('d-none');
   if (panel) panel.classList.remove('d-none');
   if (typeInput) typeInput.value = type;
-  if (badge) badge.textContent = patientTypeLabel(type);
+  if (badge) badge.textContent = isEdit ? `${patientTypeLabel(type)} — تعديل` : patientTypeLabel(type);
   if (balanceWrap) balanceWrap.style.display = type === 'external' ? 'none' : '';
   const regInternal = document.getElementById('patient-reg-internal-wrap');
   if (regInternal) regInternal.style.display = type === 'internal' ? '' : 'none';
@@ -2239,7 +2257,13 @@ function showPatientRegisterForm(patientType) {
   if (stayGradeWrap) stayGradeWrap.style.display = type === 'external' ? 'none' : '';
   const nationalityHint = document.getElementById('patient-reg-nationality-hint');
   if (nationalityHint) nationalityHint.classList.toggle('d-none', type === 'external');
-  clearPatientRegisterForm({ keepType: true });
+  const saveBtn = document.getElementById('patient-reg-save-btn');
+  if (saveBtn) saveBtn.textContent = isEdit ? '💾 حفظ التعديلات' : '💾 حفظ تسجيل المريض';
+  document.getElementById('patient-register-change-type')?.classList.toggle('d-none', isEdit);
+  if (!isEdit) {
+    clearPatientRegisterForm({ keepType: true });
+    void suggestPatientRegisterFileNumber(type);
+  }
   void loadDailyStayTypes().then(async () => {
     await loadDailyStayGrades();
     populateStayTypeSelects();
@@ -2251,9 +2275,91 @@ function showPatientRegisterForm(patientType) {
   if (typeof bindCommaAmountInputs === 'function') {
     bindCommaAmountInputs(document.getElementById('patient-register-form-panel'));
   }
-  void suggestPatientRegisterFileNumber(type);
   const fileInput = document.getElementById('patient-reg-file-number');
-  if (fileInput) fileInput.focus();
+  if (fileInput) {
+    fileInput.readOnly = isEdit;
+    if (!isEdit) fileInput.focus();
+  }
+}
+
+async function fillPatientRegisterFormFromContext(ctx) {
+  const p = ctx?.patient || {};
+  const inv = ctx?.invoice || {};
+  const assignment = ctx?.room_assignment;
+  const fileInput = document.getElementById('patient-reg-file-number');
+  if (fileInput) {
+    fileInput.value = p.file_number || '';
+    fileInput.readOnly = true;
+  }
+  patientRegEditFileNumber = p.file_number || '';
+  document.getElementById('patient-reg-name').value = p.name || inv.patient_name || '';
+  document.getElementById('patient-reg-phone').value = p.phone || '';
+  document.getElementById('patient-reg-other-phone').value = p.other_phone || '';
+  setNationalityFieldValue(document.getElementById('patient-reg-nationality'), p.nationality);
+  const genderEl = document.getElementById('patient-reg-gender');
+  if (genderEl) genderEl.value = p.gender || '';
+  const ageEl = document.getElementById('patient-reg-age');
+  if (ageEl && p.age != null) ageEl.value = String(p.age);
+  const admissionEl = document.getElementById('patient-reg-admission');
+  if (admissionEl) admissionEl.value = fmtStayDate(inv.admission_date) || '';
+  const financialEl = document.getElementById('patient-reg-financial');
+  if (financialEl) financialEl.value = inv.financial_treatment || p.financial_treatment || '';
+  const balanceEl = document.getElementById('patient-reg-balance');
+  if (balanceEl && typeof setCommaAmountValue === 'function') {
+    setCommaAmountValue(balanceEl, p.account_balance || 0);
+  }
+  const stayGradeEl = document.getElementById('patient-reg-stay-grade');
+  if (stayGradeEl && p.stay_grade_id != null) stayGradeEl.value = String(p.stay_grade_id);
+  const roomInsEl = document.getElementById('patient-reg-room-insurance');
+  if (roomInsEl && typeof setCommaAmountValue === 'function') {
+    setCommaAmountValue(roomInsEl, p.room_insurance_amount || 0);
+  }
+  if (assignment?.stay_type_id) {
+    populateStayTypeSelects(assignment.stay_type_id);
+    const roomEl = document.getElementById('patient-reg-room');
+    if (roomEl) roomEl.value = String(assignment.stay_type_id);
+  }
+  const floorEl = document.getElementById('patient-reg-floor');
+  if (floorEl) floorEl.value = assignment?.floor || p.floor || '';
+  const companionEl = document.getElementById('patient-reg-companion');
+  const nursingEl = document.getElementById('patient-reg-nursing');
+  const assistantEl = document.getElementById('patient-reg-assistant');
+  if (companionEl && typeof setCommaAmountValue === 'function') {
+    setCommaAmountValue(companionEl, assignment?.companion_amount || 0);
+  }
+  if (nursingEl && typeof setCommaAmountValue === 'function') {
+    setCommaAmountValue(nursingEl, assignment?.nursing_point_amount || 0);
+  }
+  if (assistantEl && typeof setCommaAmountValue === 'function') {
+    setCommaAmountValue(assistantEl, assignment?.patient_assistant_amount || 0);
+  }
+  const invoiceTypeEl = document.getElementById('patient-reg-invoice-type');
+  if (invoiceTypeEl && inv.invoice_type) invoiceTypeEl.value = inv.invoice_type;
+  togglePatientRegEntityFields();
+  await loadPatientEntitySelects();
+  if (inv.contracted_entity_id) {
+    const entityEl = document.getElementById('patient-reg-entity');
+    if (entityEl) entityEl.value = String(inv.contracted_entity_id);
+  }
+  const letterFrom = document.getElementById('patient-reg-letter-from');
+  const letterTo = document.getElementById('patient-reg-letter-to');
+  if (letterFrom) letterFrom.value = fmtStayDate(inv.letter_from_date) || '';
+  if (letterTo) letterTo.value = fmtStayDate(inv.letter_to_date) || '';
+  updateLetterAuthorizedDaysDisplay();
+}
+
+async function openPatientEditFromDaily() {
+  const ctx = dailyStayContext;
+  if (!ctx?.patient?.file_number) {
+    showToast('اختر مريضًا أولًا', 'warning');
+    return;
+  }
+  patientRegEditMode = true;
+  patientRegEditFileNumber = ctx.patient.file_number;
+  const type = ctx.patient.patient_type || 'internal';
+  if (typeof switchView === 'function') switchView('patient-register');
+  showPatientRegisterForm(type, { edit: true });
+  await fillPatientRegisterFormFromContext(ctx);
 }
 
 async function suggestPatientRegisterFileNumber(patientType) {
@@ -2365,7 +2471,9 @@ async function savePatientRegistration(event) {
     const dup = await apiJson(
       `/api/patients/check-file-number?file_number=${encodeURIComponent(file_number)}`
     );
-    if (!dup.available) {
+    const editingSameFile =
+      patientRegEditMode && String(dup.existing?.file_number || file_number) === String(patientRegEditFileNumber);
+    if (!dup.available && !editingSameFile) {
       const who = dup.existing?.name ? ` — مسجّل للمريض: ${dup.existing.name}` : '';
       showToast(`رقم الملف «${file_number}» مكرر${who}`, 'danger');
       return;
@@ -2389,15 +2497,20 @@ async function savePatientRegistration(event) {
   };
   if (patient_type !== 'external') {
     payload.account_balance = dailyParseAmount(balanceRaw);
-    if (!document.getElementById('patient-reg-stay-grade')?.value) {
-      showToast('اختر درجة الإقامة من اللائحة', 'warning');
-      return;
-    }
-    if (!document.getElementById('patient-reg-room')?.value) {
-      showToast('اختر الغرفة أو الجناح للمريض الداخلي', 'warning');
-      return;
+    if (!patientRegEditMode) {
+      if (!document.getElementById('patient-reg-stay-grade')?.value) {
+        showToast('اختر درجة الإقامة من اللائحة', 'warning');
+        return;
+      }
+      if (!document.getElementById('patient-reg-room')?.value) {
+        showToast('اختر الغرفة أو الجناح للمريض الداخلي', 'warning');
+        return;
+      }
     }
     Object.assign(payload, collectInternalStayPayload('internal'));
+    if (patientRegEditMode && !payload.stay_type_id && dailyStayContext?.room_assignment?.stay_type_id) {
+      payload.stay_type_id = dailyStayContext.room_assignment.stay_type_id;
+    }
     if (isEntityInvoiceType(payload.invoice_type) && !payload.contracted_entity_id) {
       showToast('اختر الجهة', 'warning');
       return;
@@ -2417,6 +2530,10 @@ async function savePatientRegistration(event) {
     if (data?.invoice?.id) {
       await refreshInvoiceFormAfterDailySave(file_number, data.invoice.id);
     }
+    patientRegEditMode = false;
+    patientRegEditFileNumber = '';
+    const fileInput = document.getElementById('patient-reg-file-number');
+    if (fileInput) fileInput.readOnly = false;
     clearPatientRegisterForm();
     if (typeof switchView === 'function') {
       switchView('daily', { openFileNumber: file_number });
@@ -5940,6 +6057,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-stay-invoice-type')?.addEventListener('change', () => {
     toggleDailyStayEntityFields();
     updateDailyMilitaryAuthBanner();
+  });
+  document.getElementById('daily-edit-patient-btn')?.addEventListener('click', () => {
+    void openPatientEditFromDaily();
   });
   document.getElementById('daily-change-room-btn')?.addEventListener('click', openChangeRoomModal);
   document.getElementById('change-room-submit-btn')?.addEventListener('click', submitChangeRoom);

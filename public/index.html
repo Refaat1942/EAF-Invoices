@@ -137,7 +137,7 @@
               <div class="row g-3">
                 <div class="col-md-3">
                   <label class="form-label fw-bold">رقم الملف *</label>
-                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-file-number" autocomplete="off" autocorrect="off" spellcheck="false">
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-file-number" placeholder="يُخصَّص تلقائياً" autocomplete="off" autocorrect="off" spellcheck="false">
                   <div class="small text-danger fw-bold mt-1 d-none" id="patient-reg-file-duplicate"></div>
                 </div>
                 <div class="col-md-4">
@@ -723,6 +723,7 @@
             <div class="d-flex flex-wrap gap-2 align-items-center">
               <span class="badge bg-light text-dark fw-bold" id="daily-entry-status">—</span>
               <button type="button" class="btn btn-sm btn-outline-danger fw-bold d-none" id="daily-convert-internal-btn">🏨 تحويل لمريض داخلي</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary fw-bold d-none" id="daily-edit-patient-btn">✏️ تعديل البيانات</button>
               <button type="button" class="btn btn-sm btn-outline-warning fw-bold d-none" id="daily-change-room-btn">🔄 تغيير الغرفة</button>
             </div>
           </div>
