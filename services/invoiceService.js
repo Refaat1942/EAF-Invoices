@@ -17,6 +17,7 @@ const { upsertPatient, applyPatientCredit, setPatientBalance, getPatientByFileNu
 const { assertInvoiceStructuralEditAllowed } = require('./invoiceEditGuard');
 const { getSummaryReport, STATUS_LABELS } = require('./reportService');
 const { userHasPermission } = require('./authService');
+const { buildSearchPattern, sqlNormalizeArabic } = require('./searchNormalize');
 
 const { getStayTypeById } = require('./stayTypeService');
 const { resolveServiceForInvoice } = require('./serviceCatalogService');
@@ -496,24 +497,34 @@ async function listInvoices(filters = {}) {
     sql += ` AND COALESCE(i.issue_date, i.admission_date, i.created_at::date) <= $${i++}::date`;
     params.push(toDate);
   }
-  const search = String(filters.search || '').trim();
+  const search = buildSearchPattern(filters.search);
   if (search) {
-    const pattern = `%${search.replace(/%/g, '')}%`;
+    const pattern = `%${search}%`;
+    const normPatientName = sqlNormalizeArabic('COALESCE(p.name, i.patient_name, \'\')');
+    const normInvoicePatient = sqlNormalizeArabic('COALESCE(i.patient_name, \'\')');
     sql += ` AND (
       i.patient_name ILIKE $${i}
+      OR ${normInvoicePatient} LIKE $${i + 1}
       OR i.serial_number ILIKE $${i}
       OR TRIM(COALESCE(i.file_number, '')) ILIKE $${i}
       OR COALESCE(p.phone, '') ILIKE $${i}
+      OR COALESCE(p.other_phone, '') ILIKE $${i}
       OR COALESCE(p.nationality, '') ILIKE $${i}
       OR COALESCE(p.name, '') ILIKE $${i}
+      OR ${normPatientName} LIKE $${i + 1}
       OR COALESCE(p.gender, '') ILIKE $${i}
       OR COALESCE(p.disability_degree, '') ILIKE $${i}
       OR COALESCE(p.disability_type, '') ILIKE $${i}
       OR COALESCE(p.floor, '') ILIKE $${i}
       OR CAST(i.id AS TEXT) ILIKE $${i}
+      OR COALESCE(i.created_by_name, '') ILIKE $${i}
     )`;
-    params.push(pattern);
-    i++;
+    params.push(pattern, `%${search.toLowerCase()}%`);
+    i += 2;
+  }
+  if (filters.created_by_user_id) {
+    sql += ` AND i.created_by_user_id = $${i++}`;
+    params.push(Number(filters.created_by_user_id));
   }
   if (filters.status) {
     sql += ` AND i.status = $${i++}`;
@@ -1659,8 +1670,16 @@ async function getOpenPatientStay(fileNumber) {
     room_assignment = await getAssignmentForDate(patient.id, refDate);
   }
 
+  const fallbackType = patient?.patient_type || 'internal';
   return {
-    patient: patient || { file_number: fn, name: invoice?.patient_name || '', account_balance: 0 },
+    patient:
+      patient ||
+      {
+        file_number: fn,
+        name: invoice?.patient_name || '',
+        account_balance: 0,
+        patient_type: fallbackType,
+      },
     invoice,
     daily_summary: dailySummary,
     room_assignment,
@@ -1748,16 +1767,24 @@ async function openPatientStay(data, user = null) {
     payload.letter_to_date = data.military_auth_to || data.letter_to_date || null;
   }
 
-  const updated = await saveInvoice(payload, invoiceId, user, {
+  await saveInvoice(payload, invoiceId, user, {
     save_mode: 'draft',
     preserve_status: true,
     actor: user,
     skip_structural_guard: true,
   });
-  await syncInvoiceDailyCharges(invoiceId, { preserve_status: true, actor: user });
+  const updated =
+    (await syncInvoiceAfterDailyChange(invoiceId, fileNumber, {
+      preserve_status: true,
+      actor: user,
+    })) || (await getInvoiceById(invoiceId));
 
   const patient = await getPatientByFileNumber(fileNumber);
-  const dailySummary = await getDailySummaryForStay(fileNumber, updated.admission_date, updated.discharge_date);
+  const dailySummary = await getDailySummaryForStay(
+    fileNumber,
+    updated.admission_date,
+    updated.discharge_date
+  );
 
   let room_assignment = null;
   if (patient?.id) {

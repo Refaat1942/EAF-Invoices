@@ -1,4 +1,5 @@
 const { query, withTransaction } = require('../database/db');
+const { buildSearchPattern, sqlNormalizeArabic } = require('./searchNormalize');
 
 function normalizePatientType(type) {
   const t = String(type || '').trim().toLowerCase();
@@ -284,7 +285,7 @@ async function listPatients() {
 
 async function searchPatientsForDaily(search = '', limit = 50) {
   const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
-  const term = String(search || '').trim();
+  const term = buildSearchPattern(search);
   const openInvoiceSql = `
     EXISTS (
       SELECT 1 FROM invoices i
@@ -303,17 +304,38 @@ async function searchPatientsForDaily(search = '', limit = 50) {
     );
     return rows;
   }
-  const pattern = `%${term.replace(/%/g, '')}%`;
+  const pattern = `%${term}%`;
+  const normName = sqlNormalizeArabic('p.name');
   const { rows } = await query(
     `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
             ${openInvoiceSql}
      FROM patients p
-     WHERE p.file_number ILIKE $1 OR p.name ILIKE $1
+     WHERE p.file_number ILIKE $1
+       OR p.name ILIKE $1
+       OR ${normName} LIKE $2
+       OR COALESCE(p.phone, '') ILIKE $1
+       OR COALESCE(p.other_phone, '') ILIKE $1
      ORDER BY p.updated_at DESC NULLS LAST, p.file_number
-     LIMIT $2`,
-    [pattern, lim]
+     LIMIT $3`,
+    [pattern, `%${term.toLowerCase()}%`, lim]
   );
   return rows;
+}
+
+async function checkFileNumberAvailability(fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return { available: false, reason: 'empty' };
+  const { rows } = await query(
+    `SELECT id, file_number, name, patient_type FROM patients WHERE TRIM(file_number) = TRIM($1) LIMIT 1`,
+    [fn]
+  );
+  if (!rows.length) return { available: true, file_number: fn };
+  return {
+    available: false,
+    duplicate: true,
+    file_number: fn,
+    existing: rows[0],
+  };
 }
 
 async function peekNextPatientFileNumber(patientType = 'internal') {
@@ -391,4 +413,5 @@ module.exports = {
   resolvePatientFileNumber,
   bumpPatientFileCounter,
   convertExternalPatientToInternal,
+  checkFileNumberAvailability,
 };

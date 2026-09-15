@@ -2271,8 +2271,36 @@ async function suggestPatientRegisterFileNumber(patientType) {
       `/api/patients/next-file-number?patient_type=${encodeURIComponent(patientType || 'internal')}`
     );
     if (data?.file_number) fileInput.value = data.file_number;
+    await checkPatientRegisterFileDuplicate();
   } catch {
     /* optional hint */
+  }
+}
+
+async function checkPatientRegisterFileDuplicate() {
+  const fileInput = document.getElementById('patient-reg-file-number');
+  const warn = document.getElementById('patient-reg-file-duplicate');
+  if (!fileInput || !warn) return;
+  const file_number = fileInput.value.trim();
+  if (!file_number) {
+    warn.classList.add('d-none');
+    warn.textContent = '';
+    return;
+  }
+  try {
+    const data = await apiJson(
+      `/api/patients/check-file-number?file_number=${encodeURIComponent(file_number)}`
+    );
+    if (!data.available) {
+      const who = data.existing?.name ? ` — مسجّل للمريض: ${data.existing.name}` : '';
+      warn.textContent = `تحذير: رقم الملف مكرر${who}`;
+      warn.classList.remove('d-none');
+    } else {
+      warn.classList.add('d-none');
+      warn.textContent = '';
+    }
+  } catch {
+    warn.classList.add('d-none');
   }
 }
 
@@ -2340,6 +2368,19 @@ async function savePatientRegistration(event) {
     return;
   }
 
+  try {
+    const dup = await apiJson(
+      `/api/patients/check-file-number?file_number=${encodeURIComponent(file_number)}`
+    );
+    if (!dup.available) {
+      const who = dup.existing?.name ? ` — مسجّل للمريض: ${dup.existing.name}` : '';
+      showToast(`رقم الملف «${file_number}» مكرر${who}`, 'danger');
+      return;
+    }
+  } catch {
+    /* optional */
+  }
+
   const payload = {
     file_number,
     patient_name,
@@ -2377,9 +2418,12 @@ async function savePatientRegistration(event) {
       body: JSON.stringify(payload),
     });
     sessionStorage.setItem('dailyStayFileNumber', file_number);
-    dailyStayContext = data;
+    applyDailyStayContext(data);
     const label = data.created ? 'تم تسجيل المريض وإنشاء فاتورة مسودة' : 'تم تحديث بيانات المريض';
     showToast(`${label} — ملف ${file_number} — ابدأ بإدخال البنود`, 'success');
+    if (data?.invoice?.id) {
+      await refreshInvoiceFormAfterDailySave(file_number, data.invoice.id);
+    }
     clearPatientRegisterForm();
     if (typeof switchView === 'function') {
       switchView('daily', { openFileNumber: file_number });
@@ -2394,6 +2438,9 @@ async function savePatientRegistration(event) {
 function initPatientRegistration() {
   showPatientRegisterTypePicker();
   clearPatientRegisterForm();
+  document.getElementById('patient-reg-file-number')?.addEventListener('blur', () => {
+    void checkPatientRegisterFileDuplicate();
+  });
   void loadDailyStayTypes().then(async () => {
     await loadDailyStayGrades();
     populateStayTypeSelects();

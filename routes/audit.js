@@ -1,5 +1,5 @@
 const express = require('express');
-const { requireAuth, requirePermission } = require('../middleware/auth');
+const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { listAuditLogs } = require('../services/auditLogService');
 const {
   listAlerts,
@@ -31,7 +31,7 @@ router.get('/logs', requirePermission('settings.*'), async (req, res) => {
   }
 });
 
-router.get('/alerts', requirePermission('settings.*'), async (req, res) => {
+router.get('/alerts', requireAnyPermission('invoices.view', 'daily_charges.view', 'settings.*'), async (req, res) => {
   try {
     const result = await listAlerts({
       unread_only: req.query.unread_only,
@@ -45,7 +45,7 @@ router.get('/alerts', requirePermission('settings.*'), async (req, res) => {
   }
 });
 
-router.get('/alerts/count', requirePermission('settings.*'), async (req, res) => {
+router.get('/alerts/count', requireAnyPermission('invoices.view', 'daily_charges.view', 'settings.*'), async (req, res) => {
   try {
     const count = await getUnreadAlertCount();
     res.json({ count });
@@ -54,7 +54,7 @@ router.get('/alerts/count', requirePermission('settings.*'), async (req, res) =>
   }
 });
 
-router.post('/alerts/:id/read', requirePermission('settings.*'), async (req, res) => {
+router.post('/alerts/:id/read', requireAnyPermission('invoices.view', 'daily_charges.view', 'settings.*'), async (req, res) => {
   try {
     const row = await markAlertRead(Number(req.params.id), req.user?.id);
     if (!row) return res.status(404).json({ error: 'التنبيه غير موجود' });
@@ -64,7 +64,7 @@ router.post('/alerts/:id/read', requirePermission('settings.*'), async (req, res
   }
 });
 
-router.post('/alerts/read-all', requirePermission('settings.*'), async (req, res) => {
+router.post('/alerts/read-all', requireAnyPermission('invoices.view', 'daily_charges.view', 'settings.*'), async (req, res) => {
   try {
     await markAllAlertsRead(req.user?.id);
     res.json({ success: true });

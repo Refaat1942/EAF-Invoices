@@ -223,6 +223,30 @@ router.delete('/contracted-entities/:id', requirePermission('settings.*'), async
   }
 });
 
+const entityUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+
+router.get('/contracted-entities/import/template', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const { exportContractedEntitiesTemplate } = require('../services/contractedEntityImportService');
+    const buffer = await exportContractedEntitiesTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="contracted-entities-template.xlsx"');
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/contracted-entities/import', requirePermission('settings.*'), entityUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'لم يتم اختيار ملف' });
+    const { importContractedEntitiesFromBuffer } = require('../services/contractedEntityImportService');
+    res.json(await importContractedEntitiesFromBuffer(req.file.buffer));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/discount-exclusions', requirePermission('settings.*'), async (req, res) => {
   try {
     const row = await createDiscountExclusion(req.body);

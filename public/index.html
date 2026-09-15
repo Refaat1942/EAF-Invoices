@@ -40,7 +40,16 @@
         <span class="fw-black navbar-brand-text" id="navbar-brand-text">مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</span>
       </button>
       <div class="d-flex gap-2 align-items-center">
-        <button type="button" class="btn btn-outline-light btn-sm fw-bold position-relative nav-alerts-btn" id="nav-alerts-btn" style="display:none" title="تنبيهات النظام">🔔 <span class="nav-alerts-badge" id="nav-alerts-badge" style="display:none">0</span></button>
+        <div class="dropdown position-relative">
+          <button type="button" class="btn btn-outline-light btn-sm fw-bold position-relative nav-alerts-btn" id="nav-alerts-btn" style="display:none" title="إشعارات النظام">🔔 <span class="nav-alerts-badge" id="nav-alerts-badge" style="display:none">0</span></button>
+          <div class="dropdown-menu dropdown-menu-end shadow nav-alerts-dropdown" id="nav-alerts-dropdown" style="min-width:22rem;max-height:24rem;overflow:auto">
+            <div class="dropdown-header d-flex justify-content-between align-items-center py-2">
+              <span class="fw-bold">الإشعارات</span>
+              <button type="button" class="btn btn-link btn-sm p-0" id="nav-alerts-read-all">تعليم مقروء</button>
+            </div>
+            <div id="nav-alerts-dropdown-body"></div>
+          </div>
+        </div>
         <span class="text-light small fw-bold" id="nav-user"></span>
         <button type="button" class="btn btn-outline-light btn-sm fw-bold" id="nav-home-shortcut">🏠 الرئيسية</button>
         <button type="button" class="btn btn-outline-danger btn-sm fw-bold" id="logout-btn">خروج</button>
@@ -129,6 +138,7 @@
                 <div class="col-md-3">
                   <label class="form-label fw-bold">رقم الملف *</label>
                   <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-file-number" autocomplete="off" autocorrect="off" spellcheck="false">
+                  <div class="small text-danger fw-bold mt-1 d-none" id="patient-reg-file-duplicate"></div>
                 </div>
                 <div class="col-md-4">
                   <label class="form-label fw-bold">اسم المريض *</label>
@@ -1143,7 +1153,14 @@
         </div>
         <div class="col-12 settings-panel" id="settings-panel-contracted-entities" data-settings-section="contracted-entities" style="display:none">
           <div class="card shadow-sm">
-            <div class="card-header bg-warning text-dark fw-black">🏢 الجهات المتعاقدة ونسب الخصم</div>
+            <div class="card-header bg-warning text-dark fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <span>🏢 الجهات المتعاقدة ونسب الخصم</span>
+              <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-sm btn-light fw-bold" id="entity-template-btn">قالب Excel</button>
+                <button type="button" class="btn btn-sm btn-warning fw-bold" id="entity-import-btn">رفع Excel</button>
+                <input type="file" id="entity-import-file" accept=".xlsx,.xls" class="d-none">
+              </div>
+            </div>
             <div class="card-body">
               <div class="row g-2 mb-3">
                 <div class="col-md-4"><input type="text" class="form-control fw-bold" id="new-entity-name" placeholder="اسم الجهة..."></div>
@@ -2027,6 +2044,7 @@
   <script src="/js/app.js?v=20260905c"></script>
   <script src="/js/daily-picker.js?v=20260905c"></script>
   <script src="/js/daily-charges.js?v=20260905c"></script>
+  <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/assistant.js?v=20260905b"></script>
   <script src="/js/analytics-dashboard.js?v=20260905b"></script>

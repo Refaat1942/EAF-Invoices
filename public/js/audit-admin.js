@@ -29,21 +29,8 @@
   }
 
   async function refreshAlertBadge() {
-    const btn = document.getElementById('nav-alerts-btn');
-    const badge = document.getElementById('nav-alerts-badge');
-    if (!btn || !badge || !canAudit()) {
-      if (btn) btn.style.display = 'none';
-      return;
-    }
-    btn.style.display = '';
-    try {
-      const res = await apiFetch(`${API}/alerts/count`);
-      const data = await res.json();
-      const count = Number(data.count) || 0;
-      badge.textContent = count > 99 ? '99+' : String(count);
-      badge.style.display = count > 0 ? '' : 'none';
-    } catch {
-      badge.style.display = 'none';
+    if (typeof window.refreshNotificationBadge === 'function') {
+      return window.refreshNotificationBadge();
     }
   }
 
@@ -146,10 +133,6 @@
     document.getElementById('audit-log-search-btn')?.addEventListener('click', () => loadAuditLogsPanel());
     document.getElementById('audit-log-search')?.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') loadAuditLogsPanel();
-    });
-    document.getElementById('nav-alerts-btn')?.addEventListener('click', () => {
-      switchView('settings', { keepForm: true });
-      showSettingsSection('audit-monitor');
     });
   }
 

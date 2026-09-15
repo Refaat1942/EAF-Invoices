@@ -17,6 +17,7 @@ const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
 const { getLogoUrl } = require('../services/settingsService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
+const { userHasPermission } = require('../services/authService');
 
 const router = express.Router();
 
@@ -155,6 +156,10 @@ router.get('/reports/export', requirePermission('reports.export'), async (req, r
 
 router.get('/', requirePermission('invoices.view'), async (req, res) => {
   try {
+    const user = req.session?.user;
+    const onlyMine =
+      req.query.only_mine === 'true' ||
+      (!userHasPermission(user, 'settings.*') && !userHasPermission(user, 'invoices.edit_original'));
     const invoices = await listInvoices({
       invoice_type: req.query.type,
       from_date: req.query.from,
@@ -162,6 +167,7 @@ router.get('/', requirePermission('invoices.view'), async (req, res) => {
       search: req.query.search,
       status: req.query.status,
       limit: req.query.limit ? Number(req.query.limit) : undefined,
+      created_by_user_id: onlyMine && user?.id ? Number(user.id) : undefined,
     });
     res.json(invoices);
   } catch (err) {

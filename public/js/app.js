@@ -1054,6 +1054,36 @@ function bindEvents() {
     if (e.key === 'Enter') { e.preventDefault(); addPaymentMethod(); }
   });
   document.getElementById('add-entity-btn').addEventListener('click', addContractedEntity);
+  document.getElementById('entity-template-btn')?.addEventListener('click', () => {
+    window.open('/api/settings/contracted-entities/import/template', '_blank');
+  });
+  document.getElementById('entity-import-btn')?.addEventListener('click', () => {
+    document.getElementById('entity-import-file')?.click();
+  });
+  document.getElementById('entity-import-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const res = await apiFetch('/api/settings/contracted-entities/import', {
+        method: 'POST',
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'فشل الاستيراد');
+      const errCount = (data.errors || []).length;
+      showToast(
+        `تم الاستيراد — إضافة ${data.created_count || 0}، تحديث ${data.updated_count || 0}${errCount ? `، أخطاء ${errCount}` : ''}`,
+        errCount ? 'warning' : 'success'
+      );
+      await loadContractedEntities();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      e.target.value = '';
+    }
+  });
   document.getElementById('add-exclusion-btn').addEventListener('click', addDiscountExclusion);
 
   document.getElementById('settings-tiles-grid')?.addEventListener('click', (e) => {

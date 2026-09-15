@@ -5,6 +5,7 @@ const {
   listPatients,
   upsertPatient,
   peekNextPatientFileNumber,
+  checkFileNumberAvailability,
 } = require('../services/patientService');
 const { requireAuth, requirePermission } = require('../middleware/auth');
 
@@ -15,6 +16,15 @@ router.use(requireAuth);
 router.get('/', requirePermission('patients.view'), async (req, res) => {
   try {
     res.json(await listPatients());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/check-file-number', requirePermission('patients.view'), async (req, res) => {
+  try {
+    const fileNumber = req.query.file_number || '';
+    res.json(await checkFileNumberAvailability(fileNumber));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

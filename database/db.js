@@ -464,6 +464,12 @@ async function runMigrations() {
     await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
   }
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS serial_scope VARCHAR(20)`);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_one_open_per_patient
+    ON invoices (TRIM(file_number))
+    WHERE status IN ('draft', 'pending_review')
+      AND COALESCE(TRIM(file_number), '') <> ''
+  `);
   await query(`DROP INDEX IF EXISTS idx_invoices_fiscal_serial`);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_fiscal_serial

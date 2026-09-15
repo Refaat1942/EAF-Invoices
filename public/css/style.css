@@ -1855,6 +1855,10 @@ input[data-comma-amount="1"] {
   }
 }
 
+.nav-alerts-dropdown.show {
+  display: block;
+}
+
 .nav-alerts-btn .nav-alerts-badge {
   position: absolute;
   top: -4px;
