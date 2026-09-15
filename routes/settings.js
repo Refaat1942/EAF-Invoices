@@ -315,6 +315,57 @@ router.get('/backup', requirePermission('settings.*'), async (req, res) => {
   }
 });
 
+const {
+  getCompanionKinds,
+  saveCompanionKinds,
+  buildTemplateWorkbook,
+  importCompanionKindsFromBuffer,
+} = require('../services/companionKindService');
+
+const companionUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+router.get('/companion-kinds', lookupListHandler(getCompanionKinds, 'daily_charges.view'));
+
+router.put('/companion-kinds', requirePermission('settings.*'), async (req, res) => {
+  try {
+    res.json(await saveCompanionKinds(req.body.kinds || req.body || []));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/companion-kinds/template', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const buffer = buildTemplateWorkbook();
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="companion-kinds-template.xlsx"');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post(
+  '/companion-kinds/import',
+  requirePermission('settings.*'),
+  companionUpload.single('file'),
+  async (req, res) => {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ error: 'الملف مطلوب' });
+      const kinds = await importCompanionKindsFromBuffer(req.file.buffer);
+      res.json({ success: true, kinds });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
+
 router.post('/backup/run', requirePermission('settings.*'), async (req, res) => {
   try {
     const result = await runBackup({ trigger: 'manual' });

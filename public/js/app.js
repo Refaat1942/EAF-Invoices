@@ -952,7 +952,7 @@ function bindEvents() {
   document.getElementById('reset-form-btn').addEventListener('click', () => switchView('home'));
   document.getElementById('goto-daily-from-invoice-btn')?.addEventListener('click', () => {
     const fn = document.getElementById('file_number')?.value?.trim() || '';
-    switchView('daily', { openFileNumber: fn || undefined });
+    switchView('daily', { openFileNumber: fn || undefined, preserveTab: true });
   });
   document.getElementById('add-row-btn').addEventListener('click', () => {
     document.getElementById('items-tbody').appendChild(createRow(rowCount++));
@@ -1041,6 +1041,31 @@ function bindEvents() {
   document.getElementById('upload-logo-btn').addEventListener('click', uploadLogo);
   document.getElementById('backup-run-btn')?.addEventListener('click', runManualBackup);
   document.getElementById('add-stay-type-btn').addEventListener('click', addStayType);
+  document.getElementById('add-companion-kind-btn')?.addEventListener('click', addCompanionKind);
+  document.getElementById('companion-kind-template-btn')?.addEventListener('click', () => {
+    window.open('/api/settings/companion-kinds/template', '_blank');
+  });
+  document.getElementById('companion-kind-import-btn')?.addEventListener('click', () => {
+    document.getElementById('companion-kind-import-file')?.click();
+  });
+  document.getElementById('companion-kind-import-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const res = await apiFetch('/api/settings/companion-kinds/import', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showToast('تم استيراد خيارات المرافق', 'success');
+      await loadCompanionKindsSettings();
+      if (typeof reloadDailyServiceCaches === 'function') await reloadDailyServiceCaches();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      e.target.value = '';
+    }
+  });
   document.getElementById('add-financial-treatment-btn')?.addEventListener('click', addFinancialTreatment);
   document.getElementById('add-invoice-type-btn').addEventListener('click', addInvoiceType);
   document.getElementById('add-payment-method-btn').addEventListener('click', addPaymentMethod);
@@ -3206,7 +3231,9 @@ function switchView(view, options = {}) {
   if (view === 'analytics' && typeof initAnalyticsDashboard === 'function') {
     initAnalyticsDashboard();
   }
-  if (view === 'patient-register' && typeof initPatientRegistration === 'function') initPatientRegistration();
+  if (view === 'patient-register' && typeof initPatientRegistration === 'function' && !options.skipPatientRegInit) {
+    initPatientRegistration();
+  }
   if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView(options);
 }
 
@@ -3595,6 +3622,79 @@ async function saveStayTypeItem(id) {
     showToast('تم الحفظ', 'success');
     loadSettingsPage();
     loadStayTypes();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+function renderCompanionKindsList(kinds = []) {
+  const editable = kinds.filter((k) => k.code !== 'none' && k.code !== 'nursing_point');
+  if (!editable.length) {
+    return '<li class="list-group-item text-muted">الافتراضي: بدون، نقطة تمريض — أضف خيارات إضافية أدناه</li>';
+  }
+  return editable
+    .map(
+      (k) =>
+        `<li class="list-group-item d-flex justify-content-between align-items-center gap-2">
+          <span>${escapeHtml(k.name)} — ${fmt(k.amount)} (${k.section_code === 'nursing_point' ? 'تمريض' : 'مرافق'})</span>
+          <button type="button" class="btn btn-sm btn-outline-danger companion-kind-delete-btn" data-code="${escapeAttr(k.code)}">حذف</button>
+        </li>`
+    )
+    .join('');
+}
+
+async function loadCompanionKindsSettings() {
+  try {
+    const kinds = await apiJson(`${SETTINGS_API}/companion-kinds`);
+    const list = document.getElementById('companion-kinds-list');
+    if (!list) return;
+    list.innerHTML = renderCompanionKindsList(kinds);
+    list.querySelectorAll('.companion-kind-delete-btn').forEach((btn) => {
+      btn.addEventListener('click', () => deleteCompanionKind(btn.dataset.code));
+    });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function addCompanionKind() {
+  const name = document.getElementById('new-companion-kind-name')?.value.trim();
+  const amount = parseDisplayAmount(document.getElementById('new-companion-kind-amount')?.value);
+  const section_code = document.getElementById('new-companion-kind-section')?.value || 'companion';
+  if (!name) return showToast('اسم خيار المرافق مطلوب', 'warning');
+  try {
+    const current = await apiJson(`${SETTINGS_API}/companion-kinds`);
+    const kinds = current
+      .filter((k) => k.code !== 'none' && k.code !== 'nursing_point')
+      .concat([{ name, amount, section_code }]);
+    await apiJson(`${SETTINGS_API}/companion-kinds`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kinds }),
+    });
+    document.getElementById('new-companion-kind-name').value = '';
+    document.getElementById('new-companion-kind-amount').value = '';
+    showToast('تمت الإضافة', 'success');
+    await loadCompanionKindsSettings();
+    if (typeof reloadDailyServiceCaches === 'function') await reloadDailyServiceCaches();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function deleteCompanionKind(code) {
+  if (!code) return;
+  try {
+    const current = await apiJson(`${SETTINGS_API}/companion-kinds`);
+    const kinds = current.filter((k) => k.code !== code && k.code !== 'none' && k.code !== 'nursing_point');
+    await apiJson(`${SETTINGS_API}/companion-kinds`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kinds }),
+    });
+    showToast('تم الحذف', 'success');
+    await loadCompanionKindsSettings();
+    if (typeof reloadDailyServiceCaches === 'function') await reloadDailyServiceCaches();
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -4051,6 +4151,7 @@ async function loadSettingsPage() {
     }
 
     document.getElementById('stay-types-list').innerHTML = renderStayTypesList(stayTypes);
+    await loadCompanionKindsSettings();
     document.getElementById('financial-treatments-list').innerHTML = renderAdminLookupList(
       financialTreatments,
       'financial'

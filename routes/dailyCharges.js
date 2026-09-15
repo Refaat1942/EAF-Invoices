@@ -569,7 +569,7 @@ router.get('/daily-items/print', requirePermission('daily_charges.view'), async 
     if (!resolveDailyPrintKind(kind)) {
       return res.status(400).json({
         error:
-          'نوع التقرير غير صالح (medicines / supplies / medicines_supplies / stay / sessions / other / radiology / laboratory / free_items)',
+          'نوع التقرير غير صالح (medicines / supplies / stay / sessions / other / radiology / laboratory / exams / operations / all_sections / free_items)',
       });
     }
 

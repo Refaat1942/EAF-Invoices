@@ -768,6 +768,10 @@
                     <li><hr class="dropdown-divider"></li>
                     <li><button type="button" class="dropdown-item fw-bold" id="daily-print-radiology-btn">أشعة</button></li>
                     <li><button type="button" class="dropdown-item fw-bold" id="daily-print-laboratory-btn">تحاليل</button></li>
+                    <li><button type="button" class="dropdown-item fw-bold" id="daily-print-exams-btn">كشوفات</button></li>
+                    <li><button type="button" class="dropdown-item fw-bold" id="daily-print-operations-btn">عمليات</button></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><button type="button" class="dropdown-item fw-bold" id="daily-print-all-btn">كل الأقسام</button></li>
                   </ul>
                 </div>
               </div>
@@ -1142,6 +1146,25 @@
                 <button class="btn btn-primary fw-bold" id="add-stay-type-btn">إضافة</button>
               </div>
               <ul class="list-group admin-lookup-list" id="stay-types-list"></ul>
+              <hr class="my-3">
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                <span class="fw-bold">خيارات المرافق (إقامة ورعاية)</span>
+                <div class="d-flex flex-wrap gap-2">
+                  <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" id="companion-kind-template-btn">قالب Excel</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="companion-kind-import-btn">رفع Excel</button>
+                  <input type="file" class="d-none" id="companion-kind-import-file" accept=".xlsx,.xls">
+                </div>
+              </div>
+              <div class="input-group mb-2">
+                <input type="text" class="form-control fw-bold" id="new-companion-kind-name" placeholder="نوع مرافق جديد...">
+                <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="new-companion-kind-amount" placeholder="المبلغ" style="max-width:120px">
+                <select class="form-select fw-bold" id="new-companion-kind-section" style="max-width:160px">
+                  <option value="companion">مرافق</option>
+                  <option value="nursing_point">نقطة تمريض</option>
+                </select>
+                <button type="button" class="btn btn-primary fw-bold" id="add-companion-kind-btn">إضافة</button>
+              </div>
+              <ul class="list-group admin-lookup-list" id="companion-kinds-list"></ul>
             </div>
           </div>
         </div>

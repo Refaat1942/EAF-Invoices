@@ -119,6 +119,18 @@ async function changeRoomAssignment(patientId, data) {
   if (!effectiveFrom) throw new Error('تاريخ بداية الغرفة الجديدة مطلوب');
   if (!data.stay_type_id) throw new Error('اختر الغرفة أو الجناح');
 
+  const { rows: latestRows } = await query(
+    `SELECT effective_from FROM patient_room_assignments
+     WHERE patient_id = $1
+     ORDER BY effective_from DESC NULLS LAST, id DESC
+     LIMIT 1`,
+    [pid]
+  );
+  const latestFrom = fmtDateOnly(latestRows[0]?.effective_from);
+  if (latestFrom && effectiveFrom < latestFrom) {
+    throw new Error(`لا يمكن اختيار تاريخ قبل تاريخ الغرفة الحالية (${latestFrom})`);
+  }
+
   return withTransaction(async (client) => {
     await client.query(
       `UPDATE patient_room_assignments

@@ -272,6 +272,19 @@ const DAILY_SERVICE_REPORT_KINDS = {
     title: 'تقرير التحاليل — الحركة اليومية',
     category_codes: ['LAB'],
   },
+  exams: {
+    title: 'تقرير الكشوفات — الحركة اليومية',
+    section_codes: ['consultant_exam', 'specialist_exam', 'consultation_stamp'],
+    category_codes: ['MEDICAL_EXAMS', 'STAMPS'],
+  },
+  operations: {
+    title: 'تقرير العمليات — الحركة اليومية',
+    report_type: 'operations',
+  },
+  all_sections: {
+    title: 'تقرير الحركة اليومية — كل الأقسام',
+    report_type: 'all',
+  },
 };
 
 const DAILY_FREE_ITEMS_KINDS = {
@@ -282,7 +295,10 @@ const DAILY_FREE_ITEMS_KINDS = {
 
 function resolveDailyPrintKind(kind) {
   if (DAILY_ITEMS_KINDS[kind]) return { type: 'catalog', kind };
-  if (DAILY_SERVICE_REPORT_KINDS[kind]) return { type: 'service', kind };
+  const serviceConfig = DAILY_SERVICE_REPORT_KINDS[kind];
+  if (serviceConfig?.report_type === 'operations') return { type: 'operations', kind };
+  if (serviceConfig?.report_type === 'all') return { type: 'all', kind };
+  if (serviceConfig) return { type: 'service', kind };
   if (DAILY_FREE_ITEMS_KINDS[kind]) return { type: 'free', kind };
   return null;
 }
@@ -623,9 +639,128 @@ async function getDailyFreeItemsReport(filters = {}) {
   };
 }
 
+async function getDailyOperationsReport(filters = {}) {
+  const fileNumber = String(filters.file_number || '').trim();
+  if (!fileNumber) throw new Error('رقم الملف مطلوب');
+  const patient = await getPatientByFileNumber(fileNumber);
+  if (!patient?.id) throw new Error('المريض غير موجود');
+
+  let sql = `SELECT * FROM patient_operations WHERE patient_id = $1`;
+  const params = [patient.id];
+  let i = 2;
+  if (filters.from_date) {
+    sql += ` AND entry_date >= $${i++}::date`;
+    params.push(filters.from_date);
+  }
+  if (filters.to_date) {
+    sql += ` AND entry_date <= $${i++}::date`;
+    params.push(filters.to_date);
+  }
+  sql += ` ORDER BY entry_date ASC, id ASC`;
+  const { rows } = await query(sql, params);
+  let totalAmount = 0;
+  const mappedRows = rows.map((row) => {
+    const lineTotal = Number(row.final_amount ?? row.amount ?? 0) || 0;
+    totalAmount += lineTotal;
+    return {
+      patient_name: patient.name || '',
+      file_number: patient.file_number || fileNumber,
+      entry_date: row.entry_date,
+      service_name: row.operation_name || row.service_name || '—',
+      quantity: 1,
+      unit_price: lineTotal,
+      total: lineTotal,
+      section_code: 'operations',
+    };
+  });
+  return {
+    report_type: 'service',
+    kind: 'operations',
+    title: DAILY_SERVICE_REPORT_KINDS.operations.title,
+    patient: { file_number: patient.file_number, name: patient.name || '' },
+    filters: {
+      file_number: fileNumber,
+      from_date: filters.from_date || null,
+      to_date: filters.to_date || null,
+    },
+    rows: mappedRows,
+    totals: { row_count: mappedRows.length, total_amount: Math.round(totalAmount * 100) / 100 },
+  };
+}
+
+async function getDailyAllSectionsReport(filters = {}) {
+  const fileNumber = String(filters.file_number || '').trim();
+  if (!fileNumber) throw new Error('رقم الملف مطلوب');
+  let sql = `
+    SELECT e.entry_date,
+           p.file_number,
+           p.name AS patient_name,
+           l.section_code,
+           l.description,
+           l.quantity,
+           l.unit_price,
+           l.amount,
+           s.name AS service_name,
+           dcs.name AS section_name,
+           c.name AS catalog_item_name
+    FROM patient_daily_entry_lines l
+    JOIN patient_daily_entries e ON e.id = l.entry_id
+    JOIN patients p ON p.id = e.patient_id
+    LEFT JOIN daily_charge_sections dcs ON dcs.code = l.section_code
+    LEFT JOIN services s ON s.id = l.service_id
+    LEFT JOIN daily_entry_catalog_items c ON c.id = l.catalog_item_id
+    WHERE p.file_number = $1
+      AND COALESCE(l.amount, 0) > 0`;
+  const params = [fileNumber];
+  let i = 2;
+  if (filters.from_date) {
+    sql += ` AND e.entry_date >= $${i++}::date`;
+    params.push(filters.from_date);
+  }
+  if (filters.to_date) {
+    sql += ` AND e.entry_date <= $${i++}::date`;
+    params.push(filters.to_date);
+  }
+  sql += ` ORDER BY e.entry_date ASC, dcs.sort_order ASC NULLS LAST, l.sort_order ASC, l.id ASC`;
+  const { rows } = await query(sql, params);
+  let totalAmount = 0;
+  const mappedRows = rows.map((row) => {
+    const qty = Number(row.quantity) || 1;
+    const lineTotal = Number(row.amount) || 0;
+    totalAmount += lineTotal;
+    return {
+      patient_name: row.patient_name || '',
+      file_number: row.file_number || fileNumber,
+      entry_date: row.entry_date,
+      service_name:
+        row.catalog_item_name || row.service_name || row.description || row.section_name || '—',
+      quantity: qty,
+      unit_price: Number(row.unit_price) || lineTotal / qty,
+      total: lineTotal,
+      section_code: row.section_code || '',
+    };
+  });
+  const patient = await getPatientByFileNumber(fileNumber);
+  return {
+    report_type: 'service',
+    kind: 'all_sections',
+    title: DAILY_SERVICE_REPORT_KINDS.all_sections.title,
+    patient: { file_number: patient?.file_number || fileNumber, name: patient?.name || '' },
+    filters: {
+      file_number: fileNumber,
+      from_date: filters.from_date || null,
+      to_date: filters.to_date || null,
+    },
+    rows: mappedRows,
+    totals: { row_count: mappedRows.length, total_amount: Math.round(totalAmount * 100) / 100 },
+  };
+}
+
 async function getDailyPrintReport(kind, filters = {}) {
   const resolved = resolveDailyPrintKind(kind);
   if (!resolved) throw new Error('نوع التقرير غير صالح');
+  if (resolved.type === 'operations') return getDailyOperationsReport(filters);
+  if (resolved.type === 'all') return getDailyAllSectionsReport(filters);
   if (resolved.type === 'service') return getDailyServiceReport(resolved.kind, filters);
   if (resolved.type === 'free') return getDailyFreeItemsReport(filters);
   return getDailyItemsReport(resolved.kind, filters);

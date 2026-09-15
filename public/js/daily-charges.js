@@ -129,6 +129,7 @@ let dailyStayTypesCache = [];
 let dailyStayGradesCache = [];
 let dailySpecialtiesCache = [];
 let dailyCompanionServicesCache = [];
+let dailyCompanionKindOptionsCache = [];
 let dailyExamServicesCache = [];
 let dailySuppliesMarkupPercent = 20;
 
@@ -1298,7 +1299,10 @@ function renderDailySectionTiles() {
 }
 
 function showDailySection(sectionId) {
-  if (sectionId) activeDailyTab = sectionId;
+  if (sectionId) {
+    activeDailyTab = sectionId;
+    sessionStorage.setItem('dailyActiveTab', sectionId);
+  }
   if (!activeDailyTab) activeDailyTab = 'medicines';
   if (activeDailyTab === 'stay' && !canUseDailyStayCharges()) {
     activeDailyTab = defaultDailyTabForPatient(dailyStayContext);
@@ -1538,13 +1542,15 @@ async function loadDailyPatientGrid(search = '') {
   }
 }
 
-async function selectDailyPatient(fileNumber) {
+async function selectDailyPatient(fileNumber, options = {}) {
   const fn = String(fileNumber || '').trim();
   if (!fn) return;
   const fileInput = document.getElementById('daily-stay-file-number');
   if (fileInput) fileInput.value = fn;
   sessionStorage.setItem('dailyStayFileNumber', fn);
+  const prevTab = options.preserveTab ? activeDailyTab || sessionStorage.getItem('dailyActiveTab') : '';
   await loadOpenPatientStay(fn);
+  if (prevTab && prevTab !== activeDailyTab) showDailySection(prevTab);
 }
 
 async function ensureOpenStayInvoice(ctx) {
@@ -2053,7 +2059,15 @@ function openChangeRoomModal() {
   const nursingEl = document.getElementById('change-room-nursing');
   const assistantEl = document.getElementById('change-room-assistant');
   if (floorEl) floorEl.value = assignment?.floor || dailyStayContext?.patient?.floor || '';
-  if (fromEl) fromEl.value = getLocalDateString();
+  const minFrom =
+    fmtStayDate(assignment?.effective_from) ||
+    fmtStayDate(dailyStayContext?.invoice?.admission_date) ||
+    '';
+  if (fromEl) {
+    fromEl.min = minFrom || '';
+    fromEl.value = getLocalDateString();
+    if (minFrom && fromEl.value < minFrom) fromEl.value = minFrom;
+  }
   if (companionEl && typeof setCommaAmountValue === 'function') {
     setCommaAmountValue(companionEl, assignment?.companion_amount || 0);
   }
@@ -2363,7 +2377,7 @@ async function openPatientEditFromDaily() {
   patientRegEditMode = true;
   patientRegEditFileNumber = ctx.patient.file_number;
   const type = ctx.patient.patient_type || 'internal';
-  if (typeof switchView === 'function') switchView('patient-register');
+  if (typeof switchView === 'function') switchView('patient-register', { skipPatientRegInit: true });
   showPatientRegisterForm(type, { edit: true });
   await fillPatientRegisterFormFromContext(ctx);
 }
@@ -2551,12 +2565,18 @@ async function savePatientRegistration(event) {
   }
 }
 
-function initPatientRegistration() {
+let patientRegListenersBound = false;
+
+function initPatientRegistration(options = {}) {
+  if (options.editMode) return;
   showPatientRegisterTypePicker();
   clearPatientRegisterForm();
-  document.getElementById('patient-reg-file-number')?.addEventListener('blur', () => {
-    void checkPatientRegisterFileDuplicate();
-  });
+  if (!patientRegListenersBound) {
+    patientRegListenersBound = true;
+    document.getElementById('patient-reg-file-number')?.addEventListener('blur', () => {
+      void checkPatientRegisterFileDuplicate();
+    });
+  }
   void loadDailyStayTypes().then(async () => {
     await loadDailyStayGrades();
     populateStayTypeSelects();
@@ -2690,6 +2710,31 @@ async function refreshDailyStaySummary(fileNumber) {
   }
 }
 
+async function ensureAutoStayChargesPosted(fileNumber) {
+  if (!dailyCan('daily_charges.manage')) return;
+  if (!canUseDailyStayCharges(dailyStayContext)) return;
+  const inv = dailyStayContext?.invoice;
+  if (!inv?.admission_date) return;
+  const yesterday = addLocalDays(getLocalDateString(), -1);
+  const admission = fmtStayDate(inv.admission_date);
+  if (!admission || admission > yesterday) return;
+  try {
+    await apiJson(`${DAILY_API}/stay/batch-post`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_number: fileNumber,
+        from_date: admission,
+        to_date: yesterday,
+        skip_existing: true,
+        include_today: false,
+      }),
+    });
+  } catch {
+    /* optional auto-post */
+  }
+}
+
 async function loadOpenPatientStay(fileNumber) {
   const fn = (fileNumber || getStayFileNumber()).trim();
   if (!fn) {
@@ -2702,8 +2747,14 @@ async function loadOpenPatientStay(fileNumber) {
     if (!data?.invoice?.id && data?.patient?.name) {
       data = await ensureOpenStayInvoice(data);
     }
+    dailyStayContext = data;
+    await ensureAutoStayChargesPosted(fn);
+    data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
     applyDailyStayContext(data);
     await loadDailyStayTypes();
+    await loadDailyStayGrades();
+    populateStayTypeSelects(dailyStayContext?.room_assignment?.stay_type_id || '');
+    await reloadDailyServiceCaches();
     await refreshOperationsTotalsCache();
     if (dailySectionsCache.length) await loadDailyEntriesIntoSheet();
     await loadOperationsForToday();
@@ -3013,6 +3064,17 @@ function getDefaultStayTypeIdForRow() {
   return '';
 }
 
+async function loadCompanionKindOptionsCache() {
+  try {
+    dailyCompanionKindOptionsCache = await apiJson('/api/settings/companion-kinds');
+  } catch {
+    dailyCompanionKindOptionsCache = [
+      { code: 'none', name: 'بدون', amount: 0, section_code: '' },
+      { code: 'nursing_point', name: 'نقطة تمريض', amount: 0, section_code: 'nursing_point' },
+    ];
+  }
+}
+
 async function loadCompanionServicesCache() {
   if (!window.DailyEntryPicker) return;
   try {
@@ -3065,23 +3127,43 @@ function refreshExamRowsDropdowns() {
 
 async function reloadDailyServiceCaches() {
   await loadExamServicesCache();
+  await loadCompanionKindOptionsCache();
   await loadCompanionServicesCache();
   refreshExamRowsDropdowns();
+  document.querySelectorAll('.daily-companion-kind').forEach((sel) => {
+    const prev = sel.value;
+    sel.innerHTML = buildCompanionKindOptions(prev);
+    if (prev && sel.querySelector(`option[value="${CSS.escape(prev)}"]`)) sel.value = prev;
+  });
 }
 
-function buildCompanionKindOptions(selectedServiceId = '') {
-  if (!dailyCompanionServicesCache.length) {
-    return '<option value="">— غرفة / جناح —</option>';
-  }
-  return (
-    '<option value="">— غرفة / جناح —</option>' +
-    dailyCompanionServicesCache
-      .map((s) => {
-        const price = Number(s.price ?? s.list_price) || 0;
-        return `<option value="${s.id}" data-price="${price}"${String(selectedServiceId) === String(s.id) ? ' selected' : ''}>${dailyEscapeHtml(s.name)} — ${dailyFmt(price)}</option>`;
-      })
-      .join('')
-  );
+function buildCompanionKindOptions(selectedValue = '') {
+  const parts = [];
+  const kinds = dailyCompanionKindOptionsCache.length
+    ? dailyCompanionKindOptionsCache
+    : [
+        { code: 'none', name: 'بدون', amount: 0, section_code: '' },
+        { code: 'nursing_point', name: 'نقطة تمريض', amount: 0, section_code: 'nursing_point' },
+      ];
+  kinds.forEach((opt) => {
+    const value = opt.code === 'none' ? '' : opt.code;
+    const selected =
+      String(selectedValue) === String(value) ||
+      (opt.service_id && String(selectedValue) === String(opt.service_id))
+        ? ' selected'
+        : '';
+    parts.push(
+      `<option value="${dailyEscapeAttr(value)}" data-kind="${dailyEscapeAttr(opt.code)}" data-section="${dailyEscapeAttr(opt.section_code || 'companion')}" data-price="${Number(opt.amount) || 0}"${selected}>${dailyEscapeHtml(opt.name)}</option>`
+    );
+  });
+  dailyCompanionServicesCache.forEach((s) => {
+    const price = Number(s.price ?? s.list_price) || 0;
+    const selected = String(selectedValue) === String(s.id) ? ' selected' : '';
+    parts.push(
+      `<option value="${s.id}" data-kind="service" data-section="companion" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)} — ${dailyFmt(price)}</option>`
+    );
+  });
+  return parts.join('');
 }
 
 function buildExamCaseOptions(selectedSectionCode = '') {
@@ -3158,12 +3240,30 @@ function onCompanionKindChange(selectEl) {
   const tr = selectEl.closest('.daily-entry-row');
   if (!tr) return;
   const opt = selectEl.selectedOptions[0];
+  const kind = opt?.dataset.kind || '';
+  const sectionCode = opt?.dataset.section || 'companion';
   const price = Number(opt?.dataset.price) || 0;
+  const serviceId = opt?.value && kind === 'service' ? opt.value : '';
+
+  setDailySectionAmount(tr, 'companion', 0);
+  setDailySectionAmount(tr, 'nursing_point', 0);
   const companionInput = tr.querySelector('.daily-amount[data-section="companion"]');
-  if (companionInput && price > 0) {
-    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(companionInput, price);
-    else companionInput.value = formatAmountFieldValue(price);
-    companionInput.dataset.manualAmount = '0';
+  if (companionInput) {
+    companionInput.dataset.serviceId = serviceId || '';
+    companionInput.dataset.companionKind = kind || '';
+  }
+
+  if (!kind || kind === 'none') {
+    updateRowTotal(tr);
+    updateDailyGrandTotal();
+    updateSectionTabTotal();
+    return;
+  }
+
+  if (sectionCode === 'nursing_point') {
+    setDailySectionAmount(tr, 'nursing_point', price);
+  } else {
+    setDailySectionAmount(tr, 'companion', price);
   }
   updateRowTotal(tr);
   updateDailyGrandTotal();
@@ -4588,12 +4688,15 @@ function stayRowGroupHasChargeData(primaryTr) {
 function collectCompanionLineFromRow(rowTr, lines) {
   const kindSel = rowTr.querySelector('.daily-companion-kind');
   if (!kindSel) return;
-  const serviceId = kindSel?.value || null;
+  const opt = kindSel.selectedOptions[0];
+  const kind = opt?.dataset.kind || '';
+  if (!kind || kind === 'none' || kind === 'nursing_point') return;
+  const serviceId = kind === 'service' && kindSel?.value ? Number(kindSel.value) : null;
   const amount = dailyParseAmount(rowTr.querySelector('.daily-amount[data-section="companion"]')?.value);
   if (!serviceId && amount <= 0) return;
   const line = {
     section_code: 'companion',
-    service_id: serviceId ? Number(serviceId) : null,
+    service_id: serviceId,
     amount,
     quantity: 1,
     extra_text: kindSel?.selectedOptions[0]?.text?.trim() || '',
@@ -5893,20 +5996,23 @@ async function initDailyChargesView(options = {}) {
     if (typeof loadFinancialTreatments === 'function') await loadFinancialTreatments();
     await loadDailyDoctorSpecialties();
     await loadDailyStayTypes();
+    await loadDailyStayGrades();
     populateStayTypeSelects();
     void loadPatientEntitySelects();
     if (!dailySectionsCache.length) await loadDailySections();
     if (dailySectionsLoadFailed) return;
+    await reloadDailyServiceCaches();
     renderDailySectionTabs();
     setDailyTodayDate();
     void showDailyBuildBadge();
     if (typeof bindCommaAmountInputs === 'function') {
       bindCommaAmountInputs(document.getElementById('view-daily'));
     }
-    showDailyPatientPicker();
     const openFile = String(options.openFileNumber || '').trim();
     if (openFile) {
-      await selectDailyPatient(openFile);
+      await selectDailyPatient(openFile, { preserveTab: options.preserveTab === true });
+    } else {
+      showDailyPatientPicker();
     }
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
@@ -6043,17 +6149,16 @@ async function importDailyChargesToInvoice() {
       return;
     }
 
-    const existingLineIds = new Set(
-      [...document.querySelectorAll('#items-tbody tr')]
-        .map((row) => row.dataset.dailyLineId)
-        .filter(Boolean)
+    const added = syncDailyChargeRowsFromTotals(
+      data.items.map((item) => ({
+        ...item,
+        daily_entry_line_id: item.daily_entry_line_id,
+        description: item.description,
+        quantity: item.quantity,
+        amount: item.unit_price ?? item.amount,
+        total: item.total ?? item.amount,
+      }))
     );
-    let added = 0;
-    for (const item of data.items) {
-      if (item.daily_entry_line_id && existingLineIds.has(String(item.daily_entry_line_id))) continue;
-      appendInvoiceItemRow(item);
-      added++;
-    }
     if (!added) {
       showToast('الحركة اليومية مضافة بالفعل في البيان', 'info');
       return;
@@ -6162,6 +6267,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-print-laboratory-btn')?.addEventListener('click', () =>
     openDailyItemsPrint('laboratory')
   );
+  document.getElementById('daily-print-exams-btn')?.addEventListener('click', () =>
+    openDailyItemsPrint('exams')
+  );
+  document.getElementById('daily-print-operations-btn')?.addEventListener('click', () =>
+    openDailyItemsPrint('operations')
+  );
+  document.getElementById('daily-print-all-btn')?.addEventListener('click', () =>
+    openDailyItemsPrint('all_sections')
+  );
   document.getElementById('daily-save-btn')?.addEventListener('click', saveDailyEntry);
   document.getElementById('daily-save-all-btn')?.addEventListener('click', () => {
     void saveAllDailyCharges();
@@ -6190,3 +6304,4 @@ window.loadDailyDoctorSpecialties = loadDailyDoctorSpecialties;
 window.importDailyChargesToInvoice = importDailyChargesToInvoice;
 window.syncDailyChargeRowsFromTotals = syncDailyChargeRowsFromTotals;
 window.reloadDailyCatalogSectionsFromSettings = reloadDailyCatalogSectionsFromSettings;
+window.reloadDailyServiceCaches = reloadDailyServiceCaches;
