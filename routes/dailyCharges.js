@@ -480,6 +480,46 @@ router.post('/stay/batch-post', requirePermission('daily_charges.manage'), async
   }
 });
 
+router.post('/reconcile-patient', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const file_number = String(req.body.file_number || '').trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    const { reconcilePatientDailyData } = require('../services/patientReconcileService');
+    const result = await reconcilePatientDailyData(
+      file_number,
+      {
+        from_date: req.body.from_date,
+        to_date: req.body.to_date,
+        skip_existing: req.body.skip_existing !== false,
+        include_today: req.body.include_today === true,
+        post_stay: req.body.post_stay !== false,
+      },
+      req.session?.user || null
+    );
+    const stay = await getOpenPatientStay(file_number);
+    res.json({ ...result, ...stay });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/reconcile-all', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const { reconcileAllOpenPatients } = require('../services/patientReconcileService');
+    const result = await reconcileAllOpenPatients(
+      {
+        skip_existing: req.body.skip_existing !== false,
+        include_today: req.body.include_today === true,
+        post_stay: req.body.post_stay !== false,
+      },
+      req.session?.user || null
+    );
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/operations', requirePermission('daily_charges.view'), async (req, res) => {
   try {
     const file_number = String(req.query.file_number || '').trim();

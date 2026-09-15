@@ -2710,28 +2710,49 @@ async function refreshDailyStaySummary(fileNumber) {
   }
 }
 
-async function ensureAutoStayChargesPosted(fileNumber) {
+async function ensurePatientDataReconciled(fileNumber) {
   if (!dailyCan('daily_charges.manage')) return;
-  if (!canUseDailyStayCharges(dailyStayContext)) return;
-  const inv = dailyStayContext?.invoice;
-  if (!inv?.admission_date) return;
-  const yesterday = addLocalDays(getLocalDateString(), -1);
-  const admission = fmtStayDate(inv.admission_date);
-  if (!admission || admission > yesterday) return;
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return;
   try {
-    await apiJson(`${DAILY_API}/stay/batch-post`, {
+    await apiJson(`${DAILY_API}/reconcile-patient`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        file_number: fileNumber,
-        from_date: admission,
-        to_date: yesterday,
+        file_number: fn,
         skip_existing: true,
         include_today: false,
+        post_stay: canUseDailyStayCharges(dailyStayContext),
       }),
     });
   } catch {
-    /* optional auto-post */
+    /* optional reconcile */
+  }
+}
+
+const DAILY_BULK_RECONCILE_KEY = 'dailyBulkReconcile_v1';
+
+async function reconcileAllRegisteredPatientsOnce() {
+  if (!dailyCan('daily_charges.manage')) return;
+  if (sessionStorage.getItem(DAILY_BULK_RECONCILE_KEY)) return;
+  sessionStorage.setItem(DAILY_BULK_RECONCILE_KEY, '1');
+  try {
+    const data = await apiJson(`${DAILY_API}/reconcile-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ skip_existing: true, include_today: false }),
+    });
+    const total = Number(data?.total) || 0;
+    const synced = Number(data?.invoices_synced) || 0;
+    const posted = Number(data?.stay_days_posted) || 0;
+    if (total > 0 && (synced > 0 || posted > 0)) {
+      showToast(
+        `تمت مزامنة ${synced} فاتورة وترحيل ${posted} يوم إقامة للمرضى المسجلين (${total} مريض)`,
+        'success'
+      );
+    }
+  } catch {
+    sessionStorage.removeItem(DAILY_BULK_RECONCILE_KEY);
   }
 }
 
@@ -2748,7 +2769,7 @@ async function loadOpenPatientStay(fileNumber) {
       data = await ensureOpenStayInvoice(data);
     }
     dailyStayContext = data;
-    await ensureAutoStayChargesPosted(fn);
+    await ensurePatientDataReconciled(fn);
     data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
     applyDailyStayContext(data);
     await loadDailyStayTypes();
@@ -6009,6 +6030,7 @@ async function initDailyChargesView(options = {}) {
       bindCommaAmountInputs(document.getElementById('view-daily'));
     }
     const openFile = String(options.openFileNumber || '').trim();
+    void reconcileAllRegisteredPatientsOnce();
     if (openFile) {
       await selectDailyPatient(openFile, { preserveTab: options.preserveTab === true });
     } else {
