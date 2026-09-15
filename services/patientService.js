@@ -304,17 +304,43 @@ async function searchPatientsForDaily(search = '', limit = 50) {
     );
     return rows;
   }
+  const digitsOnly = /^[0-9]+$/.test(term);
+  if (digitsOnly) {
+    if (term.length < 10) {
+      const { rows } = await query(
+        `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
+                ${openInvoiceSql}
+         FROM patients p
+         WHERE TRIM(p.file_number) = TRIM($1)
+         ORDER BY p.updated_at DESC NULLS LAST, p.file_number
+         LIMIT $2`,
+        [term, lim]
+      );
+      return rows;
+    }
+    const phonePattern = `%${term}%`;
+    const { rows } = await query(
+      `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
+              ${openInvoiceSql}
+       FROM patients p
+       WHERE TRIM(p.file_number) = TRIM($1)
+         OR COALESCE(p.phone, '') ILIKE $2
+         OR COALESCE(p.other_phone, '') ILIKE $2
+       ORDER BY p.updated_at DESC NULLS LAST, p.file_number
+       LIMIT $3`,
+      [term, phonePattern, lim]
+    );
+    return rows;
+  }
+
   const pattern = `%${term}%`;
   const normName = sqlNormalizeArabic('p.name');
   const { rows } = await query(
     `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
             ${openInvoiceSql}
      FROM patients p
-     WHERE p.file_number ILIKE $1
-       OR p.name ILIKE $1
+     WHERE p.name ILIKE $1
        OR ${normName} LIKE $2
-       OR COALESCE(p.phone, '') ILIKE $1
-       OR COALESCE(p.other_phone, '') ILIKE $1
      ORDER BY p.updated_at DESC NULLS LAST, p.file_number
      LIMIT $3`,
     [pattern, `%${term.toLowerCase()}%`, lim]
