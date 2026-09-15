@@ -513,8 +513,10 @@ function applyDailyTabColumnVisibility() {
 
   const addRowBtn = document.getElementById('daily-add-row-btn');
   const saveBtn = document.getElementById('daily-save-btn');
-  if (addRowBtn) addRowBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
+  const saveAllBtn = document.getElementById('daily-save-all-btn');
+  if (addRowBtn) addRowBtn.classList.add('d-none');
   if (saveBtn) saveBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
+  if (saveAllBtn) saveAllBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
 
   updateDailyTabImportButton();
 
@@ -1101,10 +1103,12 @@ async function saveOperationsPanel() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_number, operations }),
     });
+    const prevTab = activeDailyTab;
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_id);
     await refreshOperationsTotalsCache();
-    await loadOpenPatientStay(file_number);
+    await refreshDailyStaySummary(file_number);
     await loadOperationsForPatient();
+    if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
     const totalLabel =
       data.final_total != null
         ? dailyFmt(data.final_total)
@@ -1255,8 +1259,10 @@ async function saveFreeItems() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_number, items }),
     });
-    await loadOpenPatientStay(file_number);
+    const prevTab = activeDailyTab;
+    await refreshDailyStaySummary(file_number);
     await loadFreeItemsPanel();
+    if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
     showToast(`تم الحفظ — أُضيف على الفاتورة الكبيرة (${dailyFmt(data.final_total)})`, 'success');
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
@@ -3970,7 +3976,13 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><input type="date" class="form-control form-control-sm daily-sup-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-invoice bg-light" readonly value="${dailyEscapeAttr(invoiceLabel)}"></td>
-    <td class="daily-sup-name-cell">${section ? buildCatalogPickerCell(section) : ''}
+    <td class="daily-sup-name-cell">
+      <div class="daily-sup-name-unit-row d-flex flex-wrap align-items-center gap-1">
+        <div class="flex-grow-1 min-w-0">${section ? buildCatalogPickerCell(section) : ''}</div>
+        <select class="form-select form-select-sm daily-catalog-unit daily-sup-unit-select" data-section="${dailyEscapeAttr(sectionCode)}" style="display:none">
+          <option value="">— الوحدة —</option>
+        </select>
+      </div>
       <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-sup-sell-unit bg-light" readonly></td>
@@ -5711,6 +5723,28 @@ async function loadDailyPatientHistory() {
   }
 }
 
+async function saveAllDailyCharges() {
+  if (dailySaveInFlight) return;
+  if (activeDailyTab === 'free-items') return saveFreeItems();
+  await saveDailyEntry();
+  const freeItems = collectFreeItemsFromTable();
+  const hasFree = freeItems.some((item) => item.description || item.amount > 0);
+  if (!hasFree) return;
+  const file_number = getStayFileNumber();
+  if (!file_number || !dailyStayContext?.invoice?.id) return;
+  try {
+    const data = await apiJson(`${DAILY_API}/free-items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_number, items: freeItems }),
+    });
+    await refreshDailyStaySummary(file_number);
+    showToast(`تم حفظ البنود الحرة أيضًا (${dailyFmt(data.final_total)})`, 'success');
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+  }
+}
+
 async function saveDailyEntry() {
   if (dailySaveInFlight) return;
   if (activeDailyTab === 'free-items') {
@@ -6129,6 +6163,9 @@ document.addEventListener('DOMContentLoaded', () => {
     openDailyItemsPrint('laboratory')
   );
   document.getElementById('daily-save-btn')?.addEventListener('click', saveDailyEntry);
+  document.getElementById('daily-save-all-btn')?.addEventListener('click', () => {
+    void saveAllDailyCharges();
+  });
   document.getElementById('daily-add-row-btn')?.addEventListener('click', () => {
     if (activeDailyTab === 'operations') addOperationRow();
     else addDailyEntryRow();

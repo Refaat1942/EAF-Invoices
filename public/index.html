@@ -750,10 +750,11 @@
               <div class="d-flex flex-wrap gap-2 align-items-center">
                 <span class="small fw-bold text-muted">تاريخ اليوم:</span>
                 <input type="date" class="form-control form-control-sm fw-bold bg-light" id="daily-entry-date" readonly tabindex="-1" style="width:auto">
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-add-row-btn">+ صف</button>
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold d-none" id="daily-add-row-btn" hidden>+ صف</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary fw-bold d-none" id="daily-tab-import-btn" title="للإدارة فقط">📤 رفع قائمة الخدمات</button>
                 <input type="file" class="d-none" id="daily-tab-import-input" accept=".xlsx,.xls,.csv">
                 <button type="button" class="btn btn-sm btn-success fw-bold px-4" id="daily-save-btn">حفظ</button>
+                <button type="button" class="btn btn-sm btn-outline-success fw-bold" id="daily-save-all-btn">حفظ الكل</button>
                 <div class="dropdown">
                   <button type="button" class="btn btn-sm btn-outline-dark fw-bold dropdown-toggle" data-bs-toggle="dropdown">🖨️ طباعة</button>
                   <ul class="dropdown-menu dropdown-menu-end">
@@ -851,7 +852,7 @@
                     </table>
                   </div>
                   <div class="d-flex flex-wrap gap-2 mt-3">
-                    <button type="button" class="btn btn-primary fw-bold d-none" id="daily-free-save-btn" aria-hidden="true">حفظ</button>
+                    <button type="button" class="btn btn-primary fw-bold" id="daily-free-save-btn">💾 حفظ البنود الحرة</button>
                   </div>
                 </div>
               </div>

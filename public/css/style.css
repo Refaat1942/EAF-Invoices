@@ -1571,6 +1571,31 @@ body {
 .daily-tabs-sheet-panel .daily-sheet-table .daily-picker .service-suggest,
 .daily-tabs-sheet-panel .daily-sheet-table .daily-picker .daily-picker-suggest {
   z-index: 60;
+  min-width: min(420px, 92vw);
+  max-height: 320px;
+  font-size: 0.95rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-picker .service-suggest-item,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-picker .daily-picker-suggest .service-suggest-item {
+  padding: 0.5rem 0.65rem;
+  font-size: 0.95rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-med-unit-cell,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-med-unit-cell .daily-catalog-unit,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-sup-unit-select {
+  min-width: 7.5rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-sup-name-unit-row .daily-catalog-unit {
+  flex: 0 0 auto;
+  min-width: 7rem;
+  max-width: 11rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-stay-addon-add {
+  display: none !important;
 }
 
 .daily-tabs-sheet-panel .daily-sheet-table .form-control,
