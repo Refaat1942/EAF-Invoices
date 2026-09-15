@@ -1340,25 +1340,30 @@ function showDailyPatientResults() {
   document.getElementById('daily-patient-results-wrap')?.classList.remove('d-none');
 }
 
-function showDailyPatientWorkspace(ctx = dailyStayContext) {
+function showDailyPatientWorkspace(ctx = dailyStayContext, options = {}) {
+  const preserveTab = options.preserveTab === true && Boolean(activeDailyTab);
   document.getElementById('daily-patient-picker-wrap')?.classList.add('d-none');
   document.getElementById('daily-patient-workspace')?.classList.remove('d-none');
   document.getElementById('daily-change-patient-btn')?.classList.remove('d-none');
-  const tab = defaultDailyTabForPatient(ctx);
-  showDailySection(tab);
-  renderDailySectionTabs();
+  if (preserveTab) {
+    updateFocusedSectionTitle();
+    renderDailySectionTabs();
+    renderDailySectionsTable();
+    applyDailyTabColumnVisibility();
+  } else {
+    showDailySection(defaultDailyTabForPatient(ctx));
+    renderDailySectionTabs();
+  }
 }
 
 function updateDailyPatientHeader(ctx) {
   const changeRoomBtn = document.getElementById('daily-change-room-btn');
-  const batchStayBtn = document.getElementById('daily-batch-stay-btn');
   const convertBtn = document.getElementById('daily-convert-internal-btn');
   const p = ctx?.patient;
   const hasInvoice = Boolean(ctx?.invoice?.id);
   const isExternal = p?.patient_type === 'external';
   const showRoom = hasInvoice && !isExternal;
   if (changeRoomBtn) changeRoomBtn.classList.toggle('d-none', !showRoom);
-  if (batchStayBtn) batchStayBtn.classList.toggle('d-none', !showRoom);
   if (convertBtn) convertBtn.classList.toggle('d-none', !hasInvoice || !isExternal);
   updateDailyPatientSummaryTable(ctx);
 }
@@ -1923,20 +1928,15 @@ async function applyRoomAssignmentToRow(tr, assignment) {
 
 async function applyAutoRoomToTodayRows() {
   if (!canUseDailyStayCharges()) return;
+  if (activeDailyTab !== 'stay') return;
   const assignment = dailyStayContext?.room_assignment;
   if (!assignment?.stay_type_id) return;
-  const rows = document.querySelectorAll('#daily-sections-body .daily-entry-row:not(.daily-stay-addon-row)');
-  const today = getLocalDateString();
+  const rows = document.querySelectorAll('#daily-sections-body .daily-stay-row');
   for (const tr of rows) {
     const rowDate = tr.querySelector('.daily-row-date')?.value;
+    const today = getLocalDateString();
     if (rowDate && rowDate !== today) continue;
-    if (tr.classList.contains('daily-stay-row')) {
-      await applyRoomAssignmentToRow(tr, assignment);
-      continue;
-    }
-    if (!rowHasChargeData(tr)) {
-      await applyRoomAssignmentToRow(tr, assignment);
-    }
+    await applyRoomAssignmentToRow(tr, assignment);
   }
 }
 
@@ -2071,7 +2071,6 @@ async function submitChangeRoom() {
     showToast('اختر الغرفة وتاريخ البداية', 'warning');
     return;
   }
-  const backfill_stay = document.getElementById('change-room-backfill')?.checked === true;
   try {
     const data = await apiJson(`${DAILY_API}/change-room`, {
       method: 'POST',
@@ -2084,19 +2083,13 @@ async function submitChangeRoom() {
         nursing_point_amount: dailyParseAmount(document.getElementById('change-room-nursing')?.value),
         patient_assistant_amount: dailyParseAmount(document.getElementById('change-room-assistant')?.value),
         effective_from,
-        backfill_stay,
+        backfill_stay: false,
       }),
     });
     dailyStayContext = data;
     applyDailyStayContext(data);
     if (changeRoomModal) changeRoomModal.hide();
-    const posted = data.backfill?.posted || 0;
-    const skipped = (data.backfill?.skipped_dates || []).length;
-    if (backfill_stay && posted > 0) {
-      showToast(`تم تغيير الغرفة وترحيل ${posted} يوم إقامة (تُخطّى ${skipped})`, 'success');
-    } else {
-      showToast('تم تغيير الغرفة', 'success');
-    }
+    showToast('تم تغيير الغرفة', 'success');
     await loadDailyEntriesIntoSheet();
     await applyAutoRoomToTodayRows();
     if (data.backfill?.invoice_sync?.synced) {
@@ -2544,7 +2537,8 @@ function applyDailyStayContext(ctx) {
   const reviewPanel = document.getElementById('daily-invoice-review-panel');
   if (reviewPanel) reviewPanel.classList.add('d-none');
   if (ctx?.patient?.file_number && ctx?.patient?.name) {
-    showDailyPatientWorkspace(ctx);
+    const workspaceOpen = !document.getElementById('daily-patient-workspace')?.classList.contains('d-none');
+    showDailyPatientWorkspace(ctx, { preserveTab: workspaceOpen });
   } else {
     showDailyPatientPicker();
   }
@@ -2553,6 +2547,23 @@ function applyDailyStayContext(ctx) {
   }
   if (hasOpenInvoice) {
     sessionStorage.setItem('dailyStayFileNumber', getStayFileNumber());
+  }
+}
+
+async function refreshDailyStaySummary(fileNumber) {
+  const fn = (fileNumber || getStayFileNumber()).trim();
+  if (!fn) return null;
+  try {
+    const data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
+    dailyStayContext = data;
+    updateDailyPatientHeader(data);
+    updateDailyPatientSummaryTable(data);
+    updateDailyInvoicePanel(data);
+    updateDailyMilitaryAuthBanner(data);
+    updateDailyClinicalContextBar();
+    return data;
+  } catch {
+    return null;
   }
 }
 
@@ -3084,6 +3095,34 @@ function onExamTypeChange(selectEl) {
 }
 
 const STAY_CHARGE_SECTIONS = ['accommodation', 'companion', 'nursing_point', 'patient_assistant'];
+
+function entryHasStayChargeData(entry) {
+  const stayCodes = new Set(STAY_CHARGE_SECTIONS);
+  return (entry?.lines || []).some((line) => stayCodes.has(line.section_code) && lineHasChargeData(line));
+}
+
+function collectLineIdsForRowRemoval(tr) {
+  const ids = new Set();
+  ['examLineId', 'stampLineId', 'lineId', 'dateLineId', 'detailLineId'].forEach((attr) => {
+    if (tr.dataset[attr]) ids.add(Number(tr.dataset[attr]));
+  });
+  tr.querySelectorAll('[data-line-id]').forEach((el) => {
+    const id = Number(el.dataset.lineId);
+    if (id) ids.add(id);
+  });
+  const stampVal =
+    dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value) ||
+    dailyParseAmount(tr.querySelector('.daily-lab-stamp')?.value) ||
+    dailyParseAmount(tr.querySelector('.daily-rad-stamp')?.value);
+  if (tr.dataset.stampLineId && stampVal > 0) ids.add(Number(tr.dataset.stampLineId));
+  if (tr.classList.contains('daily-stay-row')) {
+    const stayCodes = new Set(STAY_CHARGE_SECTIONS);
+    (tr._entryLinesSnapshot || []).forEach((line) => {
+      if (line.id && stayCodes.has(line.section_code)) ids.add(line.id);
+    });
+  }
+  return ids;
+}
 
 function bindDailyAmountRecalc(tr) {
   const onAmountChange = () => {
@@ -4962,7 +5001,7 @@ function addDailyEntryRow(preset = {}) {
   if (activeDailyTab === 'stay') mountStayAddonRows(row);
   setDailyTodayDate();
   updateDailyGrandTotal();
-  void applyAutoRoomToTodayRows();
+  if (activeDailyTab === 'stay') void applyAutoRoomToTodayRows();
 }
 
 function rowHasChargeData(tr) {
@@ -5246,6 +5285,7 @@ async function loadDailyEntriesIntoSheet() {
         body.innerHTML = '';
       } else {
         for (const entry of todayEntries) {
+          if (!entryHasStayChargeData(entry)) continue;
           if (entry.id) {
             if (seenEntryIds.has(entry.id)) continue;
             seenEntryIds.add(entry.id);
@@ -5270,7 +5310,7 @@ async function loadDailyEntriesIntoSheet() {
     renumberSheetRowSerials();
     updateDailyGrandTotal();
     updateSectionTabTotal();
-    if (activeDailyTab !== 'stay') {
+    if (activeDailyTab === 'stay') {
       await applyAutoRoomToTodayRows();
     }
   } catch (err) {
@@ -5288,6 +5328,74 @@ async function loadDailyEntriesIntoSheet() {
 
 async function reloadDailyCatalogSectionsFromSettings() {
   await loadDailySections();
+}
+
+async function removeRowLinesFromEntry(tr, entryId) {
+  if (!dailyCan('daily_charges.manage')) {
+    showToast('ليس لديك صلاحية الحذف', 'warning');
+    return false;
+  }
+  if (!confirm('حذف هذا السطر؟')) return false;
+
+  const snapshot = tr._entryLinesSnapshot || [];
+  const removeIds = collectLineIdsForRowRemoval(tr);
+  let remaining = snapshot;
+  if (removeIds.size > 0) {
+    remaining = snapshot.filter((line) => !line.id || !removeIds.has(line.id));
+  } else {
+    const rowKeys = new Set(collectDailyLinesFromRow(tr).map((line) => dailyLineMergeKey(line)));
+    remaining = snapshot.filter((line) => !rowKeys.has(dailyLineMergeKey(line)));
+  }
+
+  if (remaining.length === snapshot.length) {
+    if (tr.classList.contains('daily-stay-addon-row')) {
+      deleteStayAddonRow(tr);
+    } else if (tr.classList.contains('daily-stay-row')) {
+      getStayDayGroupRows(tr).forEach((row) => row.remove());
+    } else {
+      tr.remove();
+    }
+    if (activeDailyTab !== 'stay' && !document.querySelector('.daily-entry-row')) addDailyEntryRow();
+    renumberSheetRowSerials();
+    updateDailyGrandTotal();
+    return true;
+  }
+
+  if (!remaining.length) return deleteDailyEntryById(entryId);
+
+  try {
+    const data = await apiJson(`${DAILY_API}/entries/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_number: getStayFileNumber(),
+        patient_name: getStayPatientName(),
+        entries: [
+          {
+            entry_id: entryId,
+            entry_date: getLocalDateString(),
+            stay_type_id:
+              tr.querySelector('.daily-row-stay-type')?.value || tr.dataset.stayTypeId || null,
+            notes: tr.dataset.entryNotes || '',
+            lines: remaining,
+          },
+        ],
+      }),
+    });
+    applyDailyInvoiceSync(data);
+    showToast('تم حذف السطر', 'success');
+    await loadDailyEntriesIntoSheet();
+    await loadDailyPatientHistory();
+    const fileNumber = getStayFileNumber();
+    if (data.invoice_sync?.invoice_id && fileNumber) {
+      await refreshInvoiceFormAfterDailySave(fileNumber, data.invoice_sync.invoice_id);
+    }
+    await refreshDailyStaySummary(fileNumber);
+    return true;
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    return false;
+  }
 }
 
 async function deleteDailyEntryById(entryId) {
@@ -5319,6 +5427,10 @@ async function deleteDailyEntryById(entryId) {
 
 async function deleteDailyEntryRow(tr) {
   const entryId = tr.dataset.entryId;
+  if (entryId) {
+    const removed = await removeRowLinesFromEntry(tr, Number(entryId));
+    if (removed) return;
+  }
   if (!entryId) {
     if (tr.classList.contains('daily-stay-addon-row')) {
       deleteStayAddonRow(tr);
@@ -5533,12 +5645,13 @@ async function saveDailyEntry() {
 
     dailyCurrentEntryId = data.saved?.[data.saved.length - 1]?.id || null;
 
-    const invLabel = data.invoice_sync.created ? 'تم إنشاء فاتورة مسودة' : 'تم تحديث الفاتورة';
+    const prevTab = activeDailyTab;
     const toastMsg = `تم الحفظ — أُضيف تلقائياً على الفاتورة الكبيرة (#${data.invoice_sync.invoice_id})`;
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
-    await loadOpenPatientStay(file_number);
+    await refreshDailyStaySummary(file_number);
     await loadDailyEntriesIntoSheet();
     await loadDailyPatientHistory();
+    if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
 
     const statusEl = document.getElementById('daily-entry-status');
     if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
@@ -5830,7 +5943,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('daily-change-room-btn')?.addEventListener('click', openChangeRoomModal);
   document.getElementById('change-room-submit-btn')?.addEventListener('click', submitChangeRoom);
-  document.getElementById('daily-batch-stay-btn')?.addEventListener('click', openBatchStayModal);
   document.getElementById('batch-stay-submit-btn')?.addEventListener('click', submitBatchStayPost);
   document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());

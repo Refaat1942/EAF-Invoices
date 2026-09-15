@@ -91,6 +91,9 @@ const MANUAL_AMOUNT_SECTION_CODES = Object.freeze([
   'companion',
   'nursing_point',
   'patient_assistant',
+  'consultation_stamp',
+  'analyses_stamp',
+  'xray_stamp',
 ]);
 
 function isManualAmountSection(sectionOrCode) {

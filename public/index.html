@@ -724,7 +724,6 @@
               <span class="badge bg-light text-dark fw-bold" id="daily-entry-status">—</span>
               <button type="button" class="btn btn-sm btn-outline-danger fw-bold d-none" id="daily-convert-internal-btn">🏨 تحويل لمريض داخلي</button>
               <button type="button" class="btn btn-sm btn-outline-warning fw-bold d-none" id="daily-change-room-btn">🔄 تغيير الغرفة</button>
-              <button type="button" class="btn btn-sm btn-outline-primary fw-bold d-none" id="daily-batch-stay-btn">📅 ترحيل أيام الإقامة</button>
             </div>
           </div>
           <div class="table-responsive">
@@ -920,7 +919,6 @@
         <button type="button" id="daily-stay-open-btn"></button>
         <button type="button" id="daily-stay-lookup-btn"></button>
         <div id="daily-patient-summary"><span id="daily-patient-summary-text"></span></div>
-        <span id="daily-inv-days"></span>
       </div>
 
       <div class="modal fade" id="batch-stay-modal" tabindex="-1" aria-hidden="true">
@@ -992,14 +990,8 @@
                   <label class="form-label fw-bold">التمريض المساعد</label>
                   <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-assistant" placeholder="0">
                 </div>
-                <div class="col-12">
-                  <div class="form-check mt-1">
-                    <input class="form-check-input" type="checkbox" id="change-room-backfill" checked>
-                    <label class="form-check-label fw-bold" for="change-room-backfill">ترحيل حركة الإقامة من تاريخ الغرفة الجديدة حتى أمس (تخطي الأيام المسجّلة)</label>
-                  </div>
-                </div>
               </div>
-              <p class="small text-muted mt-3 mb-0">يُحدَّث تعيين الغرفة ثم يُرحَّل الإقامة تلقائياً وفق اللائحة إن اخترت الترحيل.</p>
+              <p class="small text-muted mt-3 mb-0">يُحدَّث تعيين الغرفة من تاريخ البداية المحدد وفق لائحة الإقامات.</p>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إلغاء</button>

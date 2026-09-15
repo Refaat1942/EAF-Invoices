@@ -186,18 +186,19 @@
   }
 
   function getUnitPriceForSection(tr, sectionCode) {
-    const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
-    let unitPrice = Number(amountInput?.dataset.unitPrice) || 0;
-    if (unitPrice > 0) return unitPrice;
-    const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
-    if (unitSelect?.value) {
-      unitPrice = Number(unitSelect.selectedOptions[0]?.dataset.price) || 0;
-      if (unitPrice > 0) return unitPrice;
-    }
     const picker = tr?.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
     const item = picker?._selectedItem;
-    if (item) return Number(item.price ?? item.list_price) || 0;
-    return 0;
+    if (item) {
+      const fromItem = Number(item.price ?? item.list_price) || 0;
+      if (fromItem > 0) return fromItem;
+    }
+    const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
+    if (unitSelect?.value) {
+      const fromUnit = Number(unitSelect.selectedOptions[0]?.dataset.price) || 0;
+      if (fromUnit > 0) return fromUnit;
+    }
+    const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
+    return Number(amountInput?.dataset.unitPrice) || 0;
   }
   function applyCatalogUnitPrice(tr, sectionCode) {
     const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
@@ -237,6 +238,10 @@
         amountInput.title = `${item.name || section.name} — أدخل المبلغ يدوياً`;
       }
     } else {
+      if (amountInput) {
+        amountInput.dataset.unitPrice = '';
+        amountInput.dataset.manualAmount = '0';
+      }
       const unitPrice = Number(item.price ?? item.list_price) || 0;
       if (amountInput && unitPrice > 0) {
         applyLineAmountFromUnitPrice(tr, section.code, unitPrice);
