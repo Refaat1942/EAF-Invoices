@@ -42,17 +42,17 @@ const BUNDLE_LABELS = Object.freeze({
   __manual__: 'بنود أخرى',
 });
 
-/** Price-list category codes (or catalog) tied to each input screen bundle. */
+/** Uploaded per-tab catalog sheets (not bulk price list). */
 const BUNDLE_SOURCES = Object.freeze({
-  stay: { categories: ['ACCOMMODATION', 'COMPANION', 'NURSING'], catalog: [] },
-  sessions: { categories: ['PHYSIO'], catalog: [] },
+  stay: { categories: [], catalog: ['Accommodation', 'Companion', 'Nursing'] },
+  sessions: { categories: [], catalog: ['Physio'] },
   medicines: { categories: [], catalog: ['Medicine'] },
   supplies: { categories: [], catalog: ['Supplies', 'Cosmetics'] },
-  exams: { categories: ['MEDICAL_EXAMS', 'STAMPS'], catalog: [] },
-  lab: { categories: ['LAB', 'STAMPS'], catalog: [] },
-  radiology: { categories: ['RADIOLOGY', 'STAMPS'], catalog: [] },
-  other: { categories: ['GENERAL', 'PROSTHETICS'], catalog: [] },
-  operations: { categories: [], catalog: [] },
+  exams: { categories: [], catalog: ['MedicalExams'] },
+  lab: { categories: [], catalog: ['Lab'] },
+  radiology: { categories: [], catalog: ['Radiology'] },
+  other: { categories: [], catalog: ['General', 'Prosthetics'] },
+  operations: { categories: [], catalog: ['SpineOperations'] },
   glasses: { categories: [], catalog: [] },
 });
 

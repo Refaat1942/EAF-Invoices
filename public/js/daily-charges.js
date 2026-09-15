@@ -43,13 +43,13 @@ const DAILY_TAB_IMPORT_CONFIG = {
     label: 'رفع قائمة مستلزمات',
     accept: '.xlsx,.xls,.csv,.txt',
   },
-  sessions: { kind: 'excel', template_key: 'physio', label: 'رفع العلاج الطبيعي' },
-  exams: { kind: 'excel', template_key: 'medical_exams', label: 'رفع الكشوفات' },
-  lab: { kind: 'excel', template_key: 'lab', label: 'رفع التحاليل' },
-  radiology: { kind: 'excel', template_key: 'radiology', label: 'رفع الأشعة' },
-  other: { kind: 'excel', label: 'رفع ملف خدمات', detect_from_filename: true },
-  stay: { kind: 'excel', template_key: 'accommodation', label: 'رفع الإقامات' },
-  operations: { kind: 'excel', template_key: 'spine_operations', label: 'رفع العمليات الجراحية' },
+  sessions: { kind: 'section_excel', tab: 'sessions', label: 'رفع العلاج الطبيعي' },
+  exams: { kind: 'section_excel', tab: 'exams', label: 'رفع الكشوفات' },
+  lab: { kind: 'section_excel', tab: 'lab', label: 'رفع التحاليل' },
+  radiology: { kind: 'section_excel', tab: 'radiology', label: 'رفع الأشعة' },
+  other: { kind: 'section_excel', tab: 'other', label: 'رفع ملف خدمات' },
+  stay: { kind: 'section_excel', tab: 'stay', label: 'رفع الإقامات' },
+  operations: { kind: 'section_excel', tab: 'operations', label: 'رفع العمليات الجراحية' },
 };
 
 function isDailyAdminImportAllowed() {
@@ -88,18 +88,15 @@ async function handleDailyTabImport(file) {
       showToast(msg, 'success');
       if (typeof loadCatalogCache === 'function') await loadCatalogCache();
       await reloadDailyServiceCaches();
-    } else if (cfg.kind === 'excel') {
+    } else if (cfg.kind === 'section_excel') {
       const form = new FormData();
       form.append('file', file);
-      form.append('replace_existing', 'false');
-      if (cfg.template_key && !cfg.detect_from_filename) {
-        form.append('template_key', cfg.template_key);
-      }
-      const res = await apiFetch(`${DAILY_PRICING_API}/import-excel`, { method: 'POST', body: form });
+      form.append('tab', cfg.tab || activeDailyTab);
+      const res = await apiFetch(`${DAILY_API}/catalog/import-section-excel`, { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       const label = data.template_label || cfg.label;
-      const msg = `تم تحديث «${label}»: ${data.imported || 0} جديد، ${data.updated || 0} محدّث (${data.parsed_rows || data.total || 0} صف في الملف)`;
+      const msg = `شيت «${label}»: ${data.imported || 0} بند (${data.inserted || 0} جديد، ${data.updated || 0} محدّث)`;
       showToast(msg, 'success');
       if (typeof loadCatalogCache === 'function') await loadCatalogCache();
       await reloadDailyServiceCaches();
@@ -1081,6 +1078,7 @@ async function loadOperationsForToday() {
 }
 
 async function saveOperationsPanel() {
+  if (dailySaveInFlight) return;
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية', 'warning');
     return;
@@ -1095,10 +1093,12 @@ async function saveOperationsPanel() {
     showToast('أضف عملية واحدة على الأقل (اسم أو مبلغ)', 'warning');
     return;
   }
+  const saveBtn = document.getElementById('daily-save-btn');
+  const saveAllBtn = document.getElementById('daily-save-all-btn');
   try {
     dailySaveInFlight = true;
-    const saveBtn = document.getElementById('daily-save-btn');
     if (saveBtn) saveBtn.disabled = true;
+    if (saveAllBtn) saveAllBtn.disabled = true;
     const data = await apiJson(`${DAILY_API}/operations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1119,8 +1119,8 @@ async function saveOperationsPanel() {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
   } finally {
     dailySaveInFlight = false;
-    const saveBtn = document.getElementById('daily-save-btn');
     if (saveBtn) saveBtn.disabled = false;
+    if (saveAllBtn) saveAllBtn.disabled = false;
   }
 }
 
@@ -1238,6 +1238,7 @@ async function loadFreeItemsPanel() {
 }
 
 async function saveFreeItems() {
+  if (dailySaveInFlight) return;
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية', 'warning');
     return;
@@ -1253,8 +1254,13 @@ async function saveFreeItems() {
     return;
   }
   const btn = document.getElementById('daily-free-save-btn');
+  const saveBtn = document.getElementById('daily-save-btn');
+  const saveAllBtn = document.getElementById('daily-save-all-btn');
   try {
+    dailySaveInFlight = true;
     if (btn) btn.disabled = true;
+    if (saveBtn) saveBtn.disabled = true;
+    if (saveAllBtn) saveAllBtn.disabled = true;
     const data = await apiJson(`${DAILY_API}/free-items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1268,7 +1274,10 @@ async function saveFreeItems() {
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
   } finally {
+    dailySaveInFlight = false;
     if (btn) btn.disabled = false;
+    if (saveBtn) saveBtn.disabled = false;
+    if (saveAllBtn) saveAllBtn.disabled = false;
   }
 }
 
@@ -5895,7 +5904,9 @@ async function saveDailyEntry() {
   try {
     dailySaveInFlight = true;
     const saveBtn = document.getElementById('daily-save-btn');
+    const saveAllBtn = document.getElementById('daily-save-all-btn');
     if (saveBtn) saveBtn.disabled = true;
+    if (saveAllBtn) saveAllBtn.disabled = true;
 
     const data = await apiJson(`${DAILY_API}/entries/batch`, {
       method: 'POST',
@@ -5904,7 +5915,7 @@ async function saveDailyEntry() {
         file_number,
         patient_name: getStayPatientName(),
         entries,
-        operations: collectOperationsFromTable(),
+        operations: activeDailyTab === 'operations' ? [] : collectOperationsFromTable(),
         glasses_total: getGlassesFinalAmount(),
         patient_fields: {
           ...collectPatientDemographics('daily'),
@@ -5936,7 +5947,9 @@ async function saveDailyEntry() {
   } finally {
     dailySaveInFlight = false;
     const saveBtn = document.getElementById('daily-save-btn');
+    const saveAllBtn = document.getElementById('daily-save-all-btn');
     if (saveBtn) saveBtn.disabled = false;
+    if (saveAllBtn) saveAllBtn.disabled = false;
   }
 }
 

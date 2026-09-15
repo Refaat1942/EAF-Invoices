@@ -1,4 +1,4 @@
-const { query } = require('../database/db');
+const { query, withTransaction } = require('../database/db');
 
 function fmtDateOnly(value) {
   if (!value) return null;
@@ -106,19 +106,65 @@ async function listOperations(patientId, entryDate) {
   return rows;
 }
 
+async function insertOperationRowClient(client, pid, entryDate, op = {}) {
+  const name = String(op.operation_name || '').trim();
+  const amount = parseAmount(op.amount);
+  const companion_amount = parseAmount(op.companion_amount);
+  const nursing_point_amount = parseAmount(op.nursing_point_amount);
+  const patient_assistant_amount = parseAmount(op.patient_assistant_amount);
+  if (!name && operationChargeTotal(op) <= 0) return null;
+
+  const startTime = parseOptionalTime(op.operation_start_time);
+  const endTime = parseOptionalTime(op.operation_end_time);
+  const durationHours = computeDurationHours(startTime, endTime, op.duration_hours);
+
+  const { rows } = await client.query(
+    `INSERT INTO patient_operations (
+       patient_id, entry_date, operation_name, duration_hours,
+       operation_start_time, operation_end_time,
+       surgeon_name, doctor_name, anesthesia_doctor, assistant_surgeon,
+       case_type, amount, companion_amount, nursing_point_amount, patient_assistant_amount,
+       updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW()) RETURNING *`,
+    [
+      pid,
+      entryDate,
+      name,
+      durationHours,
+      startTime,
+      endTime,
+      String(op.surgeon_name || '').trim(),
+      String(op.doctor_name || '').trim(),
+      String(op.anesthesia_doctor || '').trim(),
+      String(op.assistant_surgeon || '').trim(),
+      String(op.case_type || 'special').trim() || 'special',
+      amount,
+      companion_amount,
+      nursing_point_amount,
+      patient_assistant_amount,
+    ]
+  );
+  return rows[0];
+}
+
 async function saveOperationsForDate(patientId, entryDate, operations = []) {
   const pid = Number(patientId);
   const date = fmtDateOnly(entryDate);
   if (!pid || !date) throw new Error('المريض والتاريخ مطلوبان');
 
-  await query(`DELETE FROM patient_operations WHERE patient_id = $1 AND entry_date = $2::date`, [pid, date]);
-
-  const saved = [];
-  for (const op of operations || []) {
-    const row = await insertOperationRow(pid, date, op);
-    if (row) saved.push(row);
-  }
-  return saved;
+  return withTransaction(async (client) => {
+    await client.query('SELECT id FROM patients WHERE id = $1 FOR UPDATE', [pid]);
+    await client.query(`DELETE FROM patient_operations WHERE patient_id = $1 AND entry_date = $2::date`, [
+      pid,
+      date,
+    ]);
+    const saved = [];
+    for (const op of operations || []) {
+      const row = await insertOperationRowClient(client, pid, date, op);
+      if (row) saved.push(row);
+    }
+    return saved;
+  });
 }
 
 /** Replace all operations for a patient from the operations panel (all days). */
@@ -126,16 +172,18 @@ async function saveOperationsForPatient(patientId, operations = []) {
   const pid = Number(patientId);
   if (!pid) throw new Error('المريض مطلوب');
 
-  await query(`DELETE FROM patient_operations WHERE patient_id = $1`, [pid]);
-
-  const saved = [];
-  for (const op of operations || []) {
-    const date = fmtDateOnly(op.entry_date);
-    if (!date) continue;
-    const row = await insertOperationRow(pid, date, op);
-    if (row) saved.push(row);
-  }
-  return saved;
+  return withTransaction(async (client) => {
+    await client.query('SELECT id FROM patients WHERE id = $1 FOR UPDATE', [pid]);
+    await client.query(`DELETE FROM patient_operations WHERE patient_id = $1`, [pid]);
+    const saved = [];
+    for (const op of operations || []) {
+      const date = fmtDateOnly(op.entry_date);
+      if (!date) continue;
+      const row = await insertOperationRowClient(client, pid, date, op);
+      if (row) saved.push(row);
+    }
+    return saved;
+  });
 }
 
 async function getOperationsTotal(patientId, entryDate) {

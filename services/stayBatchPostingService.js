@@ -44,30 +44,32 @@ async function resolveAccommodationRateForStayType(stayTypeId) {
   return round2(grade?.daily_rate) || 0;
 }
 
-async function hasStayChargeEntry(patientId, date) {
+async function hasStaySectionLine(patientId, date, sectionCode) {
   const pid = Number(patientId);
   const d = parseDateOnly(date);
-  if (!pid || !d) return false;
+  const section = String(sectionCode || '').trim();
+  if (!pid || !d || !section) return false;
   const { rows } = await query(
     `SELECT 1
      FROM patient_daily_entries e
      INNER JOIN patient_daily_entry_lines l ON l.entry_id = e.id
      WHERE e.patient_id = $1
        AND e.entry_date = $2::date
-       AND l.section_code IN ('accommodation', 'companion', 'nursing_point', 'patient_assistant')
+       AND l.section_code = $3
        AND COALESCE(l.amount, 0) > 0
      LIMIT 1`,
-    [pid, d]
+    [pid, d, section]
   );
   return rows.length > 0;
 }
 
-async function buildStayEntryPayload(patient, invoice, date, assignment) {
+async function buildStayEntryPayload(patient, invoice, date, assignment, options = {}) {
+  const skipExisting = options.skip_existing !== false;
   const entryDate = parseDateOnly(date);
   const accAmount = await resolveAccommodationRateForStayType(assignment.stay_type_id);
   const lines = [];
 
-  if (accAmount > 0) {
+  if (accAmount > 0 && !(skipExisting && (await hasStaySectionLine(patient.id, entryDate, 'accommodation')))) {
     lines.push({
       section_code: 'accommodation',
       amount: accAmount,
@@ -82,7 +84,10 @@ async function buildStayEntryPayload(patient, invoice, date, assignment) {
   if (roomIns > 0 && admission && entryDate === admission) {
     companion = round2(companion + roomIns);
   }
-  if (companion > 0) {
+  if (
+    companion > 0 &&
+    !(skipExisting && (await hasStaySectionLine(patient.id, entryDate, 'companion')))
+  ) {
     lines.push({
       section_code: 'companion',
       amount: companion,
@@ -92,7 +97,10 @@ async function buildStayEntryPayload(patient, invoice, date, assignment) {
   }
 
   const nursing = round2(assignment.nursing_point_amount);
-  if (nursing > 0) {
+  if (
+    nursing > 0 &&
+    !(skipExisting && (await hasStaySectionLine(patient.id, entryDate, 'nursing_point')))
+  ) {
     lines.push({
       section_code: 'nursing_point',
       amount: nursing,
@@ -102,7 +110,10 @@ async function buildStayEntryPayload(patient, invoice, date, assignment) {
   }
 
   const assistant = round2(assignment.patient_assistant_amount);
-  if (assistant > 0) {
+  if (
+    assistant > 0 &&
+    !(skipExisting && (await hasStaySectionLine(patient.id, entryDate, 'patient_assistant')))
+  ) {
     lines.push({
       section_code: 'patient_assistant',
       amount: assistant,
@@ -169,11 +180,9 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
       missingAssignment.push(date);
       continue;
     }
-    if (skipExisting && (await hasStayChargeEntry(patient.id, date))) {
-      skipped.push(date);
-      continue;
-    }
-    const payload = await buildStayEntryPayload(patient, invoice, date, assignment);
+    const payload = await buildStayEntryPayload(patient, invoice, date, assignment, {
+      skip_existing: skipExisting,
+    });
     if (!payload) {
       missingAssignment.push(date);
       continue;
@@ -213,6 +222,6 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
 module.exports = {
   batchPostStayCharges,
   resolveAccommodationRateForStayType,
-  hasStayChargeEntry,
+  hasStaySectionLine,
   listInclusiveDates,
 };

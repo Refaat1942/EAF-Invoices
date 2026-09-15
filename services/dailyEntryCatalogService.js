@@ -16,26 +16,11 @@ const {
   linkCatalogItemCode,
 } = require('./catalogCodeService');
 
-const CATALOG_CATEGORIES = ['Medicine', 'Supplies', 'Cosmetics'];
-
-const CATEGORY_ALIASES = {
-  medicine: 'Medicine',
-  medicines: 'Medicine',
-  drug: 'Medicine',
-  drugs: 'Medicine',
-  'أدوية': 'Medicine',
-  'ادويه': 'Medicine',
-  'ادوية': 'Medicine',
-  'دواء': 'Medicine',
-  supplies: 'Supplies',
-  supply: 'Supplies',
-  'مستلزمات': 'Supplies',
-  cosmetics: 'Cosmetics',
-  cosmetic: 'Cosmetics',
-  'مستحضرات': 'Cosmetics',
-  'مستحضرات تجميل': 'Cosmetics',
-  'تجميل': 'Cosmetics',
-};
+const {
+  CATALOG_CATEGORIES,
+  CATEGORY_ALIASES,
+  normalizeCatalogCategory,
+} = require('./dailyCatalogCategories');
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -52,13 +37,7 @@ function computeMarginAmount(costPrice, sellingPrice, quantity = 1) {
 }
 
 function normalizeCategory(value) {
-  const text = String(value || '').trim();
-  if (!text) return null;
-  const key = text.toLowerCase();
-  if (CATEGORY_ALIASES[key]) return CATEGORY_ALIASES[key];
-  if (CATEGORY_ALIASES[text]) return CATEGORY_ALIASES[text];
-  const exact = CATALOG_CATEGORIES.find((c) => c.toLowerCase() === key);
-  return exact || null;
+  return normalizeCatalogCategory(value);
 }
 
 function minorPriceExplicitlySupplied(data) {
@@ -1142,7 +1121,7 @@ function validateCatalogPayload(data, options = {}) {
     throw new Error('الكود يجب أن يكون 7 أرقام');
   }
   if (!name) throw new Error('الاسم مطلوب');
-  if (!category) throw new Error('الفئة غير صالحة (Medicine / Supplies / Cosmetics)');
+  if (!category) throw new Error(`الفئة غير صالحة — استخدم أحد: ${CATALOG_CATEGORIES.join(' / ')}`);
 
   const units = normalizeUnitFields(data);
 

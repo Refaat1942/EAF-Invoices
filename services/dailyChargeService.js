@@ -415,8 +415,10 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
   const pageNum = Math.max(1, Number(page) || 1);
   const maxLimit = Math.min(50, Math.max(1, Number(limit) || 20));
   const q = String(search || '').trim();
+  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
+  const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
 
-  if (section.catalog_category) {
+  if (catalogCategory) {
     const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
     if (q.length < 2) {
       return {
@@ -430,7 +432,7 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
       };
     }
     const result = await listCatalogItemsPaginated({
-      category: section.catalog_category,
+      category: catalogCategory,
       search: q,
       page: pageNum,
       limit: maxLimit,
@@ -445,6 +447,7 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
       limit: result.limit,
       totalPages: result.totalPages,
       kind: 'catalog',
+      catalog_category: catalogCategory,
     };
   }
 
@@ -557,6 +560,29 @@ async function listDailyPickerServicesByCategory({ category_code, category_codes
     throw err;
   }
 
+  const { catalogCategoryForServiceCode } = require('./dailyCatalogCategories');
+  const catalogCategory =
+    codes.map((code) => catalogCategoryForServiceCode(code)).find(Boolean) ||
+    catalogCategoryForServiceCode(category_code);
+  if (catalogCategory) {
+    const { listCatalogItems, catalogItemToPicker } = require('./dailyEntryCatalogService');
+    const maxLimit = Math.min(500, Math.max(1, Number(limit) || 200));
+    const items = await listCatalogItems({
+      category: catalogCategory,
+      active_only: true,
+      limit: maxLimit,
+    });
+    return {
+      rows: items.map(catalogItemToPicker),
+      total: items.length,
+      kind: 'catalog',
+      catalog_category: catalogCategory,
+      hint: items.length
+        ? null
+        : `لا توجد بنود في شيت «${catalogCategory}» — ارفع ملف القسم من زر الاستيراد أعلاه`,
+    };
+  }
+
   const priceList = await getDefaultPriceList();
   if (!priceList) {
     return { rows: [], total: 0, kind: 'service', category_codes: codes };
@@ -602,7 +628,9 @@ async function getDailyPickerItemBySection(section_code, id) {
     throw err;
   }
 
-  if (section.catalog_category) {
+  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
+  const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
+  if (catalogCategory) {
     const { getCatalogItemById, catalogItemToPicker } = require('./dailyEntryCatalogService');
     const item = await getCatalogItemById(itemId);
     if (!item || !item.is_active) {
@@ -610,7 +638,7 @@ async function getDailyPickerItemBySection(section_code, id) {
       err.status = 404;
       throw err;
     }
-    if (item.category !== section.catalog_category) {
+    if (item.category !== catalogCategory) {
       const err = new Error('الصنف لا يطابق فئة هذا القسم');
       err.status = 400;
       throw err;
@@ -1004,8 +1032,14 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
 
 async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithServices = null) {
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
-  if (fullSection.catalog_category || rawLine.catalog_item_id) {
-    return await normalizeCatalogLine(fullSection, rawLine, sectionsWithServices);
+  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
+  const catalogCategory = fullSection.catalog_category || catalogCategoryForSection(fullSection);
+  if ((catalogCategory || rawLine.catalog_item_id) && !rawLine.service_id) {
+    return await normalizeCatalogLine(
+      { ...fullSection, catalog_category: catalogCategory || fullSection.catalog_category },
+      rawLine,
+      sectionsWithServices
+    );
   }
 
   if (isManualAmountSection(section)) {
@@ -1021,7 +1055,7 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
 
   if (!hasService) {
     if (hasAmountInput) {
-      throw new Error(`قسم «${section.name}»: يجب اختيار خدمة من اللائحة — السعر يُؤخذ من اللائحة فقط`);
+      throw new Error(`قسم «${section.name}»: يجب اختيار بند من الشيت — السعر يُؤخذ من الشيت فقط`);
     }
     return normalized;
   }
@@ -1032,13 +1066,13 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   try {
     resolved = await resolveServiceForInvoice(Number(normalized.service_id));
   } catch (err) {
-    throw new Error(`قسم «${section.name}»: ${err.message || 'الخدمة غير موجودة في اللائحة'}`);
+    throw new Error(`قسم «${section.name}»: ${err.message || 'البند غير موجود في الشيت'}`);
   }
 
   const unitPrice = round2(resolved.amount);
   if (unitPrice <= 0) {
     const label = resolved.service_name_snapshot || resolved.description || normalized.service_id;
-    throw new Error(`قسم «${section.name}»: الخدمة «${label}» ليس لها سعر صالح في اللائحة`);
+    throw new Error(`قسم «${section.name}»: البند «${label}» ليس له سعر صالح في الشيت`);
   }
 
   normalized.service_id = resolved.service_id;
@@ -1947,12 +1981,30 @@ async function enrichDailyInvoiceItems(items = []) {
 
 function dedupeDailyInvoiceItemsByLineId(items = []) {
   const seenLineIds = new Set();
+  const seenSupplemental = new Set();
   const result = [];
   for (const item of items) {
     const lineId = Number(item.daily_entry_line_id);
     if (lineId) {
       if (seenLineIds.has(lineId)) continue;
       seenLineIds.add(lineId);
+      result.push(item);
+      continue;
+    }
+    const opId = Number(item.patient_operation_id);
+    if (opId) {
+      const key = `op:${opId}`;
+      if (seenSupplemental.has(key)) continue;
+      seenSupplemental.add(key);
+      result.push(item);
+      continue;
+    }
+    const desc = String(item.description || '').trim();
+    const amount = round2(item.amount);
+    if (desc && amount > 0 && (item.section_code === 'operations' || item.bundle_code === 'operations')) {
+      const key = `opdesc:${desc}:${amount}`;
+      if (seenSupplemental.has(key)) continue;
+      seenSupplemental.add(key);
     }
     result.push(item);
   }
@@ -2175,7 +2227,7 @@ async function cleanOrphanDailyInvoiceItems(invoiceId, client = null) {
 
 async function getDailySummaryForPatient(fileNumber) {
   const fn = String(fileNumber || '').trim();
-  if (!fn) return { entry_count: 0, daily_total_sum: 0 };
+  if (!fn) return { entry_count: 0, daily_total_sum: 0, entries_total: 0, supplemental_total: 0 };
   const { rows } = await query(
     `SELECT COUNT(*)::int AS entry_count, COALESCE(SUM(e.daily_total), 0) AS daily_total_sum
      FROM patient_daily_entries e
@@ -2183,7 +2235,27 @@ async function getDailySummaryForPatient(fileNumber) {
      WHERE TRIM(p.file_number) = TRIM($1)`,
     [fn]
   );
-  return rows[0] || { entry_count: 0, daily_total_sum: 0 };
+  const base = rows[0] || { entry_count: 0, daily_total_sum: 0 };
+  const entriesTotal = round2(base.daily_total_sum);
+  let supplementalTotal = 0;
+
+  const patient = await resolvePatient(fn);
+  if (patient?.id) {
+    const { listOperationsInRange, operationChargeTotal } = require('./patientOperationService');
+    const operations = await listOperationsInRange(patient.id, null, null);
+    supplementalTotal += operations.reduce((sum, op) => sum + round2(operationChargeTotal(op)), 0);
+    const glassesPrice = round2(patient.glasses_price);
+    const glassesDisc = round2(patient.glasses_discount_percent);
+    const glassesFinal = round2(glassesPrice * (1 - glassesDisc / 100));
+    if (glassesFinal > 0) supplementalTotal += glassesFinal;
+  }
+
+  return {
+    entry_count: base.entry_count,
+    entries_total: entriesTotal,
+    supplemental_total: round2(supplementalTotal),
+    daily_total_sum: round2(entriesTotal + supplementalTotal),
+  };
 }
 
 async function linkEntryToInvoice(entryId, invoiceId, client = null) {
@@ -2244,6 +2316,42 @@ function normalizeStayGradeName(name) {
 async function listAccommodationStayGrades() {
   const { listStayTypes } = require('./stayTypeService');
   const stayTypes = await listStayTypes(true);
+  const { listCatalogItems } = require('./dailyEntryCatalogService');
+  const catalogRows = await listCatalogItems({ category: 'Accommodation', active_only: true });
+  if (catalogRows.length) {
+    const stayByName = new Map();
+    for (const st of stayTypes) {
+      const key = normalizeStayGradeName(st.name);
+      if (key) stayByName.set(key, st);
+    }
+    const grades = [];
+    const seen = new Set();
+    for (const item of catalogRows) {
+      const key = normalizeStayGradeName(item.name);
+      const st =
+        stayByName.get(key) ||
+        stayTypes.find(
+          (t) =>
+            normalizeStayGradeName(t.name) === key ||
+            normalizeStayGradeName(t.name).includes(key) ||
+            key.includes(normalizeStayGradeName(t.name))
+        );
+      if (!st?.id) continue;
+      if (seen.has(st.id)) continue;
+      seen.add(st.id);
+      const daily_rate = round2(item.major_unit_selling_price ?? item.price) || Number(st.daily_rate) || 0;
+      grades.push({
+        stay_type_id: st.id,
+        service_id: null,
+        catalog_item_id: item.id,
+        name: item.name || st.name,
+        daily_rate,
+        price_list_name: 'شيت الإقامة',
+      });
+    }
+    if (grades.length) return grades;
+  }
+
   const priceList = await getDefaultPriceList();
   if (!priceList) {
     return stayTypes.map((st) => ({

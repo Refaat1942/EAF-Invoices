@@ -143,7 +143,7 @@ router.get('/catalog', requireAnyPermission('daily_charges.view', 'settings.*'),
   try {
     const category = req.query.category || null;
     if (category && !CATALOG_CATEGORIES.includes(category)) {
-      return res.status(400).json({ error: 'الفئة غير صالحة (Medicine / Supplies / Cosmetics)' });
+      return res.status(400).json({ error: `الفئة غير صالحة — استخدم: ${CATALOG_CATEGORIES.join(' / ')}` });
     }
     const usePagination = req.query.page != null || req.query.limit != null;
     const filters = {
@@ -274,6 +274,29 @@ router.post('/catalog/import', catalogManagePerm, upload.single('file'), async (
     }
 
     const result = await importCatalogRows(rows, importOptions);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/catalog/import-section-excel', catalogManagePerm, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: 'الملف مطلوب (Excel)' });
+    }
+    const tab = String(req.body.tab || '').trim();
+    const { resolveTabCatalogImport, importSectionExcelToCatalog } = require('../services/dailySectionCatalogImportService');
+    const resolved = resolveTabCatalogImport(tab, req.file.originalname || '');
+    if (!resolved?.category) {
+      return res.status(400).json({ error: 'تبويب الاستيراد غير معروف — افتح التبويب المناسب ثم ارفع الشيت' });
+    }
+    const result = await importSectionExcelToCatalog(req.file.buffer, {
+      catalog_category: resolved.category,
+      template_key: req.body.template_key || resolved.template_key,
+      filename: req.file.originalname || '',
+      template_label: resolved.label,
+    });
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });

@@ -1375,14 +1375,12 @@ async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) 
     admission_date: minDate || fmtDateOnly(invoice.admission_date),
     discharge_date: maxDate || null,
   };
-  const headerStampZero =
-    !Number(invoice.stamp_duty) && !Number(invoice.stamp_duty_raw);
-  if (headerStampZero) {
-    const { computeDailyStampLinesTotal } = require('./dailyChargeService');
-    const stampTotals = await computeDailyStampLinesTotal(fileNumber);
-    if (stampTotals.rounded > 0) {
-      dateOverrides.stamp_duty = stampTotals.rounded;
-    }
+  const { computeDailyStampLinesTotal } = require('./dailyChargeService');
+  const stampTotals = await computeDailyStampLinesTotal(fileNumber);
+  if (stampTotals.rounded > 0) {
+    dateOverrides.stamp_duty = stampTotals.rounded;
+  } else if (!Number(invoice.stamp_duty) && !Number(invoice.stamp_duty_raw)) {
+    dateOverrides.stamp_duty = 0;
   }
   const payload = invoiceToSavePayload(invoice, manualItems, dateOverrides);
   payload.include_daily_charges = true;

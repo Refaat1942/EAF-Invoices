@@ -770,6 +770,11 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_services_price_list ON services(price_list_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_service_categories_list ON service_categories(price_list_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_invoice_items_service ON invoice_items(service_id)`);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_items_daily_line_unique
+    ON invoice_items (invoice_id, daily_entry_line_id)
+    WHERE daily_entry_line_id IS NOT NULL
+  `);
 
   const pricingSettings = [
     ['administrative_fee_rate', '12'],
@@ -1137,19 +1142,55 @@ async function migrateServiceCodeUniqueConstraint() {
 
 async function seedDailyChargeSections() {
   const sections = [
-    { code: 'accommodation', name: 'إقامة', category_code: 'ACCOMMODATION', input_type: 'amount', sort_order: 1 },
-    { code: 'companion', name: 'مرافق', category_code: 'COMPANION', input_type: 'amount', sort_order: 2 },
-    { code: 'nursing_point', name: 'نقطة', category_code: 'NURSING', input_type: 'amount', sort_order: 3 },
-    { code: 'patient_assistant', name: 'مساعد مريض', category_code: 'NURSING', input_type: 'amount', sort_order: 4 },
+    {
+      code: 'accommodation',
+      name: 'إقامة',
+      category_code: 'ACCOMMODATION',
+      catalog_category: 'Accommodation',
+      input_type: 'amount',
+      sort_order: 1,
+    },
+    {
+      code: 'companion',
+      name: 'مرافق',
+      category_code: 'COMPANION',
+      catalog_category: 'Companion',
+      input_type: 'amount',
+      sort_order: 2,
+    },
+    {
+      code: 'nursing_point',
+      name: 'نقطة',
+      category_code: 'NURSING',
+      catalog_category: 'Nursing',
+      input_type: 'amount',
+      sort_order: 3,
+    },
+    {
+      code: 'patient_assistant',
+      name: 'مساعد مريض',
+      category_code: 'NURSING',
+      catalog_category: 'Nursing',
+      input_type: 'amount',
+      sort_order: 4,
+    },
     { code: 'sessions_date', name: 'تاريخ الجلسات', input_type: 'date', sort_order: 5 },
     { code: 'sessions_detail', name: 'جلسات', input_type: 'text', sort_order: 6 },
-    { code: 'sessions', name: 'إجمالي جلسات', category_code: 'PHYSIO', input_type: 'amount', sort_order: 7 },
+    {
+      code: 'sessions',
+      name: 'إجمالي جلسات',
+      category_code: 'PHYSIO',
+      catalog_category: 'Physio',
+      input_type: 'amount',
+      sort_order: 7,
+    },
     { code: 'supplies', name: 'مستلزمات', catalog_category: 'Supplies', input_type: 'amount', sort_order: 8 },
     { code: 'medicines', name: 'أدوية', catalog_category: 'Medicine', input_type: 'amount', sort_order: 9 },
     {
       code: 'consultant_exam',
       name: 'كشف استشاري',
       category_code: 'MEDICAL_EXAMS',
+      catalog_category: 'MedicalExams',
       default_service_code: 'EXAM-CONSULTANT',
       input_type: 'amount',
       sort_order: 10,
@@ -1158,22 +1199,52 @@ async function seedDailyChargeSections() {
       code: 'specialist_exam',
       name: 'كشف أخصائي',
       category_code: 'MEDICAL_EXAMS',
+      catalog_category: 'MedicalExams',
       default_service_code: 'EXAM-SPECIALIST',
       input_type: 'amount',
       sort_order: 11,
     },
     { code: 'consultation_stamp', name: 'دمغة كشوفات', category_code: 'STAMPS', input_type: 'amount', sort_order: 12 },
-    { code: 'analyses', name: 'تحاليل', category_code: 'LAB', input_type: 'amount', sort_order: 13 },
+    {
+      code: 'analyses',
+      name: 'تحاليل',
+      category_code: 'LAB',
+      catalog_category: 'Lab',
+      input_type: 'amount',
+      sort_order: 13,
+    },
     { code: 'analyses_stamp', name: 'دمغة تحاليل', category_code: 'STAMPS', input_type: 'amount', sort_order: 14 },
     { code: 'xray_type', name: 'نوع الأشعة', category_code: 'RADIOLOGY', input_type: 'text', sort_order: 15 },
-    { code: 'xray_total', name: 'إجمالي أشعة', category_code: 'RADIOLOGY', input_type: 'amount', sort_order: 16 },
+    {
+      code: 'xray_total',
+      name: 'إجمالي أشعة',
+      category_code: 'RADIOLOGY',
+      catalog_category: 'Radiology',
+      input_type: 'amount',
+      sort_order: 16,
+    },
     { code: 'xray_stamp', name: 'دمغة أشعة', category_code: 'STAMPS', input_type: 'amount', sort_order: 17 },
-    { code: 'other', name: 'أخرى', category_code: 'GENERAL', input_type: 'amount', sort_order: 18 },
-    { code: 'prosthetics', name: 'مصنع', category_code: 'PROSTHETICS', input_type: 'amount', sort_order: 19 },
+    {
+      code: 'other',
+      name: 'أخرى',
+      category_code: 'GENERAL',
+      catalog_category: 'General',
+      input_type: 'amount',
+      sort_order: 18,
+    },
+    {
+      code: 'prosthetics',
+      name: 'مصنع',
+      category_code: 'PROSTHETICS',
+      catalog_category: 'Prosthetics',
+      input_type: 'amount',
+      sort_order: 19,
+    },
     {
       code: 'operation_pick',
       name: 'عملية جراحية (بحث)',
       category_code: 'SPINE_CENTER',
+      catalog_category: 'SpineOperations',
       input_type: 'amount',
       sort_order: 98,
     },
