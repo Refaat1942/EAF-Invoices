@@ -222,16 +222,18 @@ function applyAppBranding(data = {}) {
 }
 
 async function loadAppBranding() {
+  const defaultLogo = '/assets/logo.svg';
   try {
     const res = await fetch('/api/public/branding');
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.logo_url) {
-      syncBrandLogos(data.logo_url);
+    if (!res.ok) {
+      syncBrandLogos(defaultLogo);
+      return;
     }
+    const data = await res.json();
+    syncBrandLogos(data.logo_url || defaultLogo);
     applyAppBranding(data);
   } catch {
-    /* keep defaults */
+    syncBrandLogos(defaultLogo);
   }
 }
 

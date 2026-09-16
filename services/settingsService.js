@@ -17,12 +17,33 @@ async function setSetting(key, value) {
   );
 }
 
+function resolveLogoFilename(raw) {
+  const filename = path.basename(String(raw || '').trim());
+  if (!filename || !/^logo\.(svg|png|jpe?g|webp)$/i.test(filename)) return 'logo.svg';
+  return filename;
+}
+
 async function getLogoUrl(baseUrl = '') {
-  const filename = await getSetting(LOGO_KEY, 'logo.svg');
+  const filename = resolveLogoFilename(await getSetting(LOGO_KEY, 'logo.svg'));
   const filePath = path.join(ASSETS_DIR, filename);
-  if (!fs.existsSync(filePath)) return `${baseUrl}/assets/logo.svg`;
+  const fallback = `${baseUrl}/assets/logo.svg`;
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return fallback;
   const stat = fs.statSync(filePath);
   return `${baseUrl}/assets/${filename}?v=${stat.mtimeMs}`;
+}
+
+async function repairLogoSetting() {
+  const current = await getSetting(LOGO_KEY, 'logo.svg');
+  const filename = resolveLogoFilename(current);
+  const filePath = path.join(ASSETS_DIR, filename);
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    await setSetting(LOGO_KEY, 'logo.svg');
+    return 'logo.svg';
+  }
+  if (filename !== current) {
+    await setSetting(LOGO_KEY, filename);
+  }
+  return filename;
 }
 
 async function saveLogo(file) {
@@ -67,5 +88,7 @@ module.exports = {
   saveLogo,
   getSettings,
   saveGeneralSettings,
+  repairLogoSetting,
+  resolveLogoFilename,
   LOGO_KEY,
 };

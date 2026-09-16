@@ -76,15 +76,22 @@ app.use(
 
 app.get('/api/public/branding', async (req, res) => {
   try {
-    const { getLogoUrl } = require('./services/settingsService');
+    const { getLogoUrl, repairLogoSetting } = require('./services/settingsService');
     const baseUrl = `${req.protocol}://${req.get('host')}`;
+    await repairLogoSetting();
     res.json({
       app_name: APP_SHORT_NAME,
       center_name: CENTER_NAME,
       logo_url: await getLogoUrl(baseUrl),
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    res.json({
+      app_name: APP_SHORT_NAME,
+      center_name: CENTER_NAME,
+      logo_url: `${baseUrl}/assets/logo.svg`,
+      warning: err.message,
+    });
   }
 });
 
