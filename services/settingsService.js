@@ -26,10 +26,12 @@ function resolveLogoFilename(raw) {
 async function getLogoUrl(baseUrl = '') {
   const filename = resolveLogoFilename(await getSetting(LOGO_KEY, 'logo.svg'));
   const filePath = path.join(ASSETS_DIR, filename);
-  const fallback = `${baseUrl}/assets/logo.svg`;
+  const prefix = baseUrl ? String(baseUrl).replace(/\/$/, '') : '';
+  const fallback = prefix ? `${prefix}/assets/logo.svg` : '/assets/logo.svg';
   if (!isUsableLogoFile(filePath)) return fallback;
   const stat = fs.statSync(filePath);
-  return `${baseUrl}/assets/${filename}?v=${stat.mtimeMs}`;
+  const assetPath = `/assets/${filename}?v=${stat.mtimeMs}`;
+  return prefix ? `${prefix}${assetPath}` : assetPath;
 }
 
 function isUsableLogoFile(filePath) {
@@ -56,8 +58,9 @@ async function repairLogoSetting({ forceDefault = false } = {}) {
   const filename = resolveLogoFilename(current);
   const filePath = path.join(ASSETS_DIR, filename);
   if (!isUsableLogoFile(filePath)) {
-    await setSetting(LOGO_KEY, 'logo.svg');
-    return 'logo.svg';
+    const best = findBestLogoFilename();
+    await setSetting(LOGO_KEY, best);
+    return best;
   }
   if (filename !== current) {
     await setSetting(LOGO_KEY, filename);
@@ -109,5 +112,6 @@ module.exports = {
   saveGeneralSettings,
   repairLogoSetting,
   resolveLogoFilename,
+  findBestLogoFilename,
   LOGO_KEY,
 };

@@ -669,10 +669,25 @@ function setFormReadonly(readonly) {
   });
 }
 
+function setLoginError(message = '') {
+  const el = document.getElementById('login-error');
+  if (!el) return;
+  if (!message) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.textContent = message;
+  el.style.display = '';
+}
+
 async function handleLogin(e) {
   e.preventDefault();
+  setLoginError('');
   const username = document.getElementById('login-username').value;
   const password = document.getElementById('login-password').value;
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
   try {
     const res = await apiFetch(`${AUTH_API}/login`, {
       method: 'POST',
@@ -685,7 +700,11 @@ async function handleLogin(e) {
     showApp();
     showToast(`مرحباً ${currentUser.full_name || currentUser.username}`, 'success');
   } catch (err) {
-    showToast(err.message, 'danger');
+    const msg = sanitizeApiErrorMessage(err.message || 'فشل الدخول');
+    setLoginError(msg);
+    showToast(msg, 'danger');
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 

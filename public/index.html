@@ -27,10 +27,13 @@
           <label class="form-label fw-bold">كلمة المرور</label>
           <input type="password" class="form-control fw-bold" id="login-password" required autocomplete="current-password">
         </div>
+        <div id="login-error" class="alert alert-danger small fw-bold mt-3 mb-0" style="display:none" role="alert"></div>
         <button type="submit" class="btn btn-primary w-100 fw-black btn-lg">دخول</button>
       </form>
     </div>
   </div>
+
+  <div class="toast-container position-fixed bottom-0 start-0 p-3" id="toast-container"></div>
 
   <div id="app-container" style="display:none">
   <nav class="navbar navbar-dark app-topbar shadow-sm">
@@ -2193,8 +2196,6 @@
     </div>
   </div>
 
-  <div class="toast-container position-fixed bottom-0 start-0 p-3" id="toast-container"></div>
-
   <button type="button" class="assistant-fab" id="assistant-toggle" aria-expanded="false" title="مساعد النظام">💬</button>
   <div class="assistant-panel" id="assistant-panel" aria-hidden="true">
     <div class="assistant-panel-header">
@@ -2212,7 +2213,7 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
-  <script src="/js/app.js?v=20260916c"></script>
+  <script src="/js/app.js?v=20260916e"></script>
   <script src="/js/daily-picker.js?v=20260916a"></script>
   <script src="/js/daily-charges.js?v=20260916c"></script>
   <script src="/js/notifications.js?v=20260915a"></script>

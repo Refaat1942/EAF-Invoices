@@ -45,35 +45,63 @@ async function diagnoseLogo() {
   }
 }
 
-async function testLogin(username, password) {
+function httpRequest(options, body = null) {
   const http = require('http');
-  const payload = JSON.stringify({ username, password });
   return new Promise((resolve) => {
-    const req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port: Number(process.env.PORT) || 17159,
-        path: '/api/auth/login',
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-        },
-      },
-      (res) => {
-        let body = '';
-        res.on('data', (chunk) => {
-          body += chunk;
+    const req = http.request(options, (res) => {
+      let text = '';
+      res.on('data', (chunk) => {
+        text += chunk;
+      });
+      res.on('end', () => {
+        resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          body: text,
         });
-        res.on('end', () => {
-          resolve({ status: res.statusCode, body });
-        });
-      }
-    );
-    req.on('error', (err) => resolve({ status: 0, body: err.message }));
-    req.write(payload);
+      });
+    });
+    req.on('error', (err) => resolve({ status: 0, body: err.message, headers: {} }));
+    if (body) req.write(body);
     req.end();
   });
+}
+
+function extractSessionCookie(headers = {}) {
+  const raw = headers['set-cookie'];
+  if (!raw) return '';
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.map((c) => c.split(';')[0]).join('; ');
+}
+
+async function testLogin(username, password) {
+  const payload = JSON.stringify({ username, password });
+  const login = await httpRequest(
+    {
+      hostname: '127.0.0.1',
+      port: Number(process.env.PORT) || 17159,
+      path: '/api/auth/login',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
+      },
+    },
+    payload
+  );
+  const cookie = extractSessionCookie(login.headers);
+  let meStatus = 0;
+  if (cookie) {
+    const me = await httpRequest({
+      hostname: '127.0.0.1',
+      port: Number(process.env.PORT) || 17159,
+      path: '/api/auth/me',
+      method: 'GET',
+      headers: { Cookie: cookie },
+    });
+    meStatus = me.status;
+  }
+  return { loginStatus: login.status, meStatus, body: login.body };
 }
 
 async function main() {
