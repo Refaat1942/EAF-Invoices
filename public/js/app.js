@@ -196,6 +196,7 @@ function bindAppShellEvents() {
 }
 
 function bootApp() {
+  bindHubNavigation();
   loadAppBranding();
   checkAuth();
   bindAppShellEvents();
@@ -308,12 +309,41 @@ function showLogin() {
 }
 
 let appEventsBound = false;
+let hubNavBound = false;
+
+function bindHubNavigation() {
+  if (hubNavBound) return;
+  hubNavBound = true;
+  document.getElementById('hub-tiles')?.addEventListener('click', (e) => {
+    const tile = e.target.closest('.hub-tile[data-view]');
+    if (!tile || tile.style.display === 'none') return;
+    const view = tile.dataset.view;
+    const action = tile.dataset.hubAction;
+    if (action === 'new-patient') {
+      switchView('patient-register');
+      if (typeof window.initPatientRegistration === 'function') window.initPatientRegistration();
+      return;
+    }
+    if (view === 'create') {
+      showToast('افتح المريض من الحركة اليومية لمراجعة الفاتورة', 'info');
+      switchView('daily');
+      return;
+    }
+    switchView(view, { keepForm: true });
+  });
+  document.getElementById('nav-home-btn')?.addEventListener('click', () => switchView('home'));
+  document.getElementById('nav-home-shortcut')?.addEventListener('click', () => switchView('home'));
+  document.querySelectorAll('.hub-back-btn').forEach((btn) => {
+    btn.addEventListener('click', () => switchView('home'));
+  });
+}
 
 function showApp() {
   const loginScreen = document.getElementById('login-screen');
   const appContainer = document.getElementById('app-container');
   if (loginScreen) loginScreen.style.display = 'none';
   if (appContainer) appContainer.style.display = 'block';
+  bindHubNavigation();
   const navUser = document.getElementById('nav-user');
   if (navUser && currentUser) {
     navUser.textContent = `${currentUser.full_name || currentUser.username} (${currentUser.role_label || currentUser.role || ''})`;
@@ -339,6 +369,13 @@ function showApp() {
     switchView('home');
   } catch (err) {
     console.error('[app] showApp failed:', err);
+    if (currentUser) {
+      if (typeof showToast === 'function') {
+        showToast(`تعذر تحميل جزء من النظام: ${sanitizeApiErrorMessage(err.message)}`, 'danger');
+      }
+      switchView('home');
+      return;
+    }
     setLoginError(`تعذر فتح التطبيق: ${sanitizeApiErrorMessage(err.message)}`);
     if (loginScreen) loginScreen.style.display = 'flex';
     if (appContainer) appContainer.style.display = 'none';
@@ -1049,33 +1086,11 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
 }
 
 function bindEvents() {
+  bindHubNavigation();
   if (appEventsBound) return;
   appEventsBound = true;
-  document.querySelectorAll('.hub-tile[data-view]').forEach((tile) => {
-    tile.addEventListener('click', () => {
-      const view = tile.dataset.view;
-      const action = tile.dataset.hubAction;
-      if (action === 'new-patient') {
-        switchView('patient-register');
-        if (typeof window.initPatientRegistration === 'function') window.initPatientRegistration();
-        return;
-      }
-      if (view === 'create') {
-        showToast('افتح المريض من الحركة اليومية لمراجعة الفاتورة', 'info');
-        switchView('daily');
-        return;
-      }
-      switchView(view, { keepForm: true });
-    });
-  });
-
-  document.getElementById('nav-home-btn')?.addEventListener('click', () => switchView('home'));
-  document.getElementById('nav-home-shortcut')?.addEventListener('click', () => switchView('home'));
-  document.querySelectorAll('.hub-back-btn').forEach((btn) => {
-    btn.addEventListener('click', () => switchView('home'));
-  });
-
-  document.getElementById('invoice-form').addEventListener('submit', (e) => {
+  try {
+  document.getElementById('invoice-form')?.addEventListener('submit', (e) => {
     e.preventDefault();
     saveInvoiceWithMode('draft');
   });
@@ -1276,14 +1291,20 @@ function bindEvents() {
   document.getElementById('service-edit-save-btn')?.addEventListener('click', saveServiceEditor);
   document.getElementById('service-edit-price-type')?.addEventListener('change', toggleServiceComponentsEditor);
 
-  document.getElementById('pay-full-cash-btn').addEventListener('click', () => fillFullPayment('cash'));
-  document.getElementById('pay-full-bank-btn').addEventListener('click', () => fillFullPayment('bank_transfer'));
-  document.getElementById('pay-full-check-btn').addEventListener('click', () => fillFullPayment('check'));
-  document.getElementById('clear-payments-btn').addEventListener('click', clearAllPayments);
-  document.getElementById('invoice_type').addEventListener('change', toggleContractedFields);
-  document.getElementById('contracted_entity_id').addEventListener('change', onContractedEntityChange);
+  document.getElementById('pay-full-cash-btn')?.addEventListener('click', () => fillFullPayment('cash'));
+  document.getElementById('pay-full-bank-btn')?.addEventListener('click', () => fillFullPayment('bank_transfer'));
+  document.getElementById('pay-full-check-btn')?.addEventListener('click', () => fillFullPayment('check'));
+  document.getElementById('clear-payments-btn')?.addEventListener('click', clearAllPayments);
+  document.getElementById('invoice_type')?.addEventListener('change', toggleContractedFields);
+  document.getElementById('contracted_entity_id')?.addEventListener('change', onContractedEntityChange);
 
   bindCalcTriggers();
+  } catch (err) {
+    console.error('[app] bindEvents partial failure:', err);
+    if (typeof showToast === 'function') {
+      showToast('بعض الأزرار لم تُربط — أعد تحميل الصفحة', 'warning');
+    }
+  }
 }
 
 function bindCalcTriggers() {
