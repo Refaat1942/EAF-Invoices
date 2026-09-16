@@ -56,11 +56,17 @@
       if (!res.ok) throw new Error(data.error || 'تعذر تحميل النشاط');
 
       if (updatedEl) updatedEl.textContent = `آخر تحديث: ${fmtDateTime(data.generated_at)}`;
-      document.getElementById('live-stat-active')?.textContent = data.live_users_count ?? 0;
-      document.getElementById('live-stat-drafts')?.textContent = data.workload?.draft_total ?? 0;
-      document.getElementById('live-stat-pending')?.textContent = data.workload?.pending_total ?? 0;
-      document.getElementById('live-stat-daily')?.textContent =
-        `${data.workload?.patients_with_daily_today ?? 0} مريض / ${data.workload?.daily_entries_today ?? 0} بند`;
+      const liveActiveEl = document.getElementById('live-stat-active');
+      if (liveActiveEl) liveActiveEl.textContent = data.live_users_count ?? 0;
+      const liveDraftsEl = document.getElementById('live-stat-drafts');
+      if (liveDraftsEl) liveDraftsEl.textContent = data.workload?.draft_total ?? 0;
+      const livePendingEl = document.getElementById('live-stat-pending');
+      if (livePendingEl) livePendingEl.textContent = data.workload?.pending_total ?? 0;
+      const liveDailyEl = document.getElementById('live-stat-daily');
+      if (liveDailyEl) {
+        liveDailyEl.textContent =
+          `${data.workload?.patients_with_daily_today ?? 0} مريض / ${data.workload?.daily_entries_today ?? 0} بند`;
+      }
 
       const users = data.users || [];
       usersBody.innerHTML = users.length
@@ -118,10 +124,14 @@
       if (policyEl) policyEl.textContent = data.policy || '';
 
       const summary = data.summary || {};
-      document.getElementById('approvals-pending-count')?.textContent = summary.pending_review ?? 0;
-      document.getElementById('approvals-summary-pending')?.textContent = summary.pending_review ?? 0;
-      document.getElementById('approvals-summary-draft')?.textContent = summary.draft ?? 0;
-      document.getElementById('approvals-summary-approved')?.textContent = summary.approved ?? 0;
+      const pendingCountEl = document.getElementById('approvals-pending-count');
+      if (pendingCountEl) pendingCountEl.textContent = summary.pending_review ?? 0;
+      const summaryPendingEl = document.getElementById('approvals-summary-pending');
+      if (summaryPendingEl) summaryPendingEl.textContent = summary.pending_review ?? 0;
+      const summaryDraftEl = document.getElementById('approvals-summary-draft');
+      if (summaryDraftEl) summaryDraftEl.textContent = summary.draft ?? 0;
+      const summaryApprovedEl = document.getElementById('approvals-summary-approved');
+      if (summaryApprovedEl) summaryApprovedEl.textContent = summary.approved ?? 0;
 
       const rows = data.rows || [];
       const canApprove = typeof can === 'function' && can('invoices.approve');

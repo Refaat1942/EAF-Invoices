@@ -49,6 +49,7 @@ function parseAllowedOrigins() {
 }
 
 function buildCorsMiddleware() {
+  const cors = require('cors');
   let allowedList = [];
   try {
     allowedList = parseAllowedOrigins() || [];
@@ -56,7 +57,7 @@ function buildCorsMiddleware() {
     allowedList = [];
   }
   if (!allowedList.length && !isProduction()) {
-    return { origin: true, credentials: true };
+    return cors({ origin: true, credentials: true });
   }
 
   const allowed = new Set(allowedList);
@@ -69,7 +70,6 @@ function buildCorsMiddleware() {
     }
   }
 
-  const cors = require('cors');
   return cors((req, callback) => {
     const opts = { origin: true, credentials: true };
     const origin = req.headers.origin;

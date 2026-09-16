@@ -464,12 +464,6 @@ async function runMigrations() {
     await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
   }
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS serial_scope VARCHAR(20)`);
-  await query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_one_open_per_patient
-    ON invoices (TRIM(file_number))
-    WHERE status IN ('draft', 'pending_review')
-      AND COALESCE(TRIM(file_number), '') <> ''
-  `);
   await query(`DROP INDEX IF EXISTS idx_invoices_fiscal_serial`);
   await query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_fiscal_serial
@@ -479,12 +473,17 @@ async function runMigrations() {
 
   const { syncSerialCountersFromInvoices, syncPatientFileCountersFromPatients } = require('../services/serialService');
   await syncSerialCountersFromInvoices();
-  await syncPatientFileCountersFromPatients();
 
   // Phase 8 — draft workflow, patients, user permissions
   await query(`ALTER TABLE invoices ALTER COLUMN serial_number DROP NOT NULL`);
   await query(`ALTER TABLE invoices ALTER COLUMN qr_token DROP NOT NULL`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS status VARCHAR(30) DEFAULT 'draft'`);
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_one_open_per_patient
+    ON invoices (TRIM(file_number))
+    WHERE status IN ('draft', 'pending_review')
+      AND COALESCE(TRIM(file_number), '') <> ''
+  `);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
@@ -577,6 +576,10 @@ async function runMigrations() {
   await query(
     `ALTER TABLE patients ADD COLUMN IF NOT EXISTS patient_type VARCHAR(20) NOT NULL DEFAULT 'internal'`
   );
+  {
+    const { syncPatientFileCountersFromPatients } = require('../services/serialService');
+    await syncPatientFileCountersFromPatients();
+  }
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS floor TEXT DEFAULT ''`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS age INTEGER`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS disability_degree TEXT DEFAULT ''`);
@@ -694,7 +697,7 @@ async function runMigrations() {
       metadata JSONB DEFAULT '{}'::jsonb,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(price_list_id, category_id, code)
+      UNIQUE(price_list_id, code)
     )
   `);
 
@@ -770,11 +773,6 @@ async function runMigrations() {
   await query(`CREATE INDEX IF NOT EXISTS idx_services_price_list ON services(price_list_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_service_categories_list ON service_categories(price_list_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_invoice_items_service ON invoice_items(service_id)`);
-  await query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_items_daily_line_unique
-    ON invoice_items (invoice_id, daily_entry_line_id)
-    WHERE daily_entry_line_id IS NOT NULL
-  `);
 
   const pricingSettings = [
     ['administrative_fee_rate', '12'],
@@ -792,6 +790,7 @@ async function runMigrations() {
     );
   }
 
+  await migrateServiceCodeUniqueConstraint();
   const { seedDefaultPriceList } = require('../database/seeds/seedPriceList');
   await seedDefaultPriceList();
 
@@ -1006,6 +1005,11 @@ async function runMigrations() {
     const name = col.split(' ')[0];
     await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
   }
+  await query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_invoice_items_daily_line_unique
+    ON invoice_items (invoice_id, daily_entry_line_id)
+    WHERE daily_entry_line_id IS NOT NULL
+  `);
 
   const suppliesSnapshotColumns = [
     'cost_price_snapshot NUMERIC(14,2)',
@@ -1125,8 +1129,6 @@ async function runMigrations() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
-
-  await migrateServiceCodeUniqueConstraint();
 
   await seedLookupTables();
 }
