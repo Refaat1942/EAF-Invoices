@@ -4457,10 +4457,14 @@ async function loadInvoiceSerialSection() {
     if (!res.ok) throw new Error(data.error || 'تعذر تحميل ترقيم الفواتير');
 
     if (policyEl) policyEl.textContent = data.policy || '';
-    document.getElementById('invoice-serial-total')?.textContent = data.summary?.total_invoices ?? '—';
-    document.getElementById('invoice-serial-with')?.textContent = data.summary?.with_serial ?? '—';
-    document.getElementById('invoice-serial-without')?.textContent = data.summary?.without_serial ?? '—';
-    document.getElementById('invoice-serial-violations')?.textContent = data.summary?.violation_count ?? '0';
+    const serialTotalEl = document.getElementById('invoice-serial-total');
+    if (serialTotalEl) serialTotalEl.textContent = data.summary?.total_invoices ?? '—';
+    const serialWithEl = document.getElementById('invoice-serial-with');
+    if (serialWithEl) serialWithEl.textContent = data.summary?.with_serial ?? '—';
+    const serialWithoutEl = document.getElementById('invoice-serial-without');
+    if (serialWithoutEl) serialWithoutEl.textContent = data.summary?.without_serial ?? '—';
+    const serialViolationsEl = document.getElementById('invoice-serial-violations');
+    if (serialViolationsEl) serialViolationsEl.textContent = data.summary?.violation_count ?? '0';
 
     const warnings = [];
     if ((data.summary?.violation_count || 0) > 0) {

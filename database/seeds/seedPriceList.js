@@ -78,7 +78,7 @@ async function importPriceListPayload(payload, actor = null, options = {}) {
         price_list_id, category_id, code, name, description, unit, price, price_type,
         variable_price_note, discountable, administrative_fee_applicable, is_active, sort_order, notes, metadata
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,$12,$13,$14::jsonb)
-      ON CONFLICT (price_list_id, code) DO UPDATE SET
+      ON CONFLICT (price_list_id, (COALESCE(category_id, 0)), code) DO UPDATE SET
         category_id = EXCLUDED.category_id,
         name = EXCLUDED.name,
         description = EXCLUDED.description,
