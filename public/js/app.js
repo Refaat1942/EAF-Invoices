@@ -283,6 +283,8 @@ async function checkAuth() {
     }
     currentUser = await res.json();
     sessionStorage.removeItem('eaf_login_ok');
+    const bootStatus = document.getElementById('login-boot-status');
+    if (bootStatus) bootStatus.textContent = 'تم التحقق من الجلسة — جاري فتح النظام…';
     showApp();
   } catch (err) {
     if (sessionStorage.getItem('eaf_login_ok') === '1') {
