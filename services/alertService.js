@@ -36,11 +36,30 @@ async function createAlert(alert = {}, client = null) {
   return rows[0];
 }
 
+const ORPHANED_ALERTS_SQL = `
+  (
+    (entity_type = 'invoice' AND entity_id IS NOT NULL AND entity_id <> ''
+      AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.id::text = sa.entity_id))
+    OR (entity_type = 'patient' AND entity_id IS NOT NULL AND entity_id <> ''
+      AND NOT EXISTS (SELECT 1 FROM patients p WHERE p.file_number::text = sa.entity_id))
+  )
+`;
+
+async function cleanupOrphanedAlerts() {
+  const { rows } = await query(
+    `UPDATE system_alerts sa
+     SET is_read = TRUE, read_at = COALESCE(read_at, NOW())
+     WHERE is_read = FALSE AND ${ORPHANED_ALERTS_SQL}
+     RETURNING id`
+  );
+  return rows.length;
+}
+
 async function listAlerts(filters = {}) {
   const limit = Math.min(Math.max(Number(filters.limit) || 30, 1), 100);
   const offset = Math.max(Number(filters.offset) || 0, 0);
   const params = [];
-  const where = [];
+  const where = [`NOT ${ORPHANED_ALERTS_SQL}`];
 
   if (filters.unread_only === true || filters.unread_only === 'true') {
     where.push('is_read = FALSE');
@@ -52,13 +71,13 @@ async function listAlerts(filters = {}) {
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const countRes = await query(
-    `SELECT COUNT(*)::int AS total FROM system_alerts ${whereSql}`,
+    `SELECT COUNT(*)::int AS total FROM system_alerts sa ${whereSql}`,
     params
   );
   params.push(limit, offset);
   const { rows } = await query(
     `SELECT id, created_at, alert_type, severity, title, message, entity_type, entity_id, is_read, read_at, details
-     FROM system_alerts
+     FROM system_alerts sa
      ${whereSql}
      ORDER BY is_read ASC, created_at DESC, id DESC
      LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -74,7 +93,10 @@ async function listAlerts(filters = {}) {
 }
 
 async function getUnreadAlertCount() {
-  const { rows } = await query(`SELECT COUNT(*)::int AS c FROM system_alerts WHERE is_read = FALSE`);
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS c FROM system_alerts sa
+     WHERE is_read = FALSE AND NOT ${ORPHANED_ALERTS_SQL}`
+  );
   return rows[0]?.c || 0;
 }
 
@@ -161,6 +183,7 @@ async function evaluateInvoiceAlerts(invoice = {}, totals = {}) {
 }
 
 async function runSystemHealthChecks() {
+  const orphaned_cleaned = await cleanupOrphanedAlerts();
   const created = [];
 
   const pendingRes = await query(
@@ -198,7 +221,7 @@ async function runSystemHealthChecks() {
     );
   }
 
-  return created.filter(Boolean);
+  return { created: created.filter(Boolean), orphaned_cleaned };
 }
 
 module.exports = {
@@ -209,4 +232,5 @@ module.exports = {
   markAllAlertsRead,
   evaluateInvoiceAlerts,
   runSystemHealthChecks,
+  cleanupOrphanedAlerts,
 };

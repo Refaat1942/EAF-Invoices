@@ -8,6 +8,7 @@ const {
   approveInvoice,
   deleteInvoice,
   getReportsSummary,
+  getInvoiceSerialNumberingAudit,
   prepareCalculationData,
 } = require('../services/invoiceService');
 const { listInvoiceTypes } = require('../services/invoiceTypeService');
@@ -122,6 +123,14 @@ router.get('/reports/supplies-markup', requirePermission('reports.view'), async 
   try {
     const { getSuppliesMarkupReport } = require('../services/reportService');
     res.json(await getSuppliesMarkupReport(reportFilters(req)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/serial-numbering/audit', requirePermission('settings.*'), async (req, res) => {
+  try {
+    res.json(await getInvoiceSerialNumberingAudit({ limit: req.query.limit }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -410,65 +410,33 @@ async function getSectionByCode(sectionCode) {
   throw err;
 }
 
-async function searchDailyPickerItems({ section_code, search, page = 1, limit = 20 }) {
-  const section = await getSectionByCode(section_code);
-  const pageNum = Math.max(1, Number(page) || 1);
-  const maxLimit = Math.min(50, Math.max(1, Number(limit) || 20));
-  const q = String(search || '').trim();
-  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
-  const searchCategories = catalogSearchCategoriesForSection(section);
-  const catalogCategory =
-    searchCategories.length === 1
-      ? searchCategories[0]
-      : section.catalog_category || catalogCategoryForSection(section);
+const SECTION_TAB_IMPORT = {
+  xray_total: 'radiology',
+  analyses: 'lab',
+  consultant_exam: 'exams',
+  specialist_exam: 'exams',
+  sessions: 'sessions',
+  other: 'other',
+  accommodation: 'stay',
+  operation_pick: 'operations',
+};
 
-  if (searchCategories.length) {
-    const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
-    if (q.length < 2) {
-      return {
-        rows: [],
-        total: 0,
-        page: pageNum,
-        limit: maxLimit,
-        totalPages: 1,
-        kind: 'catalog',
-        min_search: 2,
-        catalog_categories: searchCategories,
-      };
-    }
-    const result = await listCatalogItemsPaginated({
-      category: searchCategories.length === 1 ? searchCategories[0] : undefined,
-      categories: searchCategories.length > 1 ? searchCategories : undefined,
-      search: q,
-      page: pageNum,
-      limit: maxLimit,
-      active_only: true,
-      sort: 'name',
-      order: 'asc',
-    });
-    return {
-      rows: result.rows.map(catalogItemToPicker),
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-      totalPages: result.totalPages,
-      kind: 'catalog',
-      catalog_category: catalogCategory,
-      catalog_categories: searchCategories,
-      hint:
-        result.total === 0
-          ? `لا توجد بنود — ارفع شيت «الخدمات الطبية» أو «إجراءات وحقن الألم» من زر الاستيراد`
-          : null,
-    };
+function catalogImportHintForSection(section) {
+  const { TAB_CATALOG_IMPORT } = require('./dailyCatalogCategories');
+  const tab = SECTION_TAB_IMPORT[String(section?.code || '').trim()];
+  const cfg = tab ? TAB_CATALOG_IMPORT[tab] : null;
+  if (cfg?.label) {
+    return `لا توجد بنود في كتالوج القسم — استخدم «${cfg.label}» من تبويب الفاتورة، أو ارفع اللائحة من إدارة الأسعار`;
   }
+  const cat = section?.catalog_category;
+  if (cat) return `لا توجد بنود — ارفع شيت «${cat}» من زر الاستيراد في تبويب القسم`;
+  return 'لا توجد بنود — ارفع ملف القسم من زر الاستيراد';
+}
 
-  if (section.input_type !== 'amount' || !section.category_code) {
-    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'none' };
-  }
-
+async function searchPriceListPickerItems(section, { q, pageNum, maxLimit }) {
   const priceList = await getDefaultPriceList();
   if (!priceList) {
-    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'service' };
+    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'service', catalog_total: 0 };
   }
 
   const categoryCodes = getSectionPickerCategoryCodes(section);
@@ -482,8 +450,9 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
       limit: maxLimit,
       totalPages: 1,
       kind: 'service',
+      catalog_total: 0,
       empty_catalog: true,
-      hint: `أقسام «${categoryCodes.join(' / ')}» غير موجودة — ارفع ملف القسم من زر الاستيراد أعلاه`,
+      hint: `أقسام «${categoryCodes.join(' / ')}» غير موجودة — ارفع ملف القسم من إدارة الأسعار`,
     };
   }
 
@@ -557,6 +526,108 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
     empty_catalog: catalog_total === 0,
     no_match: catalog_total > 0 && total === 0,
   };
+}
+
+async function searchDailyPickerItems({ section_code, search, page = 1, limit = 20 }) {
+  const section = await getSectionByCode(section_code);
+  const pageNum = Math.max(1, Number(page) || 1);
+  const maxLimit = Math.min(50, Math.max(1, Number(limit) || 20));
+  const q = String(search || '').trim();
+  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+  const searchCategories = catalogSearchCategoriesForSection(section);
+  const catalogCategory =
+    searchCategories.length === 1
+      ? searchCategories[0]
+      : section.catalog_category || catalogCategoryForSection(section);
+
+  if (searchCategories.length) {
+    const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
+    if (q.length < 2) {
+      return {
+        rows: [],
+        total: 0,
+        page: pageNum,
+        limit: maxLimit,
+        totalPages: 1,
+        kind: 'catalog',
+        min_search: 2,
+        catalog_categories: searchCategories,
+      };
+    }
+    const result = await listCatalogItemsPaginated({
+      category: searchCategories.length === 1 ? searchCategories[0] : undefined,
+      categories: searchCategories.length > 1 ? searchCategories : undefined,
+      search: q,
+      page: pageNum,
+      limit: maxLimit,
+      active_only: true,
+      sort: 'name',
+      order: 'asc',
+    });
+    if (result.total > 0) {
+      return {
+        rows: result.rows.map(catalogItemToPicker),
+        total: result.total,
+        page: result.page,
+        limit: result.limit,
+        totalPages: result.totalPages,
+        kind: 'catalog',
+        catalog_category: catalogCategory,
+        catalog_categories: searchCategories,
+        hint: null,
+      };
+    }
+
+    const priceListResult = await searchPriceListPickerItems(section, { q, pageNum, maxLimit });
+    if (priceListResult.total > 0) {
+      const { TAB_CATALOG_IMPORT } = require('./dailyCatalogCategories');
+      const tab = SECTION_TAB_IMPORT[String(section.code || '').trim()];
+      const importLabel = tab ? TAB_CATALOG_IMPORT[tab]?.label : null;
+      return {
+        ...priceListResult,
+        source: 'price_list_fallback',
+        catalog_category: catalogCategory,
+        catalog_categories: searchCategories,
+        hint: importLabel
+          ? `يُعرض من اللائحة العامة — يُفضَّل «${importLabel}» لربط البنود بكتالوج القسم`
+          : 'يُعرض من اللائحة العامة — يُفضَّل رفع شيت القسم من تبويب الفاتورة',
+      };
+    }
+
+    const catalogCountRes = await listCatalogItemsPaginated({
+      category: searchCategories.length === 1 ? searchCategories[0] : undefined,
+      categories: searchCategories.length > 1 ? searchCategories : undefined,
+      page: 1,
+      limit: 1,
+      active_only: true,
+    });
+    const catalog_total = catalogCountRes.total || 0;
+    return {
+      rows: [],
+      total: 0,
+      page: pageNum,
+      limit: maxLimit,
+      totalPages: 1,
+      kind: 'catalog',
+      catalog_category: catalogCategory,
+      catalog_categories: searchCategories,
+      catalog_total,
+      price_list_total: priceListResult.catalog_total || 0,
+      empty_catalog: catalog_total === 0 && (priceListResult.catalog_total || 0) === 0,
+      no_match: catalog_total > 0 || (priceListResult.catalog_total || 0) > 0,
+      hint: catalogImportHintForSection(section),
+    };
+  }
+
+  if (section.input_type !== 'amount' || !section.category_code) {
+    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'none' };
+  }
+
+  const priceListResult = await searchPriceListPickerItems(section, { q, pageNum, maxLimit });
+  if (priceListResult.hint && priceListResult.empty_catalog) {
+    priceListResult.hint = `${priceListResult.hint} أو من إدارة الأسعار`;
+  }
+  return priceListResult;
 }
 
 async function listDailyPickerServicesByCategory({ category_code, category_codes, limit = 200 } = {}) {

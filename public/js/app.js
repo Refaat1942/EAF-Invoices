@@ -260,6 +260,7 @@ function showApp() {
     hubWelcome.textContent = `مرحبًا ${currentUser.full_name || currentUser.username}`;
   }
   if (typeof initAuditAdmin === 'function') initAuditAdmin();
+  if (typeof initOpsCenter === 'function') initOpsCenter();
   if (typeof initAssistant === 'function') initAssistant();
   applyPermissions();
   bindEvents();
@@ -564,6 +565,16 @@ function applyPermissions() {
   if (hubReports) hubReports.style.display = can('reports.view') ? '' : 'none';
   const hubAnalytics = document.getElementById('hub-tile-analytics');
   if (hubAnalytics) hubAnalytics.style.display = can('reports.view') ? '' : 'none';
+
+  const hubLive = document.getElementById('hub-tile-live-activity');
+  if (hubLive) hubLive.style.display = can('settings.*') ? '' : 'none';
+
+  const hubApprovals = document.getElementById('hub-tile-approvals');
+  const showApprovals = can('invoices.approve') || can('settings.*');
+  if (hubApprovals) hubApprovals.style.display = showApprovals ? '' : 'none';
+  if (showApprovals && typeof window.refreshApprovalsBadge === 'function') {
+    window.refreshApprovalsBadge();
+  }
 
   document.getElementById('import-daily-charges-btn').style.display =
     can('invoices.create') || can('invoices.edit') ? '' : 'none';
@@ -3246,7 +3257,18 @@ function switchView(view, options = {}) {
   const section = document.getElementById(`view-${view}`);
   if (section) section.style.display = 'block';
 
-  if (view === 'home') return;
+  if (typeof window.stopOpsCenterPolls === 'function') window.stopOpsCenterPolls();
+
+  if (view === 'home') {
+    if (typeof window.refreshApprovalsBadge === 'function') window.refreshApprovalsBadge();
+    return;
+  }
+  if (view === 'live-activity' && typeof window.loadLiveActivityView === 'function') {
+    window.loadLiveActivityView();
+  }
+  if (view === 'approvals' && typeof window.loadApprovalsView === 'function') {
+    window.loadApprovalsView();
+  }
   if (view === 'list') {
     initInvoicesListDefaultDates();
     loadInvoicesList();
@@ -4207,6 +4229,7 @@ async function loadSettingsPage() {
 
     if (section === 'pricing' && can('settings.*')) await loadPricingSection();
     if (section === 'backup' && can('settings.*')) await loadBackupSection();
+    if (section === 'invoice-serial' && can('settings.*')) await loadInvoiceSerialSection();
     if (section === 'doctors' && typeof loadDoctorsSection === 'function') await loadDoctorsSection();
     if (section === 'item-catalog' && typeof loadItemCatalogSection === 'function') await loadItemCatalogSection();
 
@@ -4255,6 +4278,7 @@ function showSettingsSection(section) {
 
   if (section === 'pricing' && can('settings.*')) loadPricingSection();
   if (section === 'backup' && can('settings.*')) loadBackupSection();
+  if (section === 'invoice-serial' && can('settings.*')) loadInvoiceSerialSection();
   if (section === 'doctors' && typeof loadDoctorsSection === 'function') loadDoctorsSection();
   if (section === 'item-catalog' && typeof loadItemCatalogSection === 'function') loadItemCatalogSection();
   if (section === 'audit-monitor' && typeof loadAuditMonitorSection === 'function') loadAuditMonitorSection();
@@ -4273,6 +4297,99 @@ function formatBackupDate(value) {
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString('ar-EG');
 }
+
+function invoiceSerialScopeLabel(scope) {
+  if (scope === 'external') return 'خارجي';
+  if (scope === 'internal') return 'داخلي';
+  if (scope === 'legacy') return 'قديم';
+  return scope || '—';
+}
+
+async function loadInvoiceSerialSection() {
+  if (!can('settings.*')) return;
+  const policyEl = document.getElementById('invoice-serial-policy');
+  const warningsEl = document.getElementById('invoice-serial-warnings');
+  const countersBody = document.getElementById('invoice-serial-counters-body');
+  const listBody = document.getElementById('invoice-serial-list-body');
+  if (!listBody) return;
+
+  try {
+    const res = await apiFetch('/api/invoices/serial-numbering/audit');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'تعذر تحميل ترقيم الفواتير');
+
+    if (policyEl) policyEl.textContent = data.policy || '';
+    document.getElementById('invoice-serial-total')?.textContent = data.summary?.total_invoices ?? '—';
+    document.getElementById('invoice-serial-with')?.textContent = data.summary?.with_serial ?? '—';
+    document.getElementById('invoice-serial-without')?.textContent = data.summary?.without_serial ?? '—';
+    document.getElementById('invoice-serial-violations')?.textContent = data.summary?.violation_count ?? '0';
+
+    const warnings = [];
+    if ((data.summary?.violation_count || 0) > 0) {
+      warnings.push(
+        `<div class="alert alert-danger small mb-2">توجد ${data.summary.violation_count} فاتورة بترقيم رسمي دون اعتماد — يجب مراجعتها.</div>`
+      );
+    }
+    if ((data.summary?.duplicate_count || 0) > 0) {
+      warnings.push(
+        `<div class="alert alert-danger small mb-2">توجد ${data.summary.duplicate_count} تكرار في أرقام التسلسل.</div>`
+      );
+    }
+    if (!warnings.length) {
+      warnings.push('<div class="alert alert-success small mb-2">الترقيم سليم — الأرقام الرسمية تُمنح عند الاعتماد فقط.</div>');
+    }
+    if (warningsEl) warningsEl.innerHTML = warnings.join('');
+
+    if (countersBody) {
+      const counters = data.counters || [];
+      countersBody.innerHTML = counters.length
+        ? counters
+            .map(
+              (row) => `<tr>
+              <td>${escapeHtml(String(row.fiscal_year))}</td>
+              <td>${escapeHtml(invoiceSerialScopeLabel(row.patient_scope))}</td>
+              <td class="fw-bold">${escapeHtml(String(row.last_number))}</td>
+            </tr>`
+            )
+            .join('')
+        : '<tr><td colspan="3" class="text-muted">لا توجد عدادات بعد</td></tr>';
+    }
+
+    const invoices = data.invoices || [];
+    listBody.innerHTML = invoices.length
+      ? invoices
+          .map((inv) => {
+            const statusClass =
+              inv.status === 'approved'
+                ? 'bg-success'
+                : inv.status === 'pending_review'
+                  ? 'bg-warning text-dark'
+                  : 'bg-secondary';
+            const serialCell = inv.serial_number
+              ? escapeHtml(inv.serial_number)
+              : `<span class="text-muted">#${escapeHtml(String(inv.id))}</span>`;
+            return `<tr>
+              <td>${escapeHtml(String(inv.id))}</td>
+              <td class="fw-bold">${serialCell}</td>
+              <td><span class="badge ${statusClass}">${escapeHtml(inv.status_label || inv.status || '—')}</span></td>
+              <td>${escapeHtml(inv.patient_name || '—')}</td>
+              <td>${escapeHtml(inv.file_number || '—')}</td>
+              <td>${escapeHtml(inv.serial_sequence != null ? String(inv.serial_sequence) : '—')}</td>
+              <td>${escapeHtml(inv.fiscal_year != null ? String(inv.fiscal_year) : '—')}</td>
+              <td class="small">${escapeHtml(formatBackupDate(inv.reviewed_at))}</td>
+            </tr>`;
+          })
+          .join('')
+      : '<tr><td colspan="8" class="text-muted">لا توجد فواتير</td></tr>';
+  } catch (err) {
+    if (listBody) listBody.innerHTML = `<tr><td colspan="8" class="text-danger">${escapeHtml(err.message)}</td></tr>`;
+    showToast(err.message, 'danger');
+  }
+}
+
+document.getElementById('invoice-serial-refresh-btn')?.addEventListener('click', () => {
+  if (can('settings.*')) loadInvoiceSerialSection();
+});
 
 async function loadBackupSection() {
   if (!can('settings.*')) return;
@@ -4566,6 +4683,13 @@ async function quickApproveInvoice(id) {
     if (!res.ok) throw new Error(data.error);
     showToast(`تم الاعتماد - ${data.serial_number}`, 'success');
     loadInvoicesList();
+    if (typeof window.refreshApprovalsBadge === 'function') window.refreshApprovalsBadge();
+    if (
+      typeof window.loadApprovalsView === 'function' &&
+      document.getElementById('view-approvals')?.style.display !== 'none'
+    ) {
+      window.loadApprovalsView();
+    }
   } catch (err) {
     showToast(err.message, 'danger');
   }

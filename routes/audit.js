@@ -7,7 +7,9 @@ const {
   markAlertRead,
   markAllAlertsRead,
   runSystemHealthChecks,
+  cleanupOrphanedAlerts,
 } = require('../services/alertService');
+const { getLiveActivity, getApprovalsQueue, getApprovalsCount } = require('../services/opsCenterService');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -75,9 +77,44 @@ router.post('/alerts/read-all', requireAnyPermission('invoices.view', 'daily_cha
 
 router.post('/health-check', requirePermission('settings.*'), async (req, res) => {
   try {
-    const created = await runSystemHealthChecks();
+    const { created, orphaned_cleaned } = await runSystemHealthChecks();
     const count = await getUnreadAlertCount();
-    res.json({ created: created.length, unread_count: count });
+    res.json({ created: created.length, orphaned_cleaned, unread_count: count });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/live-activity', requirePermission('settings.*'), async (req, res) => {
+  try {
+    res.json(await getLiveActivity({ hours: req.query.hours, limit: req.query.limit }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/approvals', requireAnyPermission('invoices.approve', 'settings.*'), async (req, res) => {
+  try {
+    res.json(await getApprovalsQueue({ limit: req.query.limit }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/approvals/count', requireAnyPermission('invoices.approve', 'settings.*'), async (req, res) => {
+  try {
+    const count = await getApprovalsCount();
+    res.json({ count });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/alerts/cleanup-orphans', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const cleaned = await cleanupOrphanedAlerts();
+    const count = await getUnreadAlertCount();
+    res.json({ cleaned, unread_count: count });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

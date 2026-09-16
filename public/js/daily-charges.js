@@ -1449,7 +1449,6 @@ function updateDailyPatientSummaryTable(ctx) {
   const remaining = inv.remaining ?? inv.outstanding_amount ?? 0;
   const collected = inv.total_collected ?? 0;
   const finalTotal = inv.final_total ?? 0;
-  const dailyTotal = ctx?.daily_summary?.daily_total_sum ?? 0;
   const invLabel = inv.serial_number ? inv.serial_number : inv.id ? `#${inv.id}` : '—';
   const statusLabel = inv.status_label || inv.status || '—';
   const statusClass =
@@ -1501,10 +1500,10 @@ function updateDailyPatientSummaryTable(ctx) {
       <td>${dailyEscapeHtml(period)}</td>
     </tr>
     <tr>
-      <th class="daily-summary-label text-nowrap" title="مجموع حركة المريض اليومية المسجّلة (كل الأقسام)">إجمالي الحركة</th>
-      <td class="fw-bold amount-total" title="مجموع بنود الحركة اليومية">${dailyFmt(dailyTotal)}</td>
       <th class="daily-summary-label text-nowrap">إجمالي الفاتورة</th>
       <td class="fw-bold text-primary amount-total">${dailyFmt(finalTotal)}</td>
+      <th class="daily-summary-label text-nowrap"></th>
+      <td></td>
     </tr>
     <tr class="table-warning">
       <th class="daily-summary-label text-nowrap">رصيد الحساب</th>
@@ -2951,7 +2950,6 @@ function renderDailyInvoiceReviewPanel() {
       <div class="col-12 mt-2"><h6 class="fw-black text-primary mb-2">ملخص الفاتورة</h6></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">رقم الفاتورة</span><div class="review-field fw-bold">${dailyEscapeHtml(inv.serial_number ? inv.serial_number : `#${inv.id}`)}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">الحالة</span><div class="review-field"><span class="badge ${statusClass}">${dailyEscapeHtml(inv.status_label || inv.status || '—')}</span></div></div>
-      <div class="col-md-3"><span class="text-muted d-block mb-1">إجمالي الحركة</span><div class="review-field fw-bold">${dailyFmt(ctx.daily_summary?.daily_total_sum ?? 0)}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">إجمالي الفاتورة</span><div class="review-field fw-bold text-primary">${dailyFmt(inv.final_total ?? 0)}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">المحصل</span><div class="review-field fw-bold">${dailyFmt(inv.total_collected ?? 0)}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">المتبقي</span><div class="review-field fw-bold text-danger">${dailyFmt(inv.remaining ?? inv.outstanding_amount ?? 0)}</div></div>

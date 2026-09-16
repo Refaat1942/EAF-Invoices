@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
   <meta name="app-build" content="20260905c">
-  <link href="/css/style.css?v=20260916a" rel="stylesheet">
+  <link href="/css/style.css?v=20260916d" rel="stylesheet">
 </head>
 <body>
   <!-- Login Screen -->
@@ -91,6 +91,17 @@
           <span class="hub-tile-icon">📈</span>
           <span class="hub-tile-title">لوحة التحليلات</span>
           <span class="hub-tile-desc">مؤشرات وإحصائيات</span>
+        </button>
+        <button type="button" class="hub-tile hub-tile--red hub-tile--badge" data-view="approvals" id="hub-tile-approvals" data-perm="invoices.approve">
+          <span class="hub-tile-badge" id="hub-approvals-badge" hidden>0</span>
+          <span class="hub-tile-icon">✅</span>
+          <span class="hub-tile-title">مركز الاعتمادات</span>
+          <span class="hub-tile-desc">فواتير بانتظار المراجعة والاعتماد</span>
+        </button>
+        <button type="button" class="hub-tile hub-tile--slate" data-view="live-activity" id="hub-tile-live-activity" data-admin="1">
+          <span class="hub-tile-icon">📡</span>
+          <span class="hub-tile-title">النشاط المباشر</span>
+          <span class="hub-tile-desc">ماذا يفعل كل مستخدم الآن</span>
         </button>
         <button type="button" class="hub-tile hub-tile--slate" data-view="settings" id="hub-tile-settings">
           <span class="hub-tile-icon">⚙️</span>
@@ -601,6 +612,101 @@
       </div>
     </section>
 
+    <!-- Live activity -->
+    <section id="view-live-activity" class="view-section" style="display:none">
+      <div class="view-page-header mb-3 d-flex flex-wrap gap-2 align-items-center justify-content-between">
+        <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="small text-muted" id="live-activity-updated">—</span>
+          <button type="button" class="btn btn-sm btn-primary fw-bold" id="live-activity-refresh-btn">تحديث</button>
+        </div>
+      </div>
+      <div class="row g-3">
+        <div class="col-lg-4">
+          <div class="card shadow-sm h-100">
+            <div class="card-header bg-dark text-white fw-black">👥 المستخدمون</div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                  <thead class="table-light"><tr><th>المستخدم</th><th>الحالة</th><th>آخر نشاط</th></tr></thead>
+                  <tbody id="live-activity-users-body"><tr><td colspan="3" class="text-muted text-center">—</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-8">
+          <div class="card shadow-sm mb-3">
+            <div class="card-body py-2">
+              <div class="row g-2 small" id="live-activity-stats">
+                <div class="col-md-3"><span class="text-muted">نشط الآن:</span> <strong id="live-stat-active">—</strong></div>
+                <div class="col-md-3"><span class="text-muted">مسودات:</span> <strong id="live-stat-drafts">—</strong></div>
+                <div class="col-md-3"><span class="text-muted">بانتظار اعتماد:</span> <strong id="live-stat-pending">—</strong></div>
+                <div class="col-md-3"><span class="text-muted">حركة اليوم:</span> <strong id="live-stat-daily">—</strong></div>
+              </div>
+            </div>
+          </div>
+          <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white fw-black">🛰️ آخر الأحداث</div>
+            <div class="card-body p-0">
+              <div class="table-responsive ops-events-scroll">
+                <table class="table table-sm table-striped mb-0">
+                  <thead class="table-light sticky-top"><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>التفاصيل</th></tr></thead>
+                  <tbody id="live-activity-events-body"><tr><td colspan="4" class="text-muted text-center">—</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Approvals center -->
+    <section id="view-approvals" class="view-section" style="display:none">
+      <div class="view-page-header mb-3 d-flex flex-wrap gap-2 align-items-center justify-content-between">
+        <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="small text-muted" id="approvals-updated">—</span>
+          <button type="button" class="btn btn-sm btn-primary fw-bold" id="approvals-refresh-btn">تحديث</button>
+        </div>
+      </div>
+      <div class="card shadow-sm">
+        <div class="card-header bg-danger text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <span>✅ مركز الاعتمادات — فواتير بانتظار المراجعة</span>
+          <span class="badge bg-light text-danger fw-bold" id="approvals-pending-count">0</span>
+        </div>
+        <div class="card-body border-bottom">
+          <p class="small text-muted mb-2" id="approvals-policy">مسودة → إرسال للمراجعة → اعتماد نهائي</p>
+          <div class="row g-2 small">
+            <div class="col-md-4"><span class="text-muted">بانتظار الاعتماد:</span> <strong id="approvals-summary-pending" class="text-danger">—</strong></div>
+            <div class="col-md-4"><span class="text-muted">مسودات (لم تُرسل):</span> <strong id="approvals-summary-draft">—</strong></div>
+            <div class="col-md-4"><span class="text-muted">معتمدة:</span> <strong id="approvals-summary-approved" class="text-success">—</strong></div>
+          </div>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover table-striped mb-0">
+              <thead class="table-dark">
+                <tr>
+                  <th>الفاتورة</th>
+                  <th>المريض</th>
+                  <th>الملف</th>
+                  <th>النوع</th>
+                  <th>الإجمالي</th>
+                  <th>المحصل</th>
+                  <th>المتبقي</th>
+                  <th>أُرسلت</th>
+                  <th>بواسطة</th>
+                  <th>إجراءات</th>
+                </tr>
+              </thead>
+              <tbody id="approvals-queue-body"><tr><td colspan="10" class="text-center py-4 text-muted">—</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- List View -->
     <section id="view-list" class="view-section" style="display:none">
       <div class="view-page-header mb-3">
@@ -1067,6 +1173,11 @@
             <span class="hub-tile-title">الأسعار واللائحة</span>
             <span class="hub-tile-desc">استيراد وتعديل</span>
           </button>
+          <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="invoice-serial" data-admin="1">
+            <span class="hub-tile-icon">🔢</span>
+            <span class="hub-tile-title">ترقيم الفواتير</span>
+            <span class="hub-tile-desc">مراجعة التسلسل</span>
+          </button>
           <button type="button" class="hub-tile hub-tile--slate settings-section-tile" data-settings-section="backup" data-admin="1">
             <span class="hub-tile-icon">💾</span>
             <span class="hub-tile-title">النسخ الاحتياطي</span>
@@ -1373,6 +1484,49 @@
               <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2" id="item-catalog-pagination-wrap">
                 <small class="text-muted" id="item-catalog-pagination-info"></small>
                 <div class="btn-group btn-group-sm" id="item-catalog-pagination-controls"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 settings-panel" id="invoice-serial-settings-card" data-settings-section="invoice-serial" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-warning text-dark fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <span>🔢 ترقيم الفواتير — مراجعة التسلسل</span>
+              <button type="button" class="btn btn-sm btn-dark fw-bold" id="invoice-serial-refresh-btn">تحديث</button>
+            </div>
+            <div class="card-body">
+              <p class="alert alert-info small mb-3" id="invoice-serial-policy">يُمنح الرقم التسلسلي الرسمي للفاتورة فقط عند الاعتماد النهائي.</p>
+              <div class="row g-2 mb-3" id="invoice-serial-summary">
+                <div class="col-md-3"><span class="text-muted">إجمالي الفواتير:</span> <span id="invoice-serial-total" class="fw-bold">—</span></div>
+                <div class="col-md-3"><span class="text-muted">بترقيم رسمي:</span> <span id="invoice-serial-with" class="fw-bold text-success">—</span></div>
+                <div class="col-md-3"><span class="text-muted">بدون ترقيم (مسودة/مراجعة):</span> <span id="invoice-serial-without" class="fw-bold">—</span></div>
+                <div class="col-md-3"><span class="text-muted">مخالفات:</span> <span id="invoice-serial-violations" class="fw-bold text-danger">—</span></div>
+              </div>
+              <div id="invoice-serial-warnings" class="mb-3"></div>
+              <h6 class="fw-bold">عدادات السنة المالية</h6>
+              <div class="table-responsive mb-3">
+                <table class="table table-sm table-bordered">
+                  <thead class="table-light"><tr><th>السنة المالية</th><th>النطاق</th><th>آخر رقم</th></tr></thead>
+                  <tbody id="invoice-serial-counters-body"><tr><td colspan="3" class="text-muted">—</td></tr></tbody>
+                </table>
+              </div>
+              <h6 class="fw-bold">سجل الفواتير</h6>
+              <div class="table-responsive" style="max-height:420px;overflow:auto">
+                <table class="table table-sm table-striped table-hover">
+                  <thead class="table-light sticky-top">
+                    <tr>
+                      <th>المعرف</th>
+                      <th>الرقم المعروض</th>
+                      <th>الحالة</th>
+                      <th>المريض</th>
+                      <th>الملف</th>
+                      <th>التسلسل</th>
+                      <th>السنة المالية</th>
+                      <th>تاريخ الاعتماد</th>
+                    </tr>
+                  </thead>
+                  <tbody id="invoice-serial-list-body"><tr><td colspan="8" class="text-muted">—</td></tr></tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -2058,11 +2212,12 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
-  <script src="/js/app.js?v=20260916b"></script>
+  <script src="/js/app.js?v=20260916c"></script>
   <script src="/js/daily-picker.js?v=20260916a"></script>
-  <script src="/js/daily-charges.js?v=20260916b"></script>
+  <script src="/js/daily-charges.js?v=20260916c"></script>
   <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
+  <script src="/js/ops-center.js?v=20260916d"></script>
   <script src="/js/assistant.js?v=20260905b"></script>
   <script src="/js/analytics-dashboard.js?v=20260905b"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>

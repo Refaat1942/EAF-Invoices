@@ -113,7 +113,8 @@
       try {
         const res = await apiFetch(`${API}/health-check`, { method: 'POST' });
         const data = await res.json();
-        showToast(`فحص النظام: ${data.created} تنبيه جديد`, 'info');
+        const orphanMsg = data.orphaned_cleaned ? ` — أُزيل ${data.orphaned_cleaned} تنبيه يتيم` : '';
+        showToast(`فحص النظام: ${data.created} تنبيه جديد${orphanMsg}`, 'info');
         await loadAlertsPanel();
         await refreshAlertBadge();
       } catch (err) {

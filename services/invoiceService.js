@@ -1803,6 +1803,73 @@ async function getReportsSummary(filters = {}) {
   return getSummaryReport(filters);
 }
 
+async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
+  const maxLimit = Math.min(1000, Math.max(1, Number(limit) || 500));
+  const statusLabels = {
+    draft: 'مسودة',
+    pending_review: 'بانتظار المراجعة',
+    approved: 'معتمدة',
+  };
+
+  const countersRes = await query(
+    `SELECT fiscal_year, patient_scope, last_number
+     FROM invoice_serial_counters
+     ORDER BY fiscal_year DESC, patient_scope`
+  );
+
+  const violationsRes = await query(
+    `SELECT id, status, serial_number, patient_name, file_number, fiscal_year, serial_sequence
+     FROM invoices
+     WHERE serial_number IS NOT NULL AND status <> 'approved'
+     ORDER BY id DESC
+     LIMIT 100`
+  );
+
+  const duplicatesRes = await query(
+    `SELECT fiscal_year, serial_sequence, COALESCE(serial_scope, 'legacy') AS serial_scope,
+            COUNT(*)::int AS count, ARRAY_AGG(id ORDER BY id) AS invoice_ids
+     FROM invoices
+     WHERE serial_number IS NOT NULL
+     GROUP BY fiscal_year, serial_sequence, COALESCE(serial_scope, 'legacy')
+     HAVING COUNT(*) > 1`
+  );
+
+  const countRes = await query(`SELECT COUNT(*)::int AS total FROM invoices`);
+  const { rows } = await query(
+    `SELECT id, status, serial_number, fiscal_year, serial_sequence, serial_scope,
+            issue_date, reviewed_at, created_at, updated_at, patient_name, file_number, patient_type
+     FROM invoices
+     ORDER BY COALESCE(fiscal_year, 0) DESC, COALESCE(serial_sequence, 0) DESC, id DESC
+     LIMIT $1`,
+    [maxLimit]
+  );
+
+  const invoices = rows.map((row) => ({
+    ...row,
+    display_number: row.serial_number || `#${row.id}`,
+    status_label: statusLabels[row.status] || row.status,
+    serial_assigned: Boolean(row.serial_number),
+    serial_on_approve_only: !row.serial_number || row.status === 'approved',
+  }));
+
+  return {
+    policy:
+      'يُمنح الرقم التسلسلي الرسمي للفاتورة فقط عند الاعتماد النهائي. المسودات والفواتير قيد المراجعة تعرض #معرف داخلي حتى الاعتماد.',
+    counters: countersRes.rows,
+    violations: violationsRes.rows,
+    duplicates: duplicatesRes.rows,
+    invoices,
+    summary: {
+      total_invoices: countRes.rows[0]?.total || 0,
+      listed: invoices.length,
+      with_serial: invoices.filter((r) => r.serial_number).length,
+      without_serial: invoices.filter((r) => !r.serial_number).length,
+      violation_count: violationsRes.rows.length,
+      duplicate_count: duplicatesRes.rows.length,
+    },
+  };
+}
+
 module.exports = {
   getInvoiceById,
   getInvoiceByToken,
@@ -1811,6 +1878,7 @@ module.exports = {
   approveInvoice,
   deleteInvoice,
   getReportsSummary,
+  getInvoiceSerialNumberingAudit,
   prepareCalculationData,
   syncInvoiceDailyCharges,
   syncInvoiceAfterDailyChange,

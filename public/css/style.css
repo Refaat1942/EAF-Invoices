@@ -1371,6 +1371,32 @@ body {
   border-color: #c62828;
 }
 
+.hub-tile--badge {
+  position: relative;
+}
+
+.hub-tile-badge {
+  position: absolute;
+  top: 0.55rem;
+  left: 0.55rem;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: #c62828;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1.5rem;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.ops-events-scroll {
+  max-height: 520px;
+  overflow: auto;
+}
+
 .settings-hub-grid {
   max-width: 1200px;
 }

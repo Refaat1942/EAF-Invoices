@@ -6,6 +6,7 @@
  *
  * Keeps: price lists, services, daily catalog, users, settings, stay types,
  * invoice types, payment methods, contracted entities, discount exclusions.
+ * Also clears invoice/patient system alerts (orphaned after data wipe).
  *
  * Usage (interactive — type the database name shown on screen to confirm):
  *   node scripts/clear-patient-invoice-data.js
@@ -43,6 +44,7 @@ async function clearPatientInvoiceData() {
   };
 
   await withTransaction(async (client) => {
+    await client.query(`DELETE FROM system_alerts WHERE entity_type IN ('invoice', 'patient')`);
     await client.query('DELETE FROM invoices');
     await client.query('DELETE FROM patients');
     await client.query('DELETE FROM invoice_serial_counter');
