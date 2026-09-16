@@ -5,6 +5,7 @@ const PRICING_API = '/api/pricing';
 const AUTH_API = '/api/auth';
 const USERS_API = '/api/users';
 const PATIENTS_API = '/api/patients';
+let currentUser = null;
 let currentInvoiceId = null;
 let lastLoadedInvoice = null;
 let currentInvoiceStatus = null;
@@ -184,12 +185,32 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('login-form').addEventListener('submit', handleLogin);
-  document.getElementById('logout-btn').addEventListener('click', handleLogout);
-  document.getElementById('add-user-btn').addEventListener('click', addUser);
+function bindAppShellEvents() {
+  document.getElementById('login-form')?.addEventListener('submit', handleLogin);
+  document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
+  document.getElementById('add-user-btn')?.addEventListener('click', addUser);
+}
+
+function bootApp() {
   loadAppBranding();
   checkAuth();
+  bindAppShellEvents();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    bootApp();
+  } catch (err) {
+    console.error('[app] boot failed:', err);
+    setLoginError(`تعذر تشغيل النظام: ${sanitizeApiErrorMessage(err.message)}`);
+  }
+});
+
+window.addEventListener('error', (event) => {
+  console.error('[app] uncaught error:', event.error || event.message);
+  if (typeof setLoginError === 'function' && document.getElementById('login-screen')?.style.display !== 'none') {
+    setLoginError(`خطأ في الصفحة: ${sanitizeApiErrorMessage(event.message || 'غير معروف')}`);
+  }
 });
 
 function normalizeBrandingAssetUrl(url) {
