@@ -60,6 +60,10 @@ async function main() {
   console.log(`COOKIE_SECURE: ${process.env.COOKIE_SECURE || '(unset)'}`);
   console.log(`ALLOWED_ORIGINS: ${process.env.ALLOWED_ORIGINS || '(unset)'}`);
   console.log(`PUBLIC_APP_URL: ${process.env.PUBLIC_APP_URL || process.env.APP_URL || '(unset)'}`);
+  const adminPw = String(process.env.ADMIN_PASSWORD || '');
+  if (adminPw && adminPw.length <= 3) {
+    console.log('WARNING: ADMIN_PASSWORD looks truncated — wrap it in quotes in .env, e.g. ADMIN_PASSWORD="Ex#@2026!"');
+  }
 
   const users = await query(`SELECT id, username, is_active FROM users ORDER BY id`);
   console.log(`\nUsers: ${users.rows.length}`);
@@ -90,6 +94,10 @@ async function main() {
   );
   console.log(`\nLogin (no Origin header): HTTP ${loginNoOrigin.status}`);
 
+  const publicOrigin =
+    process.env.PUBLIC_APP_URL ||
+    process.env.ALLOWED_ORIGINS?.split(',')?.[0]?.trim() ||
+    `http://127.0.0.1:${port}`;
   const loginWithOrigin = await httpRequest(
     {
       hostname: '127.0.0.1',
@@ -99,9 +107,9 @@ async function main() {
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
     },
     payload,
-    { Origin: `http://127.0.0.1:${port}` }
+    { Origin: publicOrigin.replace(/\/$/, '') }
   );
-  console.log(`Login (Origin http://127.0.0.1:${port}): HTTP ${loginWithOrigin.status}`);
+  console.log(`Login (Origin ${publicOrigin}): HTTP ${loginWithOrigin.status}`);
   if (loginWithOrigin.status !== 200) {
     console.log(`Body: ${loginWithOrigin.body.slice(0, 300)}`);
     console.log('\n>>> If this fails but "no Origin" works, CORS is blocking the browser — git pull + pm2 restart');

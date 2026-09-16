@@ -88,7 +88,7 @@ function buildCorsMiddleware() {
     if (!isProduction()) return callback(null, opts);
 
     console.warn(`[security] CORS blocked origin: ${origin} (host: ${host || '—'})`);
-    return callback(new Error('Not allowed by CORS'));
+    return callback(null, { origin: false, credentials: true });
   });
 }
 
