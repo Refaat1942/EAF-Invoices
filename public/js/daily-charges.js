@@ -1766,7 +1766,9 @@ function togglePatientRegEntityFields() {
   const milFrom = document.getElementById('patient-reg-military-wrap');
   const milTo = document.getElementById('patient-reg-military-wrap-end');
   const milAmount = document.getElementById('patient-reg-military-amount-wrap');
+  const financialWrap = document.getElementById('patient-reg-financial-wrap');
   if (entityWrap) entityWrap.style.display = showEntity ? '' : 'none';
+  if (financialWrap) financialWrap.style.display = showEntity ? 'none' : '';
   if (letterWrap) letterWrap.style.display = showEntity ? '' : 'none';
   if (letterEnd) letterEnd.style.display = showEntity ? '' : 'none';
   if (letterDaysWrap) letterDaysWrap.style.display = showEntity ? '' : 'none';
@@ -2489,7 +2491,11 @@ async function savePatientRegistration(event) {
   );
   const gender = document.getElementById('patient-reg-gender')?.value || '';
   const admission_date = document.getElementById('patient-reg-admission')?.value || '';
-  const financial_treatment = document.getElementById('patient-reg-financial')?.value || '';
+  const invoice_type = document.getElementById('patient-reg-invoice-type')?.value || 'civil';
+  let financial_treatment = document.getElementById('patient-reg-financial')?.value || '';
+  if (isEntityInvoiceType(invoice_type)) {
+    financial_treatment = getDailyInvoiceTypeLabel(invoice_type);
+  }
   const balanceRaw = document.getElementById('patient-reg-balance')?.value;
   if (!file_number || !patient_name || !admission_date) {
     showToast('رقم الملف واسم المريض وتاريخ الدخول مطلوبان', 'warning');
@@ -3212,7 +3218,7 @@ function buildExamCaseOptions(selectedSectionCode = '') {
   );
 }
 
-function buildExamTypeOptions(selectedServiceId = '', sectionCode = '') {
+function buildExamTypeOptions(selectedItemId = '', sectionCode = '') {
   let pool = dailyExamServicesCache;
   if (sectionCode) {
     pool = pool.filter((s) => s.section_code === sectionCode);
@@ -3226,7 +3232,7 @@ function buildExamTypeOptions(selectedServiceId = '', sectionCode = '') {
     pool
       .map((s) => {
         const price = Number(s.price ?? s.list_price) || 0;
-        const selected = String(selectedServiceId) === String(s.id) ? ' selected' : '';
+        const selected = String(selectedItemId) === String(s.id) ? ' selected' : '';
         return `<option value="${s.id}" data-section="${s.section_code}" data-code="${dailyEscapeAttr(s.code || '')}" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)}</option>`;
       })
       .join('')
@@ -3444,13 +3450,13 @@ function collectExamLinesFromRow(tr) {
   const typeSel = tr.querySelector('.daily-exam-type');
   const opt = typeSel?.selectedOptions[0];
   const sectionCode = caseSel?.value || opt?.dataset.section || tr.dataset.examSectionCode || '';
-  const serviceId = typeSel?.value || null;
+  const catalogItemId = typeSel?.value ? Number(typeSel.value) : null;
   const amount = dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
   const lines = [];
-  if (sectionCode && (serviceId || amount > 0)) {
+  if (sectionCode && (catalogItemId || amount > 0)) {
     const line = {
       section_code: sectionCode,
-      service_id: serviceId ? Number(serviceId) : null,
+      catalog_item_id: catalogItemId,
       amount,
       quantity: 1,
     };
@@ -3605,7 +3611,7 @@ function createExamDailyEntryRow(entry = {}, examLine = null) {
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><select class="form-select form-select-sm daily-exam-case">${buildExamCaseOptions(caseCode)}</select></td>
-    <td><select class="form-select form-select-sm daily-exam-type">${buildExamTypeOptions(line.service_id, caseCode)}</select></td>
+    <td><select class="form-select form-select-sm daily-exam-type">${buildExamTypeOptions(line.catalog_item_id || line.service_id, caseCode)}</select></td>
     <td class="daily-exam-doctor-cell">${buildDailyDoctorSuggestHtml('', entry.doctor_id || '')}</td>
     <td><input type="text" class="form-control form-control-sm daily-exam-unit-price bg-light" readonly value="${dailyEscapeAttr(priceVal)}"></td>
     <td><input type="date" class="form-control form-control-sm daily-exam-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
@@ -3655,6 +3661,11 @@ function getDailyInvoiceTypeLabel(code) {
   return DAILY_INVOICE_TYPE_LABELS[key] || key || '—';
 }
 
+function isGenericEntityFinancialLabel(text) {
+  const t = String(text || '').trim();
+  return /جهات?\s*(متعاقد|غير\s*متعاقد)/i.test(t);
+}
+
 function updateDailyClinicalContextBar() {
   const bar = document.getElementById('daily-clinical-context-bar');
   if (!bar) return;
@@ -3673,12 +3684,20 @@ function updateDailyClinicalContextBar() {
     document.getElementById('daily-stay-entity')?.selectedOptions?.[0]?.text?.trim() ||
     '';
   const financial = inv.financial_treatment || p.financial_treatment || '';
-  const parts = [
-    `نوع المريض: ${patientType}`,
-    `التعامل: ${invoiceType}`,
-  ];
-  if (entity && entity !== '-- اختر الجهة --') parts.push(`الجهة: ${entity}`);
-  if (financial) parts.push(`المعاملة: ${financial}`);
+  const parts = [`نوع المريض: ${patientType}`];
+  const entityInvoice = isEntityInvoiceType(inv.invoice_type);
+  const hasEntity = entity && entity !== '-- اختر الجهة --';
+  if (entityInvoice && hasEntity) {
+    const entityLabel =
+      inv.invoice_type === 'non_contracted' ? 'الجهة غير المتعاقدة' : 'الجهة المتعاقدة';
+    parts.push(`${entityLabel}: ${entity}`);
+  } else {
+    parts.push(`التعامل: ${invoiceType}`);
+  }
+  const showFinancial =
+    financial &&
+    !(entityInvoice && (isGenericEntityFinancialLabel(financial) || financial === invoiceType));
+  if (showFinancial) parts.push(`المعاملة المالية: ${financial}`);
   bar.textContent = parts.join(' · ');
   bar.classList.remove('d-none');
 }
@@ -3860,6 +3879,7 @@ function collectSessionsLinesFromRow(tr) {
     const unit = dailyParseAmount(tr.querySelector('.daily-session-unit')?.value);
     const chargeLine = {
       section_code: 'sessions',
+      catalog_item_id: pickerFields.catalog_item_id ?? null,
       service_id: pickerFields.service_id ?? null,
       amount,
       quantity: qty,
@@ -4721,12 +4741,12 @@ function collectCompanionLineFromRow(rowTr, lines) {
   const opt = kindSel.selectedOptions[0];
   const kind = opt?.dataset.kind || '';
   if (!kind || kind === 'none' || kind === 'nursing_point') return;
-  const serviceId = kind === 'service' && kindSel?.value ? Number(kindSel.value) : null;
+  const catalogItemId = kind === 'service' && kindSel?.value ? Number(kindSel.value) : null;
   const amount = dailyParseAmount(rowTr.querySelector('.daily-amount[data-section="companion"]')?.value);
-  if (!serviceId && amount <= 0) return;
+  if (!catalogItemId && amount <= 0) return;
   const line = {
     section_code: 'companion',
-    service_id: serviceId,
+    catalog_item_id: catalogItemId,
     amount,
     quantity: 1,
     extra_text: kindSel?.selectedOptions[0]?.text?.trim() || '',
@@ -4874,12 +4894,12 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th daily-col-date">التاريخ</th>' +
       '<th class="daily-meta-th daily-col-stay-type">نوع الإقامة</th>' +
-      '<th class="daily-meta-th daily-col-amount">سعر الإقامة</th>' +
+      '<th class="daily-meta-th daily-col-amount">سعر الإقامة <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-companion-kind">مرافق (غرفة/جناح)</th>' +
-      '<th class="daily-meta-th daily-col-amount">سعر المرافق</th>' +
-      '<th class="daily-meta-th daily-col-amount">مساعد تمريض</th>' +
-      '<th class="daily-meta-th daily-col-amount">نقطة تمريض</th>' +
-      '<th class="daily-meta-th daily-col-total">إجمالي</th>' +
+      '<th class="daily-meta-th daily-col-amount">سعر المرافق <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th daily-col-amount">مساعد تمريض <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th daily-col-amount">نقطة تمريض <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th daily-col-total">إجمالي <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
@@ -4897,11 +4917,11 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">تاريخ الجلسة</th>' +
       '<th class="daily-meta-th">اسم المريض</th>' +
       '<th class="daily-meta-th">نوع الجلسة</th>' +
-      '<th class="daily-meta-th">جلسة صباحي</th>' +
-      '<th class="daily-meta-th">جلسة مسائي</th>' +
-      '<th class="daily-meta-th">عدد الجلسات</th>' +
-      '<th class="daily-meta-th">سعر الجلسة</th>' +
-      '<th class="daily-meta-th">الإجمالي</th>' +
+      '<th class="daily-meta-th">جلسة صباحي <span class="text-muted fw-normal small">(عدد)</span></th>' +
+      '<th class="daily-meta-th">جلسة مسائي <span class="text-muted fw-normal small">(عدد)</span></th>' +
+      '<th class="daily-meta-th">عدد الجلسات <span class="text-muted fw-normal small">(عدد)</span></th>' +
+      '<th class="daily-meta-th">سعر الجلسة <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">الإجمالي <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
@@ -4919,10 +4939,10 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">حالة الكشف</th>' +
       '<th class="daily-meta-th">نوع الكشف</th>' +
       '<th class="daily-meta-th">اسم الطبيب</th>' +
-      '<th class="daily-meta-th">سعر الكشف</th>' +
+      '<th class="daily-meta-th">سعر الكشف <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th">تاريخ الكشف</th>' +
       '<th class="daily-meta-th">اسم المريض</th>' +
-      '<th class="daily-meta-th">الدمغة</th>' +
+      '<th class="daily-meta-th">الدمغة <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
@@ -4940,11 +4960,11 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">رقم الفاتورة</th>' +
       '<th class="daily-meta-th">تاريخ</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
-      '<th class="daily-meta-th">الكمية</th>' +
+      '<th class="daily-meta-th">الكمية <span class="text-muted fw-normal small">(عدد)</span></th>' +
       '<th class="daily-meta-th">الوحدة</th>' +
       '<th class="daily-meta-th">الوزن</th>' +
-      '<th class="daily-meta-th">سعر الوحدة</th>' +
-      '<th class="daily-meta-th">الإجمالي</th>' +
+      '<th class="daily-meta-th">سعر الوحدة <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">الإجمالي <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
@@ -4962,11 +4982,11 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th">تاريخ</th>' +
       '<th class="daily-meta-th">رقم فاتورة</th>' +
       '<th class="daily-meta-th">اسم الصنف</th>' +
-      '<th class="daily-meta-th">عدد</th>' +
-      '<th class="daily-meta-th">السعر</th>' +
-      '<th class="daily-meta-th">الإجمالي</th>' +
-      '<th class="daily-meta-th">سعر المستلزم</th>' +
-      '<th class="daily-meta-th">إجمالي المستلزم</th>' +
+      '<th class="daily-meta-th">عدد <span class="text-muted fw-normal small">(عدد)</span></th>' +
+      '<th class="daily-meta-th">السعر <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">الإجمالي <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">سعر المستلزم <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">إجمالي المستلزم <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
@@ -4983,9 +5003,9 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">تاريخ التحليل</th>' +
       '<th class="daily-meta-th">نوع التحليل</th>' +
-      '<th class="daily-meta-th">سعر التحليل</th>' +
-      '<th class="daily-meta-th">الإجمالي</th>' +
-      '<th class="daily-meta-th">الدمغة</th>' +
+      '<th class="daily-meta-th">سعر التحليل <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">الإجمالي <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">الدمغة <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
@@ -5001,10 +5021,10 @@ function renderDailySectionsTable() {
     head.innerHTML =
       '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">نوع الأشعة</th>' +
-      '<th class="daily-meta-th">سعر الأشعة</th>' +
-      '<th class="daily-meta-th">الإجمالي</th>' +
+      '<th class="daily-meta-th">سعر الأشعة <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">الإجمالي <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th">تاريخ الأشعة</th>' +
-      '<th class="daily-meta-th">الدمغة</th>' +
+      '<th class="daily-meta-th">الدمغة <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';
@@ -5020,9 +5040,9 @@ function renderDailySectionsTable() {
     head.innerHTML =
       '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">اسم الخدمة</th>' +
-      '<th class="daily-meta-th">العدد</th>' +
-      '<th class="daily-meta-th">السعر</th>' +
-      '<th class="daily-meta-th">الإجمالي</th>' +
+      '<th class="daily-meta-th">العدد <span class="text-muted fw-normal small">(عدد)</span></th>' +
+      '<th class="daily-meta-th">السعر <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th">الإجمالي <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-action"></th>';
     if (subhead) {
       subhead.innerHTML = '';

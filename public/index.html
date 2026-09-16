@@ -183,7 +183,7 @@
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
                   <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-admission" autocomplete="off">
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-4" id="patient-reg-financial-wrap">
                   <label class="form-label fw-bold">التأمين / المعاملة المالية</label>
                   <select class="form-select fw-bold patient-reg-field" id="patient-reg-financial" autocomplete="off">
                     <option value="">-- اختر --</option>
@@ -209,20 +209,20 @@
                     <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-floor" autocomplete="off">
                   </div>
                   <div class="col-md-2">
-                    <label class="form-label fw-bold">مرافق</label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-companion" placeholder="0" autocomplete="off">
+                    <label class="form-label fw-bold">مرافق <span class="text-muted fw-normal small">(ج.م)</span></label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-companion" placeholder="0" autocomplete="off" title="قيمة مالية بالجنيه">
                   </div>
                   <div class="col-md-2">
-                    <label class="form-label fw-bold">نقطة التمريض</label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-nursing" placeholder="0" autocomplete="off">
+                    <label class="form-label fw-bold">نقطة التمريض <span class="text-muted fw-normal small">(ج.م)</span></label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-nursing" placeholder="0" autocomplete="off" title="قيمة مالية بالجنيه">
                   </div>
                   <div class="col-md-2">
-                    <label class="form-label fw-bold">التمريض المساعد</label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-assistant" placeholder="0" autocomplete="off">
+                    <label class="form-label fw-bold">التمريض المساعد <span class="text-muted fw-normal small">(ج.م)</span></label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-assistant" placeholder="0" autocomplete="off" title="قيمة مالية بالجنيه">
                   </div>
                   <div class="col-md-3">
-                    <label class="form-label fw-bold">تأمين الغرفة</label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-room-insurance" placeholder="0" autocomplete="off">
+                    <label class="form-label fw-bold">تأمين الغرفة <span class="text-muted fw-normal small">(ج.م)</span></label>
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-room-insurance" placeholder="0" autocomplete="off" title="قيمة مالية بالجنيه">
                   </div>
                   <div class="col-md-3">
                     <label class="form-label fw-bold">نوع التعامل</label>
@@ -809,11 +809,11 @@
                           <th class="text-nowrap">اسم التخدير</th>
                           <th class="text-nowrap">مساعد الجراح</th>
                           <th class="text-nowrap">تصنيف الحالة</th>
-                          <th class="text-nowrap">مبلغ العملية</th>
-                          <th class="text-nowrap">مرافق</th>
-                          <th class="text-nowrap">نقطة تمريض</th>
-                          <th class="text-nowrap">مساعد تمريض</th>
-                          <th class="text-nowrap">الإجمالي</th>
+                          <th class="text-nowrap">مبلغ العملية <span class="text-muted fw-normal small">(ج.م)</span></th>
+                          <th class="text-nowrap">مرافق <span class="text-muted fw-normal small">(ج.م)</span></th>
+                          <th class="text-nowrap">نقطة تمريض <span class="text-muted fw-normal small">(ج.م)</span></th>
+                          <th class="text-nowrap">مساعد تمريض <span class="text-muted fw-normal small">(ج.م)</span></th>
+                          <th class="text-nowrap">الإجمالي <span class="text-muted fw-normal small">(ج.م)</span></th>
                           <th></th>
                         </tr>
                       </thead>
@@ -985,15 +985,15 @@
                   <input type="date" class="form-control fw-bold" id="change-room-from" autocomplete="off">
                 </div>
                 <div class="col-md-4">
-                  <label class="form-label fw-bold">مرافق</label>
+                  <label class="form-label fw-bold">مرافق <span class="text-muted fw-normal small">(ج.م)</span></label>
                   <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-companion" placeholder="0">
                 </div>
                 <div class="col-md-4">
-                  <label class="form-label fw-bold">نقطة التمريض</label>
+                  <label class="form-label fw-bold">نقطة التمريض <span class="text-muted fw-normal small">(ج.م)</span></label>
                   <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-nursing" placeholder="0">
                 </div>
                 <div class="col-md-4">
-                  <label class="form-label fw-bold">التمريض المساعد</label>
+                  <label class="form-label fw-bold">التمريض المساعد <span class="text-muted fw-normal small">(ج.م)</span></label>
                   <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-assistant" placeholder="0">
                 </div>
               </div>

@@ -912,19 +912,8 @@ async function normalizeManualAmountLine(section, rawLine = {}, sectionsWithServ
   normalized.unit_price = amount;
   normalized.quantity = 1;
   normalized.amount = amount;
-
-  if (normalized.service_id) {
-    await validateServiceForSection(section, normalized.service_id, sectionsWithServices);
-    try {
-      const resolved = await resolveServiceForInvoice(Number(normalized.service_id));
-      normalized.description =
-        resolved.service_name_snapshot || resolved.description || normalized.description || section.name;
-    } catch {
-      normalized.description = normalized.description || section.name;
-    }
-  } else {
-    normalized.description = section.name;
-  }
+  normalized.service_id = null;
+  normalized.description = String(normalized.extra_text || '').trim() || section.name;
 
   return normalized;
 }
@@ -1034,16 +1023,21 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
   const { catalogCategoryForSection } = require('./dailyCatalogCategories');
   const catalogCategory = fullSection.catalog_category || catalogCategoryForSection(fullSection);
-  if ((catalogCategory || rawLine.catalog_item_id) && !rawLine.service_id) {
+  let line = { ...rawLine };
+  // Legacy rows / exam dropdowns may send catalog ids in service_id after price-list purge.
+  if (catalogCategory && line.service_id && !line.catalog_item_id) {
+    line = { ...line, catalog_item_id: line.service_id, service_id: null };
+  }
+  if ((catalogCategory || line.catalog_item_id) && !line.service_id) {
     return await normalizeCatalogLine(
       { ...fullSection, catalog_category: catalogCategory || fullSection.catalog_category },
-      rawLine,
+      line,
       sectionsWithServices
     );
   }
 
   if (isManualAmountSection(section)) {
-    return await normalizeManualAmountLine(section, rawLine, sectionsWithServices);
+    return await normalizeManualAmountLine(section, line, sectionsWithServices);
   }
 
   const normalized = normalizeLine(section, rawLine);
