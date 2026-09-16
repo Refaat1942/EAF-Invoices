@@ -192,11 +192,28 @@ document.addEventListener('DOMContentLoaded', () => {
   checkAuth();
 });
 
+function normalizeBrandingAssetUrl(url) {
+  const fallbacks = ['/assets/logo.jpeg', '/assets/logo.svg'];
+  if (!url) return fallbacks[0];
+  const text = String(url).trim();
+  if (text.startsWith('/')) return text;
+  try {
+    const parsed = new URL(text, window.location.origin);
+    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+      return parsed.pathname + parsed.search;
+    }
+    if (parsed.origin === window.location.origin) return parsed.pathname + parsed.search;
+    return text;
+  } catch {
+    return fallbacks[0];
+  }
+}
+
 function syncBrandLogos(url) {
-  if (!url) return;
+  const src = normalizeBrandingAssetUrl(url);
   ['login-logo', 'navbar-logo', 'hub-logo'].forEach((id) => {
     const el = document.getElementById(id);
-    if (el) el.src = url;
+    if (el) el.src = src;
   });
 }
 

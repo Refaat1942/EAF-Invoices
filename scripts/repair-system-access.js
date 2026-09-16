@@ -117,6 +117,12 @@ async function main() {
   if (process.env.COOKIE_SECURE === 'true') {
     console.log('WARNING: COOKIE_SECURE=true on HTTP will block login cookies — use HTTPS or set COOKIE_SECURE=false');
   }
+  const envPassword = String(process.env.ADMIN_PASSWORD || '').trim();
+  if (envPassword.startsWith('$2') || (envPassword.length > 40 && !envPassword.includes(' '))) {
+    console.log(
+      'WARNING: ADMIN_PASSWORD in .env looks like a hash, not a plain password. Use --password=... when resetting admin.'
+    );
+  }
 
   const usersRes = await query(
     `SELECT id, username, full_name, role, is_active, last_login
@@ -168,12 +174,20 @@ async function main() {
     }
 
     const loginTest = await testLogin('admin', password);
-    console.log(`\nLocal login test: HTTP ${loginTest.status}`);
-    if (loginTest.status !== 200) {
+    console.log(`\nLocal login test: login HTTP ${loginTest.loginStatus}, session /me HTTP ${loginTest.meStatus}`);
+    if (loginTest.loginStatus !== 200) {
       console.log(`Login response: ${String(loginTest.body).slice(0, 300)}`);
     }
   } else {
     console.log('\nUsers exist — login was not changed. Pass --reset-admin to reset admin password.');
+    const envPassword = String(process.env.ADMIN_PASSWORD || '').trim();
+    if (envPassword) {
+      const loginTest = await testLogin('admin', envPassword);
+      console.log(`ADMIN_PASSWORD login test: login HTTP ${loginTest.loginStatus}, session /me HTTP ${loginTest.meStatus}`);
+      if (loginTest.loginStatus !== 200) {
+        console.log('ADMIN_PASSWORD in .env does NOT match the stored admin hash — run with --reset-admin');
+      }
+    }
   }
 
   if (!resetLogo) {
