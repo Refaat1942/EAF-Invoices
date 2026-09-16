@@ -27,16 +27,26 @@ async function getLogoUrl(baseUrl = '') {
   const filename = resolveLogoFilename(await getSetting(LOGO_KEY, 'logo.svg'));
   const filePath = path.join(ASSETS_DIR, filename);
   const fallback = `${baseUrl}/assets/logo.svg`;
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return fallback;
+  if (!isUsableLogoFile(filePath)) return fallback;
   const stat = fs.statSync(filePath);
   return `${baseUrl}/assets/${filename}?v=${stat.mtimeMs}`;
 }
 
-async function repairLogoSetting() {
+function isUsableLogoFile(filePath) {
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return false;
+  const size = fs.statSync(filePath).size;
+  return size >= 200;
+}
+
+async function repairLogoSetting({ forceDefault = false } = {}) {
+  if (forceDefault) {
+    await setSetting(LOGO_KEY, 'logo.svg');
+    return 'logo.svg';
+  }
   const current = await getSetting(LOGO_KEY, 'logo.svg');
   const filename = resolveLogoFilename(current);
   const filePath = path.join(ASSETS_DIR, filename);
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+  if (!isUsableLogoFile(filePath)) {
     await setSetting(LOGO_KEY, 'logo.svg');
     return 'logo.svg';
   }
