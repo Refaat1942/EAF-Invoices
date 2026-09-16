@@ -38,10 +38,19 @@ function isUsableLogoFile(filePath) {
   return size >= 200;
 }
 
+function findBestLogoFilename() {
+  const preferred = ['logo.svg', 'logo.png', 'logo.jpg', 'logo.jpeg', 'logo.webp'];
+  for (const name of preferred) {
+    if (isUsableLogoFile(path.join(ASSETS_DIR, name))) return name;
+  }
+  return 'logo.svg';
+}
+
 async function repairLogoSetting({ forceDefault = false } = {}) {
   if (forceDefault) {
-    await setSetting(LOGO_KEY, 'logo.svg');
-    return 'logo.svg';
+    const best = findBestLogoFilename();
+    await setSetting(LOGO_KEY, best);
+    return best;
   }
   const current = await getSetting(LOGO_KEY, 'logo.svg');
   const filename = resolveLogoFilename(current);
