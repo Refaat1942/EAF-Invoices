@@ -6,7 +6,7 @@
  *
  * Keeps: price lists, services, daily catalog, users, settings, stay types,
  * invoice types, payment methods, contracted entities, discount exclusions.
- * Also clears invoice/patient system alerts (orphaned after data wipe).
+ * Also clears invoice/patient system alerts and resets invoice + file-number counters.
  *
  * Usage (interactive — type the database name shown on screen to confirm):
  *   node scripts/clear-patient-invoice-data.js
@@ -48,6 +48,8 @@ async function clearPatientInvoiceData() {
     await client.query('DELETE FROM invoices');
     await client.query('DELETE FROM patients');
     await client.query('DELETE FROM invoice_serial_counter');
+    await client.query('DELETE FROM invoice_serial_counters');
+    await client.query('DELETE FROM patient_file_counter');
   });
 
   const after = {
@@ -111,7 +113,9 @@ async function main() {
     console.log('\nDone.\n');
     console.log('Before:', before);
     console.log('After:', after);
-    console.log('\nInvoice serial counter reset. New invoices start numbering from 1 per fiscal year.');
+    console.log(
+      '\nCounters reset: invoice serial + patient file number (next patient file starts at 1 per type).'
+    );
   } catch (err) {
     console.error('Failed:', err.message);
     process.exit(1);
