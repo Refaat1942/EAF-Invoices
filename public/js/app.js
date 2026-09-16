@@ -279,28 +279,34 @@ async function loadAppBranding() {
   }
 }
 
+let authCheckPromise = null;
+
 async function checkAuth() {
-  try {
-    const res = await apiFetch(`${AUTH_API}/me`);
-    if (!res.ok) {
-      console.warn('[auth] /me failed', res.status);
-      throw new Error('not auth');
-    }
-    currentUser = await res.json();
-    sessionStorage.removeItem('eaf_login_ok');
-    const bootStatus = document.getElementById('login-boot-status');
-    if (bootStatus) bootStatus.textContent = 'تم التحقق من الجلسة — جاري فتح النظام…';
-    showApp();
-  } catch (err) {
-    if (sessionStorage.getItem('eaf_login_ok') === '1') {
+  if (authCheckPromise) return authCheckPromise;
+  authCheckPromise = (async () => {
+    try {
+      const res = await apiFetch(`${AUTH_API}/me`);
+      if (!res.ok) {
+        console.warn('[auth] /me failed', res.status);
+        throw new Error('not auth');
+      }
+      currentUser = await res.json();
       sessionStorage.removeItem('eaf_login_ok');
-      setLoginError(
-        'تم قبول الدخول لكن الجلسة لم تُحفظ. تأكد من COOKIE_SECURE=false في .env ثم: pm2 restart eaf-invoices --update-env'
-      );
+      showApp();
+    } catch (err) {
+      if (sessionStorage.getItem('eaf_login_ok') === '1') {
+        sessionStorage.removeItem('eaf_login_ok');
+        setLoginError(
+          'تم قبول الدخول لكن الجلسة لم تُحفظ. تأكد من COOKIE_SECURE=false في .env ثم: pm2 restart eaf-invoices --update-env'
+        );
+      }
+      console.warn('[auth] checkAuth:', err?.message || err);
+      showLogin();
+    } finally {
+      authCheckPromise = null;
     }
-    console.warn('[auth] checkAuth:', err?.message || err);
-    showLogin();
-  }
+  })();
+  return authCheckPromise;
 }
 
 function showLogin() {
@@ -358,15 +364,17 @@ function showApp() {
     if (typeof initAssistant === 'function') initAssistant();
     applyPermissions();
     bindEvents();
-    loadInvoiceTypes();
-    loadFinancialTreatments();
-    loadStayTypes();
-    loadPaymentMethodsForm();
-    loadContractedEntities();
-    loadPermissionCatalog();
-    ensureDefaultPriceListId();
-    loadCatalogCache();
     switchView('home');
+    setTimeout(() => {
+      loadInvoiceTypes();
+      loadFinancialTreatments();
+      loadStayTypes();
+      loadPaymentMethodsForm();
+      loadContractedEntities();
+      loadPermissionCatalog();
+      ensureDefaultPriceListId();
+      loadCatalogCache();
+    }, 0);
   } catch (err) {
     console.error('[app] showApp failed:', err);
     if (currentUser) {
