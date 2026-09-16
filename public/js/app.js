@@ -256,15 +256,21 @@ async function loadAppBranding() {
 async function checkAuth() {
   try {
     const res = await apiFetch(`${AUTH_API}/me`);
-    if (!res.ok) throw new Error('not auth');
+    if (!res.ok) {
+      console.warn('[auth] /me failed', res.status);
+      throw new Error('not auth');
+    }
     currentUser = await res.json();
     sessionStorage.removeItem('eaf_login_ok');
     showApp();
-  } catch {
+  } catch (err) {
     if (sessionStorage.getItem('eaf_login_ok') === '1') {
       sessionStorage.removeItem('eaf_login_ok');
-      setLoginError('تم قبول الدخول لكن الجلسة لم تُحفظ — امسح كوكيز الموقع أو جرّب متصفحًا آخر');
+      setLoginError(
+        'تم قبول الدخول لكن الجلسة لم تُحفظ. تأكد من COOKIE_SECURE=false في .env ثم: pm2 restart eaf-invoices --update-env'
+      );
     }
+    console.warn('[auth] checkAuth:', err?.message || err);
     showLogin();
   }
 }
@@ -719,7 +725,7 @@ function setLoginError(message = '') {
     return;
   }
   el.textContent = message;
-  el.style.display = '';
+  el.style.display = 'block';
 }
 
 async function handleLogin(e) {
@@ -739,11 +745,19 @@ async function handleLogin(e) {
       body: JSON.stringify({ username, password }),
     });
     if (!data?.user) throw new Error('رد السيرفر غير صالح — أعد المحاولة');
-    sessionStorage.setItem('eaf_login_ok', '1');
-    setLoginError('تم التحقق — جاري فتح النظام...');
-    window.location.reload();
+    currentUser = data.user;
+    setLoginError('');
+    showApp();
+    const meRes = await apiFetch(`${AUTH_API}/me`);
+    if (!meRes.ok) {
+      const warn =
+        'تنبيه: الجلسة لم تُحفظ في المتصفح — راجع COOKIE_SECURE=false في .env على السيرفر';
+      console.error('[auth]', warn, 'status=', meRes.status);
+      showToast(warn, 'warning');
+    }
   } catch (err) {
     const msg = sanitizeApiErrorMessage(err.message || 'فشل الدخول');
+    console.error('[auth] login failed:', msg, err);
     setLoginError(msg);
     showToast(msg, 'danger');
     if (submitBtn) {

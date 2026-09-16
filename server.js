@@ -10,7 +10,7 @@ loadProjectEnv(__dirname);
 
 const {
   validateProductionConfig,
-  buildCorsOptions,
+  buildCorsMiddleware,
   securityHeaders,
   errorHandler,
 } = require('./middleware/security');
@@ -37,13 +37,19 @@ if (process.env.TRUST_PROXY === 'true') {
   app.set('trust proxy', 1);
 }
 
-app.use(buildCorsOptions());
+app.use(buildCorsMiddleware());
 app.use(securityHeaders);
 app.use(cookieParser());
 app.use(require('./middleware/requestLog').requestLogMiddleware);
 
 const cookieSecure =
   process.env.COOKIE_SECURE === 'true' || process.env.HTTPS === 'true';
+
+if (cookieSecure) {
+  console.log('[startup] Session cookie: Secure=ON (requires HTTPS in browser)');
+} else {
+  console.log('[startup] Session cookie: Secure=OFF (OK for HTTP)');
+}
 
 app.use(
   session({

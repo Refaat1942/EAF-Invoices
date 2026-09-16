@@ -9,8 +9,12 @@ router.post('/login', loginRateLimit, async (req, res) => {
   try {
     const { username, password } = req.body;
     const user = await login(username, password);
+    const origin = req.headers.origin || '—';
+    const ip = req.ip || req.connection?.remoteAddress || '—';
     if (!user) {
-      console.warn(`[auth] login failed for username attempt: ${String(username || '').trim().toLowerCase()}`);
+      console.warn(
+        `[auth] LOGIN FAILED user="${String(username || '').trim().toLowerCase()}" origin=${origin} ip=${ip}`
+      );
       return res.status(401).json({ error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
     }
     const sessionUser = user;
@@ -20,6 +24,16 @@ router.post('/login', loginRateLimit, async (req, res) => {
         return res.status(500).json({ error: 'تعذر إنشاء الجلسة' });
       }
       req.session.user = sessionUser;
+      const cookieSecure =
+        process.env.COOKIE_SECURE === 'true' || process.env.HTTPS === 'true';
+      console.log(
+        `[auth] LOGIN OK user=${sessionUser.username} origin=${origin} ip=${ip} session=${req.sessionID} cookieSecure=${cookieSecure}`
+      );
+      if (cookieSecure && !req.secure) {
+        console.warn(
+          '[auth] WARNING: cookie Secure flag is ON but request is HTTP — browser will NOT save session cookie'
+        );
+      }
       res.json({ success: true, user: sessionUser });
     });
   } catch (err) {

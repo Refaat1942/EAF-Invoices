@@ -58,6 +58,12 @@ async function main() {
   console.log(`PORT: ${port}`);
   console.log(`NODE_ENV: ${process.env.NODE_ENV || '(unset)'}`);
   console.log(`COOKIE_SECURE: ${process.env.COOKIE_SECURE || '(unset)'}`);
+  console.log(`HTTPS: ${process.env.HTTPS || '(unset)'}`);
+  if (process.env.COOKIE_SECURE === 'true' || process.env.HTTPS === 'true') {
+    console.log(
+      'WARNING: COOKIE_SECURE or HTTPS is true — browser login over http:// will NOT save cookies. Set COOKIE_SECURE=false and remove HTTPS=true'
+    );
+  }
   console.log(`ALLOWED_ORIGINS: ${process.env.ALLOWED_ORIGINS || '(unset)'}`);
   console.log(`PUBLIC_APP_URL: ${process.env.PUBLIC_APP_URL || process.env.APP_URL || '(unset)'}`);
   const adminPw = String(process.env.ADMIN_PASSWORD || '');
