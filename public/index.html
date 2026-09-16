@@ -6,7 +6,7 @@
   <title>نظام الفواتير — مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-  <meta name="app-build" content="20260916k">
+  <meta name="app-build" content="20260916m">
   <link href="/css/style.css?v=20260916d" rel="stylesheet">
 </head>
 <body>
@@ -31,29 +31,110 @@
         <button type="submit" class="btn btn-primary w-100 fw-black btn-lg">دخول</button>
       </form>
       <p id="login-boot-status" class="small text-muted text-center mt-3 mb-1">جاري فحص الاتصال بالسيرفر…</p>
-      <p class="small text-muted text-center mb-0">نسخة <span id="login-build-tag">20260916k</span></p>
+      <p class="small text-muted text-center mb-0">نسخة <span id="login-build-tag">20260916m</span></p>
       <p class="small text-muted text-center mt-2 mb-0">
-        المثلث بجانب الرابط = HTTP عادي (مش خطأ في الدخول). لو النسخة فوق مش <strong>20260916k</strong> نفّذ <code>git pull</code> على السيرفر.
+        المثلث بجانب الرابط = HTTP عادي (مش خطأ في الدخول). لو النسخة فوق مش <strong>20260916m</strong> نفّذ <code>git pull</code> على السيرفر.
       </p>
     </div>
   </div>
   <script>
     (function () {
-      const BUILD = '20260916k';
+      const BUILD = '20260916m';
+      window.__eafBuild = BUILD;
+
       function setBootStatus(message, isError) {
         const el = document.getElementById('login-boot-status');
         if (!el) return;
         el.textContent = message;
         el.className = 'small text-center mt-3 mb-1 ' + (isError ? 'text-danger fw-bold' : 'text-muted');
       }
+
+      function showLoginError(message) {
+        const el = document.getElementById('login-error');
+        if (!el) return;
+        if (!message) {
+          el.style.display = 'none';
+          el.textContent = '';
+          return;
+        }
+        el.textContent = message;
+        el.style.display = 'block';
+      }
+
+      function revealAppShell() {
+        const login = document.getElementById('login-screen');
+        const app = document.getElementById('app-container');
+        if (login) login.style.display = 'none';
+        if (app) app.style.display = 'block';
+      }
+
+      async function inlineLogin(e) {
+        e.preventDefault();
+        showLoginError('');
+        const username = document.getElementById('login-username').value.trim();
+        const password = document.getElementById('login-password').value;
+        const btn = e.currentTarget.querySelector('button[type="submit"]');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = 'جاري الدخول...';
+        }
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+          });
+          const data = await res.json().catch(function () {
+            return {};
+          });
+          if (!res.ok) {
+            throw new Error(data.error || 'اسم المستخدم أو كلمة المرور غير صحيحة');
+          }
+          setBootStatus('تم الدخول — جاري فتح النظام…');
+          if (typeof showApp === 'function' && data.user) {
+            window.currentUser = data.user;
+            showApp();
+            return;
+          }
+          revealAppShell();
+          if (typeof checkAuth === 'function') {
+            setTimeout(function () {
+              checkAuth();
+            }, 50);
+          } else {
+            window.location.reload();
+          }
+        } catch (err) {
+          showLoginError(err.message || 'فشل الدخول');
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'دخول';
+          }
+        }
+      }
+
+      function bindInlineLogin() {
+        const form = document.getElementById('login-form');
+        if (!form || form.dataset.eafBound === '1') return;
+        form.dataset.eafBound = '1';
+        form.addEventListener('submit', inlineLogin);
+      }
+
       async function probeServer() {
         try {
           const health = await fetch('/api/health', { credentials: 'include' });
           if (!health.ok) throw new Error('health HTTP ' + health.status);
           const me = await fetch('/api/auth/me', { credentials: 'include' });
           if (me.ok) {
-            setBootStatus('متصل — جاري فتح النظام…');
+            setBootStatus('تم الدخول — جاري تحميل النظام…');
             window.__eafSessionActive = true;
+            revealAppShell();
+            if (typeof checkAuth === 'function') {
+              setTimeout(function () {
+                checkAuth();
+              }, 50);
+            }
           } else {
             setBootStatus('السيرفر متصل — أدخل اسم المستخدم وكلمة المرور');
           }
@@ -62,10 +143,16 @@
           setBootStatus('تعذر الاتصال بالسيرفر: ' + (err.message || err), true);
         }
       }
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', probeServer);
-      } else {
+
+      function bootInlineAuth() {
+        bindInlineLogin();
         probeServer();
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootInlineAuth);
+      } else {
+        bootInlineAuth();
       }
     })();
   </script>
@@ -2250,7 +2337,7 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
-  <script src="/js/app.js?v=20260916k"></script>
+  <script src="/js/app.js?v=20260916m"></script>
   <script src="/js/daily-picker.js?v=20260916a"></script>
   <script src="/js/daily-charges.js?v=20260916c"></script>
   <script src="/js/notifications.js?v=20260915a"></script>

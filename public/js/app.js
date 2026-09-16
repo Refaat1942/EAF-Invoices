@@ -186,7 +186,11 @@ function escapeHtml(text) {
 }
 
 function bindAppShellEvents() {
-  document.getElementById('login-form')?.addEventListener('submit', handleLogin);
+  const loginForm = document.getElementById('login-form');
+  if (loginForm && loginForm.dataset.eafBound !== '1') {
+    loginForm.addEventListener('submit', handleLogin);
+    loginForm.dataset.eafBound = '1';
+  }
   document.getElementById('logout-btn')?.addEventListener('click', handleLogout);
   document.getElementById('add-user-btn')?.addEventListener('click', addUser);
 }
