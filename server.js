@@ -37,7 +37,7 @@ if (process.env.TRUST_PROXY === 'true') {
   app.set('trust proxy', 1);
 }
 
-app.use(cors(buildCorsOptions()));
+app.use(buildCorsOptions());
 app.use(securityHeaders);
 app.use(cookieParser());
 app.use(require('./middleware/requestLog').requestLogMiddleware);

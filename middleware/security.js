@@ -48,20 +48,48 @@ function parseAllowedOrigins() {
     .filter(Boolean);
 }
 
-function buildCorsOptions() {
-  const allowed = parseAllowedOrigins();
-  if (!allowed) {
+function buildCorsMiddleware() {
+  let allowedList = [];
+  try {
+    allowedList = parseAllowedOrigins() || [];
+  } catch {
+    allowedList = [];
+  }
+  if (!allowedList.length && !isProduction()) {
     return { origin: true, credentials: true };
   }
-  return {
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowed.includes(origin)) return callback(null, true);
-      console.warn(`[security] CORS blocked origin: ${origin}`);
-      return callback(new Error('Not allowed by CORS'));
-    },
-    credentials: true,
-  };
+
+  const allowed = new Set(allowedList);
+  const publicUrl = String(process.env.PUBLIC_APP_URL || process.env.APP_URL || '').trim();
+  if (publicUrl) {
+    try {
+      allowed.add(new URL(publicUrl).origin);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const cors = require('cors');
+  return cors((req, callback) => {
+    const opts = { origin: true, credentials: true };
+    const origin = req.headers.origin;
+    if (!origin) return callback(null, opts);
+    if (allowed.has(origin)) return callback(null, opts);
+
+    const host = String(req.get('host') || '').trim();
+    if (host) {
+      try {
+        if (new URL(origin).host === host) return callback(null, opts);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!isProduction()) return callback(null, opts);
+
+    console.warn(`[security] CORS blocked origin: ${origin} (host: ${host || '—'})`);
+    return callback(new Error('Not allowed by CORS'));
+  });
 }
 
 function securityHeaders(req, res, next) {
@@ -94,7 +122,8 @@ function errorHandler(err, req, res, next) {
 
 module.exports = {
   validateProductionConfig,
-  buildCorsOptions,
+  buildCorsOptions: buildCorsMiddleware,
+  buildCorsMiddleware,
   securityHeaders,
   errorHandler,
   safeErrorMessage,

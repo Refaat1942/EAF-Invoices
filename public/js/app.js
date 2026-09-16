@@ -239,18 +239,17 @@ function applyAppBranding(data = {}) {
 }
 
 async function loadAppBranding() {
-  const defaultLogo = '/assets/logo.svg';
   try {
     const res = await fetch('/api/public/branding');
     if (!res.ok) {
-      syncBrandLogos(defaultLogo);
+      syncBrandLogos('/assets/logo.jpeg');
       return;
     }
     const data = await res.json();
-    syncBrandLogos(data.logo_url || defaultLogo);
+    syncBrandLogos(data.logo_url);
     applyAppBranding(data);
   } catch {
-    syncBrandLogos(defaultLogo);
+    syncBrandLogos('/assets/logo.jpeg');
   }
 }
 
@@ -706,13 +705,11 @@ async function handleLogin(e) {
   const submitBtn = e.target.querySelector('button[type="submit"]');
   if (submitBtn) submitBtn.disabled = true;
   try {
-    const res = await apiFetch(`${AUTH_API}/login`, {
+    const data = await apiJson(`${AUTH_API}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'فشل الدخول');
     currentUser = data.user;
     showApp();
     showToast(`مرحباً ${currentUser.full_name || currentUser.username}`, 'success');
