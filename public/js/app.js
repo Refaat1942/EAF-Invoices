@@ -258,8 +258,13 @@ async function checkAuth() {
     const res = await apiFetch(`${AUTH_API}/me`);
     if (!res.ok) throw new Error('not auth');
     currentUser = await res.json();
+    sessionStorage.removeItem('eaf_login_ok');
     showApp();
   } catch {
+    if (sessionStorage.getItem('eaf_login_ok') === '1') {
+      sessionStorage.removeItem('eaf_login_ok');
+      setLoginError('تم قبول الدخول لكن الجلسة لم تُحفظ — امسح كوكيز الموقع أو جرّب متصفحًا آخر');
+    }
     showLogin();
   }
 }
@@ -269,28 +274,42 @@ function showLogin() {
   document.getElementById('app-container').style.display = 'none';
 }
 
+let appEventsBound = false;
+
 function showApp() {
-  document.getElementById('login-screen').style.display = 'none';
-  document.getElementById('app-container').style.display = 'block';
-  document.getElementById('nav-user').textContent = `${currentUser.full_name || currentUser.username} (${currentUser.role_label})`;
+  const loginScreen = document.getElementById('login-screen');
+  const appContainer = document.getElementById('app-container');
+  if (loginScreen) loginScreen.style.display = 'none';
+  if (appContainer) appContainer.style.display = 'block';
+  const navUser = document.getElementById('nav-user');
+  if (navUser && currentUser) {
+    navUser.textContent = `${currentUser.full_name || currentUser.username} (${currentUser.role_label || currentUser.role || ''})`;
+  }
   const hubWelcome = document.getElementById('hub-welcome-text');
-  if (hubWelcome) {
+  if (hubWelcome && currentUser) {
     hubWelcome.textContent = `مرحبًا ${currentUser.full_name || currentUser.username}`;
   }
-  if (typeof initAuditAdmin === 'function') initAuditAdmin();
-  if (typeof initOpsCenter === 'function') initOpsCenter();
-  if (typeof initAssistant === 'function') initAssistant();
-  applyPermissions();
-  bindEvents();
-  loadInvoiceTypes();
-  loadFinancialTreatments();
-  loadStayTypes();
-  loadPaymentMethodsForm();
-  loadContractedEntities();
-  loadPermissionCatalog();
-  ensureDefaultPriceListId();
-  loadCatalogCache();
-  switchView('home');
+  try {
+    if (typeof initAuditAdmin === 'function') initAuditAdmin();
+    if (typeof initOpsCenter === 'function') initOpsCenter();
+    if (typeof initAssistant === 'function') initAssistant();
+    applyPermissions();
+    bindEvents();
+    loadInvoiceTypes();
+    loadFinancialTreatments();
+    loadStayTypes();
+    loadPaymentMethodsForm();
+    loadContractedEntities();
+    loadPermissionCatalog();
+    ensureDefaultPriceListId();
+    loadCatalogCache();
+    switchView('home');
+  } catch (err) {
+    console.error('[app] showApp failed:', err);
+    setLoginError(`تعذر فتح التطبيق: ${sanitizeApiErrorMessage(err.message)}`);
+    if (loginScreen) loginScreen.style.display = 'flex';
+    if (appContainer) appContainer.style.display = 'none';
+  }
 }
 
 function isDailySourcedInvoice(inv) {
@@ -594,15 +613,21 @@ function applyPermissions() {
     window.refreshApprovalsBadge();
   }
 
-  document.getElementById('import-daily-charges-btn').style.display =
-    can('invoices.create') || can('invoices.edit') ? '' : 'none';
+  const importDailyBtn = document.getElementById('import-daily-charges-btn');
+  if (importDailyBtn) {
+    importDailyBtn.style.display = can('invoices.create') || can('invoices.edit') ? '' : 'none';
+  }
   applySettingsSectionPermissions();
 
   const canEdit = can('invoices.create') || can('invoices.edit');
-  document.getElementById('save-draft-btn').style.display = canEdit ? '' : 'none';
-  document.getElementById('submit-review-btn').style.display = can('invoices.submit') ? '' : 'none';
-  document.getElementById('approve-invoice-btn').style.display = can('invoices.approve') ? '' : 'none';
-  document.getElementById('report-export-btn').style.display = can('reports.export') ? '' : 'none';
+  const saveDraftBtn = document.getElementById('save-draft-btn');
+  if (saveDraftBtn) saveDraftBtn.style.display = canEdit ? '' : 'none';
+  const submitReviewBtn = document.getElementById('submit-review-btn');
+  if (submitReviewBtn) submitReviewBtn.style.display = can('invoices.submit') ? '' : 'none';
+  const approveBtn = document.getElementById('approve-invoice-btn');
+  if (approveBtn) approveBtn.style.display = can('invoices.approve') ? '' : 'none';
+  const reportExportBtn = document.getElementById('report-export-btn');
+  if (reportExportBtn) reportExportBtn.style.display = can('reports.export') ? '' : 'none';
   const listExportBtn = document.getElementById('list-export-excel');
   if (listExportBtn) listExportBtn.style.display = can('reports.export') ? '' : 'none';
 
@@ -700,25 +725,31 @@ function setLoginError(message = '') {
 async function handleLogin(e) {
   e.preventDefault();
   setLoginError('');
-  const username = document.getElementById('login-username').value;
+  const username = document.getElementById('login-username').value.trim();
   const password = document.getElementById('login-password').value;
   const submitBtn = e.target.querySelector('button[type="submit"]');
-  if (submitBtn) submitBtn.disabled = true;
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'جاري الدخول...';
+  }
   try {
     const data = await apiJson(`${AUTH_API}/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    currentUser = data.user;
-    showApp();
-    showToast(`مرحباً ${currentUser.full_name || currentUser.username}`, 'success');
+    if (!data?.user) throw new Error('رد السيرفر غير صالح — أعد المحاولة');
+    sessionStorage.setItem('eaf_login_ok', '1');
+    setLoginError('تم التحقق — جاري فتح النظام...');
+    window.location.reload();
   } catch (err) {
     const msg = sanitizeApiErrorMessage(err.message || 'فشل الدخول');
     setLoginError(msg);
     showToast(msg, 'danger');
-  } finally {
-    if (submitBtn) submitBtn.disabled = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'دخول';
+    }
   }
 }
 
@@ -977,6 +1008,8 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
 }
 
 function bindEvents() {
+  if (appEventsBound) return;
+  appEventsBound = true;
   document.querySelectorAll('.hub-tile[data-view]').forEach((tile) => {
     tile.addEventListener('click', () => {
       const view = tile.dataset.view;
