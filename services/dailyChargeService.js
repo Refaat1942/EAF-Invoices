@@ -415,10 +415,14 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
   const pageNum = Math.max(1, Number(page) || 1);
   const maxLimit = Math.min(50, Math.max(1, Number(limit) || 20));
   const q = String(search || '').trim();
-  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
-  const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
+  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+  const searchCategories = catalogSearchCategoriesForSection(section);
+  const catalogCategory =
+    searchCategories.length === 1
+      ? searchCategories[0]
+      : section.catalog_category || catalogCategoryForSection(section);
 
-  if (catalogCategory) {
+  if (searchCategories.length) {
     const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
     if (q.length < 2) {
       return {
@@ -429,10 +433,12 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
         totalPages: 1,
         kind: 'catalog',
         min_search: 2,
+        catalog_categories: searchCategories,
       };
     }
     const result = await listCatalogItemsPaginated({
-      category: catalogCategory,
+      category: searchCategories.length === 1 ? searchCategories[0] : undefined,
+      categories: searchCategories.length > 1 ? searchCategories : undefined,
       search: q,
       page: pageNum,
       limit: maxLimit,
@@ -448,6 +454,11 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
       totalPages: result.totalPages,
       kind: 'catalog',
       catalog_category: catalogCategory,
+      catalog_categories: searchCategories,
+      hint:
+        result.total === 0
+          ? `لا توجد بنود — ارفع شيت «الخدمات الطبية» أو «إجراءات وحقن الألم» من زر الاستيراد`
+          : null,
     };
   }
 
@@ -962,7 +973,9 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
     if (!catalogItem || !catalogItem.is_active) {
       throw new Error(`قسم «${section.name}»: الصنف غير موجود في الكتالوج`);
     }
-    if (fullSection.catalog_category && catalogItem.category !== fullSection.catalog_category) {
+    const { catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+    const allowedCategories = catalogSearchCategoriesForSection(fullSection);
+    if (allowedCategories.length && !allowedCategories.includes(catalogItem.category)) {
       throw new Error(`قسم «${section.name}»: الصنف لا ينتمي لهذه الفئة`);
     }
   }

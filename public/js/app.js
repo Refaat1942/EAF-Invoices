@@ -368,6 +368,11 @@ function renderInvoicePatientRegistrationSummary(inv) {
   const finalTotal = Number(inv.final_total) || 0;
   const invoiceDue = Number(inv.remaining ?? inv.outstanding_amount) || 0;
   const balanceAfter = Math.round((balance - finalTotal) * 100) / 100;
+  const entityName = String(inv.contracted_entity_name || '').trim();
+  const showEntity =
+    (inv.invoice_type === 'contracted' || inv.invoice_type === 'non_contracted') && entityName;
+  const entityLabel =
+    inv.invoice_type === 'non_contracted' ? 'الجهة غير المتعاقدة' : 'الجهة المتعاقدة';
   const cell = (value) => escapeHtml(value ?? '—');
 
   body.innerHTML = `
@@ -401,6 +406,14 @@ function renderInvoicePatientRegistrationSummary(inv) {
       <th class="invoice-patient-summary-label">فترة الفاتورة</th>
       <td>${cell(period)}</td>
     </tr>
+    ${
+      showEntity
+        ? `<tr>
+      <th class="invoice-patient-summary-label">${entityLabel}</th>
+      <td class="fw-bold text-primary" colspan="3">${cell(entityName)}</td>
+    </tr>`
+        : ''
+    }
     <tr class="table-warning">
       <th class="invoice-patient-summary-label">إجمالي الفاتورة</th>
       <td class="fw-bold text-primary">${fmt(finalTotal)}</td>
@@ -1199,13 +1212,22 @@ function bindPaymentMethodHelpers() {
   });
 }
 
-function getPaymentRemainingExcluding(excludeInput = null) {
-  const finalTotal = getInvoiceFinalTotalForPayment();
+function sumAllPaymentInputs() {
   let paid = 0;
   document.querySelectorAll('.payment-method-input').forEach((input) => {
-    if (input !== excludeInput) paid += parseDisplayAmount(input.value);
+    paid += parseDisplayAmount(input.value);
   });
-  return Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
+  return Math.round(paid * 100) / 100;
+}
+
+/** المبلغ المتبقي على الفاتورة بعد جمع كل وسائل الدفع الحالية. */
+function getPaymentGap() {
+  const finalTotal = getInvoiceFinalTotalForPayment();
+  return Math.max(0, Math.round((finalTotal - sumAllPaymentInputs()) * 100) / 100);
+}
+
+function getPaymentRemainingExcluding(_excludeInput = null) {
+  return getPaymentGap();
 }
 
 function sumPaymentMethodsByCode() {
@@ -1223,11 +1245,8 @@ function sumPaymentMethodsByCode() {
 
 function updatePaymentRowHints() {
   const finalTotal = getInvoiceFinalTotalForPayment();
-  let paid = 0;
-  document.querySelectorAll('.payment-method-input').forEach((input) => {
-    paid += parseDisplayAmount(input.value);
-  });
-  const remaining = Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
+  const paid = sumAllPaymentInputs();
+  const remaining = getPaymentGap();
 
   document.querySelectorAll('.payment-method-row').forEach((row) => {
     const hintRow = row.nextElementSibling?.classList?.contains('payment-row-remaining')
@@ -1237,15 +1256,14 @@ function updatePaymentRowHints() {
     const btn = row.querySelector('.pay-remaining-btn');
     if (!input || !btn) return;
 
-    const rowRemaining = getPaymentRemainingExcluding(input);
-    btn.disabled = rowRemaining <= 0 || finalTotal <= 0;
-    btn.title = rowRemaining > 0 ? `إضافة المتبقي ${fmt(rowRemaining)}` : 'لا يوجد متبقي';
+    btn.disabled = remaining <= 0 || finalTotal <= 0;
+    btn.title = remaining > 0 ? `إضافة المتبقي ${fmt(remaining)}` : 'لا يوجد متبقي — تم تغطية الإجمالي';
 
     if (hintRow) {
-      if (rowRemaining > 0 && finalTotal > 0) {
+      if (remaining > 0 && finalTotal > 0) {
         hintRow.style.display = '';
         hintRow.querySelector('.remaining-hint-text').textContent =
-          `المتبقي بعد هذه الطريقة: ${fmt(rowRemaining)}`;
+          `المتبقي على الفاتورة: ${fmt(remaining)}`;
       } else {
         hintRow.style.display = 'none';
       }
@@ -1304,14 +1322,16 @@ function fillRemainingPayment(code) {
   const inputs = getPaymentInputsByCode(code);
   if (!inputs.length) return;
   const input = inputs[0];
-  const remaining = getPaymentRemainingExcluding(input);
-  if (remaining <= 0) {
+  const gap = getPaymentGap();
+  if (gap <= 0) {
     showToast('لا يوجد متبقي — تم تغطية إجمالي الفاتورة', 'info');
+    updatePaymentRowHints();
     return;
   }
   const current = parseDisplayAmount(input.value);
-  input.value = formatAmountInput(Math.round((current + remaining) * 100) / 100);
+  input.value = formatAmountInput(Math.round((current + gap) * 100) / 100);
   recalculate();
+  updatePaymentRowHints();
 }
 
 function bindServiceSearch() {

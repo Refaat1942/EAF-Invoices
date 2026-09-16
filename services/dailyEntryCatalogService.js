@@ -483,7 +483,10 @@ function buildCatalogListWhere(filters = {}) {
   const params = [];
   let i = 1;
 
-  if (filters.category) {
+  if (filters.categories?.length) {
+    where += ` AND category = ANY($${i++}::text[])`;
+    params.push(filters.categories);
+  } else if (filters.category) {
     where += ` AND category = $${i++}`;
     params.push(filters.category);
   }

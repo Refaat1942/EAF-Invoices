@@ -62,6 +62,11 @@ const CATEGORY_ALIASES = Object.freeze({
   'عمليات': 'SpineOperations',
 });
 
+/** Sections that search multiple uploaded catalog sheets in one picker. */
+const SECTION_CATALOG_SEARCH_CATEGORIES = Object.freeze({
+  other: ['General', 'Prosthetics'],
+});
+
 /** daily_charge_sections.code → catalog category for picker/search */
 const SECTION_CATALOG_CATEGORY = Object.freeze({
   consultant_exam: 'MedicalExams',
@@ -125,6 +130,13 @@ function catalogCategoryForSection(section) {
   return null;
 }
 
+function catalogSearchCategoriesForSection(section) {
+  const code = String(section?.code || '').trim();
+  if (SECTION_CATALOG_SEARCH_CATEGORIES[code]) return [...SECTION_CATALOG_SEARCH_CATEGORIES[code]];
+  const single = catalogCategoryForSection(section);
+  return single ? [single] : [];
+}
+
 function catalogCategoryForServiceCode(categoryCode) {
   return SERVICE_CATEGORY_TO_CATALOG[String(categoryCode || '').trim()] || null;
 }
@@ -136,6 +148,8 @@ module.exports = {
   SERVICE_CATEGORY_TO_CATALOG,
   TAB_CATALOG_IMPORT,
   normalizeCatalogCategory,
+  SECTION_CATALOG_SEARCH_CATEGORIES,
   catalogCategoryForSection,
+  catalogSearchCategoriesForSection,
   catalogCategoryForServiceCode,
 };

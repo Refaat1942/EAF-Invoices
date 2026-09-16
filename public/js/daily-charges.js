@@ -743,6 +743,13 @@ function getOperationNameFromRow(tr) {
   return String(tr?.querySelector('.daily-op-name')?.value || '').trim();
 }
 
+function positionOpPickerSuggest(tr, container) {
+  const searchInput = tr?.querySelector('.daily-op-picker-search');
+  if (searchInput && window.DailyEntryPicker?.positionFloatingSuggest) {
+    DailyEntryPicker.positionFloatingSuggest(searchInput, container);
+  }
+}
+
 function renderOperationPickerSuggestions(container, result, query, tr) {
   const rows = result?.rows || [];
   const q = String(query || '').trim();
@@ -750,6 +757,7 @@ function renderOperationPickerSuggestions(container, result, query, tr) {
     container.innerHTML =
       '<div class="service-suggest-empty p-2 small text-muted">اكتب للبحث أو اختر من القائمة — مثال: غضروف، حقن، توسيع</div>';
     container.classList.remove('d-none');
+    positionOpPickerSuggest(tr, container);
     return;
   }
   if (!rows.length) {
@@ -765,6 +773,7 @@ function renderOperationPickerSuggestions(container, result, query, tr) {
     container.innerHTML =
       hint + `<div class="service-suggest-empty p-2 small text-muted">${dailyEscapeHtml(emptyMsg)}</div>`;
     container.classList.remove('d-none');
+    positionOpPickerSuggest(tr, container);
     return;
   }
   container.innerHTML = rows
@@ -772,18 +781,23 @@ function renderOperationPickerSuggestions(container, result, query, tr) {
       const price = Number(item.price ?? item.list_price) || 0;
       const label = item.code ? `${item.code} — ${item.name}` : item.name;
       return `<button type="button" class="service-suggest-item daily-op-suggest-item w-100 text-start border-0 bg-transparent" data-name="${dailyEscapeAttr(item.name || '')}" data-price="${price}">
-        <strong>${dailyEscapeHtml(label)}</strong> — ${dailyFmt(price)}
+        <div class="daily-picker-suggest-label"><strong>${dailyEscapeHtml(label)}</strong></div>
+        <div class="daily-picker-suggest-meta text-muted"><span>${dailyFmt(price)}</span></div>
       </button>`;
     })
     .join('');
   container.classList.remove('d-none');
+  positionOpPickerSuggest(tr, container);
   container.querySelectorAll('.daily-op-suggest-item').forEach((btn) => {
     btn.addEventListener('mousedown', (e) => {
       e.preventDefault();
       const name = btn.dataset.name || '';
       const price = Number(btn.dataset.price) || 0;
       const searchInput = tr.querySelector('.daily-op-picker-search');
-      if (searchInput) searchInput.value = name;
+      if (searchInput) {
+        searchInput.value = name;
+        searchInput.title = name;
+      }
       const amountInput = tr.querySelector('.daily-op-amount');
       if (amountInput && price > 0) {
         if (typeof setCommaAmountValue === 'function') setCommaAmountValue(amountInput, price);
@@ -2927,6 +2941,11 @@ function renderDailyInvoiceReviewPanel() {
       <div class="col-md-3"><span class="text-muted d-block mb-1">الجنسية</span><div class="review-field">${dailyEscapeHtml(p.nationality || '—')}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">رصيد الحساب</span><div class="review-field fw-bold text-success">${dailyFmt(p.account_balance ?? 0)}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">المعاملة المالية</span><div class="review-field">${dailyEscapeHtml(inv.financial_treatment || p.financial_treatment || '—')}</div></div>
+      ${
+        isEntityInvoiceType(inv.invoice_type) && inv.contracted_entity_name
+          ? `<div class="col-md-3"><span class="text-muted d-block mb-1">${inv.invoice_type === 'non_contracted' ? 'الجهة غير المتعاقدة' : 'الجهة المتعاقدة'}</span><div class="review-field fw-bold text-primary">${dailyEscapeHtml(inv.contracted_entity_name)}</div></div>`
+          : ''
+      }
       <div class="col-md-3"><span class="text-muted d-block mb-1">تاريخ الدخول</span><div class="review-field">${dailyEscapeHtml(fmtStayDate(inv.admission_date) || '—')}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">تاريخ الخروج</span><div class="review-field">${dailyEscapeHtml(fmtStayDate(inv.discharge_date) || '—')}</div></div>
       <div class="col-12 mt-2"><h6 class="fw-black text-primary mb-2">ملخص الفاتورة</h6></div>
@@ -4386,7 +4405,7 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
     catalogLinesFromEntry(entry, ['other', 'prosthetics'])[0] ||
     {};
   const sectionCode = line.section_code || defaultSectionCode;
-  const section = dailySectionsCache.find((s) => s.code === sectionCode);
+  const pickerSection = dailySectionsCache.find((s) => s.code === 'other');
   const tr = document.createElement('tr');
   tr.className = 'daily-entry-row daily-misc-row';
   tr.dataset.sectionCode = sectionCode;
@@ -4399,23 +4418,23 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
-    <td class="daily-misc-name-cell">${section ? buildCatalogPickerCell(section) : ''}
-      <input type="hidden" class="daily-field daily-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-type="amount"></td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="${dailyEscapeAttr(sectionCode)}" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
+    <td class="daily-misc-name-cell">${pickerSection ? buildCatalogPickerCell(pickerSection) : ''}
+      <input type="hidden" class="daily-field daily-amount" data-section="other" data-type="amount"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="other" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-misc-unit-price bg-light" readonly></td>
     <td><input type="text" class="form-control form-control-sm daily-misc-total bg-light" readonly></td>
     <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindMiscRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
-  if (section && window.DailyEntryPicker) {
+  if (pickerSection && window.DailyEntryPicker) {
     DailyEntryPicker.bindRow(tr);
-    DailyEntryPicker.hydratePicker(tr, section, line);
+    DailyEntryPicker.hydratePicker(tr, pickerSection, line);
     syncSimpleServiceRow(
       tr,
       null,
       Number(line.unit_price) || (line.quantity ? Number(line.amount) / Number(line.quantity) : 0),
-      sectionCode,
+      'other',
       { unit: '.daily-misc-unit-price', total: '.daily-misc-total' }
     );
   }
@@ -4471,12 +4490,19 @@ function collectRadiologyLinesFromRow(tr) {
   return lines;
 }
 
+function resolveMiscSectionCodeFromItem(item, fallback = 'other') {
+  const cat = String(item?.category_name || item?.category || '').trim();
+  if (cat === 'Prosthetics') return 'prosthetics';
+  return fallback || 'other';
+}
+
 function collectMiscLinesFromRow(tr) {
-  const sectionCode = tr.dataset.sectionCode || 'other';
   const tabCodes = ['other', 'prosthetics'];
-  const section = dailySectionsCache.find((s) => s.code === sectionCode);
-  if (!section) return tr._entryLinesSnapshot || [];
-  const line = collectLineForSection(tr, section);
+  const pickerSection = dailySectionsCache.find((s) => s.code === 'other');
+  if (!pickerSection) return tr._entryLinesSnapshot || [];
+  const line = collectLineForSection(tr, pickerSection);
+  const picker = tr.querySelector('.daily-picker[data-section="other"]');
+  line.section_code = resolveMiscSectionCodeFromItem(picker?._selectedItem, 'other');
   const snapshot = tr._entryLinesSnapshot || [];
   const preserved = snapshot.filter((l) => !tabCodes.includes(l.section_code) && lineHasChargeData(l));
   if (!lineHasChargeData(line)) return preserved;
@@ -4501,9 +4527,10 @@ function onDailyCatalogPickerApplied(tr, section, item) {
       unit: '.daily-rad-unit-price',
       total: '.daily-rad-total',
     });
-  } else if (tr.classList.contains('daily-misc-row') && section.code === tr.dataset.sectionCode) {
-    const sectionCode = tr.dataset.sectionCode || section.code;
-    syncSimpleServiceRow(tr, item, getCatalogRowUnitPrice(tr, sectionCode), sectionCode, {
+  } else if (tr.classList.contains('daily-misc-row') && section.code === 'other') {
+    const sectionCode = resolveMiscSectionCodeFromItem(item, 'other');
+    tr.dataset.sectionCode = sectionCode;
+    syncSimpleServiceRow(tr, item, getCatalogRowUnitPrice(tr, 'other'), 'other', {
       unit: '.daily-misc-unit-price',
       total: '.daily-misc-total',
     });

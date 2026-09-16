@@ -10,7 +10,8 @@
 
   const PICKER_MIN_SEARCH = 2;
   const PICKER_DEBOUNCE_MS = 300;
-  const PICKER_DEFAULT_LIMIT = 25;
+  const PICKER_DEFAULT_LIMIT = 30;
+  const PICKER_SUGGEST_WIDTH = 580;
 
   function esc(text) {
     if (typeof escapeHtml === 'function') return escapeHtml(text);
@@ -89,12 +90,53 @@
     return await apiJson(`${DAILY_API}/picker/item?${params}`);
   }
 
+  function positionFloatingSuggest(anchorEl, suggestEl) {
+    if (!anchorEl || !suggestEl) return;
+    const rect = anchorEl.getBoundingClientRect();
+    const width = Math.min(PICKER_SUGGEST_WIDTH, window.innerWidth - 16);
+    let left = Math.max(8, rect.left);
+    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8);
+    const spaceBelow = window.innerHeight - rect.bottom - 12;
+    const spaceAbove = rect.top - 12;
+    const preferBelow = spaceBelow >= 140 || spaceBelow >= spaceAbove;
+    const maxHeight = Math.min(380, preferBelow ? spaceBelow : spaceAbove);
+    suggestEl.style.position = 'fixed';
+    suggestEl.style.width = `${width}px`;
+    suggestEl.style.left = `${left}px`;
+    suggestEl.style.right = 'auto';
+    suggestEl.style.maxHeight = `${Math.max(120, maxHeight)}px`;
+    suggestEl.style.zIndex = '2500';
+    if (preferBelow) {
+      suggestEl.style.top = `${rect.bottom + 2}px`;
+      suggestEl.style.bottom = 'auto';
+    } else {
+      suggestEl.style.bottom = `${window.innerHeight - rect.top + 2}px`;
+      suggestEl.style.top = 'auto';
+    }
+  }
+
+  function bindSuggestReposition(picker, searchInput, suggest) {
+    if (!picker || picker.dataset.repositionBound === '1') return;
+    picker.dataset.repositionBound = '1';
+    const reposition = () => {
+      if (!suggest.classList.contains('d-none')) positionFloatingSuggest(searchInput, suggest);
+    };
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+  }
+
   function renderSuggestions(container, result, query) {
+    const picker = container.closest('.daily-picker');
+    const searchInput = picker?.querySelector('.daily-picker-search');
     const rows = result?.rows || [];
     if (result?.min_search && String(query || '').trim().length < PICKER_MIN_SEARCH) {
       container.innerHTML =
         '<div class="service-suggest-empty p-2 small text-muted">اكتب حرفين على الأقل للبحث</div>';
       container.classList.remove('d-none');
+      if (searchInput) {
+        positionFloatingSuggest(searchInput, container);
+        bindSuggestReposition(picker, searchInput, container);
+      }
       return;
     }
     if (!rows.length) {
@@ -102,9 +144,13 @@
       container.innerHTML =
         hint +
         (query
-          ? '<div class="service-suggest-empty p-2 small text-muted">لا توجد نتائج مطابقة — تأكد من استيراد القسم في اللائحة</div>'
+          ? '<div class="service-suggest-empty p-2 small text-muted">لا توجد نتائج مطابقة — تأكد من رفع شيت القسم</div>'
           : '<div class="service-suggest-empty p-2 small text-muted">ابدأ بالبحث لعرض النتائج</div>');
       container.classList.remove('d-none');
+      if (searchInput) {
+        positionFloatingSuggest(searchInput, container);
+        bindSuggestReposition(picker, searchInput, container);
+      }
       return;
     }
 
@@ -113,13 +159,18 @@
         const price = Number(item.price ?? item.list_price) || 0;
         const unit = item.unit ? ` / ${esc(item.unit)}` : '';
         const label = item.code ? `${esc(item.code)} — ${esc(item.name)}` : esc(item.name);
+        const cat = item.category_name ? `<span class="daily-picker-suggest-cat">${esc(item.category_name)}</span>` : '';
         return `<button type="button" class="service-suggest-item daily-picker-suggest-item w-100 text-start border-0 bg-transparent" data-item="${escAttr(JSON.stringify(item))}">
-          <strong>${label}</strong>
-          <span class="text-muted"> — ${fmtAmount(price)}${unit}</span>
+          <div class="daily-picker-suggest-label"><strong>${label}</strong></div>
+          <div class="daily-picker-suggest-meta text-muted">${cat}<span>${fmtAmount(price)}${unit}</span></div>
         </button>`;
       })
       .join('');
     container.classList.remove('d-none');
+    if (searchInput) {
+      positionFloatingSuggest(searchInput, container);
+      bindSuggestReposition(picker, searchInput, container);
+    }
 
     container.querySelectorAll('.daily-picker-suggest-item').forEach((btn) => {
       btn.addEventListener('mousedown', (e) => {
@@ -228,7 +279,11 @@
 
     picker._selectedItem = item;
     if (valueInput) valueInput.value = String(item.id || '');
-    if (searchInput) searchInput.value = pickerLabel(item, kind);
+    if (searchInput) {
+      const label = pickerLabel(item, kind);
+      searchInput.value = label;
+      searchInput.title = label;
+    }
 
     if (kind === 'catalog') {
       populateCatalogUnitSelect(tr, section.code, item);
@@ -444,6 +499,7 @@
     applyPickerSelection,
     clearPicker,
     searchPicker,
+    positionFloatingSuggest,
     populateCatalogUnitSelect,
     applyCatalogUnitPrice,
     applyLineAmountFromUnitPrice,
