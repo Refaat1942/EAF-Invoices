@@ -153,6 +153,7 @@
               <td class="text-nowrap">
                 <button type="button" class="btn btn-sm btn-outline-primary ops-open-invoice" data-id="${inv.id}">عرض</button>
                 ${canApprove ? `<button type="button" class="btn btn-sm btn-outline-success ops-approve-invoice" data-id="${inv.id}">اعتماد</button>` : ''}
+                ${canDelete ? `<button type="button" class="btn btn-sm btn-outline-danger ops-delete-invoice" data-id="${inv.id}">حذف</button>` : ''}
               </td>
             </tr>`
             )
@@ -226,7 +227,7 @@
     document.getElementById('live-activity-refresh-btn')?.addEventListener('click', loadLiveActivityView);
     document.getElementById('approvals-refresh-btn')?.addEventListener('click', loadApprovalsView);
 
-    document.getElementById('approvals-queue-body')?.addEventListener('click', async (e) => {
+    const handleApprovalsTableClick = async (e) => {
       const openBtn = e.target.closest('.ops-open-invoice');
       if (openBtn) {
         const id = Number(openBtn.dataset.id);
@@ -249,7 +250,9 @@
         const id = Number(deleteBtn.dataset.id);
         if (id) await window.deleteInvoice(id);
       }
-    });
+    };
+    document.getElementById('approvals-queue-body')?.addEventListener('click', handleApprovalsTableClick);
+    document.getElementById('approvals-drafts-body')?.addEventListener('click', handleApprovalsTableClick);
   }
 
   window.initOpsCenter = function initOpsCenter() {
