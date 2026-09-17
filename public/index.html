@@ -39,7 +39,7 @@
   </div>
   <script>
     (function () {
-      const BUILD = '20260917e';
+      const BUILD = '20260917f';
       window.__eafBuild = BUILD;
 
       function setBootStatus(message, isError) {
@@ -290,10 +290,16 @@
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
                   <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-admission" autocomplete="off">
                 </div>
-                <div class="col-md-4" id="patient-reg-financial-wrap">
-                  <label class="form-label fw-bold">التأمين / المعاملة المالية</label>
-                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-financial" autocomplete="off">
-                    <option value="">-- اختر --</option>
+                <div class="col-md-4" id="patient-reg-invoice-type-wrap">
+                  <label class="form-label fw-bold">نوع التعامل *</label>
+                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-invoice-type" autocomplete="off">
+                    <option value="civil">مدني (خاص)</option>
+                    <option value="contracted">جهات متعاقدة</option>
+                    <option value="non_contracted">جهات غير متعاقدة</option>
+                    <option value="military">عسكري</option>
+                    <option value="hospital">حالة مستشفى</option>
+                    <option value="special">حالة خاصة</option>
+                    <option value="operations">عمليات</option>
                   </select>
                 </div>
                 <div class="col-md-3" id="patient-reg-balance-wrap">
@@ -302,13 +308,49 @@
                 </div>
               </div>
 
+              <div class="row g-3 mt-2" id="patient-reg-deal-fields-row">
+                <div class="col-md-4" id="patient-reg-entity-wrap" style="display:none">
+                  <label class="form-label fw-bold">الجهة المتعاقدة *</label>
+                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-entity" autocomplete="off">
+                    <option value="">-- اختر الجهة --</option>
+                  </select>
+                </div>
+                <div class="col-md-2" id="patient-reg-letter-wrap" style="display:none">
+                  <label class="form-label fw-bold">جواب التعاقد — من</label>
+                  <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-from" autocomplete="off">
+                </div>
+                <div class="col-md-2" id="patient-reg-letter-wrap-end" style="display:none">
+                  <label class="form-label fw-bold">جواب التعاقد — إلى</label>
+                  <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-to" autocomplete="off">
+                </div>
+                <div class="col-md-2" id="patient-reg-letter-days-wrap" style="display:none">
+                  <label class="form-label fw-bold">عدد أيام الجواب</label>
+                  <input type="text" class="form-control fw-bold bg-light" id="patient-reg-letter-days" readonly tabindex="-1" placeholder="—">
+                </div>
+                <div class="col-md-2" id="patient-reg-military-wrap" style="display:none">
+                  <label class="form-label fw-bold">تصديق عسكري — من</label>
+                  <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-military-from" autocomplete="off">
+                </div>
+                <div class="col-md-2" id="patient-reg-military-wrap-end" style="display:none">
+                  <label class="form-label fw-bold">تصديق عسكري — إلى</label>
+                  <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-military-to" autocomplete="off">
+                </div>
+                <div class="col-md-2" id="patient-reg-military-amount-wrap" style="display:none">
+                  <label class="form-label fw-bold">مبلغ التصديق</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field comma-amount" id="patient-reg-military-amount" autocomplete="off" placeholder="0">
+                </div>
+                <div class="col-md-6" id="patient-reg-military-summary-wrap" style="display:none">
+                  <div class="alert alert-warning py-2 mb-0 small fw-bold" id="patient-reg-military-summary" role="status"></div>
+                </div>
+              </div>
+
               <div id="patient-reg-internal-wrap" class="mt-3 border-top pt-3">
-                <h6 class="fw-black mb-3">بيانات الإقامة الداخلية</h6>
+                <h6 class="fw-black mb-3">بيانات الإقامة الداخلية <small class="text-muted fw-normal">(من لائحة الإقامة المرفوعة)</small></h6>
                 <div class="row g-3">
                   <div class="col-md-4">
                     <label class="form-label fw-bold">الغرفة / الجناح *</label>
                     <select class="form-select fw-bold patient-reg-field" id="patient-reg-room" autocomplete="off">
-                      <option value="">-- اختر الغرفة أو الجناح --</option>
+                      <option value="">-- اختر من اللائحة --</option>
                     </select>
                   </div>
                   <div class="col-md-2">
@@ -334,56 +376,6 @@
                 </div>
               </div>
 
-              <div id="patient-reg-entity-type-wrap" class="mt-3 border-top pt-3">
-                <h6 class="fw-black mb-3">نوع التعامل والجهة المتعاقدة</h6>
-                <div class="row g-3">
-                  <div class="col-md-3">
-                    <label class="form-label fw-bold">نوع التعامل</label>
-                    <select class="form-select fw-bold patient-reg-field" id="patient-reg-invoice-type" autocomplete="off">
-                      <option value="civil">مدني (خاص)</option>
-                      <option value="contracted">جهات متعاقدة</option>
-                      <option value="non_contracted">جهات غير متعاقدة</option>
-                      <option value="military">عسكري</option>
-                      <option value="hospital">حالة مستشفى</option>
-                      <option value="special">حالة خاصة</option>
-                      <option value="operations">عمليات</option>
-                    </select>
-                  </div>
-                  <div class="col-md-4" id="patient-reg-entity-wrap" style="display:none">
-                    <label class="form-label fw-bold">الجهة *</label>
-                    <select class="form-select fw-bold patient-reg-field" id="patient-reg-entity" autocomplete="off">
-                      <option value="">-- اختر الجهة --</option>
-                    </select>
-                  </div>
-                  <div class="col-md-2" id="patient-reg-letter-wrap" style="display:none">
-                    <label class="form-label fw-bold">جواب التعاقد — من</label>
-                    <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-from" autocomplete="off">
-                  </div>
-                  <div class="col-md-2" id="patient-reg-letter-wrap-end" style="display:none">
-                    <label class="form-label fw-bold">جواب التعاقد — إلى</label>
-                    <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-to" autocomplete="off">
-                  </div>
-                  <div class="col-md-2" id="patient-reg-letter-days-wrap" style="display:none">
-                    <label class="form-label fw-bold">عدد أيام الجواب</label>
-                    <input type="text" class="form-control fw-bold bg-light" id="patient-reg-letter-days" readonly tabindex="-1" placeholder="—">
-                  </div>
-                  <div class="col-md-2" id="patient-reg-military-wrap" style="display:none">
-                    <label class="form-label fw-bold">تصديق عسكري — من</label>
-                    <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-military-from" autocomplete="off">
-                  </div>
-                  <div class="col-md-2" id="patient-reg-military-wrap-end" style="display:none">
-                    <label class="form-label fw-bold">تصديق عسكري — إلى</label>
-                    <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-military-to" autocomplete="off">
-                  </div>
-                  <div class="col-md-2" id="patient-reg-military-amount-wrap" style="display:none">
-                    <label class="form-label fw-bold">مبلغ التصديق</label>
-                    <input type="text" class="form-control fw-bold patient-reg-field comma-amount" id="patient-reg-military-amount" autocomplete="off" placeholder="0">
-                  </div>
-                  <div class="col-md-6" id="patient-reg-military-summary-wrap" style="display:none">
-                    <div class="alert alert-warning py-2 mb-0 small fw-bold" id="patient-reg-military-summary" role="status"></div>
-                  </div>
-                </div>
-              </div>
               <div class="d-flex gap-2 flex-wrap mt-4">
                 <button type="submit" class="btn btn-success fw-bold" id="patient-reg-save-btn">💾 حفظ تسجيل المريض</button>
               </div>
@@ -2341,7 +2333,7 @@
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
   <script src="/js/app.js?v=20260917e"></script>
   <script src="/js/daily-picker.js?v=20260917b"></script>
-  <script src="/js/daily-charges.js?v=20260917b"></script>
+  <script src="/js/daily-charges.js?v=20260917f"></script>
   <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260917e"></script>

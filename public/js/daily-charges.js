@@ -16,12 +16,13 @@ const DAILY_TAB_GROUPS = [
 const DAILY_EXAM_CODES = ['consultant_exam', 'specialist_exam', 'consultation_stamp'];
 
 const DAILY_INVOICE_TYPE_LABELS = {
-  civil: 'خاص',
-  contracted: 'جهة متعاقدة',
-  non_contracted: 'جهة غير متعاقدة',
+  civil: 'مدني (خاص)',
+  contracted: 'جهات متعاقدة',
+  non_contracted: 'جهات غير متعاقدة',
   military: 'عسكري',
   hospital: 'حالة مستشفى',
   special: 'حالة خاصة',
+  operations: 'عمليات',
 };
 
 const DAILY_CLINICAL_TABS = ['exams', 'lab', 'radiology', 'sessions', 'medicines', 'supplies'];
@@ -1768,6 +1769,44 @@ function updateDailyMilitaryAuthBanner(ctx = dailyStayContext) {
   banner.classList.remove('d-none');
 }
 
+function resolveInvoiceTypeFromFinancialTreatment(text) {
+  const value = String(text || '').trim();
+  if (!value) return 'civil';
+  const normalized = value
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .toLowerCase();
+  if (/جهات?\s*غير\s*متعاقد/.test(normalized)) return 'non_contracted';
+  if (/جهات?\s*متعاقد/.test(normalized)) return 'contracted';
+  if (/عسكري/.test(normalized)) return 'military';
+  if (/مستشف/.test(normalized)) return 'hospital';
+  if (/عمليات/.test(normalized)) return 'operations';
+  if (/حالة\s*خاص|مجاني/.test(normalized)) return 'special';
+  if (/مدني|خاص|تامين/.test(normalized)) return 'civil';
+  return 'civil';
+}
+
+function getAccommodationGradeOptions() {
+  if (dailyStayGradesCache.length) {
+    return dailyStayGradesCache.filter((g) => g.stay_type_id);
+  }
+  return dailyStayTypesCache.map((st) => ({
+    stay_type_id: st.id,
+    name: st.name,
+    daily_rate: Number(st.daily_rate) || 0,
+    price_list_name: null,
+  }));
+}
+
+function formatStayGradeOptionLabel(grade) {
+  const rate =
+    Number(grade.daily_rate) > 0
+      ? ` — ${typeof dailyFmt === 'function' ? dailyFmt(grade.daily_rate) : grade.daily_rate} / يوم`
+      : '';
+  const source = grade.price_list_name ? ` (${grade.price_list_name})` : '';
+  return `${dailyEscapeHtml(grade.name || '')}${rate}${dailyEscapeHtml(source)}`;
+}
+
 function togglePatientRegEntityFields() {
   const type = document.getElementById('patient-reg-invoice-type')?.value || 'civil';
   const showEntity = isEntityInvoiceType(type);
@@ -1779,9 +1818,7 @@ function togglePatientRegEntityFields() {
   const milFrom = document.getElementById('patient-reg-military-wrap');
   const milTo = document.getElementById('patient-reg-military-wrap-end');
   const milAmount = document.getElementById('patient-reg-military-amount-wrap');
-  const financialWrap = document.getElementById('patient-reg-financial-wrap');
   if (entityWrap) entityWrap.style.display = showEntity ? '' : 'none';
-  if (financialWrap) financialWrap.style.display = showEntity ? 'none' : '';
   if (letterWrap) letterWrap.style.display = showEntity ? '' : 'none';
   if (letterEnd) letterEnd.style.display = showEntity ? '' : 'none';
   if (letterDaysWrap) letterDaysWrap.style.display = showEntity ? '' : 'none';
@@ -1880,13 +1917,14 @@ async function loadPatientEntitySelects() {
 }
 
 function populateStayTypeSelects(selectedId = '') {
+  const grades = getAccommodationGradeOptions();
   const html =
-    '<option value="">-- اختر الغرفة أو الجناح --</option>' +
-    dailyStayTypesCache
-      .map(
-        (t) =>
-          `<option value="${t.id}"${String(selectedId) === String(t.id) ? ' selected' : ''}>${dailyEscapeHtml(t.name)}</option>`
-      )
+    '<option value="">-- اختر من اللائحة --</option>' +
+    grades
+      .map((grade) => {
+        const selected = String(selectedId) === String(grade.stay_type_id) ? ' selected' : '';
+        return `<option value="${grade.stay_type_id}"${selected}>${formatStayGradeOptionLabel(grade)}</option>`;
+      })
       .join('');
   ['patient-reg-room', 'daily-stay-room', 'change-room-stay-type'].forEach((id) => {
     const el = document.getElementById(id);
@@ -1909,22 +1947,13 @@ async function loadDailyStayGrades() {
 function populateStayGradeSelect(selectedId = '') {
   const el = document.getElementById('patient-reg-stay-grade');
   if (!el) return;
-  const fallback = dailyStayTypesCache.map((st) => ({
-    stay_type_id: st.id,
-    name: st.name,
-    daily_rate: Number(st.daily_rate) || 0,
-  }));
-  const grades = dailyStayGradesCache.length ? dailyStayGradesCache : fallback;
+  const grades = getAccommodationGradeOptions();
   el.innerHTML =
     '<option value="">-- اختر من اللائحة --</option>' +
     grades
-      .filter((g) => g.stay_type_id)
-      .map((g) => {
-        const rate =
-          Number(g.daily_rate) > 0
-            ? ` — ${typeof dailyFmt === 'function' ? dailyFmt(g.daily_rate) : g.daily_rate} / يوم`
-            : '';
-        return `<option value="${g.stay_type_id}"${String(selectedId) === String(g.stay_type_id) ? ' selected' : ''}>${dailyEscapeHtml(g.name)}${rate}</option>`;
+      .map((grade) => {
+        const selected = String(selectedId) === String(grade.stay_type_id) ? ' selected' : '';
+        return `<option value="${grade.stay_type_id}"${selected}>${formatStayGradeOptionLabel(grade)}</option>`;
       })
       .join('');
   if (selectedId) el.value = String(selectedId);
@@ -2010,8 +2039,14 @@ function fillInternalStayFormFromContext(ctx) {
   }
   if (inv) {
     const typeEl = document.getElementById('daily-stay-invoice-type');
-    if (typeEl && inv.invoice_type) typeEl.value = inv.invoice_type;
+    if (typeEl) {
+      typeEl.value =
+        inv.invoice_type || resolveInvoiceTypeFromFinancialTreatment(inv.financial_treatment);
+    }
+    const regTypeEl = document.getElementById('patient-reg-invoice-type');
+    if (regTypeEl && typeEl) regTypeEl.value = typeEl.value;
     toggleDailyStayEntityFields();
+    togglePatientRegEntityFields();
     if (inv.contracted_entity_id) {
       const entityEl = document.getElementById('daily-stay-entity');
       if (entityEl) entityEl.value = String(inv.contracted_entity_id);
@@ -2328,7 +2363,6 @@ function showPatientRegisterForm(patientType, options = {}) {
   });
   togglePatientRegEntityFields();
   void loadPatientEntitySelects();
-  if (typeof loadFinancialTreatments === 'function') loadFinancialTreatments();
   if (typeof bindCommaAmountInputs === 'function') {
     bindCommaAmountInputs(document.getElementById('patient-register-form-panel'));
   }
@@ -2359,8 +2393,6 @@ async function fillPatientRegisterFormFromContext(ctx) {
   if (ageEl && p.age != null) ageEl.value = String(p.age);
   const admissionEl = document.getElementById('patient-reg-admission');
   if (admissionEl) admissionEl.value = fmtStayDate(inv.admission_date) || '';
-  const financialEl = document.getElementById('patient-reg-financial');
-  if (financialEl) financialEl.value = inv.financial_treatment || p.financial_treatment || '';
   const balanceEl = document.getElementById('patient-reg-balance');
   if (balanceEl && typeof setCommaAmountValue === 'function') {
     setCommaAmountValue(balanceEl, p.account_balance || 0);
@@ -2391,7 +2423,10 @@ async function fillPatientRegisterFormFromContext(ctx) {
     setCommaAmountValue(assistantEl, assignment?.patient_assistant_amount || 0);
   }
   const invoiceTypeEl = document.getElementById('patient-reg-invoice-type');
-  if (invoiceTypeEl && inv.invoice_type) invoiceTypeEl.value = inv.invoice_type;
+  if (invoiceTypeEl) {
+    invoiceTypeEl.value =
+      inv.invoice_type || resolveInvoiceTypeFromFinancialTreatment(inv.financial_treatment || p.financial_treatment);
+  }
   togglePatientRegEntityFields();
   await loadPatientEntitySelects();
   if (inv.contracted_entity_id) {
@@ -2487,8 +2522,8 @@ function clearPatientRegisterForm(options = {}) {
   });
   const genderEl = document.getElementById('patient-reg-gender');
   if (genderEl) genderEl.value = '';
-  const financialEl = document.getElementById('patient-reg-financial');
-  if (financialEl) financialEl.value = '';
+  const invoiceTypeEl = document.getElementById('patient-reg-invoice-type');
+  if (invoiceTypeEl) invoiceTypeEl.value = 'civil';
   const stayGradeEl = document.getElementById('patient-reg-stay-grade');
   if (stayGradeEl) stayGradeEl.value = '';
   if (!keepType) {
@@ -2518,10 +2553,7 @@ async function savePatientRegistration(event) {
   const gender = document.getElementById('patient-reg-gender')?.value || '';
   const admission_date = document.getElementById('patient-reg-admission')?.value || '';
   const invoice_type = document.getElementById('patient-reg-invoice-type')?.value || 'civil';
-  let financial_treatment = document.getElementById('patient-reg-financial')?.value || '';
-  if (isEntityInvoiceType(invoice_type)) {
-    financial_treatment = getDailyInvoiceTypeLabel(invoice_type);
-  }
+  const financial_treatment = getDailyInvoiceTypeLabel(invoice_type);
   const balanceRaw = document.getElementById('patient-reg-balance')?.value;
   if (!file_number || !patient_name || !admission_date) {
     showToast('رقم الملف واسم المريض وتاريخ الدخول مطلوبان', 'warning');
@@ -6290,7 +6322,17 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('patient-register-form')?.addEventListener('submit', savePatientRegistration);
   document.getElementById('patient-reg-stay-grade')?.addEventListener('change', syncStayGradeToRoom);
-  document.getElementById('patient-reg-invoice-type')?.addEventListener('change', togglePatientRegEntityFields);
+  document.getElementById('patient-reg-room')?.addEventListener('change', () => {
+    const gradeSel = document.getElementById('patient-reg-stay-grade');
+    const roomSel = document.getElementById('patient-reg-room');
+    if (gradeSel && roomSel?.value) gradeSel.value = roomSel.value;
+  });
+  document.getElementById('patient-reg-invoice-type')?.addEventListener('change', () => {
+    togglePatientRegEntityFields();
+    const dailyType = document.getElementById('daily-stay-invoice-type');
+    const regType = document.getElementById('patient-reg-invoice-type');
+    if (dailyType && regType) dailyType.value = regType.value;
+  });
   document.getElementById('patient-reg-letter-from')?.addEventListener('change', updateLetterAuthorizedDaysDisplay);
   document.getElementById('patient-reg-letter-to')?.addEventListener('change', updateLetterAuthorizedDaysDisplay);
   document.getElementById('patient-reg-military-from')?.addEventListener('change', updatePatientRegMilitarySummary);
