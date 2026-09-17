@@ -42,11 +42,6 @@ const DAILY_PATIENT_HEADER_KEYS = [
   'discharge_date',
   'stay_days',
   'financial_treatment',
-  'invoice_type',
-  'contracted_entity_id',
-  'discount_percent',
-  'letter_from_date',
-  'letter_to_date',
   'issue_date',
 ];
 
@@ -546,7 +541,7 @@ async function listInvoices(filters = {}) {
 async function saveInvoice(data, existingId = null, createdBy = null, options = {}) {
   const actor = options.actor ?? createdBy;
   let existingForPatientGuard = null;
-  if (existingId) {
+  if (existingId && !options.skip_patient_header_lock) {
     existingForPatientGuard = await getInvoiceById(existingId);
     data = preserveDailyPatientHeaderFromExisting(data, existingForPatientGuard, actor);
   }
@@ -1151,6 +1146,7 @@ function buildCalcDataFromInvoice(invoice) {
       payment_method_id: m.payment_method_id,
       code: m.code,
       amount: m.amount,
+      metadata: m.metadata && typeof m.metadata === 'object' ? m.metadata : {},
     })),
     items,
     include_daily_charges: false,
@@ -1265,6 +1261,7 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
       payment_method_id: m.payment_method_id,
       code: m.code,
       amount: m.amount,
+      metadata: m.metadata && typeof m.metadata === 'object' ? m.metadata : {},
     })),
     payments: invoice.payments || [],
     items: manualItems,
@@ -1760,6 +1757,14 @@ async function openPatientStay(data, user = null) {
     payload.letter_from_date = data.letter_from_date || null;
     payload.letter_to_date = data.letter_to_date || null;
   }
+  if (data.invoice_type === 'contracted' && payload.contracted_entity_id) {
+    payload.discount_percent =
+      Number(data.discount_percent) > 0
+        ? Number(data.discount_percent)
+        : await getEffectiveDiscountPercent(payload.contracted_entity_id);
+  } else if (data.invoice_type === 'non_contracted') {
+    payload.discount_percent = 0;
+  }
   if (data.invoice_type === 'military') {
     payload.letter_from_date = data.military_auth_from || data.letter_from_date || null;
     payload.letter_to_date = data.military_auth_to || data.letter_to_date || null;
@@ -1770,6 +1775,7 @@ async function openPatientStay(data, user = null) {
     preserve_status: true,
     actor: user,
     skip_structural_guard: true,
+    skip_patient_header_lock: true,
   });
   const updated =
     (await syncInvoiceAfterDailyChange(invoiceId, fileNumber, {

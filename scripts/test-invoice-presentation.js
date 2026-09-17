@@ -347,9 +347,8 @@ function testPdfStayDetailAndCaptainName() {
   const html = buildInvoiceHtml(invoice, { showQr: false });
   assert(html.includes('إقامة ورعاية'), 'PDF contains stay section header');
   assert(html.includes('مساعد تمريض'), 'PDF contains stay line detail');
-  assert(html.includes('نقيب عمرو صالح'), 'PDF contains normalized captain name');
-  assert(!html.includes('نقيب / عمرو صالح محمد'), 'PDF hides legacy captain name');
-  assert(html.includes('رئيس حسابات المرضى'), 'PDF contains captain role label');
+  assert(html.includes('المدير المالي'), 'PDF contains financial manager role label');
+  assert(!html.includes('رئيس حسابات المرضى'), 'PDF hides patient accounts manager role label');
   console.log('OK PDF stay detail and captain name');
 }
 

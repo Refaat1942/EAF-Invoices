@@ -1069,9 +1069,17 @@ async function validateServiceForSection(section, serviceId, sectionsWithService
   if (!service || !service.is_active) {
     throw new Error(`قسم «${section.name}»: الخدمة غير موجودة في اللائحة`);
   }
+  const allowedCodes = getSectionPickerCategoryCodes(full);
+  const serviceCategory = String(service.category_code || '').trim();
+  if (allowedCodes.length) {
+    if (!allowedCodes.includes(serviceCategory)) {
+      throw new Error(`قسم «${section.name}»: البند لا ينتمي لهذا القسم في اللائحة`);
+    }
+    return service;
+  }
   const sectionCategory = full.category_code || section.category_code;
-  if (sectionCategory && service.category_code && service.category_code !== sectionCategory) {
-    throw new Error(`قسم «${section.name}»: الخدمة لا تنتمي لهذا القسم في اللائحة`);
+  if (sectionCategory && serviceCategory && serviceCategory !== sectionCategory) {
+    throw new Error(`قسم «${section.name}»: البند لا ينتمي لهذا القسم في اللائحة`);
   }
   return service;
 }
@@ -1211,9 +1219,18 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
       line = { ...line, service_id: line.catalog_item_id, catalog_item_id: null };
     }
   } else {
-    // Legacy rows / exam dropdowns may send catalog ids in service_id after price-list purge.
+    // UI may send price-list service ids — prefer services table when the id resolves there.
+    if (line.catalog_item_id && !line.service_id) {
+      const catalogAsService = await getServiceById(line.catalog_item_id);
+      if (catalogAsService?.is_active) {
+        line = { ...line, service_id: line.catalog_item_id, catalog_item_id: null };
+      }
+    }
     if (catalogCategory && line.service_id && !line.catalog_item_id) {
-      line = { ...line, catalog_item_id: line.service_id, service_id: null };
+      const svc = await getServiceById(line.service_id);
+      if (!svc?.is_active) {
+        line = { ...line, catalog_item_id: line.service_id, service_id: null };
+      }
     }
     if ((catalogCategory || line.catalog_item_id) && !line.service_id) {
       return await normalizeCatalogLine(
@@ -1224,7 +1241,7 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
     }
   }
 
-  const normalized = normalizeLine(section, rawLine);
+  const normalized = normalizeLine(section, line);
   if (section.input_type !== 'amount') return normalized;
 
   const qty = round2(normalized.quantity || 1) || 1;

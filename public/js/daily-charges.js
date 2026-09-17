@@ -297,7 +297,7 @@ function getOperationRowTotal(tr) {
     dailyParseAmount(tr.querySelector('.daily-op-amount')?.value) +
     dailyParseAmount(tr.querySelector('.daily-op-companion')?.value) +
     dailyParseAmount(tr.querySelector('.daily-op-nursing')?.value) +
-    dailyParseAmount(tr.querySelector('.daily-op-assistant')?.value)
+    dailyParseAmount(tr.querySelector('.daily-op-assistant-amt')?.value)
   );
 }
 
@@ -3074,13 +3074,11 @@ async function loadDailySections() {
   void loadCompanionServicesCache();
   void loadExamServicesCache();
 
-  const priceSections = dailySectionsCache.filter((s) => s.category_code && !s.catalog_category);
+  const priceSections = dailySectionsCache.filter((s) => s.picker_kind === 'service' || s.service_count > 0);
   const statusEl = document.getElementById('daily-entry-status');
   if (dailyPriceListMeta?.name && statusEl && dailyStayContext?.invoice?.id) {
-    const catalogTotal = dailySectionsCache
-      .filter((s) => s.catalog_category)
-      .reduce((sum, s) => sum + (s.catalog_count || 0), 0);
-    statusEl.title = `اللائحة: ${dailyPriceListMeta.name} | كتالوج: ${catalogTotal} صنف — بحث عند الاختيار`;
+    const listTotal = dailySectionsCache.reduce((sum, s) => sum + (s.service_count || 0), 0);
+    statusEl.title = `اللائحة: ${dailyPriceListMeta.name} | ${listTotal} بند في الشيت — بحث عند الاختيار`;
   }
   if (dailyStayContext?.invoice?.id && priceSections.length && !dailyPriceListMeta?.id) {
     showToast('لم تُحمَّل خدمات من اللائحة — تأكد من استيراد اللائحة في الإعدادات', 'warning');

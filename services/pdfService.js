@@ -571,7 +571,6 @@ function buildInvoiceHtml(invoice, options = {}) {
     </div>
 
     <div class="signatures">
-      <div class="sig-block"><div class="sig-title">رئيس حسابات المرضى</div><div class="sig-line">${escapeHtml(inv.captain_name)}</div></div>
       <div class="sig-block"><div class="sig-title">المدير المالي</div><div class="sig-line">${escapeHtml(inv.manager_name)}</div></div>
       <div class="sig-block"><div class="sig-title">المراجع المالي</div><div class="sig-line">${escapeHtml(inv.auditor_name || 'المراجع المالي')}</div></div>
       <div class="sig-block"><div class="sig-title">الموظف المختص</div><div class="sig-line">${escapeHtml(inv.employee_name || 'الموظف المختص')}</div></div>
@@ -582,13 +581,27 @@ function buildInvoiceHtml(invoice, options = {}) {
 </html>`;
 }
 
+function formatPaymentMethodLabel(method = {}) {
+  const meta = method.metadata && typeof method.metadata === 'object' ? method.metadata : {};
+  const parts = [String(method.name || '').trim()];
+  const depositor = String(meta.depositor_name || '').trim();
+  const transferRef = String(meta.transfer_ref || '').trim();
+  const chequeNumber = String(meta.cheque_number || '').trim();
+  const chequeDrawer = String(meta.cheque_drawer || '').trim();
+  if (depositor) parts.push(`المودع: ${depositor}`);
+  if (transferRef) parts.push(`رقم التحويل: ${transferRef}`);
+  if (chequeNumber) parts.push(`شيك رقم: ${chequeNumber}`);
+  if (chequeDrawer) parts.push(`الساحب: ${chequeDrawer}`);
+  return parts.filter(Boolean).join(' — ');
+}
+
 function buildPaymentRows(inv) {
   const methodPayments = (inv.method_payments || []).filter((m) => m.accepts_amount !== false);
   if (methodPayments.length) {
     return methodPayments
       .map(
         (m, i) =>
-          `<tr><td>${i + 1}</td><td class="label-cell">${escapeHtml(m.name)}</td><td class="num">${fmtPlain(m.amount)}</td></tr>`
+          `<tr><td>${i + 1}</td><td class="label-cell">${escapeHtml(formatPaymentMethodLabel(m))}</td><td class="num">${fmtPlain(m.amount)}</td></tr>`
       )
       .join('');
   }
