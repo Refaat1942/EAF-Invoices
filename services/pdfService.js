@@ -171,6 +171,13 @@ function formatItemQuantityDisplay(item) {
   return '';
 }
 
+function resolveInvoicePrintProfile(lineCount = 0) {
+  if (lineCount <= 14) return { className: 'print-fit' };
+  if (lineCount <= 24) return { className: 'print-fit print-dense' };
+  if (lineCount <= 34) return { className: 'print-fit print-compact' };
+  return { className: 'print-fit print-ultra' };
+}
+
 function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
   const inv = enrichInvoice(invoice);
@@ -183,12 +190,10 @@ function buildInvoiceHtml(invoice, options = {}) {
   });
   const realPayments = (inv.payments || []).filter((p) => p.amount || p.receipt_number || p.receipt_date);
 
-  const padRows = 2;
-  const rowCount = Math.max(realItems.length, realPayments.length, 1) + padRows;
+  const itemLineCount = realItems.filter((item) => !item._section_header).length;
+  const printProfile = resolveInvoicePrintProfile(itemLineCount);
   const items = [...realItems];
   const payments = [...realPayments];
-  while (items.length < rowCount) items.push({});
-  while (payments.length < rowCount) payments.push({});
 
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -208,44 +213,60 @@ function buildInvoiceHtml(invoice, options = {}) {
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
+    @page { size: A4 portrait; margin: 4mm; }
+    @media print {
+      html, body { margin: 0; padding: 0; background: #fff; }
+      .page {
+        width: auto;
+        min-height: 0;
+        max-height: none;
+        margin: 0;
+        padding: 3mm 4mm 2mm;
+        page-break-after: avoid;
+        page-break-inside: avoid;
+      }
+    }
     .page {
       width: 210mm;
-      min-height: 297mm;
-      padding: 8mm 10mm;
+      min-height: 0;
+      max-width: 210mm;
+      padding: 5mm 6mm;
       margin: 0 auto;
       position: relative;
     }
     .serial-bar {
       text-align: center;
-      font-size: 12px;
+      font-size: 10px;
       font-weight: 900;
       border: 2px solid #000;
-      padding: 5px 8px;
-      margin-bottom: 6px;
+      padding: 3px 6px;
+      margin-bottom: 4px;
       background: #f0f0f0;
+      line-height: 1.35;
     }
     .header {
       display: flex;
       direction: ltr;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 10px;
+      margin-bottom: 5px;
       border-bottom: 2px solid #000;
-      padding-bottom: 8px;
-      gap: 10px;
+      padding-bottom: 5px;
+      gap: 8px;
     }
     .header-text {
       direction: rtl;
       text-align: center;
       flex: 1;
-      line-height: 1.65;
+      line-height: 1.45;
       font-weight: 900;
-      font-size: 12px;
+      font-size: 11px;
+      color: #000;
     }
     .header-text .line { display: block; }
     .logo-area {
-      width: 72px;
-      height: 72px;
+      width: 58px;
+      height: 58px;
       border: 2px solid #000;
       border-radius: 50%;
       display: flex;
@@ -258,9 +279,9 @@ function buildInvoiceHtml(invoice, options = {}) {
       overflow: hidden;
     }
     .logo-area img { width: 100%; height: 100%; object-fit: cover; }
-    .header-spacer { width: 72px; flex-shrink: 0; }
+    .header-spacer { width: 58px; flex-shrink: 0; }
     .qr-area {
-      width: 92px;
+      width: 76px;
       flex-shrink: 0;
       text-align: center;
       direction: rtl;
@@ -271,8 +292,8 @@ function buildInvoiceHtml(invoice, options = {}) {
       align-self: flex-start;
     }
     .qr-area img {
-      width: 78px;
-      height: 78px;
+      width: 62px;
+      height: 62px;
       display: block;
       margin: 0 auto;
       image-rendering: pixelated;
@@ -288,22 +309,24 @@ function buildInvoiceHtml(invoice, options = {}) {
       width: 100%;
       border-collapse: collapse;
       border: 2px solid #000;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     .meta-table th, .meta-table td {
       border: 1px solid #000;
       text-align: center;
       font-weight: 800;
-      padding: 4px 3px;
+      padding: 2px 3px;
+      color: #000;
+      line-height: 1.3;
     }
     .meta-table th {
       background: #e8e8e8;
       font-weight: 900;
-      font-size: 9px;
+      font-size: 8px;
     }
     .meta-table .value {
-      min-height: 20px;
-      font-size: 10px;
+      min-height: 0;
+      font-size: 9px;
       font-weight: 800;
     }
     table.main-table {
@@ -314,23 +337,26 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     table.main-table th, table.main-table td {
       border: 1px solid #000;
-      padding: 3px 4px;
+      padding: 2px 3px;
       text-align: center;
       vertical-align: middle;
       font-weight: 800;
-      font-size: 10px;
+      font-size: 9px;
+      color: #000;
+      line-height: 1.25;
     }
     table.main-table th {
       background: #d9d9d9;
       font-weight: 900;
     }
-    .col-tot { width: 11%; }
-    .col-amt { width: 10%; }
-    .col-qty { width: 8%; }
-    .col-desc { width: 36%; }
-    .col-pay-amt { width: 10%; }
-    .col-pay-num { width: 12%; }
-    .col-pay-date { width: 13%; }
+    .col-tot { width: 10%; }
+    .col-amt { width: 9%; }
+    .col-qty { width: 7%; }
+    .col-disc { width: 6%; }
+    .col-desc { width: 30%; }
+    .col-pay-amt { width: 9%; }
+    .col-pay-num { width: 11%; }
+    .col-pay-date { width: 12%; }
     .desc {
       text-align: right !important;
       padding-right: 8px !important;
@@ -355,15 +381,15 @@ function buildInvoiceHtml(invoice, options = {}) {
     .num { direction: ltr; unicode-bidi: embed; white-space: nowrap; }
     .summary-row td { font-weight: 900 !important; background: #f5f5f5; }
     .summary-label { text-align: right !important; padding-right: 8px !important; font-weight: 900; }
-    .empty-row td { height: 22px; }
+    .empty-row td { height: 12px; }
     .num-main { font-weight: 900; }
     .num-raw { font-size: 8px; color: #666; font-weight: 700; display: block; margin-top: 1px; }
     .dual-wrap { display: inline-block; line-height: 1.2; }
     .bottom-tables {
       display: flex;
       direction: ltr;
-      gap: 8px;
-      margin-top: 8px;
+      gap: 5px;
+      margin-top: 4px;
     }
     .bottom-table-wrap { flex: 1; }
     .bottom-table {
@@ -374,10 +400,12 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     .bottom-table th, .bottom-table td {
       border: 1px solid #000;
-      padding: 4px 5px;
+      padding: 2px 4px;
       text-align: center;
       font-weight: 800;
-      font-size: 10px;
+      font-size: 8.5px;
+      color: #000;
+      line-height: 1.25;
     }
     .bottom-table th { background: #d9d9d9; font-weight: 900; }
     .bottom-table .label-cell { text-align: right; font-weight: 900; }
@@ -385,8 +413,8 @@ function buildInvoiceHtml(invoice, options = {}) {
       display: flex;
       direction: ltr;
       justify-content: space-between;
-      margin-top: 20px;
-      padding-top: 10px;
+      margin-top: 8px;
+      padding-top: 4px;
     }
     .sig-block {
       direction: rtl;
@@ -402,8 +430,10 @@ function buildInvoiceHtml(invoice, options = {}) {
     }
     .sig-line {
       border-top: 1px solid #000;
-      margin-top: 28px;
-      padding-top: 4px;
+      margin-top: 14px;
+      padding-top: 3px;
+      color: #000;
+      font-size: 9px;
     }
     .created-by-footer {
       direction: rtl;
@@ -429,20 +459,55 @@ function buildInvoiceHtml(invoice, options = {}) {
       border-collapse: collapse;
       border: 2px solid #000;
       direction: rtl;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
     .stay-table th, .stay-table td {
       border: 1px solid #000;
-      padding: 4px 5px;
+      padding: 2px 4px;
       text-align: center;
       font-weight: 800;
-      font-size: 10px;
+      font-size: 8.5px;
+      color: #000;
     }
     .stay-table th { background: #e8e8e8; font-weight: 900; }
+    .page.print-dense { font-size: 9px; }
+    .page.print-dense table.main-table th,
+    .page.print-dense table.main-table td { font-size: 8px; padding: 1px 2px; }
+    .page.print-dense .meta-table th { font-size: 7px; }
+    .page.print-dense .meta-table .value { font-size: 8px; }
+    .page.print-dense .empty-row td { height: 9px; }
+    .page.print-compact { font-size: 8px; }
+    .page.print-compact table.main-table th,
+    .page.print-compact table.main-table td { font-size: 7px; padding: 1px 2px; }
+    .page.print-compact .meta-table th { font-size: 6.5px; }
+    .page.print-compact .meta-table .value { font-size: 7px; }
+    .page.print-compact .bottom-table th,
+    .page.print-compact .bottom-table td { font-size: 7px; }
+    .page.print-compact .serial-bar { font-size: 8px; padding: 2px 4px; }
+    .page.print-compact .header-text { font-size: 9px; }
+    .page.print-compact .sig-line { margin-top: 10px; }
+    .page.print-ultra { font-size: 7px; }
+    .page.print-ultra table.main-table th,
+    .page.print-ultra table.main-table td { font-size: 6.5px; padding: 1px; }
+    .page.print-ultra .meta-table th { font-size: 6px; }
+    .page.print-ultra .meta-table .value { font-size: 6.5px; }
+    .page.print-ultra .bottom-table th,
+    .page.print-ultra .bottom-table td { font-size: 6.5px; }
+    .page.print-ultra .serial-bar { font-size: 7px; }
+    .page.print-ultra .header-text { font-size: 8px; }
+    .page.print-ultra .logo-area { width: 48px; height: 48px; }
+    .page.print-ultra .qr-area { width: 62px; }
+    .page.print-ultra .qr-area img { width: 50px; height: 50px; }
+    .page.print-ultra .sig-line { margin-top: 8px; font-size: 7px; }
+    @media print {
+      .page.print-dense { zoom: 0.94; }
+      .page.print-compact { zoom: 0.88; }
+      .page.print-ultra { zoom: 0.8; }
+    }
   </style>
 </head>
 <body>
-  <div class="page">
+  <div class="page ${printProfile.className}">
     <div class="serial-bar">
       رقم الفاتورة: ${escapeHtml(inv.serial_number)}
       ${inv.fiscal_year_label ? `&nbsp;|&nbsp; السنة المالية: ${escapeHtml(inv.fiscal_year_label)}` : ''}

@@ -2082,3 +2082,120 @@ input[data-comma-amount="1"] {
   font-weight: 900;
   color: #1e293b;
 }
+
+/* === Readable fields across all screens === */
+.form-control,
+.form-select,
+textarea.form-control,
+.invoice-table input,
+.invoice-table select,
+.invoice-table textarea,
+.payment-methods-table input,
+.payment-meta-fields input,
+.daily-sheet-table input,
+.daily-sheet-table select,
+.daily-sheet-table textarea,
+.daily-operations-table input,
+.daily-operations-table select,
+#view-create input.form-control,
+#view-create select.form-select,
+#view-daily input.form-control,
+#view-daily select.form-select,
+#view-patient-register input.form-control,
+#view-patient-register select.form-select {
+  color: #0d2137 !important;
+  -webkit-text-fill-color: #0d2137;
+  background-color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.45;
+  opacity: 1;
+}
+
+.form-control.bg-light,
+.form-control[readonly],
+.form-control:read-only,
+input[readonly].form-control,
+.invoice-table input[readonly],
+.invoice-table input.bg-light,
+.daily-sheet-table input[readonly],
+.daily-sheet-table input.bg-light,
+.discount-pct-display {
+  color: #0d2137 !important;
+  -webkit-text-fill-color: #0d2137;
+  background-color: #f4f7fb !important;
+  opacity: 1;
+}
+
+.form-control::placeholder,
+.invoice-table input::placeholder {
+  color: #5c6b7a !important;
+  opacity: 1;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+select:-webkit-autofill,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color: #0d2137 !important;
+  box-shadow: 0 0 0 1000px #fff inset !important;
+}
+
+.table td,
+.table th {
+  color: #0d2137;
+}
+
+#view-create .invoice-table input,
+#view-create .invoice-table select,
+#view-create .invoice-table textarea {
+  min-height: 2.15rem;
+  font-size: 0.95rem;
+  padding: 0.35rem 0.45rem;
+}
+
+#view-create .invoice-table input.desc-input,
+#view-create .invoice-table input.service-search {
+  text-align: right;
+  font-size: 0.92rem;
+}
+
+#view-create .invoice-table .discount-pct-display {
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+#view-create .payment-methods-table input.payment-method-input {
+  min-height: 2.2rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+#view-create .payment-meta-fields input {
+  min-height: 2.1rem;
+  font-size: 0.92rem;
+}
+
+#view-create .invoice-meta-section .form-control,
+#view-create .invoice-meta-section .form-select {
+  font-size: 0.95rem;
+  color: #0d2137 !important;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .form-control,
+.daily-tabs-sheet-panel .daily-sheet-table .form-control-sm,
+.daily-tabs-sheet-panel .daily-sheet-table .form-select-sm,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-picker-search {
+  color: #0d2137 !important;
+  -webkit-text-fill-color: #0d2137;
+  font-size: 0.95rem !important;
+  font-weight: 700;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table input[readonly],
+.daily-tabs-sheet-panel .daily-sheet-table .bg-light {
+  color: #0d2137 !important;
+  -webkit-text-fill-color: #0d2137;
+}
