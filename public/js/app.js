@@ -973,13 +973,11 @@ function buildInvoiceItemsRenderPlan(items = []) {
   return plan;
 }
 
-function createInvoiceSectionHeaderRow(label, count = 0) {
+function createInvoiceSectionHeaderRow(label) {
   const tr = document.createElement('tr');
   tr.className = 'invoice-section-header-row';
   tr.dataset.sectionHeader = '1';
-  const countBadge =
-    count > 1 ? `<span class="badge rounded-pill bg-primary-subtle text-primary ms-2">${count}</span>` : '';
-  tr.innerHTML = `<td colspan="9" class="invoice-section-header-cell"><span class="invoice-section-header-label fw-black">${label}${countBadge}</span></td>`;
+  tr.innerHTML = `<td colspan="9" class="invoice-section-header-cell"><span class="invoice-section-header-label fw-black">${label}</span></td>`;
   return tr;
 }
 
@@ -1070,7 +1068,7 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
   let paymentIndex = 0;
   for (const part of plan) {
     if (part.type === 'header') {
-      tbody.appendChild(createInvoiceSectionHeaderRow(part.label, part.count));
+      tbody.appendChild(createInvoiceSectionHeaderRow(part.label));
       continue;
     }
     if (part.type === 'aggregate') {
@@ -1103,6 +1101,9 @@ function bindEvents() {
     saveInvoiceWithMode('draft');
   });
   document.getElementById('save-draft-btn').addEventListener('click', () => saveInvoiceWithMode('draft'));
+  document.getElementById('delete-invoice-btn')?.addEventListener('click', () => {
+    if (currentInvoiceId) deleteInvoice(currentInvoiceId);
+  });
   document.getElementById('submit-review-btn').addEventListener('click', () => saveInvoiceWithMode('submit'));
   document.getElementById('approve-invoice-btn').addEventListener('click', approveCurrentInvoice);
   document.getElementById('reset-form-btn').addEventListener('click', () => switchView('home'));
@@ -2288,6 +2289,13 @@ function updateInvoiceActionButtons() {
     document.getElementById(id).style.display = showExports ? 'inline-block' : 'none';
   });
   document.getElementById('qr-card').style.display = showExports ? 'block' : 'none';
+
+  const deleteBtn = document.getElementById('delete-invoice-btn');
+  if (deleteBtn) {
+    const canDelete =
+      can('invoices.delete') && currentInvoiceId && currentInvoiceStatus && currentInvoiceStatus !== 'approved';
+    deleteBtn.style.display = canDelete ? '' : 'none';
+  }
 }
 
 function autoStayDays() {
@@ -4806,7 +4814,7 @@ async function loadInvoicesList() {
             <button class="btn btn-sm btn-outline-primary" onclick="loadInvoiceForEdit(${inv.id})">${canEdit ? '✏️' : '👁️'}</button>
             ${inv.status === 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="window.open('${API}/${inv.id}/pdf')">📄</button>` : ''}
             ${canApprove && inv.status === 'pending_review' ? `<button class="btn btn-sm btn-outline-success" onclick="quickApproveInvoice(${inv.id})">✅</button>` : ''}
-            ${canDelete && inv.status !== 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})">🗑️</button>` : ''}
+            ${canDelete && inv.status !== 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})" title="حذف المسودة">🗑️</button>` : ''}
           </td>
         </tr>`;
           })
@@ -4838,12 +4846,29 @@ async function quickApproveInvoice(id) {
 }
 
 async function deleteInvoice(id) {
-  if (!confirm('هل أنت متأكد من حذف هذه الفاتورة؟')) return;
+  if (!can('invoices.delete')) {
+    showToast('لا تملك صلاحية حذف الفواتير', 'warning');
+    return;
+  }
+  if (
+    !confirm(
+      'حذف هذه المسودة/الفاتورة؟\n\nسيتم حذف الفاتورة والحركات اليومية المرتبطة بها.\nلا يمكن التراجع عن هذا الإجراء.'
+    )
+  ) {
+    return;
+  }
   try {
     const res = await apiFetch(`${API}/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error('فشل الحذف');
-    showToast('تم حذف الفاتورة', 'success');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'فشل الحذف');
+    showToast('تم الحذف', 'success');
+    if (Number(currentInvoiceId) === Number(id)) {
+      resetForm();
+      switchView('home');
+    }
     loadInvoicesList();
+    if (typeof window.refreshApprovalsBadge === 'function') window.refreshApprovalsBadge();
+    if (typeof window.loadApprovalsView === 'function') window.loadApprovalsView();
   } catch (err) {
     showToast(err.message, 'danger');
   }

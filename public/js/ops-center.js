@@ -134,7 +134,9 @@
       if (summaryApprovedEl) summaryApprovedEl.textContent = summary.approved ?? 0;
 
       const rows = data.rows || [];
+      const draftRows = data.draft_rows || [];
       const canApprove = typeof can === 'function' && can('invoices.approve');
+      const canDelete = typeof can === 'function' && can('invoices.delete');
       body.innerHTML = rows.length
         ? rows
             .map(
@@ -156,6 +158,31 @@
             )
             .join('')
         : '<tr><td colspan="10" class="text-center py-4 text-muted">لا توجد فواتير بانتظار الاعتماد 🎉</td></tr>';
+
+      const draftsBody = document.getElementById('approvals-drafts-body');
+      const draftsCountEl = document.getElementById('approvals-drafts-count');
+      if (draftsCountEl) draftsCountEl.textContent = draftRows.length;
+      if (draftsBody) {
+        draftsBody.innerHTML = draftRows.length
+          ? draftRows
+              .map(
+                (inv) => `<tr>
+              <td class="fw-bold">${escapeHtml(inv.display_number || `#${inv.id}`)}</td>
+              <td>${escapeHtml(inv.patient_name || '—')}</td>
+              <td class="fw-bold">${escapeHtml(inv.file_number || '—')}</td>
+              <td><span class="badge bg-secondary">${escapeHtml(inv.invoice_type_label || inv.invoice_type || '—')}</span></td>
+              <td class="fw-bold">${fmtMoney(inv.final_total)}</td>
+              <td class="small">${fmtDateTime(inv.updated_at || inv.created_at)}</td>
+              <td class="small">${escapeHtml(inv.created_by_name || '—')}</td>
+              <td class="text-nowrap">
+                <button type="button" class="btn btn-sm btn-outline-primary ops-open-invoice" data-id="${inv.id}">عرض</button>
+                ${canDelete ? `<button type="button" class="btn btn-sm btn-outline-danger ops-delete-invoice" data-id="${inv.id}">حذف</button>` : ''}
+              </td>
+            </tr>`
+              )
+              .join('')
+          : '<tr><td colspan="8" class="text-center py-4 text-muted">لا توجد مسودات</td></tr>';
+      }
 
       await refreshApprovalsBadge();
     } catch (err) {
@@ -215,6 +242,12 @@
           await window.quickApproveInvoice(id);
           await loadApprovalsView();
         }
+        return;
+      }
+      const deleteBtn = e.target.closest('.ops-delete-invoice');
+      if (deleteBtn && typeof window.deleteInvoice === 'function') {
+        const id = Number(deleteBtn.dataset.id);
+        if (id) await window.deleteInvoice(id);
       }
     });
   }

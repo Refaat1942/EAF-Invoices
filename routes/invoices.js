@@ -320,6 +320,7 @@ router.get('/:id/preview', requirePermission('invoices.view'), async (req, res) 
 
     const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr, qrDataUrl });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
     res.send(html);
   } catch (err) {
     res.status(500).send(err.message);

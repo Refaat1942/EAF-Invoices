@@ -1019,6 +1019,10 @@ async function deleteInvoice(id, actor = null) {
     throw new Error('لا يمكن حذف فاتورة معتمدة');
   }
   const snapshot = rows[0];
+
+  // Clear linked daily movements so deleting a draft removes the whole open case.
+  await query('DELETE FROM patient_daily_entries WHERE invoice_id = $1', [id]);
+
   const { rowCount } = await query('DELETE FROM invoices WHERE id = $1', [id]);
   if (rowCount > 0) {
     try {

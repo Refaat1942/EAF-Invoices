@@ -281,10 +281,11 @@ function buildWordDocument(invoice) {
           mainTable,
           new Paragraph({ text: '' }),
           new Paragraph({
+            alignment: AlignmentType.CENTER,
             bidirectional: true,
             children: [
               new TextRun({
-                text: `${invoice.employee_name || 'الموظف المختص'}          ${invoice.auditor_name || 'المراجع المالي'}          ${invoice.captain_name}          ${invoice.manager_name}`,
+                text: `المدير المالي: ${invoice.manager_name || 'المدير المالي'}          المراجع المالي: ${invoice.auditor_name || 'المراجع المالي'}          الموظف المختص: ${invoice.employee_name || 'الموظف المختص'}`,
                 bold: true,
                 size: 18,
                 rightToLeft: true,

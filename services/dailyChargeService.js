@@ -1233,17 +1233,19 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   const catalogCategory = fullSection.catalog_category || catalogCategoryForSection(fullSection);
   let line = { ...rawLine };
 
+  const pickerId = line.service_id || line.catalog_item_id;
+  if (pickerId) {
+    const priceListService = await getServiceById(pickerId);
+    if (priceListService?.is_active) {
+      line = { ...line, service_id: Number(pickerId), catalog_item_id: null };
+    }
+  }
+
   if (usePriceListOnly) {
     if (line.catalog_item_id && !line.service_id) {
       line = { ...line, service_id: line.catalog_item_id, catalog_item_id: null };
     }
   } else {
-    if (line.catalog_item_id && !line.service_id) {
-      const catalogAsService = await getServiceById(line.catalog_item_id);
-      if (catalogAsService?.is_active) {
-        line = { ...line, service_id: line.catalog_item_id, catalog_item_id: null };
-      }
-    }
     if (catalogCategory && line.service_id && !line.catalog_item_id) {
       const svc = await getServiceById(line.service_id);
       if (!svc?.is_active) {

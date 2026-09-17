@@ -120,7 +120,7 @@ async function getApprovalsQueue({ limit = 200 } = {}) {
   );
   const summary = summaryRes.rows[0] || { pending_review: 0, draft: 0, approved: 0 };
 
-  const rows = pending.map((inv) => ({
+  const mapQueueRow = (inv) => ({
     id: inv.id,
     file_number: inv.file_number,
     patient_name: inv.patient_name,
@@ -138,12 +138,17 @@ async function getApprovalsQueue({ limit = 200 } = {}) {
     created_by_name: inv.created_by_name,
     contracted_entity_name: inv.contracted_entity_name,
     display_number: inv.serial_number || `#${inv.id}`,
-  }));
+  });
+
+  const rows = pending.map(mapQueueRow);
+  const draftInvoices = await listInvoices({ status: 'draft', limit: maxLimit });
+  const draft_rows = draftInvoices.map(mapQueueRow);
 
   return {
     generated_at: new Date().toISOString(),
     summary,
     rows,
+    draft_rows,
     policy:
       'سايكل الاعتماد: مسودة → إرسال للمراجعة → اعتماد نهائي (يُمنح الرقم التسلسلي). الفواتير أدناه بانتظار الاعتماد.',
   };
