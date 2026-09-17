@@ -67,6 +67,61 @@ const SECTION_CATALOG_SEARCH_CATEGORIES = Object.freeze({
   other: ['General', 'Prosthetics'],
 });
 
+/**
+ * daily_charge_sections.code → lائحة الأسعار (services/service_categories.code) category
+ * codes the picker searches, independent of whether the section also has a catalog_category.
+ * Canonical source for both the price-list-only default path and the legacy fallback search.
+ */
+const SECTION_PRICE_LIST_CATEGORIES = Object.freeze({
+  medicines: ['PHARMACY', 'MEDICINE'],
+  supplies: ['SUPPLIES'],
+  cosmetics: ['COSMETICS'],
+  consultant_exam: ['MEDICAL_EXAMS'],
+  specialist_exam: ['MEDICAL_EXAMS'],
+  analyses: ['LAB'],
+  xray_total: ['RADIOLOGY'],
+  sessions: ['PHYSIO'],
+  other: [
+    'GENERAL',
+    'SPINE_BUILDING',
+    'RF_INJECTION',
+    'MEDICAL_EXAMS',
+    'LAB',
+    'RADIOLOGY',
+    'PHYSIO',
+    'PROSTHETICS',
+    'ACCOMMODATION',
+    'COMPANION',
+    'NURSING',
+    'STAMPS',
+    'SPINE_CENTER',
+  ],
+  prosthetics: ['PROSTHETICS'],
+  operation_pick: ['SPINE_CENTER'],
+  accommodation: ['ACCOMMODATION'],
+  companion: ['COMPANION'],
+  nursing_point: ['NURSING'],
+  patient_assistant: ['NURSING'],
+});
+
+/** daily_charge_sections row → price-list category codes to search, falling back to its own category_code. */
+function priceListCategoryCodesForSection(section) {
+  if (!section) return [];
+  const code = String(section.code || '').trim();
+  if (SECTION_PRICE_LIST_CATEGORIES[code]) return [...SECTION_PRICE_LIST_CATEGORIES[code]];
+  if (section.category_code) return [section.category_code];
+  return [];
+}
+
+/**
+ * Daily charge screens default to reading items/prices from the uploaded price list
+ * (Settings → إدارة الأسعار) rather than requiring the per-tab catalog. Set
+ * DAILY_CHARGES_PRICE_LIST_ONLY=false to restore the legacy catalog-first behavior.
+ */
+function dailyChargesUsePriceListOnly() {
+  return String(process.env.DAILY_CHARGES_PRICE_LIST_ONLY ?? 'true').trim().toLowerCase() !== 'false';
+}
+
 /** daily_charge_sections.code → catalog category for picker/search */
 const SECTION_CATALOG_CATEGORY = Object.freeze({
   consultant_exam: 'MedicalExams',
@@ -152,4 +207,7 @@ module.exports = {
   catalogCategoryForSection,
   catalogSearchCategoriesForSection,
   catalogCategoryForServiceCode,
+  SECTION_PRICE_LIST_CATEGORIES,
+  priceListCategoryCodesForSection,
+  dailyChargesUsePriceListOnly,
 };

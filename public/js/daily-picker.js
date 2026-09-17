@@ -8,6 +8,16 @@
     return MANUAL_AMOUNT_SECTION_CODES.includes(String(section?.code || '').trim());
   }
 
+  // The server decides catalog vs price-list per section (picker_kind, from
+  // getSectionsWithServices) based on DAILY_CHARGES_PRICE_LIST_ONLY and what each source
+  // actually has — trust that over the section's static catalog_category, which stays set
+  // even when picker_kind has resolved to 'service'. Falls back to the old heuristic only
+  // for a section object that predates picker_kind (defensive, not expected in practice).
+  function sectionUsesCatalog(section) {
+    if (section && section.picker_kind != null) return section.picker_kind === 'catalog';
+    return Boolean(section?.catalog_category || section?.uses_catalog);
+  }
+
   const PICKER_MIN_SEARCH = 2;
   const PICKER_DEBOUNCE_MS = 300;
   const PICKER_DEFAULT_LIMIT = 30;
@@ -50,8 +60,11 @@
   }
 
   function buildCellHtml(section, line = {}) {
-    const usesCatalog = section.catalog_category || section.uses_catalog;
-    const hasServicePicker = section.category_code && section.input_type === 'amount' && !usesCatalog;
+    const usesCatalog = sectionUsesCatalog(section);
+    const hasServicePicker =
+      !usesCatalog &&
+      (section.picker_kind === 'service' ||
+        (section.picker_kind == null && section.category_code && section.input_type === 'amount'));
     if (!usesCatalog && !hasServicePicker) return '';
 
     const kind = usesCatalog ? 'catalog' : 'service';
@@ -434,9 +447,9 @@
   async function hydratePicker(tr, section, line = {}) {
     const picker = tr?.querySelector(`.daily-picker[data-section="${section.code}"]`);
     if (!picker) return;
-    const staticUsesCatalog = section.catalog_category || section.uses_catalog;
-    // A saved line on a catalog-configured section may still carry service_id when it was
-    // entered through the price-list fallback (catalog was empty at save time) — trust
+    const staticUsesCatalog = sectionUsesCatalog(section);
+    // A saved line may carry service_id even for a catalog-configured section (price-list
+    // fallback when the catalog was empty at save time, or price-list-only mode) — trust
     // whichever id the saved line actually has instead of the section's static config.
     const usesCatalog =
       line.catalog_item_id != null ? true : line.service_id != null ? false : Boolean(staticUsesCatalog);
@@ -500,7 +513,7 @@
     // Use the kind actually resolved when the selection was made/hydrated (it can differ
     // from the section's static config for a price-list-fallback selection); fall back to
     // the static config only when nothing was ever selected.
-    const staticUsesCatalog = section.catalog_category || section.uses_catalog;
+    const staticUsesCatalog = sectionUsesCatalog(section);
     const usesCatalog = picker.dataset.selectedKind
       ? picker.dataset.selectedKind === 'catalog'
       : Boolean(staticUsesCatalog);
@@ -529,5 +542,6 @@
     applyLineAmountFromUnitPrice,
     recalcSectionLineTotal,
     getUnitPriceForSection,
+    sectionUsesCatalog,
   };
 })();

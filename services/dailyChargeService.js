@@ -45,37 +45,9 @@ function buildCompactArabicPattern(q) {
   return norm ? `%${norm}%` : null;
 }
 
-/** Daily sections that search multiple price-list categories in the picker. */
-const SECTION_PICKER_CATEGORY_CODES = {
-  consultant_exam: ['MEDICAL_EXAMS'],
-  specialist_exam: ['MEDICAL_EXAMS'],
-  analyses: ['LAB'],
-  xray_total: ['RADIOLOGY'],
-  sessions: ['PHYSIO'],
-  other: [
-    'GENERAL',
-    'SPINE_BUILDING',
-    'RF_INJECTION',
-    'MEDICAL_EXAMS',
-    'LAB',
-    'RADIOLOGY',
-    'PHYSIO',
-    'PROSTHETICS',
-    'ACCOMMODATION',
-    'COMPANION',
-    'NURSING',
-    'STAMPS',
-    'SPINE_CENTER',
-  ],
-  prosthetics: ['PROSTHETICS'],
-  operation_pick: ['SPINE_CENTER'],
-};
-
 function getSectionPickerCategoryCodes(section) {
-  if (!section) return [];
-  if (SECTION_PICKER_CATEGORY_CODES[section.code]) return SECTION_PICKER_CATEGORY_CODES[section.code];
-  if (section.category_code) return [section.category_code];
-  return [];
+  const { priceListCategoryCodesForSection } = require('./dailyCatalogCategories');
+  return priceListCategoryCodesForSection(section);
 }
 
 function sectionAllowsServiceCategory(section, categoryCode) {
@@ -278,19 +250,64 @@ async function listSections() {
 
 async function getSectionsWithServices() {
   const sections = await listSections();
-  const { getCatalogStats, catalogItemToPicker } = require('./dailyEntryCatalogService');
+  const { getCatalogStats } = require('./dailyEntryCatalogService');
   const stats = await getCatalogStats();
   const countByCategory = Object.fromEntries((stats.by_category || []).map((row) => [row.category, row.count]));
   const priceList = await getDefaultPriceList();
+  const { priceListCategoryCodesForSection, dailyChargesUsePriceListOnly } = require('./dailyCatalogCategories');
+  const priceListOnly = dailyChargesUsePriceListOnly();
 
   return Promise.all(
     sections.map(async (section) => {
+      const priceListCodes =
+        priceList && section.input_type === 'amount' ? priceListCategoryCodesForSection(section) : [];
+      const catalogCount = section.catalog_category ? countByCategory[section.catalog_category] || 0 : 0;
+
+      let priceListCount = 0;
+      if (priceListCodes.length) {
+        const categoryRows = await resolvePickerCategoryIds(priceList.id, priceListCodes);
+        if (categoryRows.length) {
+          const countRes = await query(
+            `SELECT COUNT(*)::int AS n FROM services s
+             WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE`,
+            [priceList.id, categoryRows.map((r) => r.id)]
+          );
+          priceListCount = countRes.rows[0]?.n || 0;
+        }
+      }
+
+      // Price list is the default source for every amount section; fall back to the
+      // per-tab catalog only when the price list genuinely has nothing for it (no matching
+      // category, or a category with zero active services) — legacy mode keeps the original
+      // "catalog whenever catalog_category is configured" rule untouched.
+      const usePriceList =
+        priceListCodes.length > 0 &&
+        (priceListOnly ? priceListCount > 0 || catalogCount === 0 : !section.catalog_category);
+
+      if (usePriceList) {
+        const default_service =
+          priceListCodes.length === 1 ? await resolveDefaultServiceForSection(section, priceList) : null;
+        const bundle = inferBundleKey(section.code);
+        return {
+          ...section,
+          price_list_id: priceList.id,
+          price_list_name: priceList.name,
+          service_count: priceListCount,
+          services: default_service ? [serviceToDailyPicker(default_service)] : [],
+          picker_kind: 'service',
+          default_service: default_service ? serviceToDailyPicker(default_service) : null,
+          bundle_code: bundle,
+          bundle_label: getBundleLabel(bundle),
+          price_list_sources: BUNDLE_SOURCES[bundle] || { categories: priceListCodes, catalog: [] },
+        };
+      }
+
       if (section.catalog_category) {
         const bundle = inferBundleKey(section.code);
         return {
           ...section,
           uses_catalog: true,
-          catalog_count: countByCategory[section.catalog_category] || 0,
+          catalog_count: catalogCount,
           services: [],
           picker_kind: 'catalog',
           default_service: null,
@@ -302,39 +319,14 @@ async function getSectionsWithServices() {
         };
       }
 
-      if (!priceList) {
-        return {
-          ...section,
-          services: [],
-          service_count: 0,
-          picker_kind: section.category_code ? 'service' : null,
-          default_service: null,
-          price_list_id: null,
-          price_list_name: null,
-        };
-      }
-
-      const countRes = await query(
-        `SELECT COUNT(*)::int AS n
-         FROM services s
-         INNER JOIN service_categories c ON c.id = s.category_id
-         WHERE s.price_list_id = $1 AND c.code = $2 AND s.is_active = TRUE`,
-        [priceList.id, section.category_code]
-      );
-      const service_count = countRes.rows[0]?.n || 0;
-      const default_service = await resolveDefaultServiceForSection(section, priceList);
-      const bundle = inferBundleKey(section.code);
       return {
         ...section,
-        price_list_id: priceList.id,
-        price_list_name: priceList.name,
-        service_count,
-        services: default_service ? [serviceToDailyPicker(default_service)] : [],
-        picker_kind: section.category_code ? 'service' : null,
-        default_service: default_service ? serviceToDailyPicker(default_service) : null,
-        bundle_code: bundle,
-        bundle_label: getBundleLabel(bundle),
-        price_list_sources: BUNDLE_SOURCES[bundle] || { categories: [section.category_code].filter(Boolean), catalog: [] },
+        services: [],
+        service_count: 0,
+        picker_kind: null,
+        default_service: null,
+        price_list_id: priceList?.id || null,
+        price_list_name: priceList?.name || null,
       };
     })
   );
@@ -539,12 +531,86 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
   const pageNum = Math.max(1, Number(page) || 1);
   const maxLimit = Math.min(50, Math.max(1, Number(limit) || 20));
   const q = String(search || '').trim();
-  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+  const {
+    catalogCategoryForSection,
+    catalogSearchCategoriesForSection,
+    priceListCategoryCodesForSection,
+    dailyChargesUsePriceListOnly,
+  } = require('./dailyCatalogCategories');
   const searchCategories = catalogSearchCategoriesForSection(section);
   const catalogCategory =
     searchCategories.length === 1
       ? searchCategories[0]
       : section.catalog_category || catalogCategoryForSection(section);
+
+  const priceListOnly = dailyChargesUsePriceListOnly();
+  const priceListCodes = section.input_type === 'amount' ? priceListCategoryCodesForSection(section) : [];
+
+  if (priceListOnly && priceListCodes.length) {
+    if (q.length < 2) {
+      return {
+        rows: [],
+        total: 0,
+        page: pageNum,
+        limit: maxLimit,
+        totalPages: 1,
+        kind: 'service',
+        min_search: 2,
+        catalog_categories: priceListCodes,
+      };
+    }
+
+    const priceListResult = await searchPriceListPickerItems(section, { q, pageNum, maxLimit });
+    if (priceListResult.total > 0) {
+      return { ...priceListResult, catalog_category: catalogCategory, catalog_categories: priceListCodes, hint: null };
+    }
+
+    // Nothing in the price list for this term — fall back to the per-tab catalog (if the
+    // section has one configured) before giving up, so uploaded catalog data still works.
+    if (searchCategories.length) {
+      const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
+      const catalogResult = await listCatalogItemsPaginated({
+        category: searchCategories.length === 1 ? searchCategories[0] : undefined,
+        categories: searchCategories.length > 1 ? searchCategories : undefined,
+        search: q,
+        page: pageNum,
+        limit: maxLimit,
+        active_only: true,
+        sort: 'name',
+        order: 'asc',
+      });
+      if (catalogResult.total > 0) {
+        return {
+          rows: catalogResult.rows.map(catalogItemToPicker),
+          total: catalogResult.total,
+          page: catalogResult.page,
+          limit: catalogResult.limit,
+          totalPages: catalogResult.totalPages,
+          kind: 'catalog',
+          source: 'catalog_fallback',
+          catalog_category: catalogCategory,
+          catalog_categories: priceListCodes,
+          hint: 'يُعرض من كتالوج القسم — غير موجود في لائحة الأسعار الحالية',
+        };
+      }
+    }
+
+    return {
+      rows: [],
+      total: 0,
+      page: pageNum,
+      limit: maxLimit,
+      totalPages: 1,
+      kind: 'service',
+      catalog_category: catalogCategory,
+      catalog_categories: priceListCodes,
+      empty_catalog: priceListResult.empty_catalog,
+      no_match: !priceListResult.empty_catalog,
+      hint: priceListResult.empty_catalog
+        ? priceListResult.hint
+        : 'لا توجد نتائج مطابقة لبحثك — جرّب كلمة بحث أخرى',
+    };
+  }
 
   if (searchCategories.length) {
     const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
@@ -724,59 +790,55 @@ async function getDailyPickerItemBySection(section_code, id) {
     throw err;
   }
 
-  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+  const {
+    catalogCategoryForSection,
+    catalogSearchCategoriesForSection,
+    priceListCategoryCodesForSection,
+    dailyChargesUsePriceListOnly,
+  } = require('./dailyCatalogCategories');
   const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
-  if (catalogCategory) {
+  const priceListCodes = priceListCategoryCodesForSection(section);
+
+  const tryCatalog = async () => {
+    if (!catalogCategory) return null;
     const { getCatalogItemById, catalogItemToPicker } = require('./dailyEntryCatalogService');
     const item = await getCatalogItemById(itemId);
-    if (item && item.is_active) {
-      // Sections like "other" search several catalog sheets at once (General + Prosthetics);
-      // accept any category the section's own search would return, not just its primary one,
-      // otherwise re-opening a saved entry throws even though the original save succeeded.
-      const allowedCategories = catalogSearchCategoriesForSection(section);
-      if (allowedCategories.length && !allowedCategories.includes(item.category)) {
-        const err = new Error('الصنف لا يطابق فئة هذا القسم');
-        err.status = 400;
-        throw err;
-      }
-      return { kind: 'catalog', item: catalogItemToPicker(item) };
-    }
-    if (!section.category_code) {
-      const err = new Error('الصنف غير موجود');
-      err.status = 404;
-      throw err;
-    }
-    // No matching catalog item — the id may be a price-list service picked via the
-    // fallback search (empty catalog). Fall through to the service lookup below.
-  }
-
-  if (!section.category_code) {
-    const err = new Error('هذا القسم لا يدعم اختيار خدمة');
-    err.status = 400;
-    throw err;
-  }
-
-  const service = await getServiceById(itemId);
-  if (!service || !service.is_active) {
-    const err = new Error('الخدمة غير موجودة');
-    err.status = 404;
-    throw err;
-  }
-  const priceList = await getDefaultPriceList();
-  if (priceList && Number(service.price_list_id) !== Number(priceList.id)) {
-    const err = new Error('الخدمة ليست في اللائحة الافتراضية الحالية');
-    err.status = 400;
-    throw err;
-  }
-  if (service.category_code !== section.category_code) {
-    if (!sectionAllowsServiceCategory(section, service.category_code)) {
-      const err = new Error('الخدمة لا تطابق فئة هذا القسم');
+    if (!item || !item.is_active) return null;
+    // Sections like "other" search several catalog sheets at once (General + Prosthetics);
+    // accept any category the section's own search would return, not just its primary one,
+    // otherwise re-opening a saved entry throws even though the original save succeeded.
+    const allowedCategories = catalogSearchCategoriesForSection(section);
+    if (allowedCategories.length && !allowedCategories.includes(item.category)) {
+      const err = new Error('الصنف لا يطابق فئة هذا القسم');
       err.status = 400;
       throw err;
     }
+    return { kind: 'catalog', item: catalogItemToPicker(item) };
+  };
+
+  const tryService = async () => {
+    if (!priceListCodes.length) return null;
+    const service = await getServiceById(itemId);
+    if (!service || !service.is_active) return null;
+    const priceList = await getDefaultPriceList();
+    if (priceList && Number(service.price_list_id) !== Number(priceList.id)) return null;
+    if (!priceListCodes.includes(service.category_code)) return null;
+    const enriched = await enrichServicesWithResolvedPrices([service]);
+    return { kind: 'service', item: serviceToDailyPicker(enriched[0]) };
+  };
+
+  // Price-list-only mode looks up the price-list service first (that's the default source
+  // now), falling back to the per-tab catalog for ids saved before the flag was set; legacy
+  // mode keeps the original catalog-first order.
+  const attempts = dailyChargesUsePriceListOnly() ? [tryService, tryCatalog] : [tryCatalog, tryService];
+  for (const attempt of attempts) {
+    const result = await attempt();
+    if (result) return result;
   }
-  const enriched = await enrichServicesWithResolvedPrices([service]);
-  return { kind: 'service', item: serviceToDailyPicker(enriched[0]) };
+
+  const err = new Error('الصنف غير موجود');
+  err.status = 404;
+  throw err;
 }
 
 async function resolvePatient(fileNumber, patientName = '') {
@@ -1000,7 +1062,11 @@ async function validateServiceForSection(section, serviceId, sectionsWithService
     throw new Error(`قسم «${section.name}»: الخدمة غير موجودة في اللائحة`);
   }
   const sectionCategory = full.category_code || section.category_code;
-  if (sectionCategory && service.category_code && service.category_code !== sectionCategory) {
+  const matchesExactCategory = sectionCategory && service.category_code === sectionCategory;
+  // Sections like medicines/supplies/cosmetics have no single category_code (they were
+  // catalog-only historically) but do have a multi-category price-list mapping — validate
+  // against that instead of skipping the check entirely when sectionCategory is empty.
+  if (!matchesExactCategory && service.category_code) {
     if (!sectionAllowsServiceCategory(full, service.category_code)) {
       throw new Error(`قسم «${section.name}»: الخدمة لا تنتمي لهذا القسم في اللائحة`);
     }
@@ -1018,7 +1084,9 @@ async function normalizeManualAmountLine(section, rawLine = {}, sectionsWithServ
   normalized.unit_price = amount;
   normalized.quantity = 1;
   normalized.amount = amount;
-  normalized.service_id = null;
+  // Keep whichever reference id (service_id or catalog_item_id) the line actually carries —
+  // pricing here is always the staff-typed amount, but the reference is still needed to
+  // redisplay the picked item (e.g. room/companion type) when the entry is reopened.
   normalized.description = String(normalized.extra_text || '').trim() || section.name;
 
   return normalized;
@@ -1138,8 +1206,13 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   }
 
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
-  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
+  const { catalogCategoryForSection, dailyChargesUsePriceListOnly } = require('./dailyCatalogCategories');
   const catalogCategory = fullSection.catalog_category || catalogCategoryForSection(fullSection);
+  // In price-list-only mode (the default) a section merely having a catalog_category
+  // configured no longer forces catalog pricing — the picker sends price-list service_id by
+  // default now, so only an explicit catalog_item_id routes through the catalog. Legacy mode
+  // keeps the original "catalog whenever configured" behavior.
+  const catalogCategoryForcesRouting = catalogCategory && !dailyChargesUsePriceListOnly();
   let line = { ...rawLine };
   // Legacy rows / exam dropdowns may send catalog ids in service_id after price-list purge —
   // but the price-list-fallback picker (used when a section's catalog is still empty) also
@@ -1152,7 +1225,7 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
       line = { ...line, catalog_item_id: line.service_id, service_id: null };
     }
   }
-  if ((catalogCategory || line.catalog_item_id) && !line.service_id) {
+  if ((catalogCategoryForcesRouting || line.catalog_item_id) && !line.service_id) {
     return await normalizeCatalogLine(
       { ...fullSection, catalog_category: catalogCategory || fullSection.catalog_category },
       line,

@@ -221,8 +221,11 @@ assert(
     'sections API keeps at most one embedded service for default'
   );
   const totalEmbeddedServices = sections.reduce((sum, s) => sum + (s.services?.length || 0), 0);
+  // Price-list-only mode can resolve picker_kind='service' for sections that also have a
+  // catalog_category configured (e.g. companion/xray_total), not just category_code-only
+  // sections, so the ceiling is "one embedded default per service-kind section" instead.
   assert(
-    totalEmbeddedServices <= sections.filter((s) => s.category_code && !s.catalog_category).length,
+    totalEmbeddedServices <= sections.filter((s) => s.picker_kind === 'service').length,
     'sections API does not embed full category service lists'
   );
 
@@ -234,7 +237,7 @@ assert(
     minor_unit: 'TAB',
     minor_quantity_per_major: 10,
     major_unit_selling_price: 100,
-    minor_unit_selling_price: 12,
+    minor_unit_selling_price: 10,
   });
 
   const searchResult = await searchDailyPickerItems({
@@ -293,7 +296,11 @@ assert(
   let blocked = false;
   const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json() { return this; } };
   requirePermission('daily_charges.view')(
-    { session: { user: { username: 'x', permissions: ['invoices.view'] } }, method: 'GET', originalUrl: '/api/daily-charges/picker/search' },
+    {
+      session: { user: { username: 'x', role: 'user', custom_permissions: ['invoices.view'] } },
+      method: 'GET',
+      originalUrl: '/api/daily-charges/picker/search',
+    },
     res,
     () => {}
   );

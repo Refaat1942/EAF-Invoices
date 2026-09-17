@@ -126,8 +126,10 @@ let dailyStayTypesCache = [];
 let dailyStayGradesCache = [];
 let dailySpecialtiesCache = [];
 let dailyCompanionServicesCache = [];
+let dailyCompanionServicesKind = 'service';
 let dailyCompanionKindOptionsCache = [];
 let dailyExamServicesCache = [];
+let dailyExamServicesKind = 'service';
 let dailySuppliesMarkupPercent = 20;
 
 function dailyEscapeHtml(text) {
@@ -3148,6 +3150,10 @@ async function loadCompanionServicesCache() {
   try {
     const result = await DailyEntryPicker.searchPicker('companion', 'مرافق', 30);
     dailyCompanionServicesCache = result.rows || [];
+    // Price-list-only mode returns price-list services (kind:'service') by default now,
+    // not just as a fallback when the catalog is empty — track which one this actually was
+    // so the row it gets saved under (catalog_item_id vs service_id) matches its real source.
+    dailyCompanionServicesKind = result.kind === 'catalog' ? 'catalog' : 'service';
   } catch {
     dailyCompanionServicesCache = [];
   }
@@ -3162,6 +3168,7 @@ async function loadExamServicesCache() {
       ...r,
       section_code: inferExamSectionCodeFromServiceName(r.name),
     }));
+    dailyExamServicesKind = data.kind === 'catalog' ? 'catalog' : 'service';
   } catch {
     dailyExamServicesCache = [];
   }
@@ -3228,7 +3235,7 @@ function buildCompanionKindOptions(selectedValue = '') {
     const price = Number(s.price ?? s.list_price) || 0;
     const selected = String(selectedValue) === String(s.id) ? ' selected' : '';
     parts.push(
-      `<option value="${s.id}" data-kind="service" data-section="companion" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)} — ${dailyFmt(price)}</option>`
+      `<option value="${s.id}" data-kind="${dailyCompanionServicesKind}" data-section="companion" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)} — ${dailyFmt(price)}</option>`
     );
   });
   return parts.join('');
@@ -3265,7 +3272,7 @@ function buildExamTypeOptions(selectedItemId = '', sectionCode = '') {
       .map((s) => {
         const price = Number(s.price ?? s.list_price) || 0;
         const selected = String(selectedItemId) === String(s.id) ? ' selected' : '';
-        return `<option value="${s.id}" data-section="${s.section_code}" data-code="${dailyEscapeAttr(s.code || '')}" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)}</option>`;
+        return `<option value="${s.id}" data-section="${s.section_code}" data-code="${dailyEscapeAttr(s.code || '')}" data-price="${price}" data-kind="${dailyExamServicesKind}"${selected}>${dailyEscapeHtml(s.name)}</option>`;
       })
       .join('')
   );
@@ -3273,6 +3280,7 @@ function buildExamTypeOptions(selectedItemId = '', sectionCode = '') {
 
 function companionServiceIdFromLine(line = {}) {
   if (line.service_id) return String(line.service_id);
+  if (line.catalog_item_id) return String(line.catalog_item_id);
   const hint = String(line.extra_text || line.description || '').trim();
   if (!hint || !dailyCompanionServicesCache.length) return '';
   const lower = hint.toLowerCase();
@@ -3482,13 +3490,20 @@ function collectExamLinesFromRow(tr) {
   const typeSel = tr.querySelector('.daily-exam-type');
   const opt = typeSel?.selectedOptions[0];
   const sectionCode = caseSel?.value || opt?.dataset.section || tr.dataset.examSectionCode || '';
-  const catalogItemId = typeSel?.value ? Number(typeSel.value) : null;
+  // opt.dataset.kind is the actual picker source tagged in buildExamTypeOptions ('catalog'
+  // or 'service') — route to the matching id field, since price-list-only mode fills this
+  // dropdown from price-list services by default, not just the per-tab catalog.
+  const pickedId = typeSel?.value ? Number(typeSel.value) : null;
+  const isCatalogPick = pickedId != null && opt?.dataset.kind === 'catalog';
+  const catalogItemId = isCatalogPick ? pickedId : null;
+  const serviceId = pickedId != null && !isCatalogPick ? pickedId : null;
   const amount = dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
   const lines = [];
-  if (sectionCode && (catalogItemId || amount > 0)) {
+  if (sectionCode && (pickedId || amount > 0)) {
     const line = {
       section_code: sectionCode,
       catalog_item_id: catalogItemId,
+      service_id: serviceId,
       amount,
       quantity: 1,
     };
@@ -4785,12 +4800,18 @@ function collectCompanionLineFromRow(rowTr, lines) {
   const opt = kindSel.selectedOptions[0];
   const kind = opt?.dataset.kind || '';
   if (!kind || kind === 'none' || kind === 'nursing_point') return;
-  const catalogItemId = kind === 'service' && kindSel?.value ? Number(kindSel.value) : null;
+  // kind is either the real picker source ('catalog' or 'service') for a price-list/catalog
+  // item, tagged dynamically in buildCompanionKindOptions — route to the matching id field
+  // so a price-list-only selection isn't sent as a catalog_item_id it isn't.
+  const pickedId = kindSel?.value ? Number(kindSel.value) : null;
+  const catalogItemId = kind === 'catalog' ? pickedId : null;
+  const serviceId = kind === 'service' ? pickedId : null;
   const amount = dailyParseAmount(rowTr.querySelector('.daily-amount[data-section="companion"]')?.value);
-  if (!catalogItemId && amount <= 0) return;
+  if (!catalogItemId && !serviceId && amount <= 0) return;
   const line = {
     section_code: 'companion',
     catalog_item_id: catalogItemId,
+    service_id: serviceId,
     amount,
     quantity: 1,
     extra_text: kindSel?.selectedOptions[0]?.text?.trim() || '',
