@@ -710,22 +710,30 @@ async function getDailyPickerItemBySection(section_code, id) {
     throw err;
   }
 
-  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
+  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
   const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
   if (catalogCategory) {
     const { getCatalogItemById, catalogItemToPicker } = require('./dailyEntryCatalogService');
     const item = await getCatalogItemById(itemId);
-    if (!item || !item.is_active) {
+    if (item && item.is_active) {
+      // Sections like "other" search several catalog sheets at once (General + Prosthetics);
+      // accept any category the section's own search would return, not just its primary one,
+      // otherwise re-opening a saved entry throws even though the original save succeeded.
+      const allowedCategories = catalogSearchCategoriesForSection(section);
+      if (allowedCategories.length && !allowedCategories.includes(item.category)) {
+        const err = new Error('الصنف لا يطابق فئة هذا القسم');
+        err.status = 400;
+        throw err;
+      }
+      return { kind: 'catalog', item: catalogItemToPicker(item) };
+    }
+    if (!section.category_code) {
       const err = new Error('الصنف غير موجود');
       err.status = 404;
       throw err;
     }
-    if (item.category !== catalogCategory) {
-      const err = new Error('الصنف لا يطابق فئة هذا القسم');
-      err.status = 400;
-      throw err;
-    }
-    return { kind: 'catalog', item: catalogItemToPicker(item) };
+    // No matching catalog item — the id may be a price-list service picked via the
+    // fallback search (empty catalog). Fall through to the service lookup below.
   }
 
   if (!section.category_code) {
@@ -979,7 +987,9 @@ async function validateServiceForSection(section, serviceId, sectionsWithService
   }
   const sectionCategory = full.category_code || section.category_code;
   if (sectionCategory && service.category_code && service.category_code !== sectionCategory) {
-    throw new Error(`قسم «${section.name}»: الخدمة لا تنتمي لهذا القسم في اللائحة`);
+    if (!sectionAllowsServiceCategory(full, service.category_code)) {
+      throw new Error(`قسم «${section.name}»: الخدمة لا تنتمي لهذا القسم في اللائحة`);
+    }
   }
   return service;
 }
@@ -1104,13 +1114,29 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
 }
 
 async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithServices = null) {
+  // Accommodation/companion/nursing/patient-assistant are manual-amount by business rule
+  // even when catalog_category is configured (kept only for item reference, e.g. room
+  // grade) — check this first so a picked catalog item never silently overrides the
+  // staff-entered amount, and so amount-only lines (e.g. from batch stay posting, which
+  // has no catalog item to pick) aren't rejected for "missing" a catalog selection.
+  if (isManualAmountSection(section)) {
+    return await normalizeManualAmountLine(section, rawLine, sectionsWithServices);
+  }
+
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
   const { catalogCategoryForSection } = require('./dailyCatalogCategories');
   const catalogCategory = fullSection.catalog_category || catalogCategoryForSection(fullSection);
   let line = { ...rawLine };
-  // Legacy rows / exam dropdowns may send catalog ids in service_id after price-list purge.
+  // Legacy rows / exam dropdowns may send catalog ids in service_id after price-list purge —
+  // but the price-list-fallback picker (used when a section's catalog is still empty) also
+  // sends a real services.id in service_id, so only remap when that id actually exists as a
+  // catalog item; otherwise treat it as a genuine price-list service selection below.
   if (catalogCategory && line.service_id && !line.catalog_item_id) {
-    line = { ...line, catalog_item_id: line.service_id, service_id: null };
+    const { getCatalogItemById } = require('./dailyEntryCatalogService');
+    const maybeCatalogItem = await getCatalogItemById(line.service_id);
+    if (maybeCatalogItem && maybeCatalogItem.is_active) {
+      line = { ...line, catalog_item_id: line.service_id, service_id: null };
+    }
   }
   if ((catalogCategory || line.catalog_item_id) && !line.service_id) {
     return await normalizeCatalogLine(
@@ -1118,10 +1144,6 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
       line,
       sectionsWithServices
     );
-  }
-
-  if (isManualAmountSection(section)) {
-    return await normalizeManualAmountLine(section, line, sectionsWithServices);
   }
 
   const normalized = normalizeLine(section, rawLine);
