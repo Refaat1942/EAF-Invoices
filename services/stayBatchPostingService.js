@@ -149,20 +149,35 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
 
   const invoice = stay.invoice;
   const businessToday = getCurrentBusinessDateString();
-  const admission = parseDateOnly(options.from_date || invoice.admission_date);
+  const letterFrom = parseDateOnly(invoice.letter_from_date);
+  const letterTo = parseDateOnly(invoice.letter_to_date);
+
+  let admission = parseDateOnly(options.from_date || invoice.admission_date);
   if (!admission) throw new Error('تاريخ الدخول غير محدد على الفاتورة');
+  // A جواب (authorization letter) that starts after admission means charges aren't
+  // authorized before the letter's start date — don't post those days by default.
+  if (!options.from_date && letterFrom && letterFrom > admission) {
+    admission = letterFrom;
+  }
 
   let endDate = parseDateOnly(options.to_date);
   if (!endDate) {
     const discharge = parseDateOnly(invoice.discharge_date);
     if (discharge && discharge < businessToday) {
       endDate = discharge;
+    } else if (letterTo && letterTo < businessToday) {
+      // No discharge yet, but the authorized جواب window has already fully elapsed —
+      // post the whole authorized period instead of stopping at "yesterday" and
+      // silently leaving the tail end of the letter unbilled.
+      endDate = letterTo;
     } else if (options.include_today) {
       endDate = businessToday;
     } else {
       endDate = addDays(businessToday, -1);
     }
   }
+  // Never bill beyond the authorized جواب window, however the end date was derived.
+  if (letterTo && endDate > letterTo) endDate = letterTo;
 
   if (endDate < admission) {
     throw new Error('تاريخ النهاية قبل تاريخ الدخول');

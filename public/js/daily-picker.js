@@ -169,7 +169,13 @@
         const unit = item.unit ? ` / ${esc(item.unit)}` : '';
         const label = item.code ? `${esc(item.code)} — ${esc(item.name)}` : esc(item.name);
         const cat = item.category_name ? `<span class="daily-picker-suggest-cat">${esc(item.category_name)}</span>` : '';
-        return `<button type="button" class="service-suggest-item daily-picker-suggest-item w-100 text-start border-0 bg-transparent" data-item="${escAttr(JSON.stringify(item))}">
+        // A dual-configured section (catalog_category + category_code) can return either
+        // catalog rows or a price-list fallback (result.kind: 'service') when its per-tab
+        // catalog is empty — tag each row with the result's actual kind so the selection
+        // handler knows which id field to save it under, instead of trusting the section's
+        // static config.
+        const itemWithKind = result?.kind ? { ...item, _pickerKind: result.kind } : item;
+        return `<button type="button" class="service-suggest-item daily-picker-suggest-item w-100 text-start border-0 bg-transparent" data-item="${escAttr(JSON.stringify(itemWithKind))}">
           <div class="daily-picker-suggest-label"><strong>${label}</strong></div>
           <div class="daily-picker-suggest-meta text-muted">${cat}<span>${fmtAmount(price)}${unit}</span></div>
         </button>`;
@@ -281,7 +287,11 @@
 
   function applyPickerSelection(tr, section, picker, item) {
     if (!tr || !section || !picker || !item) return;
-    const kind = picker.dataset.kind;
+    // Prefer the item's own kind (set by the search result or by hydration from a saved
+    // line) over the section's static default — a dual-configured section's fallback
+    // search can return price-list services even though the section is catalog-based.
+    const kind = item._pickerKind || picker.dataset.kind;
+    picker.dataset.selectedKind = kind;
     const searchInput = picker.querySelector('.daily-picker-search');
     const valueInput = picker.querySelector('.daily-picker-value');
     const amountInput = tr.querySelector(`.daily-amount[data-section="${section.code}"]`);
@@ -335,6 +345,7 @@
     if (searchInput) searchInput.value = '';
     if (valueInput) valueInput.value = '';
     picker._selectedItem = null;
+    delete picker.dataset.selectedKind;
     if (suggest) suggest.classList.add('d-none');
 
     const unitSelect = tr.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
@@ -381,6 +392,7 @@
       const valueInput = picker.querySelector('.daily-picker-value');
       if (valueInput) valueInput.value = '';
       picker._selectedItem = null;
+      delete picker.dataset.selectedKind;
       clearTimeout(picker._searchTimer);
       picker._searchTimer = setTimeout(runSearch, PICKER_DEBOUNCE_MS);
     });
@@ -431,7 +443,12 @@
   async function hydratePicker(tr, section, line = {}) {
     const picker = tr?.querySelector(`.daily-picker[data-section="${section.code}"]`);
     if (!picker) return;
-    const usesCatalog = section.catalog_category || section.uses_catalog;
+    const staticUsesCatalog = section.catalog_category || section.uses_catalog;
+    // A saved line on a catalog-configured section may still carry service_id when it was
+    // entered through the price-list fallback (catalog was empty at save time) — trust
+    // whichever id the saved line actually has instead of the section's static config.
+    const usesCatalog =
+      line.catalog_item_id != null ? true : line.service_id != null ? false : Boolean(staticUsesCatalog);
     const id = usesCatalog ? line.catalog_item_id : line.service_id;
     if (!id) return;
 
@@ -439,6 +456,7 @@
       const payload = await fetchPickerItem(section.code, id);
       const item = payload?.item;
       if (!item) return;
+      item._pickerKind = payload?.kind || (usesCatalog ? 'catalog' : 'service');
       applyPickerSelection(tr, section, picker, item);
       if (usesCatalog) {
         populateCatalogUnitSelect(tr, section.code, item, line);
@@ -488,7 +506,9 @@
   function readPickerFields(tr, section) {
     const picker = tr.querySelector(`.daily-picker[data-section="${section.code}"]`);
     if (!picker) return {};
-    const usesCatalog = sectionUsesCatalog(section);
+    const usesCatalog = picker.dataset.selectedKind
+      ? picker.dataset.selectedKind === 'catalog'
+      : sectionUsesCatalog(section);
     const value = picker.querySelector('.daily-picker-value')?.value || '';
     const unitSelect = tr.querySelector(`.daily-catalog-unit[data-section="${section.code}"]`);
     const unitOpt = unitSelect?.selectedOptions?.[0];

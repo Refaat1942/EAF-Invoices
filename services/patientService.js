@@ -33,7 +33,11 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
       other_phone: '',
       nationality: '',
       gender: '',
-      patient_type: 'internal',
+      // null = "not specified" (preserved on conflict below) rather than forcing 'internal',
+      // since this string-shorthand form is used for name-only touch-up upserts of existing
+      // patients (e.g. setPatientBalance, saveInvoice) that must not flip an external
+      // patient's type back to internal just because they weren't asked to set it.
+      patient_type: null,
       floor: '',
       age: null,
       disability_degree: '',
@@ -57,7 +61,14 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
     other_phone: String(data.other_phone || '').trim(),
     nationality: String(data.nationality || '').trim(),
     gender: String(data.gender || '').trim(),
-    patient_type: normalizePatientType(data.patient_type || data.patientType),
+    // Same "not specified" convention as the string-shorthand branch above — only
+    // normalize (and thus write) patient_type when the caller actually passed one.
+    patient_type:
+      data.patient_type !== undefined && data.patient_type !== null && String(data.patient_type).trim() !== ''
+        ? normalizePatientType(data.patient_type)
+        : data.patientType !== undefined && data.patientType !== null && String(data.patientType).trim() !== ''
+          ? normalizePatientType(data.patientType)
+          : null,
     floor: String(data.floor || '').trim(),
     age: parseOptionalInt(data.age),
     disability_degree: String(data.disability_degree || '').trim(),
@@ -91,14 +102,17 @@ async function upsertPatient(fileNumber, dataOrName = '') {
        military_auth_from, military_auth_to, military_auth_amount,
        glasses_lens_type, glasses_start_date, glasses_price, glasses_discount_percent,
        updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
+     ) VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7,'internal'),$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,NOW())
      ON CONFLICT (file_number) DO UPDATE SET
        name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE patients.name END,
        phone = CASE WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone ELSE patients.phone END,
        other_phone = CASE WHEN EXCLUDED.other_phone <> '' THEN EXCLUDED.other_phone ELSE patients.other_phone END,
        nationality = CASE WHEN EXCLUDED.nationality <> '' THEN EXCLUDED.nationality ELSE patients.nationality END,
        gender = CASE WHEN EXCLUDED.gender <> '' THEN EXCLUDED.gender ELSE patients.gender END,
-       patient_type = EXCLUDED.patient_type,
+       -- $7 (not EXCLUDED.patient_type, which already has the 'internal' fallback baked in
+       -- via COALESCE above) so an unspecified patient_type on an update preserves the
+       -- existing row's type instead of silently flipping an external patient to internal.
+       patient_type = COALESCE($7, patients.patient_type),
        floor = CASE WHEN EXCLUDED.floor <> '' THEN EXCLUDED.floor ELSE patients.floor END,
        age = COALESCE(EXCLUDED.age, patients.age),
        disability_degree = CASE WHEN EXCLUDED.disability_degree <> '' THEN EXCLUDED.disability_degree ELSE patients.disability_degree END,

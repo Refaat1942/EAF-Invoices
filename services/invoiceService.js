@@ -185,7 +185,10 @@ async function prepareCalculationData(data, client = null) {
     const entity = await getContractedEntityById(Number(calcData.contracted_entity_id));
     if (entity) {
       calcData.contracted_entity_name = entity.name;
-      if (!calcData.discount_percent) {
+      // discount_percent from an existing draft invoice comes back from Postgres as a
+      // numeric string like "0.00", which is truthy in JS — a falsy check here never
+      // triggers the auto-fill once a draft already carries a zero value.
+      if (!(Number(calcData.discount_percent) > 0)) {
         calcData.discount_percent = await getEffectiveDiscountPercent(entity.id);
       }
     }

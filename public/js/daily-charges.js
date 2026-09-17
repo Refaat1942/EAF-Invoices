@@ -2028,32 +2028,37 @@ function fillInternalStayFormFromContext(ctx) {
   }
 }
 
+// Invoice-type / contracted-entity / جواب letter-date fields apply to BOTH internal and
+// external patients (an external patient can belong to a contracted entity too) — only
+// the room/companion/nursing/assistant stay fields are actually internal-only. Despite the
+// name, this function collects both; it no longer bails out early for external patients.
 function collectInternalStayPayload(patientType) {
-  if (patientType !== 'internal') return {};
-  const stay_type_id = document.getElementById('patient-reg-room')?.value ||
-    document.getElementById('daily-stay-room')?.value || '';
   const invoice_type =
     document.getElementById('patient-reg-invoice-type')?.value ||
     document.getElementById('daily-stay-invoice-type')?.value ||
     'civil';
-  const payload = {
-    stay_type_id: stay_type_id || null,
-    floor: document.getElementById('patient-reg-floor')?.value.trim() ||
-      document.getElementById('daily-stay-floor')?.value.trim() || '',
-    companion_amount: dailyParseAmount(
+  const payload = { invoice_type };
+
+  if (patientType === 'internal') {
+    const stay_type_id = document.getElementById('patient-reg-room')?.value ||
+      document.getElementById('daily-stay-room')?.value || '';
+    payload.stay_type_id = stay_type_id || null;
+    payload.floor = document.getElementById('patient-reg-floor')?.value.trim() ||
+      document.getElementById('daily-stay-floor')?.value.trim() || '';
+    payload.companion_amount = dailyParseAmount(
       document.getElementById('patient-reg-companion')?.value ||
         document.getElementById('daily-stay-companion')?.value
-    ),
-    nursing_point_amount: dailyParseAmount(
+    );
+    payload.nursing_point_amount = dailyParseAmount(
       document.getElementById('patient-reg-nursing')?.value ||
         document.getElementById('daily-stay-nursing')?.value
-    ),
-    patient_assistant_amount: dailyParseAmount(
+    );
+    payload.patient_assistant_amount = dailyParseAmount(
       document.getElementById('patient-reg-assistant')?.value ||
         document.getElementById('daily-stay-assistant')?.value
-    ),
-    invoice_type,
-  };
+    );
+  }
+
   if (isEntityInvoiceType(invoice_type)) {
     payload.contracted_entity_id =
       document.getElementById('patient-reg-entity')?.value ||
@@ -2160,12 +2165,20 @@ function openBatchStayModal() {
   const fromEl = document.getElementById('batch-stay-from');
   const toEl = document.getElementById('batch-stay-to');
   const admission = fmtStayDate(inv.admission_date);
+  const letterFrom = fmtStayDate(inv.letter_from_date);
+  const letterTo = fmtStayDate(inv.letter_to_date);
   const today = getLocalDateString();
   const yesterday = addLocalDays(today, -1);
-  if (fromEl) fromEl.value = admission || today;
+  // Default the range to the جواب (authorization letter) window when present, so the whole
+  // authorized period is posted by default instead of staff having to widen/narrow it by hand.
+  let fromDefault = admission || today;
+  if (letterFrom && (!admission || letterFrom > admission)) fromDefault = letterFrom;
+  if (fromEl) fromEl.value = fromDefault;
   if (toEl) {
     const discharge = fmtStayDate(inv.discharge_date);
-    toEl.value = discharge && discharge < today ? discharge : yesterday;
+    let toDefault = discharge && discharge < today ? discharge : yesterday;
+    if (letterTo && toDefault > letterTo) toDefault = letterTo;
+    toEl.value = toDefault;
   }
   const modalEl = document.getElementById('batch-stay-modal');
   if (!modalEl) return;
@@ -2542,6 +2555,7 @@ async function savePatientRegistration(event) {
     financial_treatment,
     patient_type,
     ...collectPatientDemographics('register'),
+    ...collectInternalStayPayload(patient_type),
   };
   if (patient_type !== 'external') {
     payload.account_balance = dailyParseAmount(balanceRaw);
@@ -2555,14 +2569,13 @@ async function savePatientRegistration(event) {
         return;
       }
     }
-    Object.assign(payload, collectInternalStayPayload('internal'));
     if (patientRegEditMode && !payload.stay_type_id && dailyStayContext?.room_assignment?.stay_type_id) {
       payload.stay_type_id = dailyStayContext.room_assignment.stay_type_id;
     }
-    if (isEntityInvoiceType(payload.invoice_type) && !payload.contracted_entity_id) {
-      showToast('اختر الجهة', 'warning');
-      return;
-    }
+  }
+  if (isEntityInvoiceType(payload.invoice_type) && !payload.contracted_entity_id) {
+    showToast('اختر الجهة', 'warning');
+    return;
   }
 
   try {
@@ -2665,7 +2678,10 @@ function applyDailyStayContext(ctx) {
   } else {
     applyDailyPatientTypeUI('internal');
   }
-  if (ctx?.patient?.patient_type === 'internal' || (!ctx?.patient?.patient_type && ctx?.patient)) {
+  if (ctx?.patient) {
+    // fillInternalStayFormFromContext also pre-fills invoice_type/contracted_entity/جواب
+    // letter dates, which apply to external patients too — it already no-ops the
+    // room-assignment-only fields when ctx.room_assignment is absent (external patients).
     fillInternalStayFormFromContext(ctx);
   }
   if (ctx?.invoice) {
@@ -2848,14 +2864,14 @@ async function saveOpenPatientStay() {
       financial_treatment: document.getElementById('daily-stay-financial')?.value || '',
       patient_type,
       ...collectPatientDemographics('daily'),
+      ...collectInternalStayPayload(patient_type),
     };
     if (patient_type !== 'external') {
       payload.account_balance = dailyParseAmount(document.getElementById('daily-stay-balance')?.value);
-      Object.assign(payload, collectInternalStayPayload('internal'));
-      if (isEntityInvoiceType(payload.invoice_type) && !payload.contracted_entity_id) {
-        showToast('اختر الجهة', 'warning');
-        return;
-      }
+    }
+    if (isEntityInvoiceType(payload.invoice_type) && !payload.contracted_entity_id) {
+      showToast('اختر الجهة', 'warning');
+      return;
     }
     const data = await apiJson(`${DAILY_API}/open-stay`, {
       method: 'POST',
@@ -4663,6 +4679,10 @@ function mountStayAddonRows(primaryTr) {
     insertStayAddonRow(primaryTr, createStayAddonRow(primaryTr, 'nursing_point', line));
   }
   delete primaryTr._pendingStayAddons;
+  // The primary row's total was stamped by createStayDailyEntryRow before these addon
+  // rows existed — recalculate now that the full day's group is in the DOM, otherwise
+  // the row/footer totals undercount by every mounted addon line's amount.
+  updateStayRowGroupTotal(primaryTr);
 }
 
 function createStayAddonRow(parentTr, sectionCode, line = {}) {
