@@ -1,7 +1,74 @@
 /**
- * Daily charge screens read from uploaded per-tab sheets (daily_entry_catalog_items),
- * not from the bulk price list (services table).
+ * Daily charge screens read from the default price list (uploaded Excel in إدارة الأسعار).
+ * Per-tab catalog sheets (daily_entry_catalog_items) are optional legacy — disabled by default.
  */
+
+/** When true (default), pickers and save use services/price list only — not daily_entry_catalog_items. */
+function dailyChargesUsePriceListOnly() {
+  return String(process.env.DAILY_CHARGES_PRICE_LIST_ONLY || 'true').trim().toLowerCase() !== 'false';
+}
+
+/** catalog_category → service_categories.code in the default price list */
+const CATALOG_TO_PRICE_LIST_CATEGORY_CODES = Object.freeze({
+  Medicine: ['PHARMACY', 'MEDICINE', 'DRUGS'],
+  Supplies: ['SUPPLIES'],
+  Cosmetics: ['COSMETICS'],
+  MedicalExams: ['MEDICAL_EXAMS'],
+  Lab: ['LAB'],
+  Radiology: ['RADIOLOGY'],
+  Physio: ['PHYSIO'],
+  Accommodation: ['ACCOMMODATION'],
+  Companion: ['COMPANION'],
+  Nursing: ['NURSING'],
+  General: ['GENERAL', 'SPINE_BUILDING', 'RF_INJECTION'],
+  Prosthetics: ['PROSTHETICS'],
+  SpineOperations: ['SPINE_CENTER'],
+});
+
+const SECTION_PRICE_LIST_CATEGORY_CODES = Object.freeze({
+  consultant_exam: ['MEDICAL_EXAMS'],
+  specialist_exam: ['MEDICAL_EXAMS'],
+  analyses: ['LAB'],
+  xray_total: ['RADIOLOGY'],
+  sessions: ['PHYSIO'],
+  medicines: ['PHARMACY', 'MEDICINE', 'DRUGS'],
+  supplies: ['SUPPLIES'],
+  cosmetics: ['COSMETICS'],
+  accommodation: ['ACCOMMODATION'],
+  companion: ['COMPANION'],
+  nursing_point: ['NURSING'],
+  patient_assistant: ['NURSING'],
+  consultation_stamp: ['STAMPS'],
+  analyses_stamp: ['STAMPS'],
+  xray_stamp: ['STAMPS'],
+  other: [
+    'GENERAL',
+    'SPINE_BUILDING',
+    'RF_INJECTION',
+    'MEDICAL_EXAMS',
+    'LAB',
+    'RADIOLOGY',
+    'PHYSIO',
+    'PROSTHETICS',
+    'ACCOMMODATION',
+    'COMPANION',
+    'NURSING',
+    'STAMPS',
+    'SPINE_CENTER',
+  ],
+  prosthetics: ['PROSTHETICS'],
+  operation_pick: ['SPINE_CENTER'],
+});
+
+function priceListCategoryCodesForSection(section) {
+  if (!section) return [];
+  const code = String(section.code || '').trim();
+  if (SECTION_PRICE_LIST_CATEGORY_CODES[code]) return [...SECTION_PRICE_LIST_CATEGORY_CODES[code]];
+  if (section.category_code) return [String(section.category_code).trim()];
+  const cat = catalogCategoryForSection(section);
+  if (cat && CATALOG_TO_PRICE_LIST_CATEGORY_CODES[cat]) return [...CATALOG_TO_PRICE_LIST_CATEGORY_CODES[cat]];
+  return [];
+}
 
 const CATALOG_CATEGORIES = Object.freeze([
   'Medicine',
@@ -147,9 +214,13 @@ module.exports = {
   SECTION_CATALOG_CATEGORY,
   SERVICE_CATEGORY_TO_CATALOG,
   TAB_CATALOG_IMPORT,
+  CATALOG_TO_PRICE_LIST_CATEGORY_CODES,
+  SECTION_PRICE_LIST_CATEGORY_CODES,
   normalizeCatalogCategory,
   SECTION_CATALOG_SEARCH_CATEGORIES,
   catalogCategoryForSection,
   catalogSearchCategoriesForSection,
   catalogCategoryForServiceCode,
+  dailyChargesUsePriceListOnly,
+  priceListCategoryCodesForSection,
 };

@@ -73,6 +73,10 @@ const SECTION_PICKER_CATEGORY_CODES = {
 
 function getSectionPickerCategoryCodes(section) {
   if (!section) return [];
+  const { dailyChargesUsePriceListOnly, priceListCategoryCodesForSection } = require('./dailyCatalogCategories');
+  if (dailyChargesUsePriceListOnly()) {
+    return priceListCategoryCodesForSection(section);
+  }
   if (SECTION_PICKER_CATEGORY_CODES[section.code]) return SECTION_PICKER_CATEGORY_CODES[section.code];
   if (section.category_code) return [section.category_code];
   return [];
@@ -276,17 +280,92 @@ async function listSections() {
   return rows;
 }
 
+async function loadPriceListServicesForSection(section, priceList, limit = 200) {
+  if (!priceList) return { services: [], service_count: 0 };
+  const categoryCodes = getSectionPickerCategoryCodes(section);
+  if (!categoryCodes.length) return { services: [], service_count: 0 };
+  const categoryRows = await resolvePickerCategoryIds(priceList.id, categoryCodes);
+  const categoryIds = categoryRows.map((r) => r.id);
+  if (!categoryIds.length) return { services: [], service_count: 0, category_codes: categoryCodes };
+
+  const countRes = await query(
+    `SELECT COUNT(*)::int AS n
+     FROM services s
+     WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE`,
+    [priceList.id, categoryIds]
+  );
+  const service_count = countRes.rows[0]?.n || 0;
+  const maxLimit = Math.min(500, Math.max(1, Number(limit) || 200));
+  const { rows } = await query(
+    `SELECT s.*, c.name AS category_name, c.code AS category_code
+     FROM services s
+     LEFT JOIN service_categories c ON c.id = s.category_id
+     WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE
+     ORDER BY c.sort_order, s.sort_order, s.name, s.id
+     LIMIT $3`,
+    [priceList.id, categoryIds, maxLimit]
+  );
+  const enriched = await enrichServicesWithResolvedPrices(rows);
+  return {
+    services: enriched.map(serviceToDailyPicker),
+    service_count,
+    category_codes: categoryCodes,
+  };
+}
+
 async function getSectionsWithServices() {
   const sections = await listSections();
-  const { getCatalogStats, catalogItemToPicker } = require('./dailyEntryCatalogService');
-  const stats = await getCatalogStats();
+  const { dailyChargesUsePriceListOnly } = require('./dailyCatalogCategories');
+  const usePriceListOnly = dailyChargesUsePriceListOnly();
+  const { getCatalogStats } = require('./dailyEntryCatalogService');
+  const stats = usePriceListOnly ? { by_category: [] } : await getCatalogStats();
   const countByCategory = Object.fromEntries((stats.by_category || []).map((row) => [row.category, row.count]));
   const priceList = await getDefaultPriceList();
 
   return Promise.all(
     sections.map(async (section) => {
+      const bundle = inferBundleKey(section.code);
+
+      if (usePriceListOnly) {
+        if (isManualAmountSection(section)) {
+          return {
+            ...section,
+            uses_catalog: false,
+            catalog_count: 0,
+            services: [],
+            service_count: 0,
+            picker_kind: 'manual',
+            default_service: null,
+            price_list_id: priceList?.id || null,
+            price_list_name: priceList?.name || null,
+            bundle_code: bundle,
+            bundle_label: getBundleLabel(bundle),
+            price_list_sources: BUNDLE_SOURCES[bundle] || { categories: getSectionPickerCategoryCodes(section), catalog: [] },
+          };
+        }
+
+        const loaded = await loadPriceListServicesForSection(section, priceList);
+        const default_service = await resolveDefaultServiceForSection(section, priceList);
+        return {
+          ...section,
+          uses_catalog: false,
+          catalog_count: 0,
+          services: loaded.services,
+          service_count: loaded.service_count,
+          picker_kind: loaded.service_count || section.category_code ? 'service' : null,
+          default_service: default_service ? serviceToDailyPicker(default_service) : null,
+          price_list_id: priceList?.id || null,
+          price_list_name: priceList?.name || null,
+          bundle_code: bundle,
+          bundle_label: getBundleLabel(bundle),
+          price_list_sources: BUNDLE_SOURCES[bundle] || {
+            categories: loaded.category_codes || getSectionPickerCategoryCodes(section),
+            catalog: [],
+          },
+        };
+      }
+
       if (section.catalog_category) {
-        const bundle = inferBundleKey(section.code);
         return {
           ...section,
           uses_catalog: true,
@@ -533,7 +612,20 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
   const pageNum = Math.max(1, Number(page) || 1);
   const maxLimit = Math.min(50, Math.max(1, Number(limit) || 20));
   const q = String(search || '').trim();
-  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+  const { dailyChargesUsePriceListOnly, catalogCategoryForSection, catalogSearchCategoriesForSection } =
+    require('./dailyCatalogCategories');
+
+  if (dailyChargesUsePriceListOnly()) {
+    const priceListResult = await searchPriceListPickerItems(section, { q, pageNum, maxLimit });
+    if (!priceListResult.hint && priceListResult.empty_catalog) {
+      const codes = getSectionPickerCategoryCodes(section);
+      priceListResult.hint = codes.length
+        ? `لا توجد بنود في اللائحة — ارفع شيت «${codes.join(' / ')}» من إدارة الأسعار`
+        : 'ارفع لائحة الأسعار من الإعدادات';
+    }
+    return { ...priceListResult, source: 'price_list', kind: 'service' };
+  }
+
   const searchCategories = catalogSearchCategoriesForSection(section);
   const catalogCategory =
     searchCategories.length === 1
@@ -642,11 +734,11 @@ async function listDailyPickerServicesByCategory({ category_code, category_codes
     throw err;
   }
 
-  const { catalogCategoryForServiceCode } = require('./dailyCatalogCategories');
+  const { dailyChargesUsePriceListOnly, catalogCategoryForServiceCode } = require('./dailyCatalogCategories');
   const catalogCategory =
     codes.map((code) => catalogCategoryForServiceCode(code)).find(Boolean) ||
     catalogCategoryForServiceCode(category_code);
-  if (catalogCategory) {
+  if (catalogCategory && !dailyChargesUsePriceListOnly()) {
     const { listCatalogItems, catalogItemToPicker } = require('./dailyEntryCatalogService');
     const maxLimit = Math.min(500, Math.max(1, Number(limit) || 200));
     const items = await listCatalogItems({
@@ -710,9 +802,9 @@ async function getDailyPickerItemBySection(section_code, id) {
     throw err;
   }
 
-  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
+  const { dailyChargesUsePriceListOnly, catalogCategoryForSection } = require('./dailyCatalogCategories');
   const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
-  if (catalogCategory) {
+  if (catalogCategory && !dailyChargesUsePriceListOnly()) {
     const { getCatalogItemById, catalogItemToPicker } = require('./dailyEntryCatalogService');
     const item = await getCatalogItemById(itemId);
     if (!item || !item.is_active) {
@@ -1105,23 +1197,31 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
 
 async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithServices = null) {
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
-  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
+  const { dailyChargesUsePriceListOnly, catalogCategoryForSection } = require('./dailyCatalogCategories');
+  const usePriceListOnly = dailyChargesUsePriceListOnly();
   const catalogCategory = fullSection.catalog_category || catalogCategoryForSection(fullSection);
   let line = { ...rawLine };
-  // Legacy rows / exam dropdowns may send catalog ids in service_id after price-list purge.
-  if (catalogCategory && line.service_id && !line.catalog_item_id) {
-    line = { ...line, catalog_item_id: line.service_id, service_id: null };
-  }
-  if ((catalogCategory || line.catalog_item_id) && !line.service_id) {
-    return await normalizeCatalogLine(
-      { ...fullSection, catalog_category: catalogCategory || fullSection.catalog_category },
-      line,
-      sectionsWithServices
-    );
-  }
 
   if (isManualAmountSection(section)) {
     return await normalizeManualAmountLine(section, line, sectionsWithServices);
+  }
+
+  if (usePriceListOnly) {
+    if (line.catalog_item_id && !line.service_id) {
+      line = { ...line, service_id: line.catalog_item_id, catalog_item_id: null };
+    }
+  } else {
+    // Legacy rows / exam dropdowns may send catalog ids in service_id after price-list purge.
+    if (catalogCategory && line.service_id && !line.catalog_item_id) {
+      line = { ...line, catalog_item_id: line.service_id, service_id: null };
+    }
+    if ((catalogCategory || line.catalog_item_id) && !line.service_id) {
+      return await normalizeCatalogLine(
+        { ...fullSection, catalog_category: catalogCategory || fullSection.catalog_category },
+        line,
+        sectionsWithServices
+      );
+    }
   }
 
   const normalized = normalizeLine(section, rawLine);
@@ -1133,7 +1233,7 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
 
   if (!hasService) {
     if (hasAmountInput) {
-      throw new Error(`قسم «${section.name}»: يجب اختيار بند من الشيت — السعر يُؤخذ من الشيت فقط`);
+      throw new Error(`قسم «${section.name}»: يجب اختيار بند من اللائحة — السعر يُؤخذ من الشيت المرفوع فقط`);
     }
     return normalized;
   }

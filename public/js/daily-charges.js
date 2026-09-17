@@ -529,7 +529,7 @@ function applyDailyTabColumnVisibility() {
     hint.textContent =
       'كشوفات — حالة الكشف، النوع، الطبيب، السعر، تاريخ الكشف، واسم المريض.';
   } else if (hint && activeDailyTab === 'medicines') {
-    hint.textContent = 'أدوية — ابحث عن الصنف، السعر من الكتالوج. الإجمالي في أسفل الجدول.';
+    hint.textContent = 'أدوية — ابحث عن الصنف، السعر من اللائحة المرفوعة. الإجمالي في أسفل الجدول.';
   } else if (hint && activeDailyTab === 'supplies') {
     hint.textContent =
       'مستلزمات — م، تاريخ، رقم الفاتورة، الصنف، العدد، سعر البيع والإجمالي، سعر/إجمالي التكلفة (هامش الربح من الإعدادات).';
@@ -3467,16 +3467,21 @@ function collectExamLinesFromRow(tr) {
   const typeSel = tr.querySelector('.daily-exam-type');
   const opt = typeSel?.selectedOptions[0];
   const sectionCode = caseSel?.value || opt?.dataset.section || tr.dataset.examSectionCode || '';
-  const catalogItemId = typeSel?.value ? Number(typeSel.value) : null;
+  const itemId = typeSel?.value ? Number(typeSel.value) : null;
   const amount = dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
+  const examSection = dailySectionsCache.find((s) => s.code === sectionCode);
+  const usesCatalog = examSection?.picker_kind === 'catalog' || (!examSection?.picker_kind && examSection?.catalog_category);
   const lines = [];
-  if (sectionCode && (catalogItemId || amount > 0)) {
+  if (sectionCode && (itemId || amount > 0)) {
     const line = {
       section_code: sectionCode,
-      catalog_item_id: catalogItemId,
       amount,
       quantity: 1,
     };
+    if (itemId) {
+      if (usesCatalog) line.catalog_item_id = itemId;
+      else line.service_id = itemId;
+    }
     if (tr.dataset.examLineId) line.id = Number(tr.dataset.examLineId);
     const dateEl = tr.querySelector('.daily-exam-date');
     if (dateEl?.value) line.extra_date = dateEl.value;
