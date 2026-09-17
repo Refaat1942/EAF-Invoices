@@ -45,7 +45,16 @@ async function reconcilePatientDailyData(fileNumber, options = {}, user = null) 
   const postStay = options.post_stay !== false;
   if (postStay && patientType !== 'external' && stay?.invoice?.admission_date) {
     const businessToday = getCurrentBusinessDateString();
-    const admission = fmtDateOnly(options.from_date || stay.invoice.admission_date);
+    const letterFrom = fmtDateOnly(stay.invoice.letter_from_date);
+    const letterTo = fmtDateOnly(stay.invoice.letter_to_date);
+
+    let admission = fmtDateOnly(options.from_date || stay.invoice.admission_date);
+    // Mirrors batchPostStayCharges: a جواب (authorization letter) starting after admission
+    // means days before it aren't authorized — don't reconcile/post those by default.
+    if (!options.from_date && letterFrom && admission && letterFrom > admission) {
+      admission = letterFrom;
+    }
+
     let toDate = fmtDateOnly(options.to_date);
     if (!toDate) {
       const discharge = fmtDateOnly(stay.invoice.discharge_date);
@@ -57,6 +66,9 @@ async function reconcilePatientDailyData(fileNumber, options = {}, user = null) 
         toDate = addDays(businessToday, -1);
       }
     }
+    // Never reconcile/post beyond the authorized جواب window.
+    if (letterTo && toDate && toDate > letterTo) toDate = letterTo;
+
     if (admission && toDate && toDate >= admission) {
       stay_post = await batchPostStayCharges(
         fn,
