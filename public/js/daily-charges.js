@@ -2282,7 +2282,7 @@ function showPatientRegisterTypePicker() {
   patientRegEditMode = false;
   patientRegEditFileNumber = '';
   const fileInput = document.getElementById('patient-reg-file-number');
-  if (fileInput) fileInput.readOnly = false;
+  if (fileInput) fileInput.readOnly = true;
   const saveBtn = document.getElementById('patient-reg-save-btn');
   if (saveBtn) saveBtn.textContent = '💾 حفظ تسجيل المريض';
   document.getElementById('patient-register-change-type')?.classList.remove('d-none');
@@ -2333,10 +2333,9 @@ function showPatientRegisterForm(patientType, options = {}) {
     bindCommaAmountInputs(document.getElementById('patient-register-form-panel'));
   }
   const fileInput = document.getElementById('patient-reg-file-number');
-  if (fileInput) {
-    fileInput.readOnly = isEdit;
-    if (!isEdit) fileInput.focus();
-  }
+  // رقم الملف يُخصَّص تلقائياً دائماً — لا يجوز تعديله يدوياً حتى عند التسجيل الجديد،
+  // لتفادي تكرار الأرقام أو تعطيل الترقيم التسلسلي.
+  if (fileInput) fileInput.readOnly = true;
 }
 
 async function fillPatientRegisterFormFromContext(ctx) {
@@ -2594,7 +2593,7 @@ async function savePatientRegistration(event) {
     patientRegEditMode = false;
     patientRegEditFileNumber = '';
     const fileInput = document.getElementById('patient-reg-file-number');
-    if (fileInput) fileInput.readOnly = false;
+    if (fileInput) fileInput.readOnly = true;
     clearPatientRegisterForm();
     if (typeof switchView === 'function') {
       switchView('daily', { openFileNumber: file_number });
