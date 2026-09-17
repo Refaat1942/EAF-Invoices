@@ -443,6 +443,12 @@ async function searchPriceListPickerItems(section, { q, pageNum, maxLimit }) {
   const categoryRows = await resolvePickerCategoryIds(priceList.id, categoryCodes);
   const categoryIds = categoryRows.map((r) => r.id);
   if (!categoryIds.length) {
+    // No categoryCodes at all means this section has no price-list equivalent configured
+    // (e.g. medicines/supplies/cosmetics, which only ever existed in the catalog) — say so
+    // plainly instead of the misleading "أقسام «» غير موجودة" with empty brackets.
+    const hint = categoryCodes.length
+      ? `أقسام «${categoryCodes.join(' / ')}» غير موجودة في لائحة الأسعار — ارفع ملف القسم من إدارة الأسعار`
+      : 'لا توجد فئة مقابلة في لائحة الأسعار لهذا القسم — يُرفع فقط من كتالوج القسم';
     return {
       rows: [],
       total: 0,
@@ -452,7 +458,7 @@ async function searchPriceListPickerItems(section, { q, pageNum, maxLimit }) {
       kind: 'service',
       catalog_total: 0,
       empty_catalog: true,
-      hint: `أقسام «${categoryCodes.join(' / ')}» غير موجودة — ارفع ملف القسم من إدارة الأسعار`,
+      hint,
     };
   }
 
@@ -602,6 +608,8 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
       active_only: true,
     });
     const catalog_total = catalogCountRes.total || 0;
+    const priceListTotal = priceListResult.catalog_total || 0;
+    const noMatch = catalog_total > 0 || priceListTotal > 0;
     return {
       rows: [],
       total: 0,
@@ -612,10 +620,13 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
       catalog_category: catalogCategory,
       catalog_categories: searchCategories,
       catalog_total,
-      price_list_total: priceListResult.catalog_total || 0,
-      empty_catalog: catalog_total === 0 && (priceListResult.catalog_total || 0) === 0,
-      no_match: catalog_total > 0 || (priceListResult.catalog_total || 0) > 0,
-      hint: catalogImportHintForSection(section),
+      price_list_total: priceListTotal,
+      empty_catalog: catalog_total === 0 && priceListTotal === 0,
+      no_match: noMatch,
+      // Catalog/price-list has items but this search term matched none of them — don't
+      // tell staff to upload a sheet that already has data, that just hides the real fix
+      // (try a different search term).
+      hint: noMatch ? 'لا توجد نتائج مطابقة لبحثك — جرّب كلمة بحث أخرى' : catalogImportHintForSection(section),
     };
   }
 
@@ -673,12 +684,15 @@ async function listDailyPickerServicesByCategory({ category_code, category_codes
   const categoryRows = await resolvePickerCategoryIds(priceList.id, codes);
   const categoryIds = categoryRows.map((r) => r.id);
   if (!categoryIds.length) {
+    const hint = codes.length
+      ? `أقسام «${codes.join(' / ')}» غير موجودة في لائحة الأسعار — ارفع ملف القسم أولاً`
+      : 'لا توجد فئة مقابلة في لائحة الأسعار لهذا القسم';
     return {
       rows: [],
       total: 0,
       kind: 'service',
       category_codes: codes,
-      hint: `أقسام «${codes.join(' / ')}» غير موجودة — ارفع ملف القسم أولاً`,
+      hint,
     };
   }
 
