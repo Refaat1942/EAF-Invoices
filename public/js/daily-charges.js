@@ -2354,7 +2354,19 @@ function showPatientRegisterForm(patientType, options = {}) {
   document.getElementById('patient-register-change-type')?.classList.toggle('d-none', isEdit);
   if (!isEdit) {
     clearPatientRegisterForm({ keepType: true });
-    void suggestPatientRegisterFileNumber(type);
+    const fileInput = document.getElementById('patient-reg-file-number');
+    if (fileInput) {
+      fileInput.readOnly = true;
+      fileInput.value = '';
+      fileInput.placeholder = 'جاري تخصيص رقم الملف...';
+    }
+    void suggestPatientRegisterFileNumber(type).finally(() => {
+      const input = document.getElementById('patient-reg-file-number');
+      if (input && !patientRegEditMode) {
+        input.readOnly = false;
+        input.placeholder = 'يُخصَّص تلقائياً';
+      }
+    });
   }
   void loadDailyStayTypes().then(async () => {
     await loadDailyStayGrades();
@@ -2456,16 +2468,47 @@ async function openPatientEditFromDaily() {
 
 async function suggestPatientRegisterFileNumber(patientType) {
   const fileInput = document.getElementById('patient-reg-file-number');
-  if (!fileInput) return;
+  if (!fileInput || patientRegEditMode) return null;
   try {
     const data = await apiJson(
       `/api/patients/next-file-number?patient_type=${encodeURIComponent(patientType || 'internal')}`
     );
-    if (data?.file_number) fileInput.value = data.file_number;
-    await checkPatientRegisterFileDuplicate();
-  } catch {
-    /* optional hint */
+    if (data?.file_number) {
+      fileInput.value = data.file_number;
+      await checkPatientRegisterFileDuplicate();
+      return data.file_number;
+    }
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message) || 'تعذّر توليد رقم ملف تلقائي', 'warning');
   }
+  return fileInput.value.trim() || null;
+}
+
+async function resolvePatientRegisterFileNumber(patient_type) {
+  let file_number = document.getElementById('patient-reg-file-number')?.value.trim() || '';
+  if (!file_number) {
+    file_number = (await suggestPatientRegisterFileNumber(patient_type)) || '';
+  }
+  if (!file_number) {
+    throw new Error('رقم الملف مطلوب');
+  }
+  if (patientRegEditMode) return file_number;
+
+  const dup = await apiJson(
+    `/api/patients/check-file-number?file_number=${encodeURIComponent(file_number)}`
+  );
+  const editingSameFile =
+    patientRegEditMode && String(dup.existing?.file_number || file_number) === String(patientRegEditFileNumber);
+  if (!dup.available && !editingSameFile) {
+    const next = await suggestPatientRegisterFileNumber(patient_type);
+    if (next && next !== file_number) {
+      showToast(`رقم الملف «${file_number}» مستخدم — تم تعيين «${next}» تلقائياً`, 'warning');
+      return next;
+    }
+    const who = dup.existing?.name ? ` — مسجّل للمريض: ${dup.existing.name}` : '';
+    throw new Error(`رقم الملف «${file_number}» مكرر${who}`);
+  }
+  return file_number;
 }
 
 async function checkPatientRegisterFileDuplicate() {
@@ -2543,7 +2586,7 @@ async function savePatientRegistration(event) {
     return;
   }
   const patient_type = document.getElementById('patient-reg-type')?.value || patientRegSelectedType || 'internal';
-  const file_number = document.getElementById('patient-reg-file-number')?.value.trim() || '';
+  let file_number = '';
   const patient_name = document.getElementById('patient-reg-name')?.value.trim() || '';
   const phone = document.getElementById('patient-reg-phone')?.value.trim() || '';
   const other_phone = document.getElementById('patient-reg-other-phone')?.value.trim() || '';
@@ -2555,24 +2598,16 @@ async function savePatientRegistration(event) {
   const invoice_type = document.getElementById('patient-reg-invoice-type')?.value || 'civil';
   const financial_treatment = getDailyInvoiceTypeLabel(invoice_type);
   const balanceRaw = document.getElementById('patient-reg-balance')?.value;
-  if (!file_number || !patient_name || !admission_date) {
-    showToast('رقم الملف واسم المريض وتاريخ الدخول مطلوبان', 'warning');
+  if (!patient_name || !admission_date) {
+    showToast('اسم المريض وتاريخ الدخول مطلوبان', 'warning');
     return;
   }
 
   try {
-    const dup = await apiJson(
-      `/api/patients/check-file-number?file_number=${encodeURIComponent(file_number)}`
-    );
-    const editingSameFile =
-      patientRegEditMode && String(dup.existing?.file_number || file_number) === String(patientRegEditFileNumber);
-    if (!dup.available && !editingSameFile) {
-      const who = dup.existing?.name ? ` — مسجّل للمريض: ${dup.existing.name}` : '';
-      showToast(`رقم الملف «${file_number}» مكرر${who}`, 'danger');
-      return;
-    }
-  } catch {
-    /* optional */
+    file_number = await resolvePatientRegisterFileNumber(patient_type);
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    return;
   }
 
   const payload = {
@@ -3516,7 +3551,10 @@ function collectExamLinesFromRow(tr) {
   const itemId = typeSel?.value ? Number(typeSel.value) : null;
   const amount = dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
   const examSection = dailySectionsCache.find((s) => s.code === sectionCode);
-  const usesCatalog = examSection?.picker_kind === 'catalog' || (!examSection?.picker_kind && examSection?.catalog_category);
+  const usesCatalog =
+    examSection?.picker_kind === 'catalog' ||
+    (!examSection?.picker_kind && examSection?.catalog_category && examSection?.uses_catalog !== false);
+  const fromPriceList = itemId && dailyExamServicesCache.some((s) => Number(s.id) === itemId);
   const lines = [];
   if (sectionCode && (itemId || amount > 0)) {
     const line = {
@@ -3525,7 +3563,7 @@ function collectExamLinesFromRow(tr) {
       quantity: 1,
     };
     if (itemId) {
-      if (usesCatalog) line.catalog_item_id = itemId;
+      if (usesCatalog && !fromPriceList) line.catalog_item_id = itemId;
       else line.service_id = itemId;
     }
     if (tr.dataset.examLineId) line.id = Number(tr.dataset.examLineId);
@@ -6043,7 +6081,7 @@ async function saveDailyEntry() {
     if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
     showToast(toastMsg, 'success');
   } catch (err) {
-    showToast(err.message, 'danger');
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
   } finally {
     dailySaveInFlight = false;
     const saveBtn = document.getElementById('daily-save-btn');
@@ -6083,6 +6121,8 @@ async function loadDailyStayTypes() {
 }
 
 function openNewPatientRegistration() {
+  patientRegEditMode = false;
+  patientRegEditFileNumber = '';
   if (typeof switchView === 'function') {
     switchView('patient-register');
     initPatientRegistration();

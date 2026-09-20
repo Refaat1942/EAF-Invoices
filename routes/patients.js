@@ -7,7 +7,7 @@ const {
   peekNextPatientFileNumber,
   checkFileNumberAvailability,
 } = require('../services/patientService');
-const { requireAuth, requirePermission } = require('../middleware/auth');
+const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -21,7 +21,7 @@ router.get('/', requirePermission('patients.view'), async (req, res) => {
   }
 });
 
-router.get('/check-file-number', requirePermission('patients.view'), async (req, res) => {
+router.get('/check-file-number', requireAnyPermission('patients.view', 'daily_charges.manage'), async (req, res) => {
   try {
     const fileNumber = req.query.file_number || '';
     res.json(await checkFileNumberAvailability(fileNumber));
@@ -30,7 +30,7 @@ router.get('/check-file-number', requirePermission('patients.view'), async (req,
   }
 });
 
-router.get('/next-file-number', requirePermission('patients.view'), async (req, res) => {
+router.get('/next-file-number', requireAnyPermission('patients.view', 'daily_charges.manage'), async (req, res) => {
   try {
     const patientType = req.query.patient_type || 'internal';
     res.json(await peekNextPatientFileNumber(patientType));

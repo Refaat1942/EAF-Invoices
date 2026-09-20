@@ -380,12 +380,24 @@ async function checkFileNumberAvailability(fileNumber) {
 
 async function peekNextPatientFileNumber(patientType = 'internal') {
   const scope = normalizePatientType(patientType);
+  const { syncPatientFileCountersFromPatients } = require('./serialService');
+  await syncPatientFileCountersFromPatients();
+
   const { rows } = await query(
     'SELECT last_number FROM patient_file_counter WHERE patient_type = $1',
     [scope]
   );
-  const nextNumber = (rows[0]?.last_number || 0) + 1;
-  return { file_number: String(nextNumber), next_number: nextNumber, patient_type: scope };
+  let candidate = (rows[0]?.last_number || 0) + 1;
+
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const check = await checkFileNumberAvailability(String(candidate));
+    if (check.available) {
+      return { file_number: String(candidate), next_number: candidate, patient_type: scope };
+    }
+    candidate += 1;
+  }
+
+  throw new Error('تعذّر توليد رقم ملف متاح — راجع أرقام الملفات المسجّلة');
 }
 
 async function allocateNextPatientFileNumber(patientType = 'internal', client = null) {

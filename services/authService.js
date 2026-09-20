@@ -47,6 +47,7 @@ const PERMISSIONS = {
     'invoices.delete',
     'invoices.submit',
     'reports.view',
+    'patients.view',
     'daily_charges.view',
     'daily_charges.manage',
   ],

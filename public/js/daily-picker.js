@@ -54,7 +54,19 @@
     if (section.picker_kind === 'manual') return false;
     if (section.picker_kind === 'service') return false;
     if (section.picker_kind === 'catalog') return true;
+    if (section.uses_catalog === false) return false;
     return Boolean(section.catalog_category || section.uses_catalog);
+  }
+
+  function pickerSelectionIsService(picker, section) {
+    if (!picker) return section?.picker_kind === 'service';
+    const selectedKind = picker.dataset.selectedKind || picker.dataset.kind;
+    if (selectedKind === 'service') return true;
+    if (selectedKind === 'catalog') return false;
+    const item = picker._selectedItem;
+    if (item?.category_code) return true;
+    if (item?.category && !item?.category_code) return false;
+    return section?.picker_kind === 'service' || section?.uses_catalog === false;
   }
 
   function buildCellHtml(section, line = {}) {
@@ -506,9 +518,11 @@
   function readPickerFields(tr, section) {
     const picker = tr.querySelector(`.daily-picker[data-section="${section.code}"]`);
     if (!picker) return {};
-    const usesCatalog = picker.dataset.selectedKind
-      ? picker.dataset.selectedKind === 'catalog'
-      : sectionUsesCatalog(section);
+    const usesCatalog = pickerSelectionIsService(picker, section)
+      ? false
+      : picker.dataset.selectedKind
+        ? picker.dataset.selectedKind === 'catalog'
+        : sectionUsesCatalog(section);
     const value = picker.querySelector('.daily-picker-value')?.value || '';
     const unitSelect = tr.querySelector(`.daily-catalog-unit[data-section="${section.code}"]`);
     const unitOpt = unitSelect?.selectedOptions?.[0];
