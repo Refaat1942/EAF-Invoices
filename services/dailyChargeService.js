@@ -1483,8 +1483,9 @@ async function prepareEntrySaveContext(data) {
     throw new Error('المريض الخارجي لا يُسجَّل عليه إقامة — احذف بنود الإقامة أو غيّر نوع المريض');
   }
 
-  if (data.stay_type_id && patientType !== 'external') {
-    await enrichStayLinesFromStayType(lines, data.stay_type_id, sections);
+  const stayTypeId = Number(data.stay_type_id) || 0;
+  if (stayTypeId && patientType !== 'external') {
+    await enrichStayLinesFromStayType(lines, stayTypeId, sections);
   }
 
   const dailyTotal = computeDailyTotal(lines, sections);
@@ -2527,9 +2528,22 @@ async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = nu
   return entries;
 }
 
+async function ensureStayAccommodationOnEntries(entries = [], sections = []) {
+  for (const entry of entries) {
+    const stayTypeId = Number(entry.stay_type_id) || 0;
+    if (!stayTypeId) continue;
+    const lines = [...(entry.lines || [])];
+    const accLine = lines.find((line) => line.section_code === 'accommodation');
+    const accAmount = round2(accLine?.amount || accLine?.unit_price || 0);
+    if (accAmount > 0) continue;
+    entry.lines = await enrichStayLinesFromStayType(lines, stayTypeId, sections);
+  }
+}
+
 async function getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, invoiceId = null) {
   const sections = await listSections();
   const entries = await getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId);
+  await ensureStayAccommodationOnEntries(entries, sections);
   const lineItems = entriesToInvoiceItems(entries, sections);
   const supplemental = await getSupplementalInvoiceItems(fileNumber, fromDate, toDate);
   const items = [...lineItems, ...supplemental];

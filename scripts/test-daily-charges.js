@@ -52,6 +52,31 @@ if (items.length !== 1 || items[0].amount !== 500) {
   process.exit(1);
 }
 
+const accFromUnitPrice = entriesToInvoiceItems(
+  [
+    {
+      id: 2,
+      entry_date: '2026-09-20',
+      stay_type_id: 3,
+      lines: [
+        {
+          id: 20,
+          section_code: 'accommodation',
+          description: 'إقامة',
+          amount: 0,
+          unit_price: 2500,
+          quantity: 1,
+        },
+      ],
+    },
+  ],
+  sections
+);
+if (accFromUnitPrice.length !== 1 || accFromUnitPrice[0].amount !== 2500) {
+  console.error('FAIL accommodation from unit_price only', accFromUnitPrice);
+  process.exit(1);
+}
+
 const allowedToday = getCurrentBusinessDateString();
 if (resolveAllowedDailyEntryDate(allowedToday) !== allowedToday) {
   console.error('FAIL resolveAllowedDailyEntryDate allowed today');

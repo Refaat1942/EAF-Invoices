@@ -3532,6 +3532,10 @@ function updateStayAccUnitPriceDisplay(tr) {
     const rate = Number(staySel?.selectedOptions[0]?.dataset.rate) || 0;
     if (rate > 0) unit = rate;
   }
+  if (unit > 0 && accInput && dailyParseAmount(accInput.value) <= 0) {
+    accInput.value = String(unit);
+    accInput.dataset.unitPrice = String(unit);
+  }
   display.value = unit > 0 ? formatAmountFieldValue(unit) : '';
 }
 
@@ -3707,6 +3711,7 @@ function bindExamRowEvents(tr) {
 }
 
 function collectAccommodationLineFromRow(primaryTr) {
+  updateStayAccUnitPriceDisplay(primaryTr);
   const accHidden = primaryTr?.querySelector('.daily-amount[data-section="accommodation"]');
   const amount = getStayAccommodationAmount(primaryTr);
   if (amount <= 0) return null;
@@ -5057,6 +5062,7 @@ function updateStayRowGroupTotal(primaryTr) {
 }
 
 function stayRowGroupHasChargeData(primaryTr) {
+  if (getStayAccommodationAmount(primaryTr) > 0) return true;
   return getStayDayGroupRows(primaryTr).some((tr) => rowHasChargeData(tr));
 }
 
@@ -5635,6 +5641,7 @@ function rowHasChargeData(tr) {
   if (tr.querySelector('.daily-picker[data-section="sessions"] .daily-picker-value')?.value) return true;
   if (dailyParseAmount(tr.querySelector('.daily-session-morning')?.value) > 0) return true;
   if (dailyParseAmount(tr.querySelector('.daily-session-evening')?.value) > 0) return true;
+  if (tr.classList.contains('daily-stay-row') && getStayAccommodationAmount(tr) > 0) return true;
   let hasValue = false;
   tr.querySelectorAll('.daily-amount').forEach((input) => {
     if (dailyParseAmount(input.value) > 0) hasValue = true;
