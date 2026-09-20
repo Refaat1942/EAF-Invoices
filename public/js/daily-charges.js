@@ -392,7 +392,7 @@ function renderDailyDoctorSuggestMenu(menu, doctors) {
   menu.innerHTML = doctors
     .map(
       (d) =>
-        `<button type="button" class="list-group-item list-group-item-action py-2 daily-doctor-suggest-opt" data-id="${d.id}" data-name="${dailyEscapeAttr(d.name)}">${dailyEscapeHtml(d.name)}${d.specialty ? `<span class="text-muted small d-block">${dailyEscapeHtml(d.specialty)}</span>` : ''}</button>`
+        `<button type="button" class="list-group-item list-group-item-action py-2 daily-doctor-suggest-opt" data-id="${d.id}" data-name="${dailyEscapeAttr(d.name)}" data-price="${Number(d.consultation_price) || 0}">${dailyEscapeHtml(d.name)}${d.specialty ? `<span class="text-muted small d-block">${dailyEscapeHtml(d.specialty)}</span>` : ''}${Number(d.consultation_price) > 0 ? `<span class="text-primary small d-block">${dailyFmt(d.consultation_price)} ج.م</span>` : ''}</button>`
     )
     .join('');
 }
@@ -414,7 +414,18 @@ function bindDailyDoctorSuggestWrap(tr) {
     wrap._pickedDoctorLabel = '';
     wrap._pickedDoctorId = '';
   };
-  const pickDoctor = (id, name) => {
+  const applyDoctorExamPrice = (doctorPrice) => {
+    const price = Number(doctorPrice) || 0;
+    if (price <= 0 || !tr.classList.contains('daily-exam-row')) return;
+    const unitEl = tr.querySelector('.daily-exam-unit-price');
+    if (!unitEl) return;
+    unitEl.value = formatAmountFieldValue(price);
+    updateRowTotal(tr);
+    updateDailyGrandTotal();
+    updateSectionTabTotal();
+  };
+
+  const pickDoctor = (id, name, doctorPrice = 0) => {
     const label = String(name || '').trim();
     hidden.value = id ? String(id) : '';
     input.value = label;
@@ -422,6 +433,7 @@ function bindDailyDoctorSuggestWrap(tr) {
     wrap._pickedDoctorLabel = label;
     wrap._pickedDoctorId = hidden.value;
     hideMenu();
+    applyDoctorExamPrice(doctorPrice);
   };
 
   const showDoctorResults = async (query = '') => {
@@ -439,7 +451,7 @@ function bindDailyDoctorSuggestWrap(tr) {
   menu.addEventListener('click', (e) => {
     const btn = e.target.closest('.daily-doctor-suggest-opt');
     if (!btn) return;
-    pickDoctor(btn.dataset.id, btn.dataset.name || btn.textContent.trim());
+    pickDoctor(btn.dataset.id, btn.dataset.name || btn.textContent.trim(), btn.dataset.price);
   });
 
   clearBtn?.addEventListener('click', () => {
@@ -3301,33 +3313,103 @@ async function loadExamSpecialtiesCache() {
   }
 }
 
+const EXAM_CASE_LABELS = {
+  consultant_exam: 'كشف استشاري',
+  specialist_exam: 'كشف أخصائي',
+};
+
+let mergedExamPickerItemsCache = null;
+let mergedExamPickerCacheKey = '';
+
+function normalizeExamPickerName(name) {
+  return String(name || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function priceFromExamServiceRow(svc) {
+  return Number(svc?.price ?? svc?.list_price) || 0;
+}
+
+function mergeExamPickerItems() {
+  const cacheKey = `${dailyExamSpecialtiesCache.length}:${dailyExamServicesCache.length}`;
+  if (mergedExamPickerItemsCache && mergedExamPickerCacheKey === cacheKey) {
+    return mergedExamPickerItemsCache;
+  }
+
+  const merged = new Map();
+  const settingsItems = (dailyExamSpecialtiesCache || []).filter((s) => s.is_active !== false);
+
+  for (const item of settingsItems) {
+    const matchedService =
+      (item.service_id
+        ? dailyExamServicesCache.find((svc) => Number(svc.id) === Number(item.service_id))
+        : null) ||
+      dailyExamServicesCache.find(
+        (svc) => normalizeExamPickerName(svc.name) === normalizeExamPickerName(item.name)
+      );
+    const serviceId = item.service_id || matchedService?.id || null;
+    const price = priceFromExamServiceRow(matchedService) || Number(item.price) || 0;
+    merged.set(item.code, {
+      code: item.code,
+      name: item.name,
+      section_code: item.section_code || inferExamSectionCodeFromServiceName(item.name),
+      price,
+      service_id: serviceId ? Number(serviceId) : null,
+      source: 'settings',
+      sort_order: Number(item.sort_order) || 0,
+    });
+  }
+
+  for (const svc of dailyExamServicesCache) {
+    const serviceId = Number(svc.id);
+    if (!serviceId) continue;
+    const code = `svc_${serviceId}`;
+    const already = [...merged.values()].some(
+      (row) =>
+        Number(row.service_id) === serviceId ||
+        normalizeExamPickerName(row.name) === normalizeExamPickerName(svc.name)
+    );
+    if (already) continue;
+    merged.set(code, {
+      code,
+      name: svc.name,
+      section_code: svc.section_code || inferExamSectionCodeFromServiceName(svc.name),
+      price: priceFromExamServiceRow(svc),
+      service_id: serviceId,
+      source: 'price_list',
+      sort_order: 1000 + serviceId,
+    });
+  }
+
+  mergedExamPickerItemsCache = [...merged.values()].sort(
+    (a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.name.localeCompare(b.name, 'ar')
+  );
+  mergedExamPickerCacheKey = cacheKey;
+  return mergedExamPickerItemsCache;
+}
+
 function getExamSpecialtyByCode(code) {
   const key = String(code || '').trim();
   if (!key) return null;
-  return (dailyExamSpecialtiesCache || []).find((s) => s.code === key && s.is_active !== false) || null;
+  return mergeExamPickerItems().find((item) => item.code === key) || null;
 }
 
 function resolveExamSpecialtyCodeFromLine(line = {}) {
+  const merged = mergeExamPickerItems();
   const fromExtra = String(line.extra_text || '').trim();
   if (fromExtra) {
     const byCode = getExamSpecialtyByCode(fromExtra);
     if (byCode) return byCode.code;
-    const byName = (dailyExamSpecialtiesCache || []).find((s) => s.name === fromExtra);
+    const byName = merged.find((item) => item.name === fromExtra);
     if (byName) return byName.code;
   }
   if (line.service_id) {
-    const byService = (dailyExamSpecialtiesCache || []).find(
-      (s) => Number(s.service_id) === Number(line.service_id)
-    );
+    const byService = merged.find((item) => Number(item.service_id) === Number(line.service_id));
     if (byService) return byService.code;
-    const byPriceList = dailyExamServicesCache.find((s) => Number(s.id) === Number(line.service_id));
-    if (byPriceList?.name) {
-      const byName = (dailyExamSpecialtiesCache || []).find((s) => s.name === byPriceList.name);
-      if (byName) return byName.code;
-    }
   }
   if (line.description) {
-    const byDesc = (dailyExamSpecialtiesCache || []).find((s) => s.name === line.description);
+    const byDesc = merged.find((item) => item.name === line.description);
     if (byDesc) return byDesc.code;
   }
   return '';
@@ -3413,38 +3495,38 @@ function buildCompanionKindOptions(selectedValue = '') {
 }
 
 function buildExamCaseOptions(selectedSectionCode = '') {
-  const cases = [
-    { code: 'consultant_exam', name: 'كشف استشاري' },
-    { code: 'specialist_exam', name: 'كشف أخصائي' },
-  ];
+  const items = mergeExamPickerItems();
+  const sectionCodes = [...new Set(items.map((item) => item.section_code).filter(Boolean))];
+  if (!sectionCodes.length) sectionCodes.push('consultant_exam', 'specialist_exam');
+  const order = { consultant_exam: 1, specialist_exam: 2 };
+  sectionCodes.sort((a, b) => (order[a] || 99) - (order[b] || 99));
   return (
     '<option value="">— حالة الكشف —</option>' +
-    cases
-      .map(
-        (c) =>
-          `<option value="${c.code}"${selectedSectionCode === c.code ? ' selected' : ''}>${dailyEscapeHtml(c.name)}</option>`
-      )
+    sectionCodes
+      .map((code) => {
+        const label = EXAM_CASE_LABELS[code] || code;
+        return `<option value="${dailyEscapeAttr(code)}"${selectedSectionCode === code ? ' selected' : ''}>${dailyEscapeHtml(label)}</option>`;
+      })
       .join('')
   );
 }
 
 function buildExamSpecialtyOptions(sectionCode = '', selectedSpecialtyCode = '') {
-  let specialties = (dailyExamSpecialtiesCache || []).filter((s) => s.is_active !== false);
-  if (sectionCode) {
-    specialties = specialties.filter((s) => s.section_code === sectionCode);
-  }
-  if (!specialties.length) {
+  let items = mergeExamPickerItems();
+  if (sectionCode) items = items.filter((item) => item.section_code === sectionCode);
+  if (!items.length) {
     return sectionCode
-      ? '<option value="">— التخصص (أضفه من الإعدادات) —</option>'
+      ? '<option value="">— التخصص (أضفه من الإعدادات أو اللائحة) —</option>'
       : '<option value="">— اختر حالة الكشف أولاً —</option>';
   }
   return (
     '<option value="">— التخصص —</option>' +
-    specialties
-      .map((s) => {
-        const selected = selectedSpecialtyCode === s.code ? ' selected' : '';
-        const price = Number(s.price) || 0;
-        return `<option value="${dailyEscapeAttr(s.code)}" data-section="${dailyEscapeAttr(s.section_code)}" data-price="${price}" data-service-id="${s.service_id || ''}"${selected}>${dailyEscapeHtml(s.name)}</option>`;
+    items
+      .map((item) => {
+        const selected = selectedSpecialtyCode === item.code ? ' selected' : '';
+        const price = Number(item.price) || 0;
+        const priceHint = price > 0 ? ` — ${dailyFmt(price)}` : '';
+        return `<option value="${dailyEscapeAttr(item.code)}" data-section="${dailyEscapeAttr(item.section_code)}" data-price="${price}" data-service-id="${item.service_id || ''}"${selected}>${dailyEscapeHtml(item.name)}${dailyEscapeHtml(priceHint)}</option>`;
       })
       .join('')
   );
@@ -3559,7 +3641,7 @@ function onExamSpecialtyChange(selectEl) {
   tr.dataset.examSpecialtyCode = specialtyCode;
   const caseSel = tr.querySelector('.daily-exam-case');
   const sectionCode = opt?.dataset.section || specialty?.section_code || '';
-  if (sectionCode && caseSel && !caseSel.value) {
+  if (sectionCode && caseSel) {
     caseSel.value = sectionCode;
     tr.dataset.examSectionCode = sectionCode;
   }
@@ -3679,6 +3761,9 @@ function collectExamLinesFromRow(tr) {
     };
     if (specialty?.service_id) line.service_id = Number(specialty.service_id);
     else if (specialty?.name) line.description = specialty.name;
+    if (!line.service_id && specialty?.source === 'price_list' && specialty.code?.startsWith('svc_')) {
+      line.service_id = Number(specialty.code.slice(4));
+    }
     if (tr.dataset.examLineId) line.id = Number(tr.dataset.examLineId);
     if (specialtyCode) line.extra_text = specialtyCode;
     const dateEl = tr.querySelector('.daily-exam-date');
