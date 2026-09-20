@@ -177,7 +177,7 @@
 
     container.innerHTML = rows
       .map((item) => {
-        const price = Number(item.price ?? item.list_price) || 0;
+        const price = billableUnitPrice(Number(item.price ?? item.list_price) || 0);
         const unit = item.unit ? ` / ${esc(item.unit)}` : '';
         const label = item.code ? `${esc(item.code)} — ${esc(item.name)}` : esc(item.name);
         const cat = item.category_name ? `<span class="daily-picker-suggest-cat">${esc(item.category_name)}</span>` : '';
@@ -257,14 +257,24 @@
     return Number(String(qtyInput.value || '1').replace(/,/g, '')) || 1;
   }
 
+  function billableUnitPrice(unitPrice) {
+    const base = Number(unitPrice) || 0;
+    if (base <= 0) return 0;
+    if (window.NationalityPricing) {
+      return NationalityPricing.toDisplayPrice(base);
+    }
+    return base;
+  }
+
   function applyLineAmountFromUnitPrice(tr, sectionCode, unitPrice) {
     const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
-    if (!amountInput || unitPrice <= 0) return;
+    const billedUnit = billableUnitPrice(unitPrice);
+    if (!amountInput || billedUnit <= 0) return;
     const qty = parseQty(tr, sectionCode);
-    const total = Math.round(unitPrice * qty * 100) / 100;
+    const total = Math.round(billedUnit * qty * 100) / 100;
     amountInput.value = formatInputAmount(total);
     amountInput.dataset.manualAmount = '0';
-    amountInput.dataset.unitPrice = String(unitPrice);
+    amountInput.dataset.unitPrice = String(billedUnit);
   }
 
   function getUnitPriceForSection(tr, sectionCode) {

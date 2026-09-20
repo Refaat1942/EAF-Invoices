@@ -39,7 +39,7 @@
   </div>
   <script>
     (function () {
-      const BUILD = '20260920p';
+      const BUILD = '20260920q';
       window.__eafBuild = BUILD;
 
       function setBootStatus(message, isError) {
@@ -451,6 +451,7 @@
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">رقم الملف</label>
                       <input type="text" class="form-control fw-bold" id="file_number">
+                      <input type="hidden" id="invoice-patient-nationality" value="">
                       <div class="patient-balance-hint mt-1" id="patient-balance-hint" style="display:none">
                         <span class="badge bg-success-subtle text-success border">💰 رصيد الحساب: <strong id="patient-balance-display">0</strong></span>
                         <span class="badge bg-warning-subtle text-dark border ms-1" id="patient-balance-after-hint" style="display:none">بعد الخصم: <strong id="patient-balance-after-display">0</strong></span>
@@ -1098,6 +1099,11 @@
                   <td id="daily-total-foot-label" colspan="2" class="fw-black text-end daily-total-foot-label">إجمالي الكل</td>
                   <td class="fw-black text-center daily-total-foot-value" id="daily-total-display"></td>
                   <td id="daily-total-foot-spacer" class="daily-total-foot-action"></td>
+                </tr>
+                <tr id="daily-foreign-pricing-hint-row">
+                  <td colspan="4" class="text-center py-1">
+                    <small class="text-warning fw-bold d-none" id="daily-foreign-pricing-hint"></small>
+                  </td>
                 </tr>
               </tfoot>
             </table>
@@ -2368,8 +2374,9 @@
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
   <script src="/js/app.js?v=20260917e"></script>
-  <script src="/js/daily-picker.js?v=20260920n"></script>
-  <script src="/js/daily-charges.js?v=20260920n"></script>
+  <script src="/js/nationality-pricing.js?v=20260920q"></script>
+  <script src="/js/daily-picker.js?v=20260920q"></script>
+  <script src="/js/daily-charges.js?v=20260920q"></script>
   <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260917e"></script>

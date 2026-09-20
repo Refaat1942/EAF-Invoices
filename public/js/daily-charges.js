@@ -1976,6 +1976,43 @@ function setNationalityFieldValue(el, nationality) {
   } else {
     el.value = value;
   }
+  updateDailyForeignPricingHint();
+  if (typeof updatePatientRegNationalityHint === 'function') updatePatientRegNationalityHint();
+}
+
+function dailyPatientNationality() {
+  if (window.NationalityPricing) return NationalityPricing.getPatientNationality();
+  return normalizeNationalitySelectValue(dailyStayContext?.patient?.nationality);
+}
+
+function dailyAmountForDisplay(listAmount) {
+  const base = Number(listAmount) || 0;
+  if (!window.NationalityPricing || base <= 0) return base;
+  return NationalityPricing.toDisplayPrice(base, dailyPatientNationality());
+}
+
+function dailyAmountForSave(displayAmount) {
+  const shown = Number(displayAmount) || 0;
+  if (!window.NationalityPricing || shown <= 0) return shown;
+  return NationalityPricing.toListPrice(shown, dailyPatientNationality());
+}
+
+function updateDailyForeignPricingHint() {
+  const hint = document.getElementById('daily-foreign-pricing-hint');
+  if (!hint || !window.NationalityPricing) return;
+  const foreign = !NationalityPricing.isEgyptianNationality(dailyPatientNationality());
+  hint.classList.toggle('d-none', !foreign);
+  if (foreign) {
+    hint.textContent = `تسعير أجنبي: أسعار اللائحة × ${NationalityPricing.FOREIGN_PRICE_MULTIPLIER}`;
+  }
+}
+
+function updatePatientRegNationalityHint() {
+  const hint = document.getElementById('patient-reg-nationality-hint');
+  const val = document.getElementById('patient-reg-nationality')?.value;
+  if (!hint) return;
+  const foreign = window.NationalityPricing && !NationalityPricing.isEgyptianNationality(val);
+  hint.classList.toggle('d-none', !foreign);
 }
 
 function collectPatientDemographics(mode = 'register') {
@@ -2069,7 +2106,7 @@ async function loadDailyStayGrades() {
 }
 
 function setDailySectionAmount(tr, sectionCode, amount) {
-  const n = Number(amount) || 0;
+  const n = dailyAmountForDisplay(Number(amount) || 0);
   if (n <= 0) return;
   const input = tr.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
   if (!input || dailyParseAmount(input.value) > 0) return;
@@ -2452,8 +2489,7 @@ function showPatientRegisterForm(patientType, options = {}) {
   if (balanceWrap) balanceWrap.style.display = type === 'external' ? 'none' : '';
   const regInternal = document.getElementById('patient-reg-internal-wrap');
   if (regInternal) regInternal.style.display = type === 'internal' ? '' : 'none';
-  const nationalityHint = document.getElementById('patient-reg-nationality-hint');
-  if (nationalityHint) nationalityHint.classList.toggle('d-none', type === 'external');
+  updatePatientRegNationalityHint();
   const saveBtn = document.getElementById('patient-reg-save-btn');
   if (saveBtn) saveBtn.textContent = isEdit ? '💾 حفظ التعديلات' : '💾 حفظ تسجيل المريض';
   document.getElementById('patient-register-change-type')?.classList.toggle('d-none', isEdit);
@@ -2760,7 +2796,9 @@ function initPatientRegistration(options = {}) {
     document.getElementById('patient-reg-file-number')?.addEventListener('blur', () => {
       void checkPatientRegisterFileDuplicate();
     });
+    document.getElementById('patient-reg-nationality')?.addEventListener('change', updatePatientRegNationalityHint);
   }
+  updatePatientRegNationalityHint();
   void loadDailyStayTypes().then(async () => {
     await loadDailyStayGrades();
     populateStayTypeSelects();
@@ -3251,7 +3289,7 @@ function buildDailyStayTypeOptions(selectedId = '') {
       .map((g) => {
         const id = g.stay_type_id;
         const rate = Number(g.daily_rate) || 0;
-        const rateLabel = rate > 0 ? ` — ${dailyFmt(rate)} / يوم` : '';
+        const rateLabel = rate > 0 ? ` — ${dailyFmt(dailyAmountForDisplay(rate))} / يوم` : '';
         return `<option value="${id}" data-rate="${rate}"${String(selectedId) === String(id) ? ' selected' : ''}>${dailyEscapeHtml(g.name)}${rateLabel}</option>`;
       })
       .join('')
@@ -3532,11 +3570,12 @@ function updateStayAccUnitPriceDisplay(tr) {
     const rate = Number(staySel?.selectedOptions[0]?.dataset.rate) || 0;
     if (rate > 0) unit = rate;
   }
-  if (unit > 0 && accInput && dailyParseAmount(accInput.value) <= 0) {
-    accInput.value = String(unit);
-    accInput.dataset.unitPrice = String(unit);
+  const displayUnit = dailyAmountForDisplay(unit);
+  if (displayUnit > 0 && accInput && dailyParseAmount(accInput.value) <= 0) {
+    accInput.value = String(displayUnit);
+    accInput.dataset.unitPrice = String(displayUnit);
   }
-  display.value = unit > 0 ? formatAmountFieldValue(unit) : '';
+  display.value = displayUnit > 0 ? formatAmountFieldValue(displayUnit) : '';
 }
 
 function onCompanionKindChange(selectEl) {
@@ -3606,7 +3645,7 @@ function onExamCaseChange(selectEl) {
   const specialtyPrice = Number(specialtyOpt?.dataset.price) || 0;
   const price = specialtyPrice > 0 ? specialtyPrice : casePrice;
   const unitEl = tr.querySelector('.daily-exam-unit-price');
-  if (unitEl) unitEl.value = price > 0 ? formatAmountFieldValue(price) : '';
+  if (unitEl) unitEl.value = price > 0 ? formatAmountFieldValue(dailyAmountForDisplay(price)) : '';
   updateRowTotal(tr);
   updateDailyGrandTotal();
   updateSectionTabTotal();
@@ -3634,7 +3673,7 @@ function onExamSpecialtyChange(selectEl) {
   const specialtyPrice = Number(opt?.dataset.price ?? specialty?.price) || 0;
   const price = specialtyPrice > 0 ? specialtyPrice : casePrice;
   const unitEl = tr.querySelector('.daily-exam-unit-price');
-  if (unitEl) unitEl.value = price > 0 ? formatAmountFieldValue(price) : '';
+  if (unitEl) unitEl.value = price > 0 ? formatAmountFieldValue(dailyAmountForDisplay(price)) : '';
   updateRowTotal(tr);
   updateDailyGrandTotal();
   updateSectionTabTotal();
@@ -3713,7 +3752,7 @@ function bindExamRowEvents(tr) {
 function collectAccommodationLineFromRow(primaryTr) {
   updateStayAccUnitPriceDisplay(primaryTr);
   const accHidden = primaryTr?.querySelector('.daily-amount[data-section="accommodation"]');
-  const amount = getStayAccommodationAmount(primaryTr);
+  const amount = dailyAmountForSave(getStayAccommodationAmount(primaryTr));
   if (amount <= 0) return null;
   const line = {
     section_code: 'accommodation',
@@ -3755,7 +3794,7 @@ function collectExamLinesFromRow(tr) {
   const caseServiceId = caseSel?.value ? Number(caseSel.value) : null;
   const specialtyCode = specialtySel?.value || tr.dataset.examSpecialtyCode || '';
   const specialty = getExamSpecialtyByCode(specialtyCode);
-  const amount = dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
+  const amount = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value));
   const lines = [];
   if (sectionCode && (caseServiceId || specialtyCode || amount > 0)) {
     const line = {
@@ -3772,7 +3811,7 @@ function collectExamLinesFromRow(tr) {
     lines.push(line);
   }
   const stampCell = tr.querySelector('[data-stamp-cell="1"]');
-  const stamp = stampCell ? dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value) : 0;
+  const stamp = stampCell ? dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value)) : 0;
   if (stamp > 0) {
     const stampLine = { section_code: 'consultation_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
@@ -3840,27 +3879,31 @@ function createStayDailyEntryRow(entry = {}) {
 
   const accHidden = tr.querySelector('.daily-amount[data-section="accommodation"]');
   if (accHidden && accLine.amount > 0) {
-    accHidden.value = String(accLine.amount);
-    accHidden.dataset.unitPrice = String(accLine.unit_price || accLine.amount || '');
+    const displayAmount = dailyAmountForDisplay(accLine.amount);
+    accHidden.value = String(displayAmount);
+    accHidden.dataset.unitPrice = String(displayAmount);
     if (accLine.id) accHidden.dataset.lineId = String(accLine.id);
   }
 
   const companionInput = tr.querySelector('.daily-amount[data-section="companion"]');
   if (companionInput && companionLine.amount > 0) {
-    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(companionInput, companionLine.amount);
-    else companionInput.value = formatAmountFieldValue(companionLine.amount);
+    const companionDisplay = dailyAmountForDisplay(companionLine.amount);
+    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(companionInput, companionDisplay);
+    else companionInput.value = formatAmountFieldValue(companionDisplay);
     if (companionLine.id) companionInput.dataset.lineId = String(companionLine.id);
   }
   const assistantInput = tr.querySelector('.daily-amount[data-section="patient_assistant"]');
   if (assistantInput && assistantLine.amount > 0) {
-    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(assistantInput, assistantLine.amount);
-    else assistantInput.value = formatAmountFieldValue(assistantLine.amount);
+    const assistantDisplay = dailyAmountForDisplay(assistantLine.amount);
+    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(assistantInput, assistantDisplay);
+    else assistantInput.value = formatAmountFieldValue(assistantDisplay);
     if (assistantLine.id) assistantInput.dataset.lineId = String(assistantLine.id);
   }
   const nursingInput = tr.querySelector('.daily-amount[data-section="nursing_point"]');
   if (nursingInput && nursingLine.amount > 0) {
-    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(nursingInput, nursingLine.amount);
-    else nursingInput.value = formatAmountFieldValue(nursingLine.amount);
+    const nursingDisplay = dailyAmountForDisplay(nursingLine.amount);
+    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(nursingInput, nursingDisplay);
+    else nursingInput.value = formatAmountFieldValue(nursingDisplay);
     if (nursingLine.id) nursingInput.dataset.lineId = String(nursingLine.id);
   }
 
@@ -3925,8 +3968,9 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
       ? String(entry.entry_date).slice(0, 10)
       : getLocalDateString();
   const patientName = getDailyPatientDisplayName();
-  const priceVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
-  const stampVal = showStamp && stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
+  const priceVal = line.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(line.amount)) : '';
+  const stampVal =
+    showStamp && stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
@@ -5073,7 +5117,7 @@ function collectCompanionLineFromRow(rowTr, lines) {
   const kind = opt?.dataset.kind || '';
   if (!kind || kind === 'none' || kind === 'nursing_point') return;
   const catalogItemId = kind === 'service' && kindSel?.value ? Number(kindSel.value) : null;
-  const amount = dailyParseAmount(rowTr.querySelector('.daily-amount[data-section="companion"]')?.value);
+  const amount = dailyAmountForSave(dailyParseAmount(rowTr.querySelector('.daily-amount[data-section="companion"]')?.value));
   if (!catalogItemId && amount <= 0) return;
   const line = {
     section_code: 'companion',
@@ -5090,7 +5134,7 @@ function collectCompanionLineFromRow(rowTr, lines) {
 
 function collectAmountLineFromRow(rowTr, sectionCode, lines) {
   const input = rowTr.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
-  const amount = dailyParseAmount(input?.value);
+  const amount = dailyAmountForSave(dailyParseAmount(input?.value));
   if (amount <= 0) return;
   const line = { section_code: sectionCode, amount, quantity: 1 };
   if (input?.dataset.lineId) line.id = Number(input.dataset.lineId);
@@ -5515,8 +5559,9 @@ async function applyStayTypeRateToRow(tr) {
   const grade = dailyStayGradesCache.find((g) => String(g.stay_type_id) === String(stayTypeId));
   const gradeRate = Number(grade?.daily_rate) || Number(stayType?.daily_rate) || 0;
   if (gradeRate > 0 && dailyParseAmount(accInput.value) <= 0) {
-    accInput.value = String(gradeRate);
-    accInput.dataset.unitPrice = String(gradeRate);
+    const displayRate = dailyAmountForDisplay(gradeRate);
+    accInput.value = String(displayRate);
+    accInput.dataset.unitPrice = String(displayRate);
     accInput.dataset.manualAmount = '0';
     updateStayAccUnitPriceDisplay(tr);
     return;
@@ -5677,7 +5722,7 @@ function collectLineForSection(tr, section) {
     catalog_unit_level: pickerFields.catalog_unit_level ?? null,
     catalog_unit: pickerFields.catalog_unit ?? null,
     service_id: pickerFields.service_id ?? null,
-    amount: dailyParseAmount(field?.value),
+    amount: dailyAmountForSave(dailyParseAmount(field?.value)),
     quantity: qty,
     weight: Number.isFinite(weight) ? weight : null,
   };

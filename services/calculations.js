@@ -1,4 +1,5 @@
 const { formatAmountAr } = require('./amountFormat');
+const { getNationalityPriceMultiplier } = require('./nationalityPricing');
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -299,7 +300,12 @@ function mergePatientCreditIntoMethodPayments(data, creditRaw) {
   return withoutCredit;
 }
 
+function applyNationalityUnitPrice(amount, nationality) {
+  return round2((Number(amount) || 0) * getNationalityPriceMultiplier(nationality));
+}
+
 function calculateInvoiceTotals(data) {
+  const patientNationality = data.patient_nationality || '';
   const discountPercent = Number(data.discount_percent) || 0;
   const discountActive =
     data.invoice_type === 'contracted' && discountPercent > 0 && Number(data.contracted_entity_id);
@@ -313,19 +319,25 @@ function calculateInvoiceTotals(data) {
   );
 
   const stayEntries = calculateStayEntries(data.stay_entries);
-  const staySubtotalRaw = round2(stayEntries.reduce((sum, entry) => sum + entry.total_raw, 0));
+  const staySubtotalRaw = round2(
+    stayEntries.reduce(
+      (sum, entry) => sum + applyNationalityUnitPrice(entry.total_raw, patientNationality),
+      0
+    )
+  );
   const staySubtotal = roundNearest(staySubtotalRaw);
 
   const stayItems = stayEntries.map((entry) => ({
     description: `إقامة - ${entry.stay_type_name || ''}`.trim(),
     quantity: entry.days,
-    amount: entry.daily_rate,
+    amount: applyNationalityUnitPrice(entry.daily_rate, patientNationality),
     is_stay_entry: true,
   }));
 
   const manualItems = (data.items || []).map((item) => {
     const { originalQuantity, returnedQuantity, netQuantity } = resolveItemQuantities(item);
-    const calc = calculateItemTotal(netQuantity, item.amount);
+    const billableAmount = applyNationalityUnitPrice(item.amount, patientNationality);
+    const calc = calculateItemTotal(netQuantity, billableAmount);
     const creditRaw = round2(item.patient_credit_applied || 0);
     const supplies = prorateSuppliesFields(item, originalQuantity, netQuantity);
     const eligibility = resolveItemEligibility(
@@ -340,6 +352,8 @@ function calculateInvoiceTotals(data) {
       original_quantity: originalQuantity,
       returned_quantity: returnedQuantity,
       net_quantity: netQuantity,
+      amount: billableAmount,
+      list_amount: round2(item.amount),
       total: calc.rounded,
       total_raw: calc.raw,
       total_rounded: calc.rounded,

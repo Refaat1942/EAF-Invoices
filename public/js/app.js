@@ -2230,6 +2230,8 @@ async function loadPatientBalance(options = {}) {
   const balanceEl = document.getElementById('balance');
   if (!fileNumber) {
     patientAccountBalance = null;
+    const nationalityEl = document.getElementById('invoice-patient-nationality');
+    if (nationalityEl) nationalityEl.value = '';
     if (hint) hint.style.display = 'none';
     if (creditWrap) creditWrap.style.display = 'none';
     if (balanceEl) balanceEl.value = formatAmountInput(0);
@@ -2243,6 +2245,8 @@ async function loadPatientBalance(options = {}) {
     const patient = await res.json();
     const balance = Number(patient.account_balance) || 0;
     patientAccountBalance = balance;
+    const nationalityEl = document.getElementById('invoice-patient-nationality');
+    if (nationalityEl) nationalityEl.value = patient.nationality || '';
     const balanceDisplay = document.getElementById('patient-balance-display');
     if (balanceDisplay) balanceDisplay.textContent = fmt(balance);
     if (hint) hint.style.display = '';

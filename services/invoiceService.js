@@ -150,6 +150,15 @@ async function mergeReturnedQuantitiesFromInvoice(items = [], invoiceId, client 
 
 async function prepareCalculationData(data, client = null) {
   const calcData = { ...data };
+  if (calcData.file_number?.trim()) {
+    try {
+      const { getPatientByFileNumber } = require('./patientService');
+      const patient = await getPatientByFileNumber(calcData.file_number.trim());
+      calcData.patient_nationality = patient?.nationality || calcData.patient_nationality || '';
+    } catch {
+      calcData.patient_nationality = calcData.patient_nationality || '';
+    }
+  }
   const { ensurePatientCreditMethod, getPaymentMethodIdByCode } = require('./paymentMethodService');
   await ensurePatientCreditMethod();
   calcData.patient_credit_method_id = await getPaymentMethodIdByCode('patient_credit');

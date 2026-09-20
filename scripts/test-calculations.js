@@ -221,5 +221,15 @@ const qtyTotals = calculateInvoiceTotals({
 assertEq(qtyTotals.manual_items_subtotal_raw, 99.99, 'qty × unit price');
 assertEq(qtyTotals.items[0].total, 99.99, 'line total rounded');
 
+const foreignTotals = calculateInvoiceTotals({
+  ...base,
+  patient_nationality: 'أجنبي',
+  items: [{ description: 'بند', quantity: 1, amount: 1000 }],
+  stay_entries: [{ stay_type_id: 1, days: 2, daily_rate: 500, stay_type_name: 'غرفة' }],
+});
+assertEq(foreignTotals.manual_items_subtotal_raw, 2000, 'foreign patient doubles item totals');
+assertEq(foreignTotals.stay_subtotal_raw, 2000, 'foreign patient doubles stay totals');
+assertEq(foreignTotals.items_subtotal_raw, 4000, 'foreign patient doubles combined subtotal');
+
 console.log('OK invoice calculation tests passed');
 process.exit(0);
