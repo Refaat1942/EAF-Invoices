@@ -418,6 +418,35 @@ function testPatientBalanceNegativeWhenOwing() {
   );
   assertEq(approved.balance, -2000, 'approved invoice uses post-deduction balance');
 
+  const withInsurance = resolvePatientInvoiceBalanceDisplay(
+    {
+      file_number: '123',
+      status: 'draft',
+      patient_context: { patient: { account_balance: 1000, room_insurance_amount: 500 } },
+    },
+    { final_total: 4000, outstanding_amount: 1000, remaining: 1000, patient_credit_applied: 0 }
+  );
+  assertEq(withInsurance.prepaid_balance, 1500, 'prepaid includes room insurance');
+  assertEq(withInsurance.balance, 500, 'balance after invoice includes insurance deposit');
+
+  const overpaid = resolvePatientInvoiceBalanceDisplay(
+    {
+      file_number: '123',
+      status: 'draft',
+      patient_context: { patient: { account_balance: 1000, room_insurance_amount: 0 } },
+    },
+    {
+      final_total: 3000,
+      outstanding_amount: 0,
+      remaining: 0,
+      total_collected: 3500,
+      total_collected_raw: 3500,
+      refundable_amount: 500,
+      patient_credit_applied: 0,
+    }
+  );
+  assertEq(overpaid.balance, 1500, 'overpayment increases patient balance after invoice');
+
   const enriched = enrichInvoice({
     file_number: '123',
     status: 'draft',

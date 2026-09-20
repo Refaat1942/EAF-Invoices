@@ -43,6 +43,7 @@ let lastCalculationTotals = null;
 let excludedDailyLineIds = new Set();
 let excludedSectionCodes = new Set();
 let patientAccountBalance = null;
+let patientRoomInsuranceAmount = 0;
 let permissionCatalog = [];
 let roleDefaults = {};
 let currentReportType = 'summary';
@@ -516,17 +517,29 @@ function renderInvoicePatientRegistrationSummary(inv) {
     inv.admission_date
       ? `${fmtInvoiceSummaryDate(inv.admission_date)} → ${fmtInvoiceSummaryDate(inv.discharge_date) || '—'}`
       : '—';
-  const balance = Number(p.account_balance) || 0;
+  const account = Number(p.account_balance) || 0;
+  const roomInsurance = Number(p.room_insurance_amount) || 0;
+  const prepaid = Math.round((account + roomInsurance) * 100) / 100;
   const collected = Number(inv.total_collected) || 0;
   const finalTotal = Number(inv.final_total) || 0;
   const invoiceDue = Number(inv.remaining ?? inv.outstanding_amount) || 0;
+  const refundable =
+    Number(inv.refundable_amount) > 0
+      ? Number(inv.refundable_amount)
+      : collected > finalTotal
+        ? Math.round((collected - finalTotal) * 100) / 100
+        : 0;
   const creditApplied = Number(inv.patient_credit_applied) || 0;
   const creditAlreadyDeducted = Boolean(inv.patient_credit_deducted) || inv.status === 'approved';
   const balanceAfter = creditAlreadyDeducted
-    ? Math.round((balance - invoiceDue) * 100) / 100
-    : Math.round((balance - creditApplied - invoiceDue) * 100) / 100;
-  const balanceClass = patientBalanceClass(balance);
+    ? Math.round((prepaid - invoiceDue + refundable) * 100) / 100
+    : Math.round((prepaid - creditApplied - invoiceDue + refundable) * 100) / 100;
+  const balanceClass = patientBalanceClass(prepaid);
   const balanceAfterClass = patientBalanceClass(balanceAfter);
+  const prepaidHint =
+    roomInsurance > 0
+      ? ` <span class="small text-muted">(${fmt(account)} رصيد + ${fmt(roomInsurance)} تأمين)</span>`
+      : '';
   const entityName = String(inv.contracted_entity_name || '').trim();
   const showEntity =
     (inv.invoice_type === 'contracted' || inv.invoice_type === 'non_contracted') && entityName;
@@ -577,7 +590,7 @@ function renderInvoicePatientRegistrationSummary(inv) {
       <th class="invoice-patient-summary-label">إجمالي الفاتورة</th>
       <td class="fw-bold text-primary">${fmt(finalTotal)}</td>
       <th class="invoice-patient-summary-label">رصيد الحساب</th>
-      <td class="fw-bold ${balanceClass}">${fmt(balance)}</td>
+      <td class="fw-bold ${balanceClass}">${fmt(prepaid)}${prepaidHint}</td>
     </tr>
     <tr>
       <th class="invoice-patient-summary-label">المحصل</th>
@@ -585,9 +598,17 @@ function renderInvoicePatientRegistrationSummary(inv) {
       <th class="invoice-patient-summary-label">متبقي الدفع على الفاتورة</th>
       <td class="fw-bold ${invoiceDue > 0.009 ? 'text-danger' : ''}">${fmt(invoiceDue)}</td>
     </tr>
+    ${
+      refundable > 0.009
+        ? `<tr>
+      <th class="invoice-patient-summary-label">زيادة مدفوعة</th>
+      <td class="fw-bold text-success" colspan="3">${fmt(refundable)}</td>
+    </tr>`
+        : ''
+    }
     <tr class="${balanceAfter < -0.009 ? 'table-danger' : balanceAfter > 0.009 ? 'table-success' : ''}">
       <th class="invoice-patient-summary-label">رصيد بعد الفاتورة</th>
-      <td class="fw-bold ${balanceAfterClass}" colspan="3">${fmt(balanceAfter)} <span class="small text-muted">(${fmt(balance)} − ${fmt(creditApplied)} − ${fmt(invoiceDue)})</span></td>
+      <td class="fw-bold ${balanceAfterClass}" colspan="3">${fmt(balanceAfter)} <span class="small text-muted">(${fmt(prepaid)} − ${fmt(creditApplied)} − ${fmt(invoiceDue)}${refundable > 0.009 ? ` + ${fmt(refundable)}` : ''})</span></td>
     </tr>`;
   panel.style.display = '';
 }
@@ -2321,6 +2342,23 @@ function getPatientAccountBalance() {
   return patientAccountBalance ?? 0;
 }
 
+function getPatientRoomInsuranceBalance() {
+  return patientRoomInsuranceAmount ?? 0;
+}
+
+function getPatientPrepaidBalanceLocal() {
+  return Math.round((getPatientAccountBalance() + getPatientRoomInsuranceBalance()) * 100) / 100;
+}
+
+function resolveRefundableFromTotals(totals = {}) {
+  const explicit = Number(totals?.refundable_amount ?? totals?.refundable_amount_raw);
+  if (explicit > 0) return Math.round(explicit * 100) / 100;
+  const collected = Number(totals?.total_collected_raw ?? totals?.total_collected) || 0;
+  const finalTotal = Number(totals?.final_total_raw ?? totals?.final_total) || 0;
+  if (collected > finalTotal) return Math.round((collected - finalTotal) * 100) / 100;
+  return 0;
+}
+
 function sumBillableLineTotals() {
   let total = 0;
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
@@ -2362,29 +2400,31 @@ function getPatientNetBalance() {
   const creditUsed = computeInvoicePatientCredit(
     Number(lastCalculationTotals?.final_total) || sumBillableLineTotals()
   );
-  return Math.round((getPatientAccountBalance() - creditUsed) * 100) / 100;
+  const refundable = resolveRefundableFromTotals(lastCalculationTotals);
+  return Math.round((getPatientPrepaidBalanceLocal() - creditUsed + refundable) * 100) / 100;
 }
 
 function getPatientBalanceAfterInvoice(totals = lastCalculationTotals) {
   if (!hasPatientFileNumber()) {
     return Math.round((Number(totals?.balance) || 0) * 100) / 100;
   }
-  const account = getPatientAccountBalance();
+  const prepaid = getPatientPrepaidBalanceLocal();
   const outstanding =
     Math.round((Number(totals?.outstanding_amount ?? totals?.remaining) || 0) * 100) / 100;
+  const refundable = resolveRefundableFromTotals(totals);
   const credit =
     Math.round(
       (Number(totals?.patient_credit_applied) ||
         computeInvoicePatientCredit(Number(totals?.final_total) || 0)) * 100
     ) / 100;
   if (isPatientCreditAlreadyDeducted()) {
-    return Math.round((account - outstanding) * 100) / 100;
+    return Math.round((prepaid - outstanding + refundable) * 100) / 100;
   }
-  return Math.round((account - credit - outstanding) * 100) / 100;
+  return Math.round((prepaid - credit - outstanding + refundable) * 100) / 100;
 }
 
 function computeInvoicePatientCredit(finalTotal, otherPaid = null) {
-  const balance = getPatientAccountBalance();
+  const balance = getPatientPrepaidBalanceLocal();
   if (balance <= 0) return 0;
   const total = Number(finalTotal) || 0;
   if (total <= 0) return 0;
@@ -2536,6 +2576,7 @@ async function loadPatientBalance(options = {}) {
   const balanceEl = document.getElementById('balance');
   if (!fileNumber) {
     patientAccountBalance = null;
+    patientRoomInsuranceAmount = 0;
     const nationalityEl = document.getElementById('invoice-patient-nationality');
     if (nationalityEl) nationalityEl.value = '';
     if (hint) hint.style.display = 'none';
@@ -2550,11 +2591,19 @@ async function loadPatientBalance(options = {}) {
     const res = await apiFetch(`${PATIENTS_API}/by-file/${encodeURIComponent(fileNumber)}`);
     const patient = await res.json();
     const balance = Number(patient.account_balance) || 0;
+    const roomInsurance = Number(patient.room_insurance_amount) || 0;
     patientAccountBalance = balance;
+    patientRoomInsuranceAmount = roomInsurance;
     const nationalityEl = document.getElementById('invoice-patient-nationality');
     if (nationalityEl) nationalityEl.value = patient.nationality || '';
     const balanceDisplay = document.getElementById('patient-balance-display');
-    if (balanceDisplay) applyPatientBalanceBadge(balanceDisplay, balance);
+    if (balanceDisplay) {
+      applyPatientBalanceBadge(balanceDisplay, getPatientPrepaidBalanceLocal());
+      balanceDisplay.title =
+        roomInsurance > 0
+          ? `رصيد أول المدة: ${fmt(balance)} | تأمين الغرفة: ${fmt(roomInsurance)}`
+          : '';
+    }
     if (hint) hint.style.display = '';
     if (!isInvoiceFollowUpLocked()) {
       const editBtn = document.getElementById('edit-patient-balance-btn');
@@ -3682,6 +3731,7 @@ function resetForm() {
   document.getElementById('stamp_duty').value = formatAmountInput(0);
   document.getElementById('professional_fees').value = formatAmountInput(0);
   patientAccountBalance = null;
+  patientRoomInsuranceAmount = 0;
   document.getElementById('balance').value = formatAmountInput(0);
   syncPatientBalanceField();
   const creditDisplay = document.getElementById('patient_credit_total_display');

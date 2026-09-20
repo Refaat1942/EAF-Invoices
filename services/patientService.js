@@ -458,21 +458,53 @@ async function convertExternalPatientToInternal(fileNumber) {
   return getPatientByFileNumber(fn);
 }
 
+function getPatientAccountBalanceAmount(patient = {}) {
+  return Math.round((Number(patient?.account_balance) || 0) * 100) / 100;
+}
+
+function getPatientRoomInsuranceAmount(patient = {}) {
+  return Math.round((Number(patient?.room_insurance_amount) || 0) * 100) / 100;
+}
+
+function getPatientPrepaidBalance(patient = {}) {
+  return Math.round((getPatientAccountBalanceAmount(patient) + getPatientRoomInsuranceAmount(patient)) * 100) / 100;
+}
+
+function resolveRefundableAmount(totals = {}) {
+  const explicit = Number(totals.refundable_amount ?? totals.refundable_amount_raw);
+  if (explicit > 0) return Math.round(explicit * 100) / 100;
+  const collected = Number(totals.total_collected_raw ?? totals.total_collected) || 0;
+  const finalTotal = Number(totals.final_total_raw ?? totals.final_total) || 0;
+  if (collected > finalTotal) return Math.round((collected - finalTotal) * 100) / 100;
+  return 0;
+}
+
 function resolvePatientInvoiceBalanceDisplay(invoice, totals = {}) {
   const fileNumber = String(invoice?.file_number || '').trim();
   if (!fileNumber) return null;
 
-  const account = Math.round((Number(invoice?.patient_context?.patient?.account_balance) || 0) * 100) / 100;
+  const patient = invoice?.patient_context?.patient || {};
+  const account = getPatientAccountBalanceAmount(patient);
+  const roomInsurance = getPatientRoomInsuranceAmount(patient);
+  const prepaid = getPatientPrepaidBalance(patient);
   const outstanding =
     Math.round((Number(totals.outstanding_amount ?? totals.remaining) || 0) * 100) / 100;
+  const refundable = resolveRefundableAmount(totals);
   const credit = Math.round((Number(totals.patient_credit_applied) || 0) * 100) / 100;
   const creditAlreadyDeducted =
     Boolean(invoice?.patient_credit_deducted) || invoice?.status === 'approved';
   const balance = creditAlreadyDeducted
-    ? Math.round((account - outstanding) * 100) / 100
-    : Math.round((account - credit - outstanding) * 100) / 100;
+    ? Math.round((prepaid - outstanding + refundable) * 100) / 100
+    : Math.round((prepaid - credit - outstanding + refundable) * 100) / 100;
 
-  return { balance, balance_raw: balance };
+  return {
+    balance,
+    balance_raw: balance,
+    account_balance: account,
+    room_insurance_amount: roomInsurance,
+    prepaid_balance: prepaid,
+    refundable_amount: refundable,
+  };
 }
 
 async function bumpPatientFileCounter(patientType, fileNumber, client = null) {
@@ -506,4 +538,8 @@ module.exports = {
   convertExternalPatientToInternal,
   checkFileNumberAvailability,
   resolvePatientInvoiceBalanceDisplay,
+  getPatientAccountBalanceAmount,
+  getPatientRoomInsuranceAmount,
+  getPatientPrepaidBalance,
+  resolveRefundableAmount,
 };
