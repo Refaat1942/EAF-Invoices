@@ -66,11 +66,24 @@
     return key || 'بنود أخرى';
   }
 
+  const STAMP_SECTION_CODES = ['consultation_stamp', 'analyses_stamp', 'xray_stamp'];
+
+  function isStampSectionCode(sectionCode) {
+    return STAMP_SECTION_CODES.includes(String(sectionCode || '').trim());
+  }
+
+  function isStampLineItem(item = {}) {
+    return isStampSectionCode(item?.section_code);
+  }
+
   global.DailySectionBundles = {
     SECTION_TO_BUNDLE,
     BUNDLE_LABELS,
+    STAMP_SECTION_CODES,
     inferBundleKey,
     inferBundleKeyFromItem,
     getBundleLabel,
+    isStampSectionCode,
+    isStampLineItem,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

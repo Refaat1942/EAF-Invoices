@@ -231,5 +231,26 @@ assertEq(foreignTotals.manual_items_subtotal_raw, 2000, 'foreign patient doubles
 assertEq(foreignTotals.stay_subtotal_raw, 2000, 'foreign patient doubles stay totals');
 assertEq(foreignTotals.items_subtotal_raw, 4000, 'foreign patient doubles combined subtotal');
 
+const stampTotals = calculateInvoiceTotals({
+  ...base,
+  stamp_duty: 25,
+  items: [
+    { description: 'كشف', quantity: 1, amount: 200, section_code: 'consultant_exam' },
+    {
+      description: 'دمغة كشوفات',
+      quantity: 1,
+      amount: 25,
+      section_code: 'consultation_stamp',
+      daily_entry_line_id: 501,
+    },
+  ],
+});
+assertEq(stampTotals.manual_items_subtotal_raw, 200, 'stamp lines excluded from manual subtotal');
+assertEq(stampTotals.items_subtotal_raw, 200, 'stamp lines excluded from items subtotal');
+assertEq(stampTotals.stamp_duty_raw, 25, 'stamp billable from header or line items');
+assertEq(stampTotals.subtotal_before_admin_raw, 225, 'stamp added separately before admin');
+const stampValidation = validateInvoiceCalculations({ ...base, stamp_duty: 25 }, stampTotals);
+assert(stampValidation.is_valid, `stamp validation: ${stampValidation.errors.join('; ')}`);
+
 console.log('OK invoice calculation tests passed');
 process.exit(0);

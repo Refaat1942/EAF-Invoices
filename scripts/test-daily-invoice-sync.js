@@ -10,7 +10,11 @@ const {
   saveEntriesBatch,
   getCurrentBusinessDateString,
 } = require('../services/dailyChargeService');
-const { getInvoiceById } = require('../services/invoiceService');
+const {
+  getInvoiceById,
+  deleteInvoice,
+  syncPatientDailyChargesToInvoice,
+} = require('../services/invoiceService');
 
 const TEST_FILE = 'DAILY-INV-SYNC-TEST';
 
@@ -230,7 +234,75 @@ async function main() {
   console.log('OK: re-save updated lines without duplicates');
   console.log(`  Invoice #${invoiceId} items_subtotal=${secondSubtotal}`);
 
+  await testDraftDeleteDoesNotRecreate(patient);
   await cleanupPatientData(patient.id, TEST_FILE);
+}
+
+async function testDraftDeleteDoesNotRecreate(patient) {
+  await cleanupPatientData(patient.id, TEST_FILE);
+  const today = getCurrentBusinessDateString();
+  const meds = await query(
+    `SELECT id FROM daily_entry_catalog_items
+     WHERE category = 'Medicine' AND is_active = TRUE AND price > 0
+     ORDER BY id LIMIT 1`
+  );
+  if (!meds.rows.length) {
+    console.error('FAIL: need medicine catalog for draft delete test');
+    process.exit(1);
+  }
+
+  const save = await saveEntriesBatch({
+    file_number: TEST_FILE,
+    patient_name: patient.name,
+    entries: [
+      {
+        entry_date: today,
+        lines: [{ section_code: 'medicines', catalog_item_id: meds.rows[0].id, quantity: 1 }],
+      },
+    ],
+  });
+  const invoiceId = save.invoice_sync?.invoice_id;
+  if (!invoiceId) {
+    console.error('FAIL: draft delete test could not create invoice', save.invoice_sync);
+    process.exit(1);
+  }
+
+  await query(
+    `UPDATE patient_daily_entries SET invoice_id = NULL
+     WHERE patient_id = $1 AND entry_date = $2`,
+    [patient.id, today]
+  );
+
+  const deleted = await deleteInvoice(invoiceId);
+  if (!deleted) {
+    console.error('FAIL: deleteInvoice returned false');
+    process.exit(1);
+  }
+
+  const { rows: entryRows } = await query(
+    `SELECT COUNT(*)::int AS n FROM patient_daily_entries WHERE patient_id = $1`,
+    [patient.id]
+  );
+  assertCount('daily entries after draft delete', entryRows[0].n, 0);
+
+  const openRes = await query(
+    `SELECT id FROM invoices
+     WHERE TRIM(file_number) = TRIM($1) AND status IN ('draft', 'pending_review')
+     LIMIT 1`,
+    [TEST_FILE]
+  );
+  if (openRes.rows.length) {
+    console.error(`FAIL: open draft still exists after delete (#${openRes.rows[0].id})`);
+    process.exit(1);
+  }
+
+  const resync = await syncPatientDailyChargesToInvoice(TEST_FILE, patient.name);
+  if (resync.synced) {
+    console.error('FAIL: sync recreated draft without daily entries', resync);
+    process.exit(1);
+  }
+
+  console.log('OK: deleting draft removes orphan daily entries and does not recreate invoice');
 }
 
 main().catch((err) => {

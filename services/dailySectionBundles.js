@@ -99,12 +99,25 @@ function getBundleSortOrder(bundleKey) {
   return BUNDLE_SORT_ORDER[bundleKey] ?? 50;
 }
 
+const STAMP_SECTION_CODES = Object.freeze(['consultation_stamp', 'analyses_stamp', 'xray_stamp']);
+
+function isStampSectionCode(sectionCode) {
+  return STAMP_SECTION_CODES.includes(String(sectionCode || '').trim());
+}
+
+function isStampLineItem(item = {}) {
+  return isStampSectionCode(item.section_code);
+}
+
 module.exports = {
   SECTION_TO_BUNDLE,
   BUNDLE_LABELS,
   BUNDLE_SOURCES,
+  STAMP_SECTION_CODES,
   inferBundleKey,
   inferBundleKeyFromItem,
   getBundleLabel,
   getBundleSortOrder,
+  isStampSectionCode,
+  isStampLineItem,
 };

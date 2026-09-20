@@ -31,6 +31,7 @@ const {
 } = require('../services/invoiceService');
 const { getDailyPrintReport, resolveDailyPrintKind } = require('../services/reportService');
 const { buildDailyReportHtml, wrapDailyItemsPrintPage } = require('../services/pdfService');
+const { buildDailyPrintExcelBuffer } = require('../services/reportService');
 const { generateDailyItemsPdfBuffer } = require('../services/exportService');
 const { getLogoUrl } = require('../services/settingsService');
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
@@ -651,8 +652,23 @@ router.get('/daily-items/print', requirePermission('daily_charges.view'), async 
     });
 
     const baseUrl = getBaseUrl(req);
+    const format = String(req.query.format || 'excel').toLowerCase();
+
+    if (format === 'excel' || format === 'xlsx') {
+      const buffer = await buildDailyPrintExcelBuffer(report);
+      const safeFile = file_number.replace(/[^\w\-]+/g, '_');
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="daily-report-${kind}-${safeFile}.xlsx"`
+      );
+      return res.send(Buffer.from(buffer));
+    }
+
     const logoUrl = await getLogoUrl(baseUrl);
-    const format = String(req.query.format || 'page').toLowerCase();
 
     if (format === 'pdf') {
       const pdf = await generateDailyItemsPdfBuffer(report, baseUrl, { logoUrl });
@@ -665,7 +681,7 @@ router.get('/daily-items/print', requirePermission('daily_charges.view'), async 
       return res.send(pdf);
     }
 
-    const html = buildDailyReportHtml(report, { logoUrl });
+    const html = buildDailyReportHtml(report, { logoUrl: '' });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(wrapDailyItemsPrintPage(html, report, baseUrl, kind));
   } catch (err) {

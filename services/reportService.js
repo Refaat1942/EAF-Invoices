@@ -1,5 +1,6 @@
 const ExcelJS = require('exceljs');
 const { query } = require('../database/db');
+const { CENTER_NAME } = require('../config/branding');
 const { getInvoiceTypesMap } = require('./invoiceTypeService');
 const { getPatientByFileNumber } = require('./patientService');
 const { labelTransactionKind } = require('./patientTransactionKinds');
@@ -1201,6 +1202,218 @@ async function getReconciliationReport(filters = {}) {
   return { rows, totals, filters };
 }
 
+const EXCEL_THIN_BORDER = {
+  top: { style: 'thin', color: { argb: 'FF000000' } },
+  left: { style: 'thin', color: { argb: 'FF000000' } },
+  bottom: { style: 'thin', color: { argb: 'FF000000' } },
+  right: { style: 'thin', color: { argb: 'FF000000' } },
+};
+
+function applyExcelRowBorders(row, colCount, border = EXCEL_THIN_BORDER) {
+  for (let c = 1; c <= colCount; c++) {
+    row.getCell(c).border = border;
+  }
+}
+
+function styleExcelTableHeaderRow(row, colCount) {
+  row.font = { bold: true, size: 11, name: 'Arial' };
+  row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+  row.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  applyExcelRowBorders(row, colCount);
+}
+
+function styleExcelDataRow(row, colCount) {
+  row.font = { bold: true, size: 10, name: 'Arial' };
+  row.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  applyExcelRowBorders(row, colCount);
+}
+
+function formatDailyExcelPeriod(report) {
+  const from = report.filters?.from_date;
+  const to = report.filters?.to_date;
+  if (!from && !to) return 'كل الفترة';
+  const fmt = (value) => {
+    if (!value) return '—';
+    const s = String(value).slice(0, 10);
+    const [y, m, d] = s.split('-');
+    return y && m && d ? `${d}/${m}/${y}` : s;
+  };
+  return `${fmt(from)} → ${fmt(to)}`;
+}
+
+function formatDailyExcelDate(value) {
+  if (!value) return '';
+  const s = String(value).slice(0, 10);
+  const [y, m, d] = s.split('-');
+  return y && m && d ? `${d}/${m}/${y}` : s;
+}
+
+function setExcelColumnWidths(sheet, widths = []) {
+  widths.forEach((width, index) => {
+    sheet.getColumn(index + 1).width = width;
+  });
+}
+
+async function buildDailyPrintExcelBuffer(report) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'EAF Invoices';
+  workbook.created = new Date();
+
+  const isCatalog = report.report_type === 'catalog';
+  const showSupplies = Boolean(report.show_supplies_columns);
+  const headers = isCatalog
+    ? [
+        'م',
+        'المريض',
+        'رقم الملف',
+        'التاريخ',
+        'اسم الصنف',
+        'الفئة',
+        'الكمية',
+        'الوحدة',
+        'سعر الوحدة',
+        ...(showSupplies ? ['سعر التكلفة', 'نسبة الربح %', 'سعر البيع'] : []),
+        'الإجمالي',
+      ]
+    : ['م', 'المريض', 'رقم الملف', 'التاريخ', 'اسم الخدمة', 'الكمية', 'سعر الوحدة', 'الإجمالي'];
+  const colCount = headers.length;
+  const sheetTitle = String(report.title || 'تقرير').slice(0, 31);
+  const sheet = workbook.addWorksheet(sheetTitle, {
+    views: [{ rightToLeft: true, state: 'frozen', ySplit: 7 }],
+  });
+
+  sheet.mergeCells(1, 1, 1, colCount);
+  const orgRow = sheet.getRow(1);
+  orgRow.getCell(1).value = CENTER_NAME;
+  orgRow.getCell(1).font = { bold: true, size: 14, name: 'Arial' };
+  orgRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+  orgRow.height = 24;
+  applyExcelRowBorders(orgRow, colCount);
+
+  sheet.mergeCells(2, 1, 2, colCount);
+  const deptRow = sheet.getRow(2);
+  deptRow.getCell(1).value = 'الإدارة المالية';
+  deptRow.getCell(1).font = { bold: true, size: 12, name: 'Arial' };
+  deptRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+  applyExcelRowBorders(deptRow, colCount);
+
+  sheet.mergeCells(3, 1, 3, colCount);
+  const titleRow = sheet.getRow(3);
+  titleRow.getCell(1).value = report.title || 'تقرير';
+  titleRow.getCell(1).font = { bold: true, size: 13, name: 'Arial' };
+  titleRow.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
+  titleRow.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+  titleRow.height = 22;
+  applyExcelRowBorders(titleRow, colCount);
+
+  const metaRow = sheet.getRow(4);
+  metaRow.values = [
+    'المريض',
+    report.patient?.name || '',
+    'رقم الملف',
+    report.patient?.file_number || '',
+    'الفترة',
+    formatDailyExcelPeriod(report),
+  ];
+  metaRow.font = { bold: true, size: 10, name: 'Arial' };
+  metaRow.alignment = { horizontal: 'center', vertical: 'middle' };
+  applyExcelRowBorders(metaRow, Math.min(colCount, 6));
+
+  if (report.price_list_name) {
+    const priceRow = sheet.getRow(5);
+    priceRow.getCell(1).value = 'لائحة الأسعار';
+    priceRow.getCell(2).value = report.price_list_name;
+    priceRow.font = { bold: true, size: 10, name: 'Arial' };
+    priceRow.alignment = { horizontal: 'center', vertical: 'middle' };
+    applyExcelRowBorders(priceRow, Math.min(colCount, 2));
+  }
+
+  const headerRowIndex = report.price_list_name ? 6 : 5;
+  const headerRow = sheet.getRow(headerRowIndex);
+  headerRow.values = headers;
+  styleExcelTableHeaderRow(headerRow, colCount);
+  headerRow.height = 20;
+
+  let rowIndex = headerRowIndex + 1;
+  for (let i = 0; i < (report.rows || []).length; i++) {
+    const row = report.rows[i];
+    const values = isCatalog
+      ? [
+          i + 1,
+          row.patient_name || '',
+          row.file_number || '',
+          formatDailyExcelDate(row.entry_date),
+          row.item_name || '',
+          row.category || '',
+          Number(row.quantity) || 0,
+          row.unit || '',
+          Number(row.unit_price) || 0,
+          ...(showSupplies
+            ? [
+                row.cost_price != null ? Number(row.cost_price) : '',
+                row.markup_percent != null ? Number(row.markup_percent) : '',
+                row.selling_price != null ? Number(row.selling_price) : '',
+              ]
+            : []),
+          Number(row.total) || 0,
+        ]
+      : [
+          i + 1,
+          row.patient_name || '',
+          row.file_number || '',
+          formatDailyExcelDate(row.entry_date),
+          row.service_name || '',
+          Number(row.quantity) || 0,
+          Number(row.unit_price) || 0,
+          Number(row.total) || 0,
+        ];
+    const dataRow = sheet.getRow(rowIndex++);
+    dataRow.values = values;
+    styleExcelDataRow(dataRow, colCount);
+    const nameCol = isCatalog ? 5 : 5;
+    dataRow.getCell(nameCol).alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
+  }
+
+  if ((report.rows || []).length) {
+    const totals = report.totals || {};
+    const totalRow = sheet.getRow(rowIndex);
+    if (isCatalog) {
+      totalRow.getCell(1).value = `الإجمالي (${totals.row_count || 0} بند)`;
+      sheet.mergeCells(rowIndex, 1, rowIndex, 9);
+      totalRow.getCell(1).alignment = { horizontal: 'right', vertical: 'middle' };
+      if (showSupplies) {
+        totalRow.getCell(10).value =
+          totals.total_cost != null ? Number(totals.total_cost) : '';
+        totalRow.getCell(11).value = '';
+        totalRow.getCell(12).value =
+          totals.total_selling != null ? Number(totals.total_selling) : '';
+      }
+      totalRow.getCell(colCount).value = Number(totals.total_amount) || 0;
+    } else {
+      totalRow.getCell(1).value = `الإجمالي (${totals.row_count || 0} بند)`;
+      sheet.mergeCells(rowIndex, 1, rowIndex, colCount - 1);
+      totalRow.getCell(1).alignment = { horizontal: 'right', vertical: 'middle' };
+      totalRow.getCell(colCount).value = Number(totals.total_amount) || 0;
+    }
+    totalRow.font = { bold: true, size: 11, name: 'Arial' };
+    totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
+    applyExcelRowBorders(totalRow, colCount);
+  }
+
+  if (isCatalog) {
+    setExcelColumnWidths(
+      sheet,
+      showSupplies
+        ? [5, 16, 10, 11, 24, 10, 8, 8, 11, 11, 11, 11, 11]
+        : [5, 16, 10, 11, 26, 10, 8, 8, 11, 11]
+    );
+  } else {
+    setExcelColumnWidths(sheet, [5, 16, 10, 11, 28, 8, 11, 11]);
+  }
+
+  return workbook.xlsx.writeBuffer();
+}
+
 async function buildExcelWorkbook(reportType, filters = {}) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'EAF Invoices';
@@ -1476,6 +1689,7 @@ module.exports = {
   getPatientStatusReport,
   getReconciliationReport,
   exportExcelBuffer,
+  buildDailyPrintExcelBuffer,
   STATUS_LABELS,
   DAILY_ITEMS_KINDS,
   DAILY_SERVICE_REPORT_KINDS,

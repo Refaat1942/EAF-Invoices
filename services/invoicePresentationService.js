@@ -3,6 +3,7 @@ const {
   inferBundleKeyFromItem,
   getBundleLabel,
   getBundleSortOrder,
+  isStampLineItem,
 } = require('./dailySectionBundles');
 
 const CUSTOMER_AGGREGATE_SECTION_CODES = Object.freeze(['medicines', 'supplies', 'cosmetics']);
@@ -94,6 +95,7 @@ function buildAggregatePrintRow(bundleKey, groupItems = [], options = {}) {
   let total = 0;
   let totalRaw = 0;
   for (const item of groupItems) {
+    if (isStampLineItem(item)) continue;
     total = round2(total + (Number(item.total) || 0));
     totalRaw = round2(totalRaw + (Number(item.total_raw ?? item.total) || 0));
   }
@@ -173,6 +175,7 @@ function aggregateInvoiceSectionTotals(items = [], options = {}) {
       order.push(bundleKey);
     }
     const bucket = buckets.get(bundleKey);
+    if (isStampLineItem(item)) continue;
     bucket.total = round2(bucket.total + (Number(item.total) || 0));
     bucket.total_raw = round2(bucket.total_raw + (Number(item.total_raw ?? item.total) || 0));
   }

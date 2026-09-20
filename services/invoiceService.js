@@ -1029,10 +1029,13 @@ async function deleteInvoice(id, actor = null) {
   }
   const snapshot = rows[0];
 
-  // Clear linked daily movements so deleting a draft removes the whole open case.
-  await query('DELETE FROM patient_daily_entries WHERE invoice_id = $1', [id]);
+  await withTransaction(async (client) => {
+    const { deletePatientDailyChargesForDraftRemoval } = require('./dailyChargeService');
+    await deletePatientDailyChargesForDraftRemoval(snapshot.file_number, id, client);
+    await client.query('DELETE FROM invoices WHERE id = $1', [id]);
+  });
 
-  const { rowCount } = await query('DELETE FROM invoices WHERE id = $1', [id]);
+  const rowCount = 1;
   if (rowCount > 0) {
     try {
       const { writeAuditLog } = require('./auditLogService');
@@ -1515,13 +1518,20 @@ async function syncPatientDailyChargesToInvoice(fileNumber, patientName = '') {
 
   if (!invoiceId) {
     const { rows } = await query(
-      `SELECT MIN(e.entry_date) AS min_date
+      `SELECT MIN(e.entry_date) AS min_date, COUNT(*)::int AS entry_count
        FROM patient_daily_entries e
        JOIN patients p ON p.id = e.patient_id
        WHERE TRIM(p.file_number) = TRIM($1)`,
       [fn]
     );
-    const firstDate = fmtDateOnly(rows[0]?.min_date) || fmtDateOnly(new Date());
+    const entryCount = Number(rows[0]?.entry_count) || 0;
+    if (!entryCount) {
+      return { synced: false, reason: 'no_open_invoice_or_entries' };
+    }
+    const firstDate = fmtDateOnly(rows[0]?.min_date);
+    if (!firstDate) {
+      return { synced: false, reason: 'no_open_invoice_or_entries' };
+    }
     const createdInvoice = await createDraftInvoiceForDailyEntry(fn, patientName, firstDate);
     invoiceId = createdInvoice.id;
     created = true;
@@ -1580,6 +1590,29 @@ function parseInvoiceItemAmount(value) {
   return Math.round(n * 100) / 100;
 }
 
+function dedupeFreeInvoiceItemsForSave(items = []) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    const id = item.id ? Number(item.id) : 0;
+    if (id) {
+      const key = `id:${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(item);
+      continue;
+    }
+    const description = String(item.description || '').trim();
+    const quantity = parseInvoiceItemAmount(item.quantity) || 1;
+    const amount = parseInvoiceItemAmount(item.amount);
+    const key = `new:${description}|${quantity}|${amount}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
 async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = null) {
   const fn = fileNumber?.trim();
   if (!fn) throw new Error('رقم الملف مطلوب');
@@ -1589,21 +1622,23 @@ async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = nu
   const invoice = await getInvoiceById(stay.invoice.id);
   if (invoice.status === 'approved') throw new Error('الفاتورة معتمدة — لا يمكن تعديل البنود');
 
-  const manualItems = (Array.isArray(manualItemsInput) ? manualItemsInput : [])
-    .map((item) => {
-      const quantity = parseInvoiceItemAmount(item.quantity) || 1;
-      const amount = parseInvoiceItemAmount(item.amount);
-      return {
-        id: item.id ? Number(item.id) : undefined,
-        description: String(item.description || '').trim(),
-        quantity,
-        returned_quantity: parseInvoiceItemAmount(item.returned_quantity) || 0,
-        amount,
-        patient_credit_applied: 0,
-        service_id: null,
-      };
-    })
-    .filter((item) => item.description || item.amount > 0);
+  const manualItems = dedupeFreeInvoiceItemsForSave(
+    (Array.isArray(manualItemsInput) ? manualItemsInput : [])
+      .map((item) => {
+        const quantity = parseInvoiceItemAmount(item.quantity) || 1;
+        const amount = parseInvoiceItemAmount(item.amount);
+        return {
+          id: item.id ? Number(item.id) : undefined,
+          description: String(item.description || '').trim(),
+          quantity,
+          returned_quantity: parseInvoiceItemAmount(item.returned_quantity) || 0,
+          amount,
+          patient_credit_applied: 0,
+          service_id: null,
+        };
+      })
+      .filter((item) => item.description || item.amount > 0)
+  );
 
   const freeItemsTotal = Math.round(
     manualItems.reduce((sum, item) => sum + (Number(item.quantity) || 1) * (Number(item.amount) || 0), 0) *

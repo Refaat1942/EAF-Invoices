@@ -22,7 +22,7 @@ const {
   prepareCalculationData,
 } = require('../services/invoiceService');
 const { calculateInvoiceTotals, round2 } = require('../services/calculations');
-const { getDailyPrintReport } = require('../services/reportService');
+const { getDailyPrintReport, buildDailyPrintExcelBuffer } = require('../services/reportService');
 const { buildInvoiceHtml, buildDailyReportHtml, enrichInvoice } = require('../services/pdfService');
 const { DEFAULT_SECTION_LABELS } = require('../services/invoicePresentationService');
 const {
@@ -564,6 +564,10 @@ async function validateCatalogReport(reportType, kind, filters, expectations = {
   const report = await getDailyPrintReport(kind, filters);
   const html = buildDailyReportHtml(report);
   const text = htmlToText(html);
+  const excelBuf = await buildDailyPrintExcelBuffer(report);
+
+  assertTrue(reportType, 'excel buffer generated', excelBuf && excelBuf.length > 200, excelBuf?.length);
+  assertTrue(reportType, 'daily html without logo', !html.includes('logo-area'), 'logo still present');
 
   assertTextContains(reportType, text, 'patient name', ctx.patient.name);
   assertTextContains(reportType, text, 'file number', TEST_FILE);

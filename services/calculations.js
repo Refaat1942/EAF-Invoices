@@ -257,16 +257,13 @@ function calculateStayEntries(entries) {
     });
 }
 
-const DAILY_STAMP_SECTION_CODES = new Set(['consultation_stamp', 'analyses_stamp', 'xray_stamp']);
+const { isStampLineItem } = require('./dailySectionBundles');
 
-// Daily-entry stamp lines (دمغة كشوفات/تحاليل/أشعة) are already itemized as regular
-// invoice items when synced from patient_daily_entry_lines. The invoice header's manual
-// stamp_duty field must not re-add that same amount — only the portion of the header
-// value that exceeds what's already itemized should be added to the subtotal.
+// Daily-entry stamp lines are synced as invoice items but billed separately from إجمالي البنود.
 function sumStampLineItemsRaw(items = []) {
   return round2(
     items
-      .filter((item) => DAILY_STAMP_SECTION_CODES.has(item.section_code))
+      .filter((item) => isStampLineItem(item))
       .reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
   );
 }
@@ -382,7 +379,11 @@ function calculateInvoiceTotals(data) {
     };
   })];
 
-  const manualItemsSubtotalRaw = round2(manualItems.reduce((sum, item) => sum + item.total_raw, 0));
+  const manualItemsSubtotalRaw = round2(
+    manualItems
+      .filter((item) => !isStampLineItem(item))
+      .reduce((sum, item) => sum + item.total_raw, 0)
+  );
   const manualItemsSubtotal = roundNearest(manualItemsSubtotalRaw);
 
   const itemsSubtotalRaw = round2(manualItemsSubtotalRaw + staySubtotalRaw);
@@ -415,8 +416,9 @@ function calculateInvoiceTotals(data) {
   const adminExpenses = roundNearest(adminExpensesRaw);
 
   const stampLineItemsRaw = sumStampLineItemsRaw(items);
-  const stampDutyExtraRaw = round2(Math.max(0, stampDutyD.raw - stampLineItemsRaw));
-  const subtotalBeforeAdminRaw = round2(itemsSubtotalRaw + stampDutyExtraRaw + professionalFeesD.raw);
+  const stampBillableRaw = round2(Math.max(stampDutyD.raw, stampLineItemsRaw));
+  const stampDutyExtraRaw = round2(Math.max(0, stampBillableRaw - stampLineItemsRaw));
+  const subtotalBeforeAdminRaw = round2(itemsSubtotalRaw + stampBillableRaw + professionalFeesD.raw);
   const subtotalBeforeAdmin = roundNearest(subtotalBeforeAdminRaw);
 
   const totalAfterAdminRaw = round2(subtotalBeforeAdminRaw + adminExpensesRaw);
@@ -473,7 +475,7 @@ function calculateInvoiceTotals(data) {
 
   const dailyItemsSubtotalRaw = round2(
     manualItems
-      .filter((item) => item.daily_entry_line_id)
+      .filter((item) => item.daily_entry_line_id && !isStampLineItem(item))
       .reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
   );
   const dailyItemsSubtotal = roundNearest(dailyItemsSubtotalRaw);
@@ -499,10 +501,11 @@ function calculateInvoiceTotals(data) {
     items_subtotal_after_discount_raw: netAfterDiscountRaw,
     net_after_discount: netAfterDiscount,
     net_after_discount_raw: netAfterDiscountRaw,
-    stamp_duty: stampDutyD.rounded,
-    stamp_duty_raw: stampDutyD.raw,
+    stamp_duty: roundNearest(stampBillableRaw),
+    stamp_duty_raw: stampBillableRaw,
     stamp_duty_extra_raw: stampDutyExtraRaw,
     stamp_line_items_raw: stampLineItemsRaw,
+    stamp_billable_raw: stampBillableRaw,
     professional_fees: professionalFeesD.rounded,
     professional_fees_raw: professionalFeesD.raw,
     subtotal_before_admin: subtotalBeforeAdmin,
@@ -750,7 +753,7 @@ function validateInvoiceCalculations(data, totals) {
 
   const expectedSubtotalBeforeAdmin = round2(
     (totals.items_subtotal_raw || 0) +
-      (totals.stamp_duty_extra_raw ?? totals.stamp_duty_raw ?? 0) +
+      (totals.stamp_billable_raw ?? totals.stamp_duty_raw ?? 0) +
       (totals.professional_fees_raw || 0)
   );
   if (!approxEqual(expectedSubtotalBeforeAdmin, totals.subtotal_before_admin_raw)) {
@@ -794,7 +797,7 @@ function validateInvoiceCalculations(data, totals) {
 
   const manualSumRaw = round2(
     (totals.items || [])
-      .filter((item) => !item.is_stay_entry)
+      .filter((item) => !item.is_stay_entry && !isStampLineItem(item))
       .reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
   );
   if (!approxEqual(manualSumRaw, totals.manual_items_subtotal_raw)) {
@@ -804,7 +807,7 @@ function validateInvoiceCalculations(data, totals) {
   if (totals.daily_items_subtotal_raw != null) {
     const expectedDailySubtotal = round2(
       (totals.items || [])
-        .filter((item) => item.daily_entry_line_id && !item.is_stay_entry)
+        .filter((item) => item.daily_entry_line_id && !item.is_stay_entry && !isStampLineItem(item))
         .reduce((sum, item) => sum + (Number(item.total_raw) || 0), 0)
     );
     if (!approxEqual(expectedDailySubtotal, totals.daily_items_subtotal_raw)) {

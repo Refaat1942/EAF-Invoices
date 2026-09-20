@@ -39,7 +39,7 @@
   </div>
   <script>
     (function () {
-      const BUILD = '20260920q';
+      const BUILD = '20260920u';
       window.__eafBuild = BUILD;
 
       function setBootStatus(message, isError) {
@@ -239,7 +239,7 @@
             <button type="button" class="btn btn-sm btn-light fw-bold" id="patient-register-change-type">↩ تغيير النوع</button>
           </div>
           <div class="card-body">
-            <form id="patient-register-form" autocomplete="off" novalidate>
+            <form id="patient-register-form" autocomplete="off" novalidate data-guard-key="patient:register" data-guard-busy="جاري الحفظ…">
               <input type="hidden" id="patient-reg-type" value="internal">
               <div class="row g-3">
                 <div class="col-md-3">
@@ -634,10 +634,10 @@
                 <div class="d-flex gap-2 flex-wrap align-items-center">
                   <span class="badge status-badge" id="invoice-status-badge" style="display:none"></span>
                   <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="record-return-btn" style="display:none" title="تسجيل إرجاع بنود محفوظة">↩️ تسجيل إرجاع</button>
-                  <button type="button" class="btn btn-outline-secondary btn-lg fw-black" id="save-draft-btn">💾 حفظ مؤقت</button>
-                  <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="delete-invoice-btn" style="display:none" title="حذف المسودة أو الفاتورة قيد المراجعة">🗑️ حذف</button>
-                  <button type="button" class="btn btn-warning btn-lg fw-black" id="submit-review-btn" style="display:none">📤 إرسال للمراجعة</button>
-                  <button type="button" class="btn btn-success btn-lg fw-black" id="approve-invoice-btn" style="display:none">✅ اعتماد نهائي</button>
+                  <button type="button" class="btn btn-outline-secondary btn-lg fw-black" id="save-draft-btn" data-guard-key="invoice:save" data-guard-busy="جاري الحفظ…" data-guard-siblings="submit-review-btn">💾 حفظ مؤقت</button>
+                  <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="delete-invoice-btn" style="display:none" title="حذف المسودة أو الفاتورة قيد المراجعة" data-guard-key="invoice:delete" data-guard-busy="جاري الحذف…">🗑️ حذف</button>
+                  <button type="button" class="btn btn-warning btn-lg fw-black" id="submit-review-btn" style="display:none" data-guard-key="invoice:save" data-guard-busy="جاري الإرسال…" data-guard-siblings="save-draft-btn">📤 إرسال للمراجعة</button>
+                  <button type="button" class="btn btn-success btn-lg fw-black" id="approve-invoice-btn" style="display:none" data-guard-key="invoice:approve" data-guard-busy="جاري الاعتماد…">✅ اعتماد نهائي</button>
                   <button type="button" class="btn btn-outline-secondary fw-bold" id="reset-form-btn">← الرئيسية</button>
                   <button type="button" class="btn btn-danger fw-bold" id="download-pdf-btn" style="display:none">📄 PDF</button>
                   <button type="button" class="btn btn-primary fw-bold" id="download-docx-btn" style="display:none">📝 Word</button>
@@ -979,10 +979,10 @@
                 <button type="button" class="btn btn-sm btn-outline-primary fw-bold d-none" id="daily-add-row-btn" hidden>+ صف</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary fw-bold d-none" id="daily-tab-import-btn" title="للإدارة فقط">📤 رفع قائمة الخدمات</button>
                 <input type="file" class="d-none" id="daily-tab-import-input" accept=".xlsx,.xls,.csv">
-                <button type="button" class="btn btn-sm btn-success fw-bold px-4" id="daily-save-btn">حفظ</button>
-                <button type="button" class="btn btn-sm btn-outline-success fw-bold" id="daily-save-all-btn">حفظ الكل</button>
+                <button type="button" class="btn btn-sm btn-success fw-bold px-4" id="daily-save-btn" data-guard-key="daily:action" data-guard-busy="جاري الحفظ…" data-guard-siblings="daily-save-all-btn,daily-free-save-btn,daily-free-add-row">حفظ</button>
+                <button type="button" class="btn btn-sm btn-outline-success fw-bold" id="daily-save-all-btn" data-guard-key="daily:action" data-guard-busy="جاري الحفظ…" data-guard-siblings="daily-save-btn,daily-free-save-btn,daily-free-add-row">حفظ الكل</button>
                 <div class="dropdown">
-                  <button type="button" class="btn btn-sm btn-outline-dark fw-bold dropdown-toggle" data-bs-toggle="dropdown">🖨️ طباعة</button>
+                  <button type="button" class="btn btn-sm btn-outline-dark fw-bold dropdown-toggle" data-bs-toggle="dropdown">📊 تصدير Excel</button>
                   <ul class="dropdown-menu dropdown-menu-end">
                     <li><button type="button" class="dropdown-item fw-bold" id="daily-print-medicines-btn">أدوية</button></li>
                     <li><button type="button" class="dropdown-item fw-bold" id="daily-print-supplies-btn">مستلزمات</button></li>
@@ -1082,7 +1082,7 @@
                     </table>
                   </div>
                   <div class="d-flex flex-wrap gap-2 mt-3">
-                    <button type="button" class="btn btn-primary fw-bold" id="daily-free-save-btn">💾 حفظ البنود الحرة</button>
+                    <button type="button" class="btn btn-primary fw-bold" id="daily-free-save-btn" data-guard-key="daily:action" data-guard-busy="جاري الحفظ…" data-guard-siblings="daily-save-btn,daily-save-all-btn,daily-free-add-row">💾 حفظ البنود الحرة</button>
                   </div>
                 </div>
               </div>
@@ -2371,15 +2371,16 @@
   </div><!-- app-container -->
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="/js/action-guard.js?v=20260920u"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
-  <script src="/js/app.js?v=20260917e"></script>
+  <script src="/js/app.js?v=20260920u"></script>
   <script src="/js/nationality-pricing.js?v=20260920q"></script>
   <script src="/js/daily-picker.js?v=20260920q"></script>
-  <script src="/js/daily-charges.js?v=20260920q"></script>
+  <script src="/js/daily-charges.js?v=20260920u"></script>
   <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
-  <script src="/js/ops-center.js?v=20260917e"></script>
+  <script src="/js/ops-center.js?v=20260920u"></script>
   <script src="/js/assistant.js?v=20260905b"></script>
   <script src="/js/analytics-dashboard.js?v=20260905b"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>

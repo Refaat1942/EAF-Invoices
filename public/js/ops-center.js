@@ -231,24 +231,37 @@
       const openBtn = e.target.closest('.ops-open-invoice');
       if (openBtn) {
         const id = Number(openBtn.dataset.id);
-        if (id && typeof window.loadInvoiceForEdit === 'function') {
-          await window.loadInvoiceForEdit(id);
-        }
+        if (!id || typeof window.loadInvoiceForEdit !== 'function') return;
+        await ActionGuard.runGuarded(
+          `ops:open:${id}`,
+          () => window.loadInvoiceForEdit(id),
+          { elements: [openBtn], busyText: 'جاري الفتح…' }
+        );
         return;
       }
       const approveBtn = e.target.closest('.ops-approve-invoice');
       if (approveBtn && typeof window.quickApproveInvoice === 'function') {
         const id = Number(approveBtn.dataset.id);
-        if (id) {
-          await window.quickApproveInvoice(id);
-          await loadApprovalsView();
-        }
+        if (!id) return;
+        await ActionGuard.runGuarded(
+          `ops:approve:${id}`,
+          async () => {
+            await window.quickApproveInvoice(id);
+            await loadApprovalsView();
+          },
+          { elements: [approveBtn], busyText: 'جاري الاعتماد…' }
+        );
         return;
       }
       const deleteBtn = e.target.closest('.ops-delete-invoice');
       if (deleteBtn && typeof window.deleteInvoice === 'function') {
         const id = Number(deleteBtn.dataset.id);
-        if (id) await window.deleteInvoice(id);
+        if (!id) return;
+        await ActionGuard.runGuarded(
+          `ops:delete:${id}`,
+          () => window.deleteInvoice(id),
+          { elements: [deleteBtn], busyText: 'جاري الحذف…' }
+        );
       }
     };
     document.getElementById('approvals-queue-body')?.addEventListener('click', handleApprovalsTableClick);

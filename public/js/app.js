@@ -945,6 +945,7 @@ function buildInvoiceItemsRenderPlan(items = []) {
     if (invoiceGroupShouldAggregate(key, groupItems)) {
       let total = 0;
       for (const item of groupItems) {
+        if (window.DailySectionBundles?.isStampLineItem?.(item)) continue;
         total += estimateInvoiceItemLineTotal(item);
       }
       const label = key === '__manual__' ? 'بنود يدوية' : getInvoiceSectionLabel(groupItems[0]);
@@ -3118,10 +3119,7 @@ function updateSummaryTable(t) {
   `;
 }
 
-let invoiceSaveInFlight = false;
-
 async function saveInvoiceWithMode(saveMode) {
-  if (invoiceSaveInFlight) return;
   const data = collectFormData();
   data.save_mode = saveMode;
 
@@ -3156,13 +3154,7 @@ async function saveInvoiceWithMode(saveMode) {
     }
   }
 
-  const saveButtons = ['save-draft-btn', 'submit-review-btn'];
   try {
-    invoiceSaveInFlight = true;
-    saveButtons.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.disabled = true;
-    });
     const isEdit = !!currentInvoiceId;
     const url = isEdit ? `${API}/${currentInvoiceId}` : API;
     const method = isEdit ? 'PUT' : 'POST';
@@ -3202,12 +3194,6 @@ async function saveInvoiceWithMode(saveMode) {
     showToast(msg, 'success');
   } catch (err) {
     showToast(err.message, 'danger');
-  } finally {
-    invoiceSaveInFlight = false;
-    saveButtons.forEach((id) => {
-      const el = document.getElementById(id);
-      if (el) el.disabled = false;
-    });
   }
 }
 

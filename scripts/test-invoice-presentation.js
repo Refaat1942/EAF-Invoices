@@ -316,6 +316,21 @@ function testStayBundleShowsDetailInPrint() {
   console.log('OK stay bundle shows detail in print lines');
 }
 
+function testStampExcludedFromBundleTotals() {
+  const items = [
+    makeCatalogItem('consultant_exam', 'الكشوفات', 200, { idx: 1 }),
+    makeCatalogItem('consultation_stamp', 'دمغة كشوفات', 25, { idx: 2 }),
+  ];
+  const display = aggregateCustomerFacingLines(items);
+  const examRows = display.filter((r) => r.section_code === 'exams');
+  assertEq(examRows.length, 1, 'one exams aggregate row');
+  assertEq(examRows[0].total, 200, 'stamp excluded from exams bundle total');
+  const printRows = buildCustomerPrintLines(items);
+  const printExam = printRows.find((r) => r.section_code === 'exams');
+  assertEq(printExam.total, 200, 'stamp excluded from print exams total');
+  console.log('OK stamp excluded from bundle totals');
+}
+
 function testFreeManualItemsStayManualBundle() {
   const item = {
     description: 'رسوم عملية إضافية',
@@ -378,6 +393,7 @@ function main() {
   testPartialReturnAggregatedMedicinesTotal();
   testInvoiceItemsCountUnchanged();
   testStayBundleShowsDetailInPrint();
+  testStampExcludedFromBundleTotals();
   testFreeManualItemsStayManualBundle();
   testPdfStayDetailAndCaptainName();
   testPdfLabelsWithoutProductNames();

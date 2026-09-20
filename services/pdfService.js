@@ -516,9 +516,7 @@ function buildInvoiceHtml(invoice, options = {}) {
     </div>
 
     <div class="header">
-      <div class="logo-area">
-        <img src="${logoUrl || baseUrl + '/assets/logo.svg'}" alt="شعار" onerror="this.parentElement.innerHTML='شعار<br>الخدمات<br>الطبية'">
-      </div>
+      <div class="header-spacer"></div>
       <div class="header-text">
         <span class="line">وزارة الدفاع</span>
         <span class="line">إدارة الخدمات الطبية</span>
@@ -853,8 +851,17 @@ function buildDailyItemsFooter(report) {
   </tr>`;
 }
 
+function buildDailyDocumentHeaderHtml(title) {
+  return `
+    <div class="org-header">
+      <div class="org-name">${escapeHtml(CENTER_NAME)}</div>
+      <div class="org-dept">الإدارة المالية</div>
+    </div>
+    <div class="title-bar">${escapeHtml(title || 'تقرير')}</div>
+  `;
+}
+
 function buildDailyItemsHtml(report, options = {}) {
-  const { logoUrl = '' } = options;
   const showSupplies = report.show_supplies_columns;
   const suppliesHeaders = showSupplies
     ? '<th>سعر التكلفة</th><th>نسبة الربح %</th><th>سعر البيع</th>'
@@ -896,40 +903,17 @@ function buildDailyItemsHtml(report, options = {}) {
       margin-bottom: 8px;
       background: #f0f0f0;
     }
-    .header {
-      display: flex;
-      direction: ltr;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 10px;
+    .org-header {
+      text-align: center;
+      margin-bottom: 8px;
       border-bottom: 2px solid #000;
       padding-bottom: 8px;
-      gap: 10px;
-    }
-    .header-text {
-      direction: rtl;
-      text-align: center;
-      flex: 1;
       line-height: 1.65;
       font-weight: 900;
       font-size: 12px;
     }
-    .logo-area {
-      width: 72px;
-      height: 72px;
-      border: 2px solid #000;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 8px;
-      text-align: center;
-      font-weight: 900;
-      flex-shrink: 0;
-      overflow: hidden;
-    }
-    .logo-area img { width: 100%; height: 100%; object-fit: cover; }
-    .header-spacer { width: 72px; flex-shrink: 0; }
+    .org-header .org-name { display: block; font-size: 13px; }
+    .org-header .org-dept { display: block; font-size: 11px; }
     .meta-table {
       width: 100%;
       border-collapse: collapse;
@@ -1006,15 +990,7 @@ function buildDailyItemsHtml(report, options = {}) {
 </head>
 <body>
   <div class="page">
-    <div class="header">
-      <div class="logo-area">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="">` : 'شعار'}</div>
-      <div class="header-text">
-        <span class="line">مستشفى القوات المسلحة بالإسماعيلية</span>
-        <span class="line">الإدارة المالية</span>
-      </div>
-      <div class="header-spacer"></div>
-    </div>
-    <div class="title-bar">${escapeHtml(report.title || 'تقرير الأصناف')}</div>
+    ${buildDailyDocumentHeaderHtml(report.title || 'تقرير الأصناف')}
     <table class="meta-table">
       <tr>
         <th>المريض</th>
@@ -1076,7 +1052,6 @@ function buildDailyServiceFooter(report) {
 }
 
 function buildDailyServiceReportHtml(report, options = {}) {
-  const { logoUrl = '' } = options;
   const periodLabel =
     report.filters?.from_date || report.filters?.to_date
       ? `${formatDate(report.filters.from_date) || '—'} → ${formatDate(report.filters.to_date) || '—'}`
@@ -1107,18 +1082,12 @@ function buildDailyServiceReportHtml(report, options = {}) {
       text-align: center; font-size: 14px; font-weight: 900;
       border: 2px solid #000; padding: 8px; margin-bottom: 8px; background: #f0f0f0;
     }
-    .header {
-      display: flex; direction: ltr; justify-content: space-between; align-items: flex-start;
-      margin-bottom: 10px; border-bottom: 2px solid #000; padding-bottom: 8px; gap: 10px;
+    .org-header {
+      text-align: center; margin-bottom: 8px; border-bottom: 2px solid #000;
+      padding-bottom: 8px; line-height: 1.65; font-weight: 900; font-size: 12px;
     }
-    .header-text { direction: rtl; text-align: center; flex: 1; line-height: 1.65; font-weight: 900; font-size: 12px; }
-    .logo-area {
-      width: 72px; height: 72px; border: 2px solid #000; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center; font-size: 8px;
-      text-align: center; font-weight: 900; flex-shrink: 0; overflow: hidden;
-    }
-    .logo-area img { width: 100%; height: 100%; object-fit: cover; }
-    .header-spacer { width: 72px; flex-shrink: 0; }
+    .org-header .org-name { display: block; font-size: 13px; }
+    .org-header .org-dept { display: block; font-size: 11px; }
     .meta-table { width: 100%; border-collapse: collapse; border: 2px solid #000; margin-bottom: 8px; }
     .meta-table th, .meta-table td {
       border: 1px solid #000; text-align: center; font-weight: 800; padding: 5px 4px;
@@ -1171,15 +1140,7 @@ function buildDailyServiceReportHtml(report, options = {}) {
 </head>
 <body>
   <div class="page">
-    <div class="header">
-      <div class="logo-area">${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="">` : 'شعار'}</div>
-      <div class="header-text">
-        <span class="line">مستشفى القوات المسلحة بالإسماعيلية</span>
-        <span class="line">الإدارة المالية</span>
-      </div>
-      <div class="header-spacer"></div>
-    </div>
-    <div class="title-bar">${escapeHtml(report.title || 'تقرير الخدمات')}</div>
+    ${buildDailyDocumentHeaderHtml(report.title || 'تقرير الخدمات')}
     <table class="meta-table">
       <tr>
         <th>المريض</th>
@@ -1226,6 +1187,7 @@ function wrapDailyItemsPrintPage(reportHtml, report, baseUrl, kind) {
     from_date: report.filters?.from_date || '',
     to_date: report.filters?.to_date || '',
   });
+  const excelUrl = `${baseUrl}/api/daily-charges/daily-items/print?${params}&format=excel`;
   const pdfUrl = `${baseUrl}/api/daily-charges/daily-items/print?${params}&format=pdf`;
   const bodyContent = reportHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] || reportHtml;
   return `<!DOCTYPE html>
@@ -1239,6 +1201,7 @@ function wrapDailyItemsPrintPage(reportHtml, report, baseUrl, kind) {
     body { font-family: 'Cairo', sans-serif; background: #f0f2f5; margin: 0; padding: 16px; direction: rtl; }
     .toolbar { max-width: 210mm; margin: 0 auto 12px; display: flex; gap: 8px; flex-wrap: wrap; background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); align-items: center; }
     .toolbar a, .toolbar button { font-family: inherit; font-weight: 800; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; font-size: 14px; }
+    .btn-excel { background: #1d6f42; color: #fff; }
     .btn-pdf { background: #c0392b; color: #fff; }
     .btn-print { background: #27ae60; color: #fff; }
     .serial { flex: 1; text-align: center; font-weight: 900; font-size: 15px; }
@@ -1248,6 +1211,7 @@ function wrapDailyItemsPrintPage(reportHtml, report, baseUrl, kind) {
 <body>
   <div class="toolbar">
     <span class="serial">${escapeHtml(title)}</span>
+    <a class="btn-excel" href="${excelUrl}">تصدير Excel</a>
     <a class="btn-pdf" href="${pdfUrl}">تحميل PDF</a>
     <button class="btn-print" onclick="window.print()">طباعة</button>
   </div>

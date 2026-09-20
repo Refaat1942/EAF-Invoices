@@ -2669,6 +2669,26 @@ async function unlinkEntriesFromInvoice(invoiceId, client = null) {
   return result.rowCount || 0;
 }
 
+/**
+ * Remove daily movements for an open case when its draft/pending invoice is deleted.
+ * Keeps entries linked to approved invoices (historical billing).
+ */
+async function deletePatientDailyChargesForDraftRemoval(fileNumber, invoiceId, client = null) {
+  const fn = String(fileNumber || '').trim();
+  const invId = Number(invoiceId);
+  if (!fn || !invId) return 0;
+  const run = client ? client.query.bind(client) : query;
+  const result = await run(
+    `DELETE FROM patient_daily_entries e
+     USING patients p
+     WHERE e.patient_id = p.id
+       AND TRIM(p.file_number) = TRIM($1)
+       AND (e.invoice_id = $2 OR e.invoice_id IS NULL)`,
+    [fn, invId]
+  );
+  return result.rowCount || 0;
+}
+
 function normalizeStayGradeName(name) {
   return String(name || '')
     .replace(/\u0640/g, '')
@@ -2819,6 +2839,7 @@ module.exports = {
   linkEntryToInvoice,
   linkEntriesToInvoice,
   unlinkEntriesFromInvoice,
+  deletePatientDailyChargesForDraftRemoval,
   computeDailyTotal,
   getCurrentBusinessDateString,
   normalizeCalendarDate,

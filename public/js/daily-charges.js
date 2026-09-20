@@ -29,6 +29,7 @@ const DAILY_CLINICAL_TABS = ['exams', 'lab', 'radiology', 'sessions', 'medicines
 
 const DAILY_PRICING_API = '/api/pricing';
 
+
 /** Admin-only per-tab service list upload (catalog or price-list Excel). */
 const DAILY_TAB_IMPORT_CONFIG = {
   medicines: {
@@ -595,7 +596,8 @@ function applyDailyTabColumnVisibility() {
 
   const hint = document.getElementById('daily-tab-hint');
   if (hint && activeDailyTab === 'free-items') {
-    hint.textContent = 'بنود حرة — أي وصف وسعر ثم احفظ لتُضاف على الفاتورة الكبيرة مع الحركة اليومية.';
+    hint.textContent =
+      'بنود حرة — اكتب الوصف والسعر ثم اضغط «حفظ» مرة واحدة. لا تكرّر الضغط حتى يظهر «تم الحفظ».';
   } else if (hint && activeDailyTab === 'exams') {
     hint.textContent =
       'كشوفات — حالة الكشف من لائحة الأسعار (زر «رفع الكشوفات» أو الإعدادات → إدارة الأسعار). التخصص من الإعدادات → تخصصات الكشوفات. السعر يُملأ تلقائيًا ويمكن تعديله في الجدول قبل الحفظ.';
@@ -1163,7 +1165,6 @@ async function loadOperationsForToday() {
 }
 
 async function saveOperationsPanel() {
-  if (dailySaveInFlight) return;
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية', 'warning');
     return;
@@ -1178,12 +1179,7 @@ async function saveOperationsPanel() {
     showToast('أضف عملية واحدة على الأقل (اسم أو مبلغ)', 'warning');
     return;
   }
-  const saveBtn = document.getElementById('daily-save-btn');
-  const saveAllBtn = document.getElementById('daily-save-all-btn');
   try {
-    dailySaveInFlight = true;
-    if (saveBtn) saveBtn.disabled = true;
-    if (saveAllBtn) saveAllBtn.disabled = true;
     const data = await apiJson(`${DAILY_API}/operations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1202,10 +1198,6 @@ async function saveOperationsPanel() {
     showToast(`تم الحفظ — أُضيف على الفاتورة الكبيرة (${totalLabel})`, 'success');
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
-  } finally {
-    dailySaveInFlight = false;
-    if (saveBtn) saveBtn.disabled = false;
-    if (saveAllBtn) saveAllBtn.disabled = false;
   }
 }
 
@@ -1255,9 +1247,26 @@ function bindFreeItemRowEvents(tr) {
   updateLine();
 }
 
+function freeItemRowIsBlank(tr) {
+  if (!tr) return true;
+  const desc = tr.querySelector('.daily-free-desc')?.value?.trim() || '';
+  const amt = dailyParseAmount(tr.querySelector('.daily-free-amount')?.value);
+  return !desc && amt <= 0;
+}
+
 function addFreeItemRow(item = {}) {
   const tbody = document.getElementById('daily-free-items-tbody');
   if (!tbody) return;
+  const hasSavedIdentity = Boolean(item.id);
+  if (!hasSavedIdentity) {
+    const rows = tbody.querySelectorAll('.daily-free-item-row');
+    for (const row of rows) {
+      if (freeItemRowIsBlank(row)) {
+        row.querySelector('.daily-free-desc')?.focus();
+        return;
+      }
+    }
+  }
   const tr = document.createElement('tr');
   tr.className = 'daily-free-item-row';
   if (item.id) tr.dataset.itemId = String(item.id);
@@ -1323,7 +1332,6 @@ async function loadFreeItemsPanel() {
 }
 
 async function saveFreeItems() {
-  if (dailySaveInFlight) return;
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية', 'warning');
     return;
@@ -1338,14 +1346,7 @@ async function saveFreeItems() {
     showToast('أضف بندًا واحدًا على الأقل', 'warning');
     return;
   }
-  const btn = document.getElementById('daily-free-save-btn');
-  const saveBtn = document.getElementById('daily-save-btn');
-  const saveAllBtn = document.getElementById('daily-save-all-btn');
   try {
-    dailySaveInFlight = true;
-    if (btn) btn.disabled = true;
-    if (saveBtn) saveBtn.disabled = true;
-    if (saveAllBtn) saveAllBtn.disabled = true;
     const data = await apiJson(`${DAILY_API}/free-items`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1364,11 +1365,6 @@ async function saveFreeItems() {
     showToast(`تم الحفظ — البنود الحرة على الفاتورة: ${dailyFmt(freeTotal)}`, 'success');
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
-  } finally {
-    dailySaveInFlight = false;
-    if (btn) btn.disabled = false;
-    if (saveBtn) saveBtn.disabled = false;
-    if (saveAllBtn) saveAllBtn.disabled = false;
   }
 }
 
@@ -3082,10 +3078,29 @@ async function openDailyItemsPrint(kind) {
   const params = new URLSearchParams({
     kind,
     file_number,
+    format: 'excel',
   });
   if (from_date) params.set('from_date', from_date);
   if (to_date) params.set('to_date', to_date);
-  window.open(`${DAILY_API}/daily-items/print?${params}`, '_blank');
+  try {
+    const res = await apiFetch(`${DAILY_API}/daily-items/print?${params}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'فشل تصدير التقرير');
+    }
+    const blob = await res.blob();
+    const safeFile = file_number.replace(/[^\w\-]+/g, '_');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `daily-report-${kind}-${safeFile}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+    showToast('تم تنزيل التقرير Excel', 'success');
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+  }
 }
 
 function renderDailyInvoiceReviewPanel() {
@@ -3224,7 +3239,6 @@ function dailyFormatInput(n, decimals = 2) {
 
 let dailyPriceListMeta = null;
 let dailySectionsLoadFailed = false;
-let dailySaveInFlight = false;
 let dailyBusinessDate = null;
 let activeDailyTab = '';
 
@@ -6306,29 +6320,15 @@ async function loadDailyPatientHistory() {
 }
 
 async function saveAllDailyCharges() {
-  if (dailySaveInFlight) return;
   if (activeDailyTab === 'free-items') return saveFreeItems();
   await saveDailyEntry();
   const freeItems = collectFreeItemsFromTable();
   const hasFree = freeItems.some((item) => item.description || item.amount > 0);
   if (!hasFree) return;
-  const file_number = getStayFileNumber();
-  if (!file_number || !dailyStayContext?.invoice?.id) return;
-  try {
-    const data = await apiJson(`${DAILY_API}/free-items`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_number, items: freeItems }),
-    });
-    await refreshDailyStaySummary(file_number);
-    showToast(`تم حفظ البنود الحرة أيضًا (${dailyFmt(data.final_total)})`, 'success');
-  } catch (err) {
-    showToast(sanitizeApiErrorMessage(err.message), 'danger');
-  }
+  await saveFreeItems();
 }
 
 async function saveDailyEntry() {
-  if (dailySaveInFlight) return;
   if (activeDailyTab === 'free-items') {
     return saveFreeItems();
   }
@@ -6351,12 +6351,6 @@ async function saveDailyEntry() {
   }
 
   try {
-    dailySaveInFlight = true;
-    const saveBtn = document.getElementById('daily-save-btn');
-    const saveAllBtn = document.getElementById('daily-save-all-btn');
-    if (saveBtn) saveBtn.disabled = true;
-    if (saveAllBtn) saveAllBtn.disabled = true;
-
     const data = await apiJson(`${DAILY_API}/entries/batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -6393,12 +6387,6 @@ async function saveDailyEntry() {
     showToast(toastMsg, 'success');
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
-  } finally {
-    dailySaveInFlight = false;
-    const saveBtn = document.getElementById('daily-save-btn');
-    const saveAllBtn = document.getElementById('daily-save-all-btn');
-    if (saveBtn) saveBtn.disabled = false;
-    if (saveAllBtn) saveAllBtn.disabled = false;
   }
 }
 
@@ -6785,7 +6773,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
   document.getElementById('daily-free-add-row')?.addEventListener('click', () => addFreeItemRow());
-  document.getElementById('daily-free-save-btn')?.addEventListener('click', saveFreeItems);
+  document.getElementById('daily-free-save-btn')?.addEventListener('click', () => {
+    void saveFreeItems();
+  });
   document.getElementById('import-daily-charges-btn')?.addEventListener('click', importDailyChargesToInvoice);
 });
 
