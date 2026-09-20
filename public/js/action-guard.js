@@ -64,7 +64,7 @@
 
     const id = el.id || '';
     if (
-      /^(add-row|remove-row|add-stay-entry|daily-add-row|daily-op-add-row|daily-free-add-row|reset-form|clear-payments|pay-full|nav-|hub-)/.test(
+      /^(add-row|remove-row|add-stay-entry|daily-add-row|daily-sheet-add-row|daily-op-add-row|daily-free-add-row|reset-form|clear-payments|pay-full|nav-|hub-)/.test(
         id
       )
     ) {

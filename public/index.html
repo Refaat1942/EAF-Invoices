@@ -39,7 +39,7 @@
   </div>
   <script>
     (function () {
-      const BUILD = '20260920u';
+      const BUILD = '20260920v';
       window.__eafBuild = BUILD;
 
       function setBootStatus(message, isError) {
@@ -514,6 +514,7 @@
                             </tr>
                           </tfoot>
                         </table>
+                        <button type="button" class="btn btn-outline-secondary btn-sm fw-bold mt-2" id="add-stay-entry-btn">+ صف إقامة</button>
                       </div>
                     </div>
                   </div>
@@ -624,11 +625,11 @@
                 </div>
 
                 <!-- Signatures (same roles as print preview / PDF) -->
-                <input type="hidden" id="captain_name" value="نقيب عمرو صالح">
                 <div class="row g-2 mb-3">
-                  <div class="col-md-4"><label class="form-label fw-bold">المدير المالي</label><input type="text" class="form-control" id="manager_name" value="رائد / جمال عبد الناصر - المدير المالي"></div>
-                  <div class="col-md-4"><label class="form-label fw-bold">المراجع المالي</label><input type="text" class="form-control" id="auditor_name"></div>
-                  <div class="col-md-4"><label class="form-label fw-bold">الموظف المختص</label><input type="text" class="form-control" id="employee_name"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">رئيس حسابات المرضى</label><input type="text" class="form-control" id="captain_name" value="نقيب عمرو صالح"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">المدير المالي</label><input type="text" class="form-control" id="manager_name" value="رائد / جمال عبد الناصر - المدير المالي"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">المراجع المالي</label><input type="text" class="form-control" id="auditor_name"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">الموظف المختص</label><input type="text" class="form-control" id="employee_name"></div>
                 </div>
 
                 <div class="d-flex gap-2 flex-wrap align-items-center">
@@ -976,7 +977,7 @@
               <div class="d-flex flex-wrap gap-2 align-items-center">
                 <span class="small fw-bold text-muted">تاريخ اليوم:</span>
                 <input type="date" class="form-control form-control-sm fw-bold bg-light" id="daily-entry-date" readonly tabindex="-1" style="width:auto">
-                <button type="button" class="btn btn-sm btn-outline-primary fw-bold d-none" id="daily-add-row-btn" hidden>+ صف</button>
+                <button type="button" class="btn btn-sm btn-outline-primary fw-bold d-none" id="daily-add-row-btn">+ صف جديد</button>
                 <button type="button" class="btn btn-sm btn-outline-secondary fw-bold d-none" id="daily-tab-import-btn" title="للإدارة فقط">📤 رفع قائمة الخدمات</button>
                 <input type="file" class="d-none" id="daily-tab-import-input" accept=".xlsx,.xls,.csv">
                 <button type="button" class="btn btn-sm btn-success fw-bold px-4" id="daily-save-btn" data-guard-key="daily:action" data-guard-busy="جاري الحفظ…" data-guard-siblings="daily-save-all-btn,daily-free-save-btn,daily-free-add-row">حفظ</button>
@@ -1015,7 +1016,7 @@
               <div id="daily-operations-panel" class="card border-0 shadow-sm mb-4" style="display:none">
                 <div class="card-header bg-light fw-bold d-flex justify-content-between align-items-center flex-wrap gap-2">
                   <span>العمليات / الجراحات</span>
-                  <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-op-add-row">+ إضافة عملية</button>
+                  <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="daily-op-add-row">+ صف عملية</button>
                 </div>
                 <div class="card-body p-0">
                   <div class="daily-operations-legend small" id="daily-operations-case-legend">
@@ -1098,7 +1099,9 @@
                 <tr class="daily-sheet-tfoot-row">
                   <td id="daily-total-foot-label" colspan="2" class="fw-black text-end daily-total-foot-label">إجمالي الكل</td>
                   <td class="fw-black text-center daily-total-foot-value" id="daily-total-display"></td>
-                  <td id="daily-total-foot-spacer" class="daily-total-foot-action"></td>
+                  <td id="daily-total-foot-spacer" class="daily-total-foot-action text-end py-1">
+                    <button type="button" class="btn btn-outline-primary btn-sm fw-bold d-none" id="daily-sheet-add-row-btn">+ صف جديد</button>
+                  </td>
                 </tr>
                 <tr id="daily-foreign-pricing-hint-row">
                   <td colspan="4" class="text-center py-1">
@@ -2371,13 +2374,13 @@
   </div><!-- app-container -->
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/js/action-guard.js?v=20260920u"></script>
+  <script src="/js/action-guard.js?v=20260920v"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
-  <script src="/js/app.js?v=20260920u"></script>
+  <script src="/js/app.js?v=20260920v"></script>
   <script src="/js/nationality-pricing.js?v=20260920q"></script>
   <script src="/js/daily-picker.js?v=20260920q"></script>
-  <script src="/js/daily-charges.js?v=20260920u"></script>
+  <script src="/js/daily-charges.js?v=20260920v"></script>
   <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260920u"></script>

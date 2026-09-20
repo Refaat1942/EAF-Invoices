@@ -27,6 +27,19 @@ const DAILY_INVOICE_TYPE_LABELS = {
 
 const DAILY_CLINICAL_TABS = ['exams', 'lab', 'radiology', 'sessions', 'medicines', 'supplies'];
 
+const DAILY_SHEET_PANEL_TABS = ['operations', 'free-items'];
+
+const DAILY_ADD_ROW_LABELS = {
+  stay: '+ صف إقامة',
+  sessions: '+ صف جلسة',
+  medicines: '+ صف دواء',
+  supplies: '+ صف مستلزم',
+  exams: '+ صف كشف',
+  lab: '+ صف تحليل',
+  radiology: '+ صف أشعة',
+  other: '+ صف خدمة',
+};
+
 const DAILY_PRICING_API = '/api/pricing';
 
 
@@ -576,15 +589,13 @@ function applyDailyTabColumnVisibility() {
   const mainSheet = document.getElementById('daily-main-sheet-wrap');
   const opsPanel = document.getElementById('daily-operations-panel');
   const freePanel = document.getElementById('daily-free-items-panel');
-  const panelTabs = ['operations', 'free-items'];
-  if (mainSheet) mainSheet.style.display = panelTabs.includes(activeDailyTab) ? 'none' : '';
+  if (mainSheet) mainSheet.style.display = DAILY_SHEET_PANEL_TABS.includes(activeDailyTab) ? 'none' : '';
   if (opsPanel) opsPanel.style.display = activeDailyTab === 'operations' ? '' : 'none';
   if (freePanel) freePanel.style.display = activeDailyTab === 'free-items' ? '' : 'none';
 
-  const addRowBtn = document.getElementById('daily-add-row-btn');
+  updateDailyAddRowButtons();
   const saveBtn = document.getElementById('daily-save-btn');
   const saveAllBtn = document.getElementById('daily-save-all-btn');
-  if (addRowBtn) addRowBtn.classList.add('d-none');
   if (saveBtn) saveBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
   if (saveAllBtn) saveAllBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
 
@@ -1072,6 +1083,79 @@ function bindOperationRowEvents(tr) {
   updateOperationRowTotal(tr);
 }
 
+function getDailyAddRowLabel(tab = activeDailyTab) {
+  return DAILY_ADD_ROW_LABELS[tab] || '+ صف جديد';
+}
+
+function updateDailyAddRowButtons() {
+  const showMainAdd = !DAILY_SHEET_PANEL_TABS.includes(activeDailyTab);
+  const label = getDailyAddRowLabel();
+  ['daily-add-row-btn', 'daily-sheet-add-row-btn'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.classList.toggle('d-none', !showMainAdd);
+    if (showMainAdd) btn.textContent = label;
+  });
+}
+
+function focusDailyEntryRow(tr) {
+  if (!tr) return;
+  const focusable = tr.querySelector(
+    '.daily-picker-search, .daily-op-name, input:not([readonly]):not([type="hidden"]), select, textarea'
+  );
+  focusable?.focus();
+}
+
+function findBlankDailyEntryRow() {
+  for (const row of document.querySelectorAll('#daily-sections-body .daily-entry-row')) {
+    if (row.dataset.entryId) continue;
+    if (!rowHasChargeData(row)) return row;
+  }
+  return null;
+}
+
+function isDailyEntryPresetEmpty(preset = {}) {
+  if (preset.id) return false;
+  return !Object.keys(preset).some((key) => {
+    const value = preset[key];
+    return value != null && value !== '';
+  });
+}
+
+function operationRowIsBlank(tr) {
+  if (!tr) return true;
+  return !getOperationNameFromRow(tr) && getOperationRowTotal(tr) <= 0;
+}
+
+function findBlankOperationRow() {
+  for (const row of document.querySelectorAll('#daily-operations-tbody .daily-operation-row')) {
+    if (!operationRowIsBlank(row)) continue;
+    return row;
+  }
+  return null;
+}
+
+function isOperationPresetEmpty(op = {}) {
+  return !(
+    op.operation_name ||
+    Number(op.amount) > 0 ||
+    Number(op.companion_amount) > 0 ||
+    Number(op.nursing_point_amount) > 0 ||
+    Number(op.patient_assistant_amount) > 0 ||
+    op.surgeon_name ||
+    op.anesthesia_doctor ||
+    op.assistant_surgeon
+  );
+}
+
+function handleDailySheetAddRow() {
+  if (activeDailyTab === 'operations') {
+    addOperationRow();
+    return;
+  }
+  addDailyEntryRow();
+}
+
 function ensureOperationRows() {
   const tbody = document.getElementById('daily-operations-tbody');
   if (!tbody) return;
@@ -1083,6 +1167,13 @@ function ensureOperationRows() {
 function addOperationRow(op = {}) {
   const tbody = document.getElementById('daily-operations-tbody');
   if (!tbody) return;
+  if (isOperationPresetEmpty(op)) {
+    const blank = findBlankOperationRow();
+    if (blank) {
+      blank.querySelector('.daily-op-name')?.focus();
+      return;
+    }
+  }
   const tr = document.createElement('tr');
   tr.className = 'daily-operation-row';
   tr.innerHTML = createOperationRowHtml(op);
@@ -1091,6 +1182,7 @@ function addOperationRow(op = {}) {
   updateOperationRowTotal(tr);
   renumberPanelRowSerials('#daily-operations-tbody .daily-operation-row');
   updateOperationsTotal();
+  if (isOperationPresetEmpty(op)) tr.querySelector('.daily-op-name')?.focus();
 }
 
 function collectOperationsFromTable() {
@@ -1275,6 +1367,7 @@ function addFreeItemRow(item = {}) {
   bindFreeItemRowEvents(tr);
   renumberPanelRowSerials('#daily-free-items-tbody .daily-free-item-row');
   updateFreeItemsTotal();
+  if (!hasSavedIdentity) tr.querySelector('.daily-free-desc')?.focus();
 }
 
 function collectFreeItemsFromTable() {
@@ -5662,6 +5755,13 @@ function addDailyEntryRow(preset = {}) {
     showToast('المريض الخارجي لا يُسجَّل عليه إقامة', 'warning');
     return;
   }
+  if (isDailyEntryPresetEmpty(preset)) {
+    const blank = findBlankDailyEntryRow();
+    if (blank) {
+      focusDailyEntryRow(blank);
+      return;
+    }
+  }
   const entryDate = getLocalDateString();
   if (activeDailyTab === 'stay' && !preset.stay_type_id) {
     preset.stay_type_id = getDefaultStayTypeIdForRow() || preset.stay_type_id;
@@ -5674,6 +5774,7 @@ function addDailyEntryRow(preset = {}) {
   setDailyTodayDate();
   updateDailyGrandTotal();
   if (activeDailyTab === 'stay') void applyAutoRoomToTodayRows();
+  if (isDailyEntryPresetEmpty(preset)) focusDailyEntryRow(row);
 }
 
 function rowHasChargeData(tr) {
@@ -6760,10 +6861,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-save-all-btn')?.addEventListener('click', () => {
     void saveAllDailyCharges();
   });
-  document.getElementById('daily-add-row-btn')?.addEventListener('click', () => {
-    if (activeDailyTab === 'operations') addOperationRow();
-    else addDailyEntryRow();
-  });
+  document.getElementById('daily-add-row-btn')?.addEventListener('click', handleDailySheetAddRow);
+  document.getElementById('daily-sheet-add-row-btn')?.addEventListener('click', handleDailySheetAddRow);
   document.getElementById('daily-tab-import-btn')?.addEventListener('click', () => {
     document.getElementById('daily-tab-import-input')?.click();
   });

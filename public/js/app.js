@@ -854,6 +854,40 @@ function initRows(count = rowCount) {
   rowCount = count;
 }
 
+function invoiceRowIsBlank(tr) {
+  if (!tr) return true;
+  if (tr.querySelector('[data-field="invoice_item_id"]')?.value) return false;
+  if (tr.dataset.dailyLineId) return false;
+  const desc = tr.querySelector('[data-field="description"]')?.value?.trim() || '';
+  const amt = parseDisplayAmount(tr.querySelector('[data-field="amount"]')?.value);
+  const qty = parseDisplayAmount(tr.querySelector('[data-field="quantity"]')?.value);
+  const pay = parseDisplayAmount(tr.querySelector('[data-field="pay_amount"]')?.value);
+  const credit = parseDisplayAmount(tr.querySelector('[data-field="patient_credit_applied"]')?.value);
+  return !desc && amt <= 0 && qty <= 0 && pay <= 0 && credit <= 0;
+}
+
+function findBlankInvoiceRow() {
+  for (const tr of document.querySelectorAll('#items-tbody tr')) {
+    if (invoiceRowIsBlank(tr)) return tr;
+  }
+  return null;
+}
+
+function stayEntryRowIsBlank(row) {
+  if (!row) return true;
+  const stayType = row.querySelector('.stay-type-select')?.value || '';
+  const days = parseDisplayAmount(row.querySelector('[data-field="days"]')?.value);
+  const rate = parseDisplayAmount(row.querySelector('[data-field="daily_rate"]')?.value);
+  return !stayType && days <= 0 && rate <= 0;
+}
+
+function findBlankStayEntryRow() {
+  for (const row of document.querySelectorAll('#stay-entries-tbody tr')) {
+    if (stayEntryRowIsBlank(row)) return row;
+  }
+  return null;
+}
+
 function createRow(index) {
   const tr = document.createElement('tr');
   tr.dataset.index = index;
@@ -1118,8 +1152,15 @@ function bindEvents() {
     switchView('daily', { openFileNumber: fn || undefined, preserveTab: true });
   });
   document.getElementById('add-row-btn').addEventListener('click', () => {
-    document.getElementById('items-tbody').appendChild(createRow(rowCount++));
+    const blank = findBlankInvoiceRow();
+    if (blank) {
+      blank.querySelector('[data-field="description"]')?.focus();
+      return;
+    }
+    const row = createRow(rowCount++);
+    document.getElementById('items-tbody').appendChild(row);
     bindCalcTriggers();
+    row.querySelector('[data-field="description"]')?.focus();
   });
   document.getElementById('remove-row-btn').addEventListener('click', () => {
     const tbody = document.getElementById('items-tbody');
@@ -1836,12 +1877,27 @@ function initStayEntries(entries = []) {
 
 function addStayEntryRow(entry = {}) {
   const tbody = document.getElementById('stay-entries-tbody');
+  if (!tbody) return;
+  const hasPreset =
+    entry.stay_type_id ||
+    entry.from_date ||
+    entry.to_date ||
+    Number(entry.daily_rate) > 0 ||
+    Number(entry.days) > 0;
+  if (!hasPreset) {
+    const blank = findBlankStayEntryRow();
+    if (blank) {
+      blank.querySelector('.stay-type-select')?.focus();
+      return;
+    }
+  }
   const rowEntry = { ...entry };
   if (!rowEntry.from_date) rowEntry.from_date = document.getElementById('admission_date').value;
   if (!rowEntry.to_date) rowEntry.to_date = document.getElementById('discharge_date').value;
   tbody.appendChild(createStayEntryRow(rowEntry));
   bindStayEntryTriggers();
   onStayEntryRowChange(tbody.lastElementChild);
+  if (!hasPreset) tbody.lastElementChild?.querySelector('.stay-type-select')?.focus();
 }
 
 function bindStayEntryTriggers() {

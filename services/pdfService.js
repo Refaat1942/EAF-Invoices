@@ -421,7 +421,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       text-align: center;
       font-weight: 900;
       font-size: 10px;
-      min-width: 22%;
+      min-width: 18%;
     }
     .sig-title {
       font-size: 9px;
@@ -634,6 +634,7 @@ function buildInvoiceHtml(invoice, options = {}) {
     </div>
 
     <div class="signatures">
+      <div class="sig-block"><div class="sig-title">رئيس حسابات المرضى</div><div class="sig-line">${escapeHtml(inv.captain_name || 'نقيب عمرو صالح')}</div></div>
       <div class="sig-block"><div class="sig-title">المدير المالي</div><div class="sig-line">${escapeHtml(inv.manager_name)}</div></div>
       <div class="sig-block"><div class="sig-title">المراجع المالي</div><div class="sig-line">${escapeHtml(inv.auditor_name || 'المراجع المالي')}</div></div>
       <div class="sig-block"><div class="sig-title">الموظف المختص</div><div class="sig-line">${escapeHtml(inv.employee_name || 'الموظف المختص')}</div></div>
