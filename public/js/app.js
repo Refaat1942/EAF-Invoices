@@ -901,6 +901,7 @@ function inferInvoiceItemSectionKey(item) {
   }
   const code = String(item?.section_code || '').trim();
   if (code) return code;
+  if (!item?.daily_entry_line_id && !item?.daily_entry_id) return '__manual__';
   const desc = String(item?.description || '');
   if (desc.includes('عملية')) return 'operations';
   if (desc.includes('بصريات') || desc.includes('نظارات')) return 'glasses';
@@ -1078,7 +1079,7 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
     if (part.type === 'aggregate') {
       const tr = createRow(rowIndex++);
       tbody.appendChild(tr);
-      fillInvoiceAggregateRow(tr, part, payments[paymentIndex++] || {});
+      fillInvoiceAggregateRow(tr, part, {});
       continue;
     }
     if (part.type === 'item') {
@@ -2040,7 +2041,12 @@ function getPatientAccountBalance() {
 function sumBillableLineTotals() {
   let total = 0;
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.staySync || row.dataset.sectionHeader || row.dataset.sectionAggregate) return;
+    if (row.dataset.staySync || row.dataset.sectionHeader) return;
+    if (row.dataset.sectionAggregate) {
+      const aggTotal = parseDisplayAmount(row.querySelector('[data-field="total"]')?.value);
+      if (aggTotal > 0) total += aggTotal;
+      return;
+    }
     const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
     const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();

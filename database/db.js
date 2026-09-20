@@ -306,7 +306,12 @@ async function runMigrations() {
     await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS ${name} ${col.slice(name.length + 1)}`);
   }
 
-  await query(`UPDATE users SET role = 'user' WHERE role IN ('supervisor', 'accountant', 'viewer')`);
+  await query(`
+    UPDATE users SET role = CASE
+      WHEN LOWER(TRIM(COALESCE(role, ''))) = 'admin' THEN 'admin'
+      ELSE 'user'
+    END
+  `);
   await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
   await query(`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'user'))`);
 
@@ -638,6 +643,13 @@ async function runMigrations() {
   );
 
   await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_permissions JSONB DEFAULT '[]'::jsonb`);
+  await query(`
+    UPDATE users SET role = CASE
+      WHEN LOWER(TRIM(COALESCE(role, ''))) = 'admin' THEN 'admin'
+      WHEN LOWER(TRIM(COALESCE(role, ''))) = 'reviewer' THEN 'reviewer'
+      ELSE 'user'
+    END
+  `);
   await query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`);
   await query(`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('admin', 'reviewer', 'user'))`);
 

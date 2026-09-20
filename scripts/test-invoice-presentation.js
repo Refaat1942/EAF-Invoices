@@ -11,6 +11,7 @@ const {
   buildCustomerPrintLines,
   DEFAULT_SECTION_LABELS,
 } = require('../services/invoicePresentationService');
+const { inferBundleKeyFromItem } = require('../services/dailySectionBundles');
 
 function assert(cond, msg) {
   if (!cond) {
@@ -315,6 +316,22 @@ function testStayBundleShowsDetailInPrint() {
   console.log('OK stay bundle shows detail in print lines');
 }
 
+function testFreeManualItemsStayManualBundle() {
+  const item = {
+    description: 'رسوم عملية إضافية',
+    quantity: 1,
+    amount: 50,
+    total: 50,
+    total_raw: 50,
+  };
+  assertEq(inferBundleKeyFromItem(item), '__manual__', 'free manual item not grouped by description');
+  const display = aggregateCustomerFacingLines([item]);
+  assertEq(display.length, 1, 'one free manual row');
+  assertEq(display[0].description, 'رسوم عملية إضافية', 'free manual description preserved');
+  assert(!display[0]._customer_display_aggregate, 'free manual row not aggregated');
+  console.log('OK free manual items stay detailed even with operation keywords');
+}
+
 function testPdfStayDetailAndCaptainName() {
   const { buildInvoiceHtml } = require('../services/pdfService');
   const { normalizeCaptainName } = require('../services/invoiceService');
@@ -361,6 +378,7 @@ function main() {
   testPartialReturnAggregatedMedicinesTotal();
   testInvoiceItemsCountUnchanged();
   testStayBundleShowsDetailInPrint();
+  testFreeManualItemsStayManualBundle();
   testPdfStayDetailAndCaptainName();
   testPdfLabelsWithoutProductNames();
   console.log('ALL INVOICE PRESENTATION TESTS PASSED');

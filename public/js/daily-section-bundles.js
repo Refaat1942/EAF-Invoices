@@ -51,6 +51,7 @@
     const code = String(item?.section_code || item?.bundle_code || '').trim();
     if (code && BUNDLE_LABELS[code]) return code;
     if (code) return inferBundleKey(code);
+    if (!item?.daily_entry_line_id && !item?.daily_entry_id) return '__manual__';
     const desc = String(item?.description || '');
     if (desc.includes('عملية')) return 'operations';
     if (desc.includes('بصريات') || desc.includes('نظارات')) return 'glasses';
