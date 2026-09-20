@@ -97,9 +97,14 @@ async function handleDailyTabImport(file) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       const label = data.template_label || cfg.label;
-      const msg = `شيت «${label}»: ${data.imported || 0} بند (${data.inserted || 0} جديد، ${data.updated || 0} محدّث)`;
-      showToast(msg, 'success');
+      const inserted = Number(data.inserted ?? data.imported ?? 0) || 0;
+      const updated = Number(data.updated ?? 0) || 0;
+      const total = Number(data.imported ?? data.total ?? inserted + updated) || 0;
+      const dest = data.source === 'price_list' ? 'اللائحة' : 'الكتالوج';
+      const msg = `شيت «${label}» → ${dest}: ${total} بند (${inserted} جديد، ${updated} محدّث)`;
+      showToast(msg, total > 0 ? 'success' : 'warning');
       if (typeof loadCatalogCache === 'function') await loadCatalogCache();
+      await loadDailySections();
       await reloadDailyServiceCaches();
     }
   } catch (err) {

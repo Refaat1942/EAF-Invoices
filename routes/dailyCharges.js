@@ -286,16 +286,19 @@ router.post('/catalog/import-section-excel', catalogManagePerm, upload.single('f
       return res.status(400).json({ error: 'الملف مطلوب (Excel)' });
     }
     const tab = String(req.body.tab || '').trim();
-    const { resolveTabCatalogImport, importSectionExcelToCatalog } = require('../services/dailySectionCatalogImportService');
+    const { resolveTabCatalogImport, importSectionExcelForDailyTab } = require('../services/dailySectionCatalogImportService');
     const resolved = resolveTabCatalogImport(tab, req.file.originalname || '');
     if (!resolved?.category) {
       return res.status(400).json({ error: 'تبويب الاستيراد غير معروف — افتح التبويب المناسب ثم ارفع الشيت' });
     }
-    const result = await importSectionExcelToCatalog(req.file.buffer, {
+    const result = await importSectionExcelForDailyTab(req.file.buffer, {
       catalog_category: resolved.category,
+      category_code: resolved.category_code,
       template_key: req.body.template_key || resolved.template_key,
       filename: req.file.originalname || '',
       template_label: resolved.label,
+      replace_existing: req.body.replace_existing,
+      actor: req.session?.user || null,
     });
     res.json(result);
   } catch (err) {

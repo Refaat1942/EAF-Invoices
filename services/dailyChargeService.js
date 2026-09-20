@@ -94,6 +94,39 @@ async function shouldReadDailyPickerFromPriceList(section, priceList = null) {
   return sectionHasUploadedPriceListItems(section, priceList);
 }
 
+async function resolveCatalogPickerToPriceListService(section, catalogItemId) {
+  const itemId = Number(catalogItemId);
+  if (!itemId) return null;
+
+  const direct = await getServiceById(itemId);
+  if (direct?.is_active) return direct;
+
+  const { getCatalogItemById } = require('./dailyEntryCatalogService');
+  const catalogItem = await getCatalogItemById(itemId);
+  if (!catalogItem?.name) return null;
+
+  const priceList = await getDefaultPriceList();
+  if (!priceList) return null;
+
+  const categoryCodes = getSectionPickerCategoryCodes(section);
+  const categoryRows = await resolvePickerCategoryIds(priceList.id, categoryCodes);
+  const categoryIds = categoryRows.map((row) => row.id);
+  if (!categoryIds.length) return null;
+
+  const name = String(catalogItem.name).trim();
+  const { rows } = await query(
+    `SELECT s.*, c.name AS category_name, c.code AS category_code
+     FROM services s
+     LEFT JOIN service_categories c ON c.id = s.category_id
+     WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE
+       AND LOWER(TRIM(s.name)) = LOWER(TRIM($3))
+     ORDER BY s.id
+     LIMIT 1`,
+    [priceList.id, categoryIds, name]
+  );
+  return rows[0] || null;
+}
+
 function sectionAllowsServiceCategory(section, categoryCode) {
   const allowed = getSectionPickerCategoryCodes(section);
   if (!allowed.length) return false;
@@ -1298,7 +1331,16 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
 
   const readFromPriceList = usePriceListOnly || (await sectionHasUploadedPriceListItems(fullSection));
   if (!line.service_id && line.catalog_item_id && readFromPriceList) {
-    line = { ...line, service_id: Number(line.catalog_item_id), catalog_item_id: null };
+    const resolved = await resolveCatalogPickerToPriceListService(fullSection, line.catalog_item_id);
+    if (resolved) {
+      line = { ...line, service_id: Number(resolved.id), catalog_item_id: null };
+    } else {
+      line = { ...line, service_id: Number(line.catalog_item_id), catalog_item_id: null };
+    }
+  }
+
+  if (readFromPriceList && line.catalog_item_id) {
+    line.catalog_item_id = null;
   }
 
   if (!readFromPriceList && !line.service_id && line.catalog_item_id) {
