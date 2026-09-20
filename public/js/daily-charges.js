@@ -1807,11 +1807,35 @@ function formatStayGradeOptionLabel(grade) {
   return `${dailyEscapeHtml(grade.name || '')}${rate}${dailyEscapeHtml(source)}`;
 }
 
+function getPatientRegEffectiveDiscount(entityId) {
+  let current = patientRegEntitiesCache.find((e) => e.id === Number(entityId));
+  while (current) {
+    const rate = Number(current.discount_percent) || 0;
+    if (rate > 0) return rate;
+    if (!current.parent_id) break;
+    current = patientRegEntitiesCache.find((e) => e.id === current.parent_id);
+  }
+  return 0;
+}
+
+function onPatientRegEntityChange() {
+  const entityId = document.getElementById('patient-reg-entity')?.value || '';
+  const discountEl = document.getElementById('patient-reg-discount-percent');
+  const type = document.getElementById('patient-reg-invoice-type')?.value || 'civil';
+  const discount = type === 'contracted' && entityId ? getPatientRegEffectiveDiscount(entityId) : 0;
+  if (discountEl) discountEl.value = String(discount);
+  const dailyEntity = document.getElementById('daily-stay-entity');
+  const regEntity = document.getElementById('patient-reg-entity');
+  if (dailyEntity && regEntity) dailyEntity.value = regEntity.value;
+}
+
 function togglePatientRegEntityFields() {
   const type = document.getElementById('patient-reg-invoice-type')?.value || 'civil';
   const showEntity = isEntityInvoiceType(type);
+  const isContracted = type === 'contracted';
   const isMilitary = type === 'military';
   const entityWrap = document.getElementById('patient-reg-entity-wrap');
+  const discountWrap = document.getElementById('patient-reg-discount-wrap');
   const letterWrap = document.getElementById('patient-reg-letter-wrap');
   const letterEnd = document.getElementById('patient-reg-letter-wrap-end');
   const letterDaysWrap = document.getElementById('patient-reg-letter-days-wrap');
@@ -1819,12 +1843,22 @@ function togglePatientRegEntityFields() {
   const milTo = document.getElementById('patient-reg-military-wrap-end');
   const milAmount = document.getElementById('patient-reg-military-amount-wrap');
   if (entityWrap) entityWrap.style.display = showEntity ? '' : 'none';
+  if (discountWrap) discountWrap.style.display = isContracted ? '' : 'none';
   if (letterWrap) letterWrap.style.display = showEntity ? '' : 'none';
   if (letterEnd) letterEnd.style.display = showEntity ? '' : 'none';
   if (letterDaysWrap) letterDaysWrap.style.display = showEntity ? '' : 'none';
   if (milFrom) milFrom.style.display = isMilitary ? '' : 'none';
   if (milTo) milTo.style.display = isMilitary ? '' : 'none';
   if (milAmount) milAmount.style.display = isMilitary ? '' : 'none';
+  if (!showEntity) {
+    const entityEl = document.getElementById('patient-reg-entity');
+    if (entityEl) entityEl.value = '';
+  }
+  if (!isContracted) {
+    const discountEl = document.getElementById('patient-reg-discount-percent');
+    if (discountEl) discountEl.value = '0';
+  }
+  onPatientRegEntityChange();
   updatePatientRegMilitarySummary();
   updateLetterAuthorizedDaysDisplay();
 }
@@ -1899,18 +1933,32 @@ function collectPatientDemographics(mode = 'register') {
   return payload;
 }
 
-async function loadPatientEntitySelects() {
+async function loadPatientEntitySelects(selectedId = null) {
   try {
-    const entities = await apiJson('/api/settings/contracted-entities');
+    const entities = await apiJson('/api/settings/contracted-entities/tree');
+    patientRegEntitiesCache = entities;
+    const current = selectedId || document.getElementById('patient-reg-entity')?.value || '';
     const options =
       '<option value="">-- اختر الجهة --</option>' +
       entities
-        .map((e) => `<option value="${e.id}">${dailyEscapeHtml(e.name)}</option>`)
+        .map((e) => {
+          const indent = '— '.repeat(e.depth || 0);
+          const effective = getPatientRegEffectiveDiscount(e.id);
+          const discount = effective ? ` (${effective}%)` : '';
+          return `<option value="${e.id}">${indent}${dailyEscapeHtml(e.name)}${discount}</option>`;
+        })
         .join('');
     const reg = document.getElementById('patient-reg-entity');
     const daily = document.getElementById('daily-stay-entity');
-    if (reg) reg.innerHTML = options;
-    if (daily) daily.innerHTML = options;
+    if (reg) {
+      reg.innerHTML = options;
+      if (current) reg.value = String(current);
+    }
+    if (daily) {
+      daily.innerHTML = options;
+      if (current) daily.value = String(current);
+    }
+    onPatientRegEntityChange();
   } catch (err) {
     console.error(err);
   }
@@ -2048,8 +2096,7 @@ function fillInternalStayFormFromContext(ctx) {
     toggleDailyStayEntityFields();
     togglePatientRegEntityFields();
     if (inv.contracted_entity_id) {
-      const entityEl = document.getElementById('daily-stay-entity');
-      if (entityEl) entityEl.value = String(inv.contracted_entity_id);
+      void loadPatientEntitySelects(inv.contracted_entity_id);
     }
     const fromEl = document.getElementById('daily-stay-letter-from');
     const toEl = document.getElementById('daily-stay-letter-to');
@@ -2107,6 +2154,10 @@ function collectInternalStayPayload(patientType) {
       document.getElementById('patient-reg-letter-to')?.value ||
       document.getElementById('daily-stay-letter-to')?.value ||
       null;
+    if (invoice_type === 'contracted') {
+      payload.discount_percent =
+        Number(document.getElementById('patient-reg-discount-percent')?.value) || 0;
+    }
   }
   return payload;
 }
@@ -2312,6 +2363,7 @@ function bustFieldAutocomplete(root) {
 let patientRegSelectedType = null;
 let patientRegEditMode = false;
 let patientRegEditFileNumber = '';
+let patientRegEntitiesCache = [];
 
 function showPatientRegisterTypePicker() {
   patientRegEditMode = false;
@@ -2440,10 +2492,12 @@ async function fillPatientRegisterFormFromContext(ctx) {
       inv.invoice_type || resolveInvoiceTypeFromFinancialTreatment(inv.financial_treatment || p.financial_treatment);
   }
   togglePatientRegEntityFields();
-  await loadPatientEntitySelects();
-  if (inv.contracted_entity_id) {
-    const entityEl = document.getElementById('patient-reg-entity');
-    if (entityEl) entityEl.value = String(inv.contracted_entity_id);
+  await loadPatientEntitySelects(inv.contracted_entity_id || null);
+  const regDiscountEl = document.getElementById('patient-reg-discount-percent');
+  if (regDiscountEl && inv.invoice_type === 'contracted') {
+    regDiscountEl.value = String(
+      inv.discount_percent ?? getPatientRegEffectiveDiscount(inv.contracted_entity_id) ?? 0
+    );
   }
   const letterFrom = document.getElementById('patient-reg-letter-from');
   const letterTo = document.getElementById('patient-reg-letter-to');
@@ -2575,6 +2629,7 @@ function clearPatientRegisterForm(options = {}) {
     if (typeInput) typeInput.value = 'internal';
   }
   bustFieldAutocomplete(document.getElementById('patient-register-form'));
+  togglePatientRegEntityFields();
   updatePatientRegMilitarySummary();
   updateLetterAuthorizedDaysDisplay();
 }
@@ -6372,7 +6427,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const dailyType = document.getElementById('daily-stay-invoice-type');
     const regType = document.getElementById('patient-reg-invoice-type');
     if (dailyType && regType) dailyType.value = regType.value;
+    toggleDailyStayEntityFields();
   });
+  document.getElementById('patient-reg-entity')?.addEventListener('change', onPatientRegEntityChange);
   document.getElementById('patient-reg-letter-from')?.addEventListener('change', updateLetterAuthorizedDaysDisplay);
   document.getElementById('patient-reg-letter-to')?.addEventListener('change', updateLetterAuthorizedDaysDisplay);
   document.getElementById('patient-reg-military-from')?.addEventListener('change', updatePatientRegMilitarySummary);

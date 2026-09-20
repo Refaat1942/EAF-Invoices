@@ -39,7 +39,7 @@
   </div>
   <script>
     (function () {
-      const BUILD = '20260920b';
+      const BUILD = '20260920c';
       window.__eafBuild = BUILD;
 
       function setBootStatus(message, isError) {
@@ -290,8 +290,8 @@
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
                   <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-admission" autocomplete="off">
                 </div>
-                <div class="col-md-4" id="patient-reg-invoice-type-wrap">
-                  <label class="form-label fw-bold">نوع التعامل *</label>
+                <div class="col-md-3" id="patient-reg-invoice-type-wrap">
+                  <label class="form-label fw-bold">نوع التعامل والجهة المتعاقدة *</label>
                   <select class="form-select fw-bold patient-reg-field" id="patient-reg-invoice-type" autocomplete="off">
                     <option value="civil">مدني (خاص)</option>
                     <option value="contracted">جهات متعاقدة</option>
@@ -302,6 +302,16 @@
                     <option value="operations">عمليات</option>
                   </select>
                 </div>
+                <div class="col-md-3" id="patient-reg-entity-wrap" style="display:none">
+                  <label class="form-label fw-bold">الجهة *</label>
+                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-entity" autocomplete="off">
+                    <option value="">-- اختر الجهة --</option>
+                  </select>
+                </div>
+                <div class="col-md-2" id="patient-reg-discount-wrap" style="display:none">
+                  <label class="form-label fw-bold">نسبة الخصم %</label>
+                  <input type="text" class="form-control fw-bold text-center bg-light patient-reg-field" id="patient-reg-discount-percent" readonly value="0" tabindex="-1">
+                </div>
                 <div class="col-md-3" id="patient-reg-balance-wrap">
                   <label class="form-label fw-bold">رصيد أول المدة</label>
                   <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-balance" placeholder="0" autocomplete="off">
@@ -309,12 +319,6 @@
               </div>
 
               <div class="row g-3 mt-2" id="patient-reg-deal-fields-row">
-                <div class="col-md-4" id="patient-reg-entity-wrap" style="display:none">
-                  <label class="form-label fw-bold">الجهة المتعاقدة *</label>
-                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-entity" autocomplete="off">
-                    <option value="">-- اختر الجهة --</option>
-                  </select>
-                </div>
                 <div class="col-md-2" id="patient-reg-letter-wrap" style="display:none">
                   <label class="form-label fw-bold">جواب التعاقد — من</label>
                   <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-letter-from" autocomplete="off">
@@ -2332,8 +2336,8 @@
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
   <script src="/js/app.js?v=20260917e"></script>
-  <script src="/js/daily-picker.js?v=20260920b"></script>
-  <script src="/js/daily-charges.js?v=20260920b"></script>
+  <script src="/js/daily-picker.js?v=20260920c"></script>
+  <script src="/js/daily-charges.js?v=20260920c"></script>
   <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260917e"></script>
