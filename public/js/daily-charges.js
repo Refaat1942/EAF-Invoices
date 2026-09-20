@@ -1915,7 +1915,7 @@ function collectPatientDemographics(mode = 'register') {
   const payload = {
     age: document.getElementById(isDaily ? 'daily-stay-age' : 'patient-reg-age')?.value?.trim() || null,
     stay_grade_id:
-      document.getElementById(isDaily ? 'daily-stay-stay-grade-id' : 'patient-reg-stay-grade')?.value || null,
+      document.getElementById(isDaily ? 'daily-stay-room' : 'patient-reg-room')?.value || null,
     room_insurance_amount: dailyParseAmount(
       document.getElementById(isDaily ? 'daily-stay-room-insurance' : 'patient-reg-room-insurance')?.value
     ),
@@ -1995,27 +1995,6 @@ async function loadDailyStayGrades() {
     console.error(err);
     dailyStayGradesCache = [];
   }
-}
-
-function populateStayGradeSelect(selectedId = '') {
-  const el = document.getElementById('patient-reg-stay-grade');
-  if (!el) return;
-  const grades = getAccommodationGradeOptions();
-  el.innerHTML =
-    '<option value="">-- اختر من اللائحة --</option>' +
-    grades
-      .map((grade) => {
-        const selected = String(selectedId) === String(grade.stay_type_id) ? ' selected' : '';
-        return `<option value="${grade.stay_type_id}"${selected}>${formatStayGradeOptionLabel(grade)}</option>`;
-      })
-      .join('');
-  if (selectedId) el.value = String(selectedId);
-}
-
-function syncStayGradeToRoom() {
-  const gradeSel = document.getElementById('patient-reg-stay-grade');
-  const roomSel = document.getElementById('patient-reg-room');
-  if (gradeSel?.value && roomSel) roomSel.value = gradeSel.value;
 }
 
 function setDailySectionAmount(tr, sectionCode, amount) {
@@ -2402,8 +2381,6 @@ function showPatientRegisterForm(patientType, options = {}) {
   if (balanceWrap) balanceWrap.style.display = type === 'external' ? 'none' : '';
   const regInternal = document.getElementById('patient-reg-internal-wrap');
   if (regInternal) regInternal.style.display = type === 'internal' ? '' : 'none';
-  const stayGradeWrap = document.getElementById('patient-reg-stay-grade-wrap');
-  if (stayGradeWrap) stayGradeWrap.style.display = type === 'external' ? 'none' : '';
   const nationalityHint = document.getElementById('patient-reg-nationality-hint');
   if (nationalityHint) nationalityHint.classList.toggle('d-none', type === 'external');
   const saveBtn = document.getElementById('patient-reg-save-btn');
@@ -2417,18 +2394,11 @@ function showPatientRegisterForm(patientType, options = {}) {
       fileInput.value = '';
       fileInput.placeholder = 'جاري تخصيص رقم الملف...';
     }
-    void suggestPatientRegisterFileNumber(type).finally(() => {
-      const input = document.getElementById('patient-reg-file-number');
-      if (input && !patientRegEditMode) {
-        input.readOnly = false;
-        input.placeholder = 'يُخصَّص تلقائياً';
-      }
-    });
+    void suggestPatientRegisterFileNumber(type);
   }
   void loadDailyStayTypes().then(async () => {
     await loadDailyStayGrades();
     populateStayTypeSelects();
-    populateStayGradeSelect();
   });
   togglePatientRegEntityFields();
   void loadPatientEntitySelects();
@@ -2466,16 +2436,15 @@ async function fillPatientRegisterFormFromContext(ctx) {
   if (balanceEl && typeof setCommaAmountValue === 'function') {
     setCommaAmountValue(balanceEl, p.account_balance || 0);
   }
-  const stayGradeEl = document.getElementById('patient-reg-stay-grade');
-  if (stayGradeEl && p.stay_grade_id != null) stayGradeEl.value = String(p.stay_grade_id);
   const roomInsEl = document.getElementById('patient-reg-room-insurance');
   if (roomInsEl && typeof setCommaAmountValue === 'function') {
     setCommaAmountValue(roomInsEl, p.room_insurance_amount || 0);
   }
-  if (assignment?.stay_type_id) {
-    populateStayTypeSelects(assignment.stay_type_id);
+  const roomStayId = assignment?.stay_type_id || p.stay_grade_id || null;
+  if (roomStayId) {
+    populateStayTypeSelects(roomStayId);
     const roomEl = document.getElementById('patient-reg-room');
-    if (roomEl) roomEl.value = String(assignment.stay_type_id);
+    if (roomEl) roomEl.value = String(roomStayId);
   }
   const floorEl = document.getElementById('patient-reg-floor');
   if (floorEl) floorEl.value = assignment?.floor || p.floor || '';
@@ -2544,30 +2513,13 @@ async function suggestPatientRegisterFileNumber(patientType) {
 }
 
 async function resolvePatientRegisterFileNumber(patient_type) {
-  let file_number = document.getElementById('patient-reg-file-number')?.value.trim() || '';
-  if (!file_number) {
-    file_number = (await suggestPatientRegisterFileNumber(patient_type)) || '';
+  if (patientRegEditMode) {
+    const file_number = document.getElementById('patient-reg-file-number')?.value.trim() || '';
+    if (!file_number) throw new Error('رقم الملف مطلوب');
+    return file_number;
   }
-  if (!file_number) {
-    throw new Error('رقم الملف مطلوب');
-  }
-  if (patientRegEditMode) return file_number;
-
-  const dup = await apiJson(
-    `/api/patients/check-file-number?file_number=${encodeURIComponent(file_number)}`
-  );
-  const editingSameFile =
-    patientRegEditMode && String(dup.existing?.file_number || file_number) === String(patientRegEditFileNumber);
-  if (!dup.available && !editingSameFile) {
-    const next = await suggestPatientRegisterFileNumber(patient_type);
-    if (next && next !== file_number) {
-      showToast(`رقم الملف «${file_number}» مستخدم — تم تعيين «${next}» تلقائياً`, 'warning');
-      return next;
-    }
-    const who = dup.existing?.name ? ` — مسجّل للمريض: ${dup.existing.name}` : '';
-    throw new Error(`رقم الملف «${file_number}» مكرر${who}`);
-  }
-  return file_number;
+  // New patient: server allocates the next sequential file number atomically for all users.
+  return '';
 }
 
 async function checkPatientRegisterFileDuplicate() {
@@ -2626,8 +2578,6 @@ function clearPatientRegisterForm(options = {}) {
   if (genderEl) genderEl.value = '';
   const invoiceTypeEl = document.getElementById('patient-reg-invoice-type');
   if (invoiceTypeEl) invoiceTypeEl.value = 'civil';
-  const stayGradeEl = document.getElementById('patient-reg-stay-grade');
-  if (stayGradeEl) stayGradeEl.value = '';
   if (!keepType) {
     patientRegSelectedType = null;
     const typeInput = document.getElementById('patient-reg-type');
@@ -2686,15 +2636,9 @@ async function savePatientRegistration(event) {
   };
   if (patient_type !== 'external') {
     payload.account_balance = dailyParseAmount(balanceRaw);
-    if (!patientRegEditMode) {
-      if (!document.getElementById('patient-reg-stay-grade')?.value) {
-        showToast('اختر درجة الإقامة من اللائحة', 'warning');
-        return;
-      }
-      if (!document.getElementById('patient-reg-room')?.value) {
-        showToast('اختر الغرفة أو الجناح للمريض الداخلي', 'warning');
-        return;
-      }
+    if (!patientRegEditMode && !document.getElementById('patient-reg-room')?.value) {
+      showToast('اختر الغرفة / الجناح (درجة الإقامة) من اللائحة', 'warning');
+      return;
     }
     if (patientRegEditMode && !payload.stay_type_id && dailyStayContext?.room_assignment?.stay_type_id) {
       payload.stay_type_id = dailyStayContext.room_assignment.stay_type_id;
@@ -2713,8 +2657,9 @@ async function savePatientRegistration(event) {
     });
     sessionStorage.setItem('dailyStayFileNumber', file_number);
     applyDailyStayContext(data);
+    const assignedFile = data?.patient?.file_number || file_number;
     const label = data.created ? 'تم تسجيل المريض وإنشاء فاتورة مسودة' : 'تم تحديث بيانات المريض';
-    showToast(`${label} — ملف ${file_number} — ابدأ بإدخال البنود`, 'success');
+    showToast(`${label} — ملف ${assignedFile} — ابدأ بإدخال البنود`, 'success');
     if (data?.invoice?.id) {
       await refreshInvoiceFormAfterDailySave(file_number, data.invoice.id);
     }
@@ -2748,7 +2693,6 @@ function initPatientRegistration(options = {}) {
   void loadDailyStayTypes().then(async () => {
     await loadDailyStayGrades();
     populateStayTypeSelects();
-    populateStayGradeSelect();
   });
   void loadPatientEntitySelects();
   if (typeof loadFinancialTreatments === 'function') loadFinancialTreatments();
@@ -2774,13 +2718,6 @@ function applyDailyStayContext(ctx) {
     if (genderEl) genderEl.value = ctx.patient.gender || '';
     const ageEl = document.getElementById('daily-stay-age');
     if (ageEl && ctx.patient.age != null) ageEl.value = String(ctx.patient.age);
-    const stayGradeEl = document.getElementById('daily-stay-stay-grade-id');
-    if (stayGradeEl) {
-      stayGradeEl.value =
-        ctx.patient.stay_grade_id != null && ctx.patient.stay_grade_id !== ''
-          ? String(ctx.patient.stay_grade_id)
-          : '';
-    }
     const roomIns = document.getElementById('daily-stay-room-insurance');
     if (roomIns && typeof setCommaAmountValue === 'function') {
       setCommaAmountValue(roomIns, ctx.patient.room_insurance_amount || 0);
@@ -6421,12 +6358,6 @@ document.addEventListener('DOMContentLoaded', () => {
     clearPatientRegisterForm();
   });
   document.getElementById('patient-register-form')?.addEventListener('submit', savePatientRegistration);
-  document.getElementById('patient-reg-stay-grade')?.addEventListener('change', syncStayGradeToRoom);
-  document.getElementById('patient-reg-room')?.addEventListener('change', () => {
-    const gradeSel = document.getElementById('patient-reg-stay-grade');
-    const roomSel = document.getElementById('patient-reg-room');
-    if (gradeSel && roomSel?.value) gradeSel.value = roomSel.value;
-  });
   document.getElementById('patient-reg-invoice-type')?.addEventListener('change', () => {
     togglePatientRegEntityFields();
     const dailyType = document.getElementById('daily-stay-invoice-type');

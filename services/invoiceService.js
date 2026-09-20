@@ -1689,9 +1689,9 @@ async function getOpenPatientStay(fileNumber) {
 }
 
 async function openPatientStay(data, user = null) {
-  const { resolvePatientFileNumber, bumpPatientFileCounter } = require('./patientService');
+  const { resolvePatientFileNumberForStay, bumpPatientFileCounter } = require('./patientService');
   const patientType = String(data.patient_type || 'internal').trim().toLowerCase() === 'external' ? 'external' : 'internal';
-  const fileNumber = await resolvePatientFileNumber(patientType, data.file_number?.trim());
+  const fileNumber = await resolvePatientFileNumberForStay(patientType, data.file_number?.trim());
   const patientName = data.patient_name?.trim() || '';
   const admissionDate = fmtDateOnly(data.admission_date);
   const dischargeDate = fmtDateOnly(data.discharge_date);
@@ -1709,7 +1709,7 @@ async function openPatientStay(data, user = null) {
     floor: patientType === 'internal' ? data.floor || '' : '',
     age: data.age,
     disability_degree: data.disability_degree || '',
-    stay_grade_id: data.stay_grade_id || null,
+    stay_grade_id: data.stay_grade_id || data.stay_type_id || null,
     room_insurance_amount: data.room_insurance_amount,
     military_auth_from: data.military_auth_from,
     military_auth_to: data.military_auth_to,

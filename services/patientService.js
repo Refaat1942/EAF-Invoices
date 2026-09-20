@@ -408,6 +408,15 @@ async function allocateNextPatientFileNumber(patientType = 'internal', client = 
      ON CONFLICT (patient_type) DO NOTHING`,
     [scope]
   );
+  if (client) {
+    const locked = await run(
+      `SELECT last_number FROM patient_file_counter WHERE patient_type = $1 FOR UPDATE`,
+      [scope]
+    );
+    const nextNumber = (locked.rows[0]?.last_number || 0) + 1;
+    await run(`UPDATE patient_file_counter SET last_number = $1 WHERE patient_type = $2`, [nextNumber, scope]);
+    return String(nextNumber);
+  }
   const { rows } = await run(
     `UPDATE patient_file_counter SET last_number = last_number + 1
      WHERE patient_type = $1 RETURNING last_number`,
@@ -417,10 +426,22 @@ async function allocateNextPatientFileNumber(patientType = 'internal', client = 
   return String(nextNumber);
 }
 
-async function resolvePatientFileNumber(patientType, requestedFileNumber, client = null) {
+/** Existing patient → keep file number; new patient → next atomic counter (safe for concurrent users). */
+async function resolvePatientFileNumberForStay(patientType, requestedFileNumber, client = null) {
   const trimmed = String(requestedFileNumber || '').trim();
-  if (trimmed) return trimmed;
+  const run = client ? client.query.bind(client) : query;
+  if (trimmed) {
+    const { rows } = await run(
+      `SELECT id FROM patients WHERE TRIM(file_number) = TRIM($1) LIMIT 1`,
+      [trimmed]
+    );
+    if (rows.length) return trimmed;
+  }
   return allocateNextPatientFileNumber(patientType, client);
+}
+
+async function resolvePatientFileNumber(patientType, requestedFileNumber, client = null) {
+  return resolvePatientFileNumberForStay(patientType, requestedFileNumber, client);
 }
 
 async function convertExternalPatientToInternal(fileNumber) {
@@ -463,6 +484,7 @@ module.exports = {
   peekNextPatientFileNumber,
   allocateNextPatientFileNumber,
   resolvePatientFileNumber,
+  resolvePatientFileNumberForStay,
   bumpPatientFileCounter,
   convertExternalPatientToInternal,
   checkFileNumberAvailability,

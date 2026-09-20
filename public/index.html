@@ -39,7 +39,7 @@
   </div>
   <script>
     (function () {
-      const BUILD = '20260920d';
+      const BUILD = '20260920e';
       window.__eafBuild = BUILD;
 
       function setBootStatus(message, isError) {
@@ -244,7 +244,7 @@
               <div class="row g-3">
                 <div class="col-md-3">
                   <label class="form-label fw-bold">رقم الملف *</label>
-                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-file-number" placeholder="يُخصَّص تلقائياً" autocomplete="off" autocorrect="off" spellcheck="false">
+                  <input type="text" class="form-control fw-bold patient-reg-field bg-light" id="patient-reg-file-number" placeholder="يُخصَّص تلقائياً عند الحفظ" readonly autocomplete="off" autocorrect="off" spellcheck="false">
                   <div class="small text-danger fw-bold mt-1 d-none" id="patient-reg-file-duplicate"></div>
                 </div>
                 <div class="col-md-4">
@@ -278,13 +278,6 @@
                 <div class="col-md-2">
                   <label class="form-label fw-bold">السن</label>
                   <input type="text" inputmode="numeric" class="form-control fw-bold patient-reg-field" id="patient-reg-age" autocomplete="off" placeholder="0">
-                </div>
-                <div class="col-md-3" id="patient-reg-stay-grade-wrap">
-                  <label class="form-label fw-bold">درجة الإقامة</label>
-                  <select class="form-select fw-bold patient-reg-field" id="patient-reg-stay-grade" autocomplete="off">
-                    <option value=""></option>
-                  </select>
-                  <small class="text-muted">من لائحة الإقامات والرعاية المركزة</small>
                 </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
@@ -351,11 +344,12 @@
               <div id="patient-reg-internal-wrap" class="mt-3 border-top pt-3">
                 <h6 class="fw-black mb-3">بيانات الإقامة الداخلية <small class="text-muted fw-normal">(من لائحة الإقامة المرفوعة)</small></h6>
                 <div class="row g-3">
-                  <div class="col-md-4">
-                    <label class="form-label fw-bold">الغرفة / الجناح *</label>
+                  <div class="col-md-5">
+                    <label class="form-label fw-bold">الغرفة / الجناح (درجة الإقامة) *</label>
                     <select class="form-select fw-bold patient-reg-field" id="patient-reg-room" autocomplete="off">
                       <option value="">-- اختر من اللائحة --</option>
                     </select>
+                    <small class="text-muted">من لائحة الإقامات والرعاية المركزة المرفوعة</small>
                   </div>
                   <div class="col-md-2">
                     <label class="form-label fw-bold">الدور</label>
@@ -2336,8 +2330,8 @@
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
   <script src="/js/app.js?v=20260917e"></script>
-  <script src="/js/daily-picker.js?v=20260920d"></script>
-  <script src="/js/daily-charges.js?v=20260920d"></script>
+  <script src="/js/daily-picker.js?v=20260920e"></script>
+  <script src="/js/daily-charges.js?v=20260920e"></script>
   <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260917e"></script>
