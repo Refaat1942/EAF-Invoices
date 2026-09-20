@@ -352,21 +352,48 @@ function renumberPanelRowSerials(selector) {
   });
 }
 
-async function fetchDailyDoctorSuggestions(search = '', selectedId = null) {
+async function fetchDailyDoctorSuggestions(search = '', selectedId = null, limit = 50) {
   const params = new URLSearchParams();
   if (search) params.set('search', search);
   if (selectedId) params.set('include_doctor_id', selectedId);
-  params.set('limit', '25');
+  params.set('limit', String(limit));
   return await apiJson(`/api/doctors/for-daily?${params}`);
 }
 
 function buildDailyDoctorSuggestHtml(name = '', doctorId = '') {
   return `
     <div class="daily-doctor-suggest-wrap position-relative">
-      <input type="search" class="form-control form-control-sm daily-exam-doctor-search" value="${dailyEscapeAttr(name)}" autocomplete="off">
+      <div class="input-group input-group-sm">
+        <input type="search" class="form-control daily-exam-doctor-search" value="${dailyEscapeAttr(name)}" autocomplete="off" placeholder="ابحث عن الطبيب">
+        <button type="button" class="btn btn-outline-secondary daily-exam-doctor-clear" title="مسح الطبيب" aria-label="مسح">×</button>
+      </div>
       <input type="hidden" class="daily-exam-doctor" value="${dailyEscapeAttr(doctorId ? String(doctorId) : '')}">
-      <div class="daily-doctor-suggest-menu list-group shadow-sm d-none"></div>
+      <div class="daily-doctor-suggest-menu list-group shadow d-none"></div>
     </div>`;
+}
+
+function positionDailyDoctorSuggestMenu(input, menu) {
+  if (window.DailyEntryPicker?.positionFloatingSuggest) {
+    window.DailyEntryPicker.positionFloatingSuggest(input, menu);
+    return;
+  }
+  menu.style.position = 'absolute';
+  menu.style.top = '100%';
+  menu.style.left = '0';
+  menu.style.right = '0';
+}
+
+function renderDailyDoctorSuggestMenu(menu, doctors) {
+  if (!doctors.length) {
+    menu.innerHTML = '<div class="list-group-item small text-muted py-2">لا نتائج</div>';
+    return;
+  }
+  menu.innerHTML = doctors
+    .map(
+      (d) =>
+        `<button type="button" class="list-group-item list-group-item-action py-2 daily-doctor-suggest-opt" data-id="${d.id}" data-name="${dailyEscapeAttr(d.name)}">${dailyEscapeHtml(d.name)}${d.specialty ? `<span class="text-muted small d-block">${dailyEscapeHtml(d.specialty)}</span>` : ''}</button>`
+    )
+    .join('');
 }
 
 function bindDailyDoctorSuggestWrap(tr) {
@@ -376,54 +403,69 @@ function bindDailyDoctorSuggestWrap(tr) {
   const input = wrap.querySelector('.daily-exam-doctor-search');
   const hidden = wrap.querySelector('.daily-exam-doctor');
   const menu = wrap.querySelector('.daily-doctor-suggest-menu');
+  const clearBtn = wrap.querySelector('.daily-exam-doctor-clear');
   if (!input || !hidden || !menu) return;
 
   const hideMenu = () => menu.classList.add('d-none');
+  const clearDoctorSelection = () => {
+    hidden.value = '';
+    tr.dataset.doctorId = '';
+    wrap._pickedDoctorLabel = '';
+    wrap._pickedDoctorId = '';
+  };
   const pickDoctor = (id, name) => {
+    const label = String(name || '').trim();
     hidden.value = id ? String(id) : '';
-    input.value = name || '';
+    input.value = label;
     tr.dataset.doctorId = hidden.value;
+    wrap._pickedDoctorLabel = label;
+    wrap._pickedDoctorId = hidden.value;
     hideMenu();
+  };
+
+  const showDoctorResults = async (query = '') => {
+    const q = String(query || '').trim();
+    try {
+      const doctors = await fetchDailyDoctorSuggestions(q);
+      renderDailyDoctorSuggestMenu(menu, doctors);
+      menu.classList.remove('d-none');
+      positionDailyDoctorSuggestMenu(input, menu);
+    } catch {
+      hideMenu();
+    }
   };
 
   menu.addEventListener('click', (e) => {
     const btn = e.target.closest('.daily-doctor-suggest-opt');
     if (!btn) return;
-    pickDoctor(btn.dataset.id, btn.textContent.trim());
+    pickDoctor(btn.dataset.id, btn.dataset.name || btn.textContent.trim());
+  });
+
+  clearBtn?.addEventListener('click', () => {
+    input.value = '';
+    clearDoctorSelection();
+    hideMenu();
+    input.focus();
   });
 
   input.addEventListener('input', () => {
+    const text = input.value.trim();
+    if (!wrap._pickedDoctorLabel || text !== wrap._pickedDoctorLabel) {
+      clearDoctorSelection();
+    }
     clearTimeout(wrap._doctorTimer);
     wrap._doctorTimer = setTimeout(async () => {
-      const q = input.value.trim();
-      if (!q) {
-        hidden.value = '';
-        tr.dataset.doctorId = '';
+      if (!text) {
+        clearDoctorSelection();
         hideMenu();
         return;
       }
-      try {
-        const doctors = await fetchDailyDoctorSuggestions(q, hidden.value || null);
-        if (!doctors.length) {
-          menu.innerHTML = '<div class="list-group-item small text-muted py-2">لا نتائج</div>';
-          menu.classList.remove('d-none');
-          return;
-        }
-        menu.innerHTML = doctors
-          .map(
-            (d) =>
-              `<button type="button" class="list-group-item list-group-item-action py-2 daily-doctor-suggest-opt" data-id="${d.id}">${dailyEscapeHtml(d.name)}</button>`
-          )
-          .join('');
-        menu.classList.remove('d-none');
-      } catch {
-        hideMenu();
-      }
+      await showDoctorResults(text);
     }, 280);
   });
 
   input.addEventListener('focus', () => {
-    if (input.value.trim()) input.dispatchEvent(new Event('input'));
+    void showDoctorResults(input.value.trim());
   });
 
   document.addEventListener('click', (e) => {
@@ -434,13 +476,18 @@ function bindDailyDoctorSuggestWrap(tr) {
 async function hydrateDailyDoctorSuggest(tr, doctorId) {
   if (!doctorId) return;
   try {
-    const doctors = await fetchDailyDoctorSuggestions('', doctorId);
+    const doctors = await fetchDailyDoctorSuggestions('', doctorId, 1);
     if (!doctors[0]) return;
+    const wrap = tr.querySelector('.daily-doctor-suggest-wrap');
     const input = tr.querySelector('.daily-exam-doctor-search');
     const hidden = tr.querySelector('.daily-exam-doctor');
     if (hidden) hidden.value = String(doctors[0].id);
     if (input) input.value = doctors[0].name;
     tr.dataset.doctorId = String(doctors[0].id);
+    if (wrap) {
+      wrap._pickedDoctorLabel = doctors[0].name || '';
+      wrap._pickedDoctorId = String(doctors[0].id);
+    }
   } catch {
     /* ignore */
   }
