@@ -186,7 +186,11 @@
         // catalog is empty — tag each row with the result's actual kind so the selection
         // handler knows which id field to save it under, instead of trusting the section's
         // static config.
-        const itemWithKind = result?.kind ? { ...item, _pickerKind: result.kind } : item;
+        const itemWithKind = item._pickerKind
+          ? item
+          : result?.kind
+            ? { ...item, _pickerKind: result.kind }
+            : item;
         return `<button type="button" class="service-suggest-item daily-picker-suggest-item w-100 text-start border-0 bg-transparent" data-item="${escAttr(JSON.stringify(itemWithKind))}">
           <div class="daily-picker-suggest-label"><strong>${label}</strong></div>
           <div class="daily-picker-suggest-meta text-muted">${cat}<span>${fmtAmount(price)}${unit}</span></div>

@@ -9,7 +9,7 @@ const {
   getBundleSortOrder,
   BUNDLE_SOURCES,
 } = require('./dailySectionBundles');
-const { formatServiceUnitLabel } = require('./serviceUnitLabels');
+const { formatServiceUnitLabel, formatServiceDisplayName } = require('./serviceUnitLabels');
 
 function normalizeArabicSearch(text) {
   return String(text || '')
@@ -360,11 +360,11 @@ async function loadPriceListServicesForSection(section, priceList, limit = 200) 
 
 async function getSectionsWithServices() {
   const sections = await listSections();
+  const { getCatalogStats } = require('./dailyEntryCatalogService');
+  const stats = await getCatalogStats();
+  const countByCategory = Object.fromEntries((stats.by_category || []).map((row) => [row.category, row.count]));
   const { dailyChargesUsePriceListOnly } = require('./dailyCatalogCategories');
   const usePriceListOnly = dailyChargesUsePriceListOnly();
-  const { getCatalogStats } = require('./dailyEntryCatalogService');
-  const stats = usePriceListOnly ? { by_category: [] } : await getCatalogStats();
-  const countByCategory = Object.fromEntries((stats.by_category || []).map((row) => [row.category, row.count]));
   const priceList = await getDefaultPriceList();
 
   return Promise.all(
@@ -412,38 +412,30 @@ async function getSectionsWithServices() {
 
       if (section.catalog_category) {
         const loaded = await loadPriceListServicesForSection(section, priceList);
-        if (loaded.service_count > 0) {
-          const default_service = await resolveDefaultServiceForSection(section, priceList);
-          return {
-            ...section,
-            uses_catalog: false,
-            catalog_count: 0,
-            services: loaded.services,
-            service_count: loaded.service_count,
-            picker_kind: 'service',
-            default_service: default_service ? serviceToDailyPicker(default_service) : null,
-            price_list_id: priceList?.id || null,
-            price_list_name: priceList?.name || null,
-            bundle_code: bundle,
-            bundle_label: getBundleLabel(bundle),
-            price_list_sources: BUNDLE_SOURCES[bundle] || {
-              categories: loaded.category_codes || getSectionPickerCategoryCodes(section),
-              catalog: [],
-            },
-          };
-        }
+        const catalogCount = countByCategory[section.catalog_category] || 0;
+        const default_service = await resolveDefaultServiceForSection(section, priceList);
+        const catalogCategories = [section.catalog_category].filter(Boolean);
         return {
           ...section,
-          uses_catalog: true,
-          catalog_count: countByCategory[section.catalog_category] || 0,
-          services: [],
-          picker_kind: 'catalog',
-          default_service: null,
+          uses_catalog: catalogCount > 0 || ['medicines', 'supplies', 'cosmetics'].includes(section.code),
+          catalog_count: catalogCount,
+          services: loaded.services,
+          service_count: loaded.service_count,
+          picker_kind:
+            catalogCount > 0 || ['medicines', 'supplies', 'cosmetics'].includes(section.code)
+              ? 'catalog'
+              : loaded.service_count > 0
+                ? 'service'
+                : null,
+          default_service: default_service ? serviceToDailyPicker(default_service) : null,
           price_list_id: priceList?.id || null,
           price_list_name: priceList?.name || null,
           bundle_code: bundle,
           bundle_label: getBundleLabel(bundle),
-          price_list_sources: BUNDLE_SOURCES[bundle] || { categories: [], catalog: [section.catalog_category] },
+          price_list_sources: BUNDLE_SOURCES[bundle] || {
+            categories: loaded.category_codes || getSectionPickerCategoryCodes(section),
+            catalog: catalogCategories,
+          },
         };
       }
 
@@ -492,7 +484,7 @@ function serviceToDailyPicker(service) {
   return {
     id: service.id,
     code: service.code || '',
-    name: service.name || '',
+    name: formatServiceDisplayName(service),
     price,
     list_price: price,
     unit,
@@ -575,6 +567,72 @@ function catalogImportHintForSection(section) {
   const cat = section?.catalog_category;
   if (cat) return `لا توجد بنود — ارفع شيت «${cat}» من زر الاستيراد في تبويب القسم`;
   return 'لا توجد بنود — ارفع ملف القسم من زر الاستيراد';
+}
+
+function pickerRowNameKey(row) {
+  return normalizeArabicSearch(row?.name || '');
+}
+
+function tagPickerRowKind(row, kind) {
+  return { ...row, _pickerKind: kind };
+}
+
+function mergePickerSearchResults(priceRows = [], catalogRows = [], maxLimit = 20) {
+  const merged = [];
+  const seen = new Set();
+  const add = (row, kind) => {
+    const key = pickerRowNameKey(row);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    merged.push(tagPickerRowKind(row, kind));
+  };
+  for (const row of priceRows) add(row, 'service');
+  for (const row of catalogRows) {
+    if (merged.length >= maxLimit) break;
+    add(row, 'catalog');
+  }
+  return merged.slice(0, maxLimit);
+}
+
+async function searchCatalogPickerItemsForSection(section, { q, pageNum, maxLimit }) {
+  const { catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+  const searchCategories = catalogSearchCategoriesForSection(section);
+  if (!searchCategories.length) {
+    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'catalog' };
+  }
+  if (q.length < 2) {
+    return {
+      rows: [],
+      total: 0,
+      page: pageNum,
+      limit: maxLimit,
+      totalPages: 1,
+      kind: 'catalog',
+      min_search: 2,
+      catalog_categories: searchCategories,
+    };
+  }
+
+  const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
+  const result = await listCatalogItemsPaginated({
+    category: searchCategories.length === 1 ? searchCategories[0] : undefined,
+    categories: searchCategories.length > 1 ? searchCategories : undefined,
+    search: q,
+    page: pageNum,
+    limit: maxLimit,
+    active_only: true,
+    sort: 'name',
+    order: 'asc',
+  });
+  return {
+    rows: result.rows.map(catalogItemToPicker),
+    total: result.total,
+    page: result.page,
+    limit: result.limit,
+    totalPages: result.totalPages,
+    kind: 'catalog',
+    catalog_categories: searchCategories,
+  };
 }
 
 async function searchPriceListPickerItems(section, { q, pageNum, maxLimit }) {
@@ -678,113 +736,88 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
   const maxLimit = Math.min(50, Math.max(1, Number(limit) || 20));
   const q = String(search || '').trim();
   const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
-  const priceList = await getDefaultPriceList();
-
-  if (await shouldReadDailyPickerFromPriceList(section, priceList)) {
-    const priceListResult = await searchPriceListPickerItems(section, { q, pageNum, maxLimit });
-    if (!priceListResult.hint && priceListResult.empty_catalog) {
-      const codes = getSectionPickerCategoryCodes(section);
-      priceListResult.hint = codes.length
-        ? `لا توجد بنود في اللائحة — ارفع شيت «${codes.join(' / ')}» من إدارة الأسعار`
-        : 'ارفع لائحة الأسعار من الإعدادات';
-    }
-    return { ...priceListResult, source: 'price_list', kind: 'service' };
-  }
-
   const searchCategories = catalogSearchCategoriesForSection(section);
   const catalogCategory =
     searchCategories.length === 1
       ? searchCategories[0]
       : section.catalog_category || catalogCategoryForSection(section);
+  const canSearchCatalog = searchCategories.length > 0;
+  const canSearchPriceList = getSectionPickerCategoryCodes(section).length > 0 || Boolean(section.category_code);
 
-  if (searchCategories.length) {
-    const { listCatalogItemsPaginated, catalogItemToPicker } = require('./dailyEntryCatalogService');
-    if (q.length < 2) {
-      return {
-        rows: [],
-        total: 0,
-        page: pageNum,
-        limit: maxLimit,
-        totalPages: 1,
-        kind: 'catalog',
-        min_search: 2,
-        catalog_categories: searchCategories,
-      };
-    }
-    const result = await listCatalogItemsPaginated({
-      category: searchCategories.length === 1 ? searchCategories[0] : undefined,
-      categories: searchCategories.length > 1 ? searchCategories : undefined,
-      search: q,
-      page: pageNum,
-      limit: maxLimit,
-      active_only: true,
-      sort: 'name',
-      order: 'asc',
-    });
-    if (result.total > 0) {
-      return {
-        rows: result.rows.map(catalogItemToPicker),
-        total: result.total,
-        page: result.page,
-        limit: result.limit,
-        totalPages: result.totalPages,
-        kind: 'catalog',
-        catalog_category: catalogCategory,
-        catalog_categories: searchCategories,
-        hint: null,
-      };
-    }
-
-    const priceListResult = await searchPriceListPickerItems(section, { q, pageNum, maxLimit });
-    if (priceListResult.total > 0) {
-      const { TAB_CATALOG_IMPORT } = require('./dailyCatalogCategories');
-      const tab = SECTION_TAB_IMPORT[String(section.code || '').trim()];
-      const importLabel = tab ? TAB_CATALOG_IMPORT[tab]?.label : null;
-      return {
-        ...priceListResult,
-        source: 'price_list_fallback',
-        catalog_category: catalogCategory,
-        catalog_categories: searchCategories,
-        hint: importLabel
-          ? `يُعرض من اللائحة العامة — يُفضَّل «${importLabel}» لربط البنود بكتالوج القسم`
-          : 'يُعرض من اللائحة العامة — يُفضَّل رفع شيت القسم من تبويب الفاتورة',
-      };
-    }
-
-    const catalogCountRes = await listCatalogItemsPaginated({
-      category: searchCategories.length === 1 ? searchCategories[0] : undefined,
-      categories: searchCategories.length > 1 ? searchCategories : undefined,
-      page: 1,
-      limit: 1,
-      active_only: true,
-    });
-    const catalog_total = catalogCountRes.total || 0;
+  if (q.length < 2) {
     return {
       rows: [],
       total: 0,
       page: pageNum,
       limit: maxLimit,
       totalPages: 1,
-      kind: 'catalog',
-      catalog_category: catalogCategory,
-      catalog_categories: searchCategories,
-      catalog_total,
-      price_list_total: priceListResult.catalog_total || 0,
-      empty_catalog: catalog_total === 0 && (priceListResult.catalog_total || 0) === 0,
-      no_match: catalog_total > 0 || (priceListResult.catalog_total || 0) > 0,
-      hint: catalogImportHintForSection(section),
+      min_search: 2,
+      catalog_categories: canSearchCatalog ? searchCategories : undefined,
     };
   }
 
-  if (section.input_type !== 'amount' || !section.category_code) {
-    return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'none' };
+  if (!canSearchCatalog && !canSearchPriceList) {
+    if (section.input_type !== 'amount' || !section.category_code) {
+      return { rows: [], total: 0, page: pageNum, limit: maxLimit, totalPages: 1, kind: 'none' };
+    }
   }
 
-  const priceListResult = await searchPriceListPickerItems(section, { q, pageNum, maxLimit });
-  if (priceListResult.hint && priceListResult.empty_catalog) {
-    priceListResult.hint = `${priceListResult.hint} أو من إدارة الأسعار`;
+  const fetchLimit = Math.min(maxLimit * 3, 50);
+  const [priceListResult, catalogResult] = await Promise.all([
+    canSearchPriceList ? searchPriceListPickerItems(section, { q, pageNum, maxLimit: fetchLimit }) : null,
+    canSearchCatalog ? searchCatalogPickerItemsForSection(section, { q, pageNum, maxLimit: fetchLimit }) : null,
+  ]);
+
+  const priceRows = priceListResult?.rows || [];
+  const catalogRows = catalogResult?.rows || [];
+  const mergedRows = mergePickerSearchResults(priceRows, catalogRows, maxLimit);
+  const priceListTotal = priceListResult?.total || 0;
+  const catalogTotal = catalogResult?.total || 0;
+  const priceListCatalogTotal = priceListResult?.catalog_total || 0;
+  const sources = [];
+  if (priceRows.length) sources.push('price_list');
+  if (catalogRows.length) sources.push('catalog');
+
+  let hint = null;
+  if (!mergedRows.length) {
+    if (canSearchCatalog && canSearchPriceList) {
+      hint = catalogImportHintForSection(section);
+    } else if (canSearchPriceList && priceListResult?.empty_catalog) {
+      const codes = getSectionPickerCategoryCodes(section);
+      hint = codes.length
+        ? `لا توجد بنود في اللائحة — ارفع شيت «${codes.join(' / ')}» من إدارة الأسعار`
+        : 'ارفع لائحة الأسعار من الإعدادات';
+    } else if (canSearchCatalog) {
+      hint = catalogImportHintForSection(section);
+    }
   }
-  return priceListResult;
+
+  const dominantKind =
+    mergedRows.some((row) => row._pickerKind === 'catalog') && !mergedRows.some((row) => row._pickerKind === 'service')
+      ? 'catalog'
+      : mergedRows.some((row) => row._pickerKind === 'service')
+        ? 'service'
+        : canSearchCatalog
+          ? 'catalog'
+          : 'service';
+
+  return {
+    rows: mergedRows,
+    total: mergedRows.length || Math.max(priceListTotal, catalogTotal),
+    page: pageNum,
+    limit: maxLimit,
+    totalPages: Math.max(1, Math.ceil(Math.max(priceListTotal, catalogTotal) / maxLimit)),
+    kind: dominantKind,
+    catalog_category: catalogCategory,
+    catalog_categories: canSearchCatalog ? searchCategories : undefined,
+    catalog_total: catalogTotal,
+    price_list_total: priceListCatalogTotal,
+    sources,
+    source: sources.length > 1 ? 'merged' : sources[0] || null,
+    empty_catalog: priceListCatalogTotal === 0 && catalogTotal === 0,
+    no_match: !mergedRows.length && (priceListCatalogTotal > 0 || catalogTotal > 0),
+    hint,
+  };
 }
 
 async function listDailyPickerServicesByCategory({ category_code, category_codes, limit = 200 } = {}) {
@@ -806,6 +839,7 @@ async function listDailyPickerServicesByCategory({ category_code, category_codes
 
   const priceList = await getDefaultPriceList();
   const maxLimit = Math.min(500, Math.max(1, Number(limit) || 200));
+  let serviceRows = [];
   if (priceList) {
     const categoryRows = await resolvePickerCategoryIds(priceList.id, codes);
     const categoryIds = categoryRows.map((r) => r.id);
@@ -819,36 +853,36 @@ async function listDailyPickerServicesByCategory({ category_code, category_codes
          LIMIT $3`,
         [priceList.id, categoryIds, maxLimit]
       );
-      if (rows.length || dailyChargesUsePriceListOnly()) {
-        const enriched = await enrichServicesWithResolvedPrices(rows);
-        return {
-          rows: enriched.map(serviceToDailyPicker),
-          total: enriched.length,
-          kind: 'service',
-          category_codes: codes,
-          hint: rows.length
-            ? null
-            : `لا توجد بنود في اللائحة — ارفع شيت «${codes.join(' / ')}» من إدارة الأسعار`,
-        };
-      }
+      const enriched = await enrichServicesWithResolvedPrices(rows);
+      serviceRows = enriched.map(serviceToDailyPicker);
     }
   }
 
-  if (catalogCategory && !dailyChargesUsePriceListOnly()) {
+  let catalogRows = [];
+  if (catalogCategory) {
     const { listCatalogItems, catalogItemToPicker } = require('./dailyEntryCatalogService');
     const items = await listCatalogItems({
       category: catalogCategory,
       active_only: true,
       limit: maxLimit,
     });
+    catalogRows = items.map(catalogItemToPicker);
+  }
+
+  const mergedRows = mergePickerSearchResults(serviceRows, catalogRows, maxLimit);
+  if (mergedRows.length || serviceRows.length || catalogRows.length || dailyChargesUsePriceListOnly()) {
     return {
-      rows: items.map(catalogItemToPicker),
-      total: items.length,
-      kind: 'catalog',
+      rows: mergedRows,
+      total: mergedRows.length,
+      kind: mergedRows.some((row) => row._pickerKind === 'catalog') ? 'catalog' : 'service',
+      category_codes: codes,
       catalog_category: catalogCategory,
-      hint: items.length
-        ? null
-        : `لا توجد بنود في شيت «${catalogCategory}» — ارفع ملف القسم من زر الاستيراد أعلاه`,
+      hint:
+        mergedRows.length || serviceRows.length || catalogRows.length
+          ? null
+          : catalogCategory
+            ? `لا توجد بنود — ارفع شيت «${catalogCategory}» أو اللائحة من إدارة الأسعار`
+            : `لا توجد بنود في اللائحة — ارفع شيت «${codes.join(' / ')}» من إدارة الأسعار`,
     };
   }
 
@@ -872,11 +906,7 @@ async function getDailyPickerItemBySection(section_code, id) {
     throw err;
   }
 
-  const {
-    dailyChargesUsePriceListOnly,
-    catalogCategoryForSection,
-    catalogSearchCategoriesForSection,
-  } = require('./dailyCatalogCategories');
+  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
   const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
 
   const priceListService = await getServiceById(itemId);
@@ -896,7 +926,7 @@ async function getDailyPickerItemBySection(section_code, id) {
     }
   }
 
-  if (catalogCategory && !dailyChargesUsePriceListOnly()) {
+  if (catalogCategory) {
     const { getCatalogItemById, catalogItemToPicker } = require('./dailyEntryCatalogService');
     const item = await getCatalogItemById(itemId);
     if (item && item.is_active) {
@@ -1316,8 +1346,7 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   }
 
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
-  const { dailyChargesUsePriceListOnly, catalogCategoryForSection } = require('./dailyCatalogCategories');
-  const usePriceListOnly = dailyChargesUsePriceListOnly();
+  const { catalogCategoryForSection } = require('./dailyCatalogCategories');
   let line = { ...rawLine };
 
   const candidateIds = [line.service_id, line.catalog_item_id].filter(Boolean);
@@ -1329,21 +1358,14 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
     }
   }
 
-  const readFromPriceList = usePriceListOnly || (await sectionHasUploadedPriceListItems(fullSection));
-  if (!line.service_id && line.catalog_item_id && readFromPriceList) {
+  if (!line.service_id && line.catalog_item_id) {
     const resolved = await resolveCatalogPickerToPriceListService(fullSection, line.catalog_item_id);
     if (resolved) {
       line = { ...line, service_id: Number(resolved.id), catalog_item_id: null };
-    } else {
-      line = { ...line, service_id: Number(line.catalog_item_id), catalog_item_id: null };
     }
   }
 
-  if (readFromPriceList && line.catalog_item_id) {
-    line.catalog_item_id = null;
-  }
-
-  if (!readFromPriceList && !line.service_id && line.catalog_item_id) {
+  if (!line.service_id && line.catalog_item_id) {
     const catalogCategory = fullSection.catalog_category || catalogCategoryForSection(fullSection);
     if (catalogCategory || line.catalog_item_id) {
       return await normalizeCatalogLine(

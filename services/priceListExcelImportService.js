@@ -165,7 +165,14 @@ function parseAmount(value) {
 
 function cellText(value) {
   if (value == null) return '';
-  if (typeof value === 'object' && value.text) return String(value.text).trim();
+  if (typeof value === 'object') {
+    if (value.text) return String(value.text).trim();
+    if (Array.isArray(value.richText)) {
+      return value.richText.map((part) => part?.text || '').join('').trim();
+    }
+    if (value.result != null) return cellText(value.result);
+    if (value.hyperlink) return String(value.text || value.hyperlink).trim();
+  }
   return String(value).trim();
 }
 

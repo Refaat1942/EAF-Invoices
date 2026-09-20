@@ -27,8 +27,27 @@ function formatServiceUnitLabel(unit, categoryCode) {
   return CATEGORY_DEFAULT_UNITS[code] || 'خدمة';
 }
 
+function formatServiceDisplayName(service) {
+  if (!service) return '';
+  const raw = service.name;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed && trimmed !== '[object Object]') return trimmed;
+  } else if (raw && typeof raw === 'object') {
+    if (raw.text) return String(raw.text).trim();
+    if (raw.ar || raw.en) return String(raw.ar || raw.en).trim();
+  }
+  const description = String(service.description || '').trim();
+  if (description) return description;
+  const notes = String(service.notes || '').trim();
+  if (notes) return notes;
+  if (service.code) return String(service.code);
+  return '';
+}
+
 module.exports = {
   GENERIC_UNIT_VALUES,
   CATEGORY_DEFAULT_UNITS,
   formatServiceUnitLabel,
+  formatServiceDisplayName,
 };
