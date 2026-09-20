@@ -1335,6 +1335,17 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
   return normalized;
 }
 
+async function serviceIdAllowedForSection(section, serviceId, sectionsWithServices = null) {
+  const id = Number(serviceId);
+  if (!id) return false;
+  try {
+    await validateServiceForSection(section, id, sectionsWithServices);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithServices = null) {
   // Accommodation/companion/nursing/patient-assistant are manual-amount by business rule
   // even when catalog_category is configured (kept only for item reference, e.g. room
@@ -1349,12 +1360,19 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   const { catalogCategoryForSection } = require('./dailyCatalogCategories');
   let line = { ...rawLine };
 
-  const candidateIds = [line.service_id, line.catalog_item_id].filter(Boolean);
-  for (const candidateId of candidateIds) {
-    const priceListService = await getServiceById(candidateId);
-    if (priceListService?.is_active) {
-      line = { ...line, service_id: Number(candidateId), catalog_item_id: null };
-      break;
+  if (line.service_id) {
+    const serviceOk = await serviceIdAllowedForSection(fullSection, line.service_id, sectionsWithServices);
+    if (!serviceOk) line.service_id = null;
+  }
+
+  if (!line.service_id && line.catalog_item_id) {
+    const catalogId = Number(line.catalog_item_id);
+    const catalogAsService = await getServiceById(catalogId);
+    if (
+      catalogAsService?.is_active &&
+      (await serviceIdAllowedForSection(fullSection, catalogId, sectionsWithServices))
+    ) {
+      line = { ...line, service_id: catalogId, catalog_item_id: null };
     }
   }
 
@@ -2175,8 +2193,14 @@ function entriesToInvoiceItems(entries, sections = []) {
     for (const line of sortedLines) {
       const inputType = sectionTypeMap[line.section_code];
       if (inputType && skipTypes.has(inputType)) continue;
-      if (round2(line.amount) <= 0) continue;
-      const item = lineToInvoiceItem(line, entry, sections);
+      const qty = round2(line.quantity || 1) || 1;
+      const lineTotal = round2(line.amount || round2(line.unit_price || 0) * qty);
+      if (lineTotal <= 0) continue;
+      const item = lineToInvoiceItem(
+        { ...line, amount: line.amount > 0 ? line.amount : lineTotal },
+        entry,
+        sections
+      );
       if (item) items.push(item);
     }
   }

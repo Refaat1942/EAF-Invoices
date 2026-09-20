@@ -1565,6 +1565,12 @@ async function listFreeInvoiceItems(fileNumber) {
   };
 }
 
+function parseInvoiceItemAmount(value) {
+  const n = Number(String(value ?? '').replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = null) {
   const fn = fileNumber?.trim();
   if (!fn) throw new Error('رقم الملف مطلوب');
@@ -1575,16 +1581,25 @@ async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = nu
   if (invoice.status === 'approved') throw new Error('الفاتورة معتمدة — لا يمكن تعديل البنود');
 
   const manualItems = (Array.isArray(manualItemsInput) ? manualItemsInput : [])
-    .map((item) => ({
-      id: item.id ? Number(item.id) : undefined,
-      description: String(item.description || '').trim(),
-      quantity: Number(item.quantity) || 1,
-      returned_quantity: Number(item.returned_quantity) || 0,
-      amount: Math.round((Number(item.amount) || 0) * 100) / 100,
-      patient_credit_applied: Number(item.patient_credit_applied) || 0,
-      service_id: item.service_id || null,
-    }))
+    .map((item) => {
+      const quantity = parseInvoiceItemAmount(item.quantity) || 1;
+      const amount = parseInvoiceItemAmount(item.amount);
+      return {
+        id: item.id ? Number(item.id) : undefined,
+        description: String(item.description || '').trim(),
+        quantity,
+        returned_quantity: parseInvoiceItemAmount(item.returned_quantity) || 0,
+        amount,
+        patient_credit_applied: 0,
+        service_id: null,
+      };
+    })
     .filter((item) => item.description || item.amount > 0);
+
+  const freeItemsTotal = Math.round(
+    manualItems.reduce((sum, item) => sum + (Number(item.quantity) || 1) * (Number(item.amount) || 0), 0) *
+      100
+  ) / 100;
 
   const payload = invoiceToSavePayload(invoice, manualItems);
   payload.include_daily_charges = true;
@@ -1600,6 +1615,7 @@ async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = nu
   return {
     invoice_id: refreshed.id,
     items: invoiceManualItems(refreshed),
+    free_items_total: freeItemsTotal,
     final_total: refreshed.final_total,
     items_subtotal: refreshed.items_subtotal,
   };

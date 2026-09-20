@@ -432,6 +432,11 @@ function bindDailyDoctorSuggestWrap(tr) {
     tr.dataset.doctorId = hidden.value;
     wrap._pickedDoctorLabel = label;
     wrap._pickedDoctorId = hidden.value;
+    if (tr.classList.contains('daily-exam-row') && id && examRowDoctorEntryConflict(tr, id)) {
+      delete tr.dataset.entryId;
+      delete tr.dataset.examLineId;
+      delete tr.dataset.stampLineId;
+    }
     hideMenu();
     applyDoctorExamPrice(doctorPrice);
   };
@@ -1350,7 +1355,13 @@ async function saveFreeItems() {
     await refreshDailyStaySummary(file_number);
     await loadFreeItemsPanel();
     if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
-    showToast(`تم الحفظ — أُضيف على الفاتورة الكبيرة (${dailyFmt(data.final_total)})`, 'success');
+    const freeTotal =
+      data.free_items_total ??
+      (data.items || items).reduce(
+        (sum, row) => sum + (Number(row.quantity) || 1) * (Number(row.amount) || 0),
+        0
+      );
+    showToast(`تم الحفظ — البنود الحرة على الفاتورة: ${dailyFmt(freeTotal)}`, 'success');
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
   } finally {
@@ -3695,18 +3706,31 @@ function bindExamRowEvents(tr) {
   tr.querySelector('.daily-exam-stamp')?.addEventListener('input', refreshServiceRowTotals);
 }
 
+function collectAccommodationLineFromRow(primaryTr) {
+  const accHidden = primaryTr?.querySelector('.daily-amount[data-section="accommodation"]');
+  const amount = getStayAccommodationAmount(primaryTr);
+  if (amount <= 0) return null;
+  const line = {
+    section_code: 'accommodation',
+    amount,
+    quantity: 1,
+    unit_price: amount,
+  };
+  const serviceId = accHidden?.dataset.serviceId;
+  if (serviceId) line.service_id = Number(serviceId);
+  const catalogItemId = accHidden?.dataset.catalogItemId;
+  if (catalogItemId) line.catalog_item_id = Number(catalogItemId);
+  if (accHidden?.dataset.lineId) line.id = Number(accHidden.dataset.lineId);
+  return line;
+}
+
 function collectStayLinesFromRow(tr) {
   const primaryTr = tr.classList.contains('daily-stay-addon-row') ? findStayPrimaryRow(tr) : tr;
   if (!primaryTr) return [];
   const viewCodes = new Set(['accommodation', 'companion', 'nursing_point', 'patient_assistant']);
   const lines = [];
-  const accSection = dailySectionsCache.find((s) => s.code === 'accommodation');
-  if (accSection) {
-    const accLine = collectLineForSection(primaryTr, accSection);
-    const accHidden = primaryTr.querySelector('.daily-amount[data-section="accommodation"]');
-    if (accHidden?.dataset.lineId) accLine.id = Number(accHidden.dataset.lineId);
-    if (lineHasChargeData(accLine)) lines.push(accLine);
-  }
+  const accLine = collectAccommodationLineFromRow(primaryTr);
+  if (accLine && lineHasChargeData(accLine)) lines.push(accLine);
   getStayDayGroupRows(primaryTr).forEach((rowTr) => {
     if (rowTr.querySelector('.daily-companion-kind')) collectCompanionLineFromRow(rowTr, lines);
     collectAmountLineFromRow(rowTr, 'patient_assistant', lines);
@@ -5625,7 +5649,9 @@ function rowHasChargeData(tr) {
 }
 
 function collectLineForSection(tr, section) {
-  const field = tr.querySelector(`.daily-field[data-section="${section.code}"]`);
+  const field = tr.querySelector(
+    `.daily-field[data-section="${section.code}"], .daily-amount[data-section="${section.code}"]`
+  );
   const pickerFields = window.DailyEntryPicker ? DailyEntryPicker.readPickerFields(tr, section) : {};
   if (section.input_type === 'date') {
     return { section_code: section.code, extra_date: field?.value || null };
@@ -6083,7 +6109,57 @@ function collectDailyRowsForSave() {
   return mergeDailySaveEntries(rows);
 }
 
+function examRowDoctorEntryConflict(tr, doctorId) {
+  const entryId = tr?.dataset?.entryId;
+  if (!entryId || !doctorId) return false;
+  return [...document.querySelectorAll(`.daily-exam-row[data-entry-id="${CSS.escape(entryId)}"]`)].some(
+    (other) =>
+      other !== tr &&
+      other.dataset.doctorId &&
+      Number(other.dataset.doctorId) !== Number(doctorId)
+  );
+}
+
+function mergeExamSaveEntries(rows) {
+  if (!rows.length) return rows;
+  const byEntryId = new Map();
+  const freshRows = [];
+
+  for (const row of rows) {
+    const entryId = Number(row.entry_id) || 0;
+    if (!entryId) {
+      freshRows.push(row);
+      continue;
+    }
+    const key = String(entryId);
+    if (!byEntryId.has(key)) {
+      byEntryId.set(key, { ...row, lines: [...(row.lines || [])] });
+      continue;
+    }
+    const merged = byEntryId.get(key);
+    const doctorConflict =
+      row.doctor_id &&
+      merged.doctor_id &&
+      Number(row.doctor_id) !== Number(merged.doctor_id);
+    if (doctorConflict) {
+      freshRows.push({ ...row, entry_id: null, lines: [...(row.lines || [])] });
+      continue;
+    }
+    const lineMap = new Map((merged.lines || []).map((line) => [dailyLineMergeKey(line), line]));
+    for (const line of row.lines || []) {
+      lineMap.set(dailyLineMergeKey(line), line);
+    }
+    merged.lines = [...lineMap.values()];
+    if (row.doctor_id) merged.doctor_id = row.doctor_id;
+    if (row.doctor_specialty) merged.doctor_specialty = row.doctor_specialty;
+    if (row.notes) merged.notes = row.notes;
+  }
+
+  return [...byEntryId.values(), ...freshRows];
+}
+
 function mergeDailySaveEntries(rows) {
+  if (activeDailyTab === 'exams') return mergeExamSaveEntries(rows);
   if (!rows.length) return rows;
   const byEntryId = new Map();
   const freshRows = [];

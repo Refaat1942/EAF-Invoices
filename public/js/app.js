@@ -1028,8 +1028,12 @@ function fillInvoiceItemRow(row, item = {}, pay = {}) {
   else delete row.dataset.discountOverride;
   const qtyEl = row.querySelector('[data-field="quantity"]');
   const amtEl = row.querySelector('[data-field="amount"]');
+  const unitAmount =
+    Number(item.amount) ||
+    Number(item.unit_price_snapshot) ||
+    (item.total && item.quantity ? Number(item.total) / Number(item.quantity) : 0);
   if (qtyEl) qtyEl.value = item.quantity ? formatAmountInput(item.quantity, 0) : '';
-  if (amtEl) amtEl.value = item.amount ? formatAmountInput(item.amount) : '';
+  if (amtEl) amtEl.value = unitAmount > 0 ? formatAmountInput(unitAmount) : '';
   const totalEl = row.querySelector('[data-field="total"]');
   if (totalEl) {
     if (item.total != null && item.total !== '') {
