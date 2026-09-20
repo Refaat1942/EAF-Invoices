@@ -1699,6 +1699,21 @@ body {
   min-width: 11rem;
 }
 
+.daily-tabs-sheet-panel .daily-sheet-table .daily-exam-row .daily-exam-case,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-exam-row .daily-exam-specialty {
+  min-width: 10.5rem;
+  max-width: 13rem;
+}
+
+.daily-tabs-sheet-panel .daily-sheet-table .daily-exam-row .form-select-sm,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-exam-row .form-control-sm,
+.daily-tabs-sheet-panel .daily-sheet-table .daily-exam-row .daily-exam-doctor-search {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.32rem;
+  min-height: 1.7rem;
+  line-height: 1.25;
+}
+
 .daily-doctor-suggest-wrap {
   width: 100%;
   min-width: 10rem;

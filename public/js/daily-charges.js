@@ -3447,6 +3447,12 @@ function buildCompanionKindOptions(selectedValue = '') {
   return parts.join('');
 }
 
+function examSpecialtySectionTag(sectionCode) {
+  if (sectionCode === 'consultant_exam') return 'استشاري';
+  if (sectionCode === 'specialist_exam') return 'أخصائي';
+  return '';
+}
+
 function buildExamCaseOptions(selectedServiceId = '') {
   if (!dailyExamServicesCache.length) {
     return '<option value="">— حالة الكشف (ارفع الكشوفات أو اللائحة) —</option>';
@@ -3458,20 +3464,19 @@ function buildExamCaseOptions(selectedServiceId = '') {
         const price = priceFromExamServiceRow(svc);
         const sectionCode = examSectionCodeForServiceRow(svc);
         const selected = String(selectedServiceId) === String(svc.id) ? ' selected' : '';
-        const priceHint = price > 0 ? ` — ${dailyFmt(price)}` : '';
-        return `<option value="${svc.id}" data-section="${dailyEscapeAttr(sectionCode)}" data-price="${price}"${selected}>${dailyEscapeHtml(svc.name)}${dailyEscapeHtml(priceHint)}</option>`;
+        return `<option value="${svc.id}" data-section="${dailyEscapeAttr(sectionCode)}" data-price="${price}"${selected}>${dailyEscapeHtml(svc.name)}</option>`;
       })
       .join('')
   );
 }
 
 function buildExamSpecialtyOptions(sectionCode = '', selectedSpecialtyCode = '') {
-  let items = (dailyExamSpecialtiesCache || []).filter((s) => s.is_active !== false);
-  if (sectionCode) items = items.filter((s) => s.section_code === sectionCode);
+  const allItems = (dailyExamSpecialtiesCache || []).filter((s) => s.is_active !== false);
+  let items = sectionCode ? allItems.filter((s) => s.section_code === sectionCode) : allItems;
+  const strictMatch = Boolean(sectionCode && items.length);
+  if (!items.length && allItems.length) items = allItems;
   if (!items.length) {
-    return sectionCode
-      ? '<option value="">— التخصص (أضفه من الإعدادات → تخصصات الكشوفات) —</option>'
-      : '<option value="">— اختر حالة الكشف أولاً —</option>';
+    return '<option value="">— التخصص (أضفه من الإعدادات → تخصصات الكشوفات) —</option>';
   }
   return (
     '<option value="">— التخصص —</option>' +
@@ -3479,8 +3484,8 @@ function buildExamSpecialtyOptions(sectionCode = '', selectedSpecialtyCode = '')
       .map((s) => {
         const selected = selectedSpecialtyCode === s.code ? ' selected' : '';
         const price = Number(s.price) || 0;
-        const priceHint = price > 0 ? ` — ${dailyFmt(price)}` : '';
-        return `<option value="${dailyEscapeAttr(s.code)}" data-section="${dailyEscapeAttr(s.section_code)}" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)}${dailyEscapeHtml(priceHint)}</option>`;
+        const tag = !strictMatch ? ` (${examSpecialtySectionTag(s.section_code)})` : '';
+        return `<option value="${dailyEscapeAttr(s.code)}" data-section="${dailyEscapeAttr(s.section_code)}" data-price="${price}"${selected}>${dailyEscapeHtml(s.name + tag)}</option>`;
       })
       .join('')
   );
