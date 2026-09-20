@@ -134,6 +134,7 @@ let dailySpecialtiesCache = [];
 let dailyCompanionServicesCache = [];
 let dailyCompanionKindOptionsCache = [];
 let dailyExamServicesCache = [];
+let dailyExamSpecialtiesCache = [];
 let dailySuppliesMarkupPercent = 20;
 
 function dailyEscapeHtml(text) {
@@ -580,7 +581,7 @@ function applyDailyTabColumnVisibility() {
     hint.textContent = 'بنود حرة — أي وصف وسعر ثم احفظ لتُضاف على الفاتورة الكبيرة مع الحركة اليومية.';
   } else if (hint && activeDailyTab === 'exams') {
     hint.textContent =
-      'كشوفات — حالة الكشف، النوع، الطبيب، السعر، تاريخ الكشف، واسم المريض.';
+      'كشوفات — حالة الكشف، التخصص، الطبيب، السعر، تاريخ الكشف، واسم المريض.';
   } else if (hint && activeDailyTab === 'medicines') {
     hint.textContent = 'أدوية — ابحث عن الصنف، السعر من اللائحة المرفوعة. الإجمالي في أسفل الجدول.';
   } else if (hint && activeDailyTab === 'supplies') {
@@ -3277,6 +3278,66 @@ async function loadExamServicesCache() {
   }
 }
 
+async function loadExamSpecialtiesCache() {
+  try {
+    dailyExamSpecialtiesCache = await apiJson('/api/settings/exam-specialties');
+  } catch {
+    dailyExamSpecialtiesCache = [
+      {
+        code: 'outpatient_clinic',
+        name: 'كشف العيادات الخارجية',
+        section_code: 'consultant_exam',
+        price: 500,
+        is_active: true,
+      },
+      {
+        code: 'specialist_round',
+        name: 'مرور أخصائي',
+        section_code: 'specialist_exam',
+        price: 450,
+        is_active: true,
+      },
+    ];
+  }
+}
+
+function getExamSpecialtyByCode(code) {
+  const key = String(code || '').trim();
+  if (!key) return null;
+  return (dailyExamSpecialtiesCache || []).find((s) => s.code === key && s.is_active !== false) || null;
+}
+
+function resolveExamSpecialtyCodeFromLine(line = {}) {
+  const fromExtra = String(line.extra_text || '').trim();
+  if (fromExtra) {
+    const byCode = getExamSpecialtyByCode(fromExtra);
+    if (byCode) return byCode.code;
+    const byName = (dailyExamSpecialtiesCache || []).find((s) => s.name === fromExtra);
+    if (byName) return byName.code;
+  }
+  if (line.service_id) {
+    const byService = (dailyExamSpecialtiesCache || []).find(
+      (s) => Number(s.service_id) === Number(line.service_id)
+    );
+    if (byService) return byService.code;
+    const byPriceList = dailyExamServicesCache.find((s) => Number(s.id) === Number(line.service_id));
+    if (byPriceList?.name) {
+      const byName = (dailyExamSpecialtiesCache || []).find((s) => s.name === byPriceList.name);
+      if (byName) return byName.code;
+    }
+  }
+  if (line.description) {
+    const byDesc = (dailyExamSpecialtiesCache || []).find((s) => s.name === line.description);
+    if (byDesc) return byDesc.code;
+  }
+  return '';
+}
+
+function examSectionCodeForSpecialty(specialtyCode) {
+  const specialty = getExamSpecialtyByCode(specialtyCode);
+  return specialty?.section_code || '';
+}
+
 function inferExamSectionCodeFromServiceName(name) {
   const text = String(name || '');
   const norm = text
@@ -3293,17 +3354,24 @@ function inferExamSectionCodeFromServiceName(name) {
 
 function refreshExamRowsDropdowns() {
   document.querySelectorAll('.daily-exam-row').forEach((tr) => {
-    const caseCode = tr.dataset.examSectionCode || tr.querySelector('.daily-exam-case')?.value || '';
-    const typeSel = tr.querySelector('.daily-exam-type');
-    const prev = typeSel?.value || '';
-    if (typeSel) {
-      typeSel.innerHTML = buildExamTypeOptions(prev, caseCode);
-      if (prev && typeSel.querySelector(`option[value="${CSS.escape(prev)}"]`)) typeSel.value = prev;
+    const sectionCode = tr.querySelector('.daily-exam-case')?.value || tr.dataset.examSectionCode || '';
+    const specialtyCode =
+      tr.dataset.examSpecialtyCode || tr.querySelector('.daily-exam-specialty')?.value || '';
+    const caseSel = tr.querySelector('.daily-exam-case');
+    if (caseSel && sectionCode) caseSel.value = sectionCode;
+    const specialtySel = tr.querySelector('.daily-exam-specialty');
+    if (specialtySel) {
+      specialtySel.innerHTML = buildExamSpecialtyOptions(sectionCode, specialtyCode);
+      if (specialtyCode && specialtySel.querySelector(`option[value="${CSS.escape(specialtyCode)}"]`)) {
+        specialtySel.value = specialtyCode;
+      }
     }
+    if (sectionCode) tr.dataset.examSectionCode = sectionCode;
   });
 }
 
 async function reloadDailyServiceCaches() {
+  await loadExamSpecialtiesCache();
   await loadExamServicesCache();
   await loadCompanionKindOptionsCache();
   await loadCompanionServicesCache();
@@ -3360,22 +3428,23 @@ function buildExamCaseOptions(selectedSectionCode = '') {
   );
 }
 
-function buildExamTypeOptions(selectedItemId = '', sectionCode = '') {
-  let pool = dailyExamServicesCache;
+function buildExamSpecialtyOptions(sectionCode = '', selectedSpecialtyCode = '') {
+  let specialties = (dailyExamSpecialtiesCache || []).filter((s) => s.is_active !== false);
   if (sectionCode) {
-    pool = pool.filter((s) => s.section_code === sectionCode);
-    if (!pool.length) pool = dailyExamServicesCache;
+    specialties = specialties.filter((s) => s.section_code === sectionCode);
   }
-  if (!pool.length) {
-    return '<option value="">— نوع الكشف (ارفع ملف الكشوفات) —</option>';
+  if (!specialties.length) {
+    return sectionCode
+      ? '<option value="">— التخصص (أضفه من الإعدادات) —</option>'
+      : '<option value="">— اختر حالة الكشف أولاً —</option>';
   }
   return (
-    '<option value="">— نوع الكشف —</option>' +
-    pool
+    '<option value="">— التخصص —</option>' +
+    specialties
       .map((s) => {
-        const price = Number(s.price ?? s.list_price) || 0;
-        const selected = String(selectedItemId) === String(s.id) ? ' selected' : '';
-        return `<option value="${s.id}" data-section="${s.section_code}" data-code="${dailyEscapeAttr(s.code || '')}" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)}</option>`;
+        const selected = selectedSpecialtyCode === s.code ? ' selected' : '';
+        const price = Number(s.price) || 0;
+        return `<option value="${dailyEscapeAttr(s.code)}" data-section="${dailyEscapeAttr(s.section_code)}" data-price="${price}" data-service-id="${s.service_id || ''}"${selected}>${dailyEscapeHtml(s.name)}</option>`;
       })
       .join('')
   );
@@ -3463,12 +3532,16 @@ function onExamCaseChange(selectEl) {
   if (!tr) return;
   const sectionCode = selectEl.value || '';
   tr.dataset.examSectionCode = sectionCode;
-  const typeSel = tr.querySelector('.daily-exam-type');
-  if (typeSel) {
-    const prev = typeSel.value;
-    typeSel.innerHTML = buildExamTypeOptions('', sectionCode);
-    if (prev && typeSel.querySelector(`option[value="${prev}"]`)) typeSel.value = prev;
-    else typeSel.value = '';
+  const specialtySel = tr.querySelector('.daily-exam-specialty');
+  const prevSpecialty = specialtySel?.value || tr.dataset.examSpecialtyCode || '';
+  if (specialtySel) {
+    specialtySel.innerHTML = buildExamSpecialtyOptions(sectionCode, prevSpecialty);
+    if (prevSpecialty && specialtySel.querySelector(`option[value="${CSS.escape(prevSpecialty)}"]`)) {
+      specialtySel.value = prevSpecialty;
+    } else {
+      specialtySel.value = '';
+      tr.dataset.examSpecialtyCode = '';
+    }
   }
   const unitEl = tr.querySelector('.daily-exam-unit-price');
   if (unitEl) unitEl.value = '';
@@ -3477,17 +3550,20 @@ function onExamCaseChange(selectEl) {
   updateSectionTabTotal();
 }
 
-function onExamTypeChange(selectEl) {
+function onExamSpecialtyChange(selectEl) {
   const tr = selectEl?.closest('.daily-entry-row');
   if (!tr) return;
+  const specialtyCode = selectEl.value || '';
   const opt = selectEl.selectedOptions[0];
-  const sectionCode = opt?.dataset.section || '';
-  const price = Number(opt?.dataset.price) || 0;
-  if (sectionCode) {
+  const specialty = getExamSpecialtyByCode(specialtyCode);
+  tr.dataset.examSpecialtyCode = specialtyCode;
+  const caseSel = tr.querySelector('.daily-exam-case');
+  const sectionCode = opt?.dataset.section || specialty?.section_code || '';
+  if (sectionCode && caseSel && !caseSel.value) {
+    caseSel.value = sectionCode;
     tr.dataset.examSectionCode = sectionCode;
-    const caseSel = tr.querySelector('.daily-exam-case');
-    if (caseSel && caseSel.value !== sectionCode) caseSel.value = sectionCode;
   }
+  const price = Number(opt?.dataset.price ?? specialty?.price) || 0;
   const unitEl = tr.querySelector('.daily-exam-unit-price');
   if (unitEl) unitEl.value = price > 0 ? formatAmountFieldValue(price) : '';
   updateRowTotal(tr);
@@ -3558,8 +3634,8 @@ function bindStayRowEvents(tr) {
 function bindExamRowEvents(tr) {
   const caseSel = tr.querySelector('.daily-exam-case');
   if (caseSel) caseSel.addEventListener('change', () => onExamCaseChange(caseSel));
-  const typeSel = tr.querySelector('.daily-exam-type');
-  if (typeSel) typeSel.addEventListener('change', () => onExamTypeChange(typeSel));
+  const specialtySel = tr.querySelector('.daily-exam-specialty');
+  if (specialtySel) specialtySel.addEventListener('change', () => onExamSpecialtyChange(specialtySel));
   bindDailyDoctorSuggestWrap(tr);
   tr.querySelector('.daily-exam-stamp')?.addEventListener('input', refreshServiceRowTotals);
 }
@@ -3589,33 +3665,28 @@ function collectStayLinesFromRow(tr) {
 function collectExamLinesFromRow(tr) {
   const viewCodes = new Set(DAILY_EXAM_CODES);
   const caseSel = tr.querySelector('.daily-exam-case');
-  const typeSel = tr.querySelector('.daily-exam-type');
-  const opt = typeSel?.selectedOptions[0];
-  const sectionCode = caseSel?.value || opt?.dataset.section || tr.dataset.examSectionCode || '';
-  const itemId = typeSel?.value ? Number(typeSel.value) : null;
+  const specialtySel = tr.querySelector('.daily-exam-specialty');
+  const sectionCode = caseSel?.value || tr.dataset.examSectionCode || '';
+  const specialtyCode = specialtySel?.value || tr.dataset.examSpecialtyCode || '';
+  const specialty = getExamSpecialtyByCode(specialtyCode);
   const amount = dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value);
-  const examSection = dailySectionsCache.find((s) => s.code === sectionCode);
-  const usesCatalog =
-    examSection?.picker_kind === 'catalog' ||
-    (!examSection?.picker_kind && examSection?.catalog_category && examSection?.uses_catalog !== false);
-  const fromPriceList = itemId && dailyExamServicesCache.some((s) => Number(s.id) === itemId);
   const lines = [];
-  if (sectionCode && (itemId || amount > 0)) {
+  if (sectionCode && (specialtyCode || amount > 0)) {
     const line = {
       section_code: sectionCode,
       amount,
       quantity: 1,
     };
-    if (itemId) {
-      if (usesCatalog && !fromPriceList) line.catalog_item_id = itemId;
-      else line.service_id = itemId;
-    }
+    if (specialty?.service_id) line.service_id = Number(specialty.service_id);
+    else if (specialty?.name) line.description = specialty.name;
     if (tr.dataset.examLineId) line.id = Number(tr.dataset.examLineId);
+    if (specialtyCode) line.extra_text = specialtyCode;
     const dateEl = tr.querySelector('.daily-exam-date');
     if (dateEl?.value) line.extra_date = dateEl.value;
     lines.push(line);
   }
-  const stamp = dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value);
+  const stampCell = tr.querySelector('[data-stamp-cell="1"]');
+  const stamp = stampCell ? dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value) : 0;
   if (stamp > 0) {
     const stampLine = { section_code: 'consultation_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
@@ -3730,25 +3801,35 @@ function createStayDailyEntryRow(entry = {}) {
   return tr;
 }
 
-function createExamDailyEntryRow(entry = {}, examLine = null) {
+function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
   const line =
     examLine ||
     (entry.lines || []).find(
       (l) => ['consultant_exam', 'specialist_exam'].includes(l.section_code) && lineHasChargeData(l)
     ) ||
     {};
-  const stampLine = getLineForSection(entry, 'consultation_stamp');
+  const showStamp = options.showStamp !== false;
+  const stampLine = showStamp ? getLineForSection(entry, 'consultation_stamp') : {};
   const tr = document.createElement('tr');
   tr.className = 'daily-entry-row daily-exam-row';
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
-  if (entry.doctor_id) tr.dataset.doctorId = String(entry.doctor_id);
+  if (examLine && entry.doctor_id) tr.dataset.doctorId = String(entry.doctor_id);
   if (line.section_code) tr.dataset.examSectionCode = line.section_code;
   if (line.id) tr.dataset.examLineId = String(line.id);
-  if (stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
-  tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
+  if (showStamp && stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
+  tr._entryLinesSnapshot = (entry.lines || [])
+    .filter((l) => {
+      if (line.id && l.id === line.id) return false;
+      if (['consultant_exam', 'specialist_exam'].includes(l.section_code)) return false;
+      return true;
+    })
+    .map((l) => ({ ...l }));
 
-  const caseCode = line.section_code || '';
+  const specialtyCode = resolveExamSpecialtyCodeFromLine(line);
+  const sectionCode = line.section_code || examSectionCodeForSpecialty(specialtyCode) || '';
+  if (sectionCode) tr.dataset.examSectionCode = sectionCode;
+  if (specialtyCode) tr.dataset.examSpecialtyCode = specialtyCode;
   const dateVal = line.extra_date
     ? String(line.extra_date).slice(0, 10)
     : entry.entry_date
@@ -3756,25 +3837,24 @@ function createExamDailyEntryRow(entry = {}, examLine = null) {
       : getLocalDateString();
   const patientName = getDailyPatientDisplayName();
   const priceVal = line.amount > 0 ? formatAmountFieldValue(line.amount) : '';
-  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
+  const stampVal = showStamp && stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
-    <td><select class="form-select form-select-sm daily-exam-case">${buildExamCaseOptions(caseCode)}</select></td>
-    <td><select class="form-select form-select-sm daily-exam-type">${buildExamTypeOptions(line.catalog_item_id || line.service_id, caseCode)}</select></td>
-    <td class="daily-exam-doctor-cell">${buildDailyDoctorSuggestHtml('', entry.doctor_id || '')}</td>
+    <td><select class="form-select form-select-sm daily-exam-case">${buildExamCaseOptions(sectionCode)}</select></td>
+    <td><select class="form-select form-select-sm daily-exam-specialty">${buildExamSpecialtyOptions(sectionCode, specialtyCode)}</select></td>
+    <td class="daily-exam-doctor-cell">${buildDailyDoctorSuggestHtml('', examLine && entry.doctor_id ? entry.doctor_id : '')}</td>
     <td><input type="text" class="form-control form-control-sm daily-exam-unit-price bg-light" readonly value="${dailyEscapeAttr(priceVal)}"></td>
     <td><input type="date" class="form-control form-control-sm daily-exam-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-exam-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" autocomplete="off"></td>
+    <td data-stamp-cell="${showStamp ? '1' : '0'}"><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" autocomplete="off"${showStamp ? '' : ' disabled'}></td>
     <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindExamRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
-  void hydrateDailyDoctorSuggest(tr, entry.doctor_id || null);
-  const typeSel = tr.querySelector('.daily-exam-type');
-  if (typeSel?.value) onExamTypeChange(typeSel);
+  void hydrateDailyDoctorSuggest(tr, examLine && entry.doctor_id ? entry.doctor_id : null);
+  if (specialtyCode) onExamSpecialtyChange(tr.querySelector('.daily-exam-specialty'));
   else if (priceVal) updateRowTotal(tr);
   return tr;
 }
@@ -5099,7 +5179,7 @@ function renderDailySectionsTable() {
     head.innerHTML =
       '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th">حالة الكشف</th>' +
-      '<th class="daily-meta-th">نوع الكشف</th>' +
+      '<th class="daily-meta-th">التخصص</th>' +
       '<th class="daily-meta-th">اسم الطبيب</th>' +
       '<th class="daily-meta-th">سعر الكشف <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th">تاريخ الكشف</th>' +
@@ -5451,8 +5531,8 @@ function addDailyEntryRow(preset = {}) {
 function rowHasChargeData(tr) {
   if (tr._entryLinesSnapshot?.some((line) => lineHasChargeData(line))) return true;
   if (dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value) > 0) return true;
-  if (tr.querySelector('.daily-exam-type')?.value) return true;
   if (tr.querySelector('.daily-exam-case')?.value) return true;
+  if (tr.querySelector('.daily-exam-specialty')?.value) return true;
   if (dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value) > 0) return true;
   if (dailyParseAmount(tr.querySelector('.daily-med-total')?.value) > 0) return true;
   if (tr.querySelector('.daily-picker[data-section="medicines"] .daily-picker-value')?.value) return true;
@@ -5653,9 +5733,9 @@ async function loadDailyEntriesIntoSheet() {
           (l) => ['consultant_exam', 'specialist_exam'].includes(l.section_code) && lineHasChargeData(l)
         );
         if (examLines.length) {
-          for (const line of examLines) {
-            body.appendChild(createExamDailyEntryRow(entry, line));
-          }
+          examLines.forEach((line, idx) => {
+            body.appendChild(createExamDailyEntryRow(entry, line, { showStamp: idx === 0 }));
+          });
         }
       }
       addDailyEntryRow();

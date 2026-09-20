@@ -321,6 +321,12 @@ const {
   buildTemplateWorkbook,
   importCompanionKindsFromBuffer,
 } = require('../services/companionKindService');
+const {
+  getExamSpecialties,
+  saveExamSpecialties,
+  buildTemplateWorkbook: buildExamSpecialtyTemplate,
+  importExamSpecialtiesFromBuffer,
+} = require('../services/examSpecialtyService');
 
 const companionUpload = multer({
   storage: multer.memoryStorage(),
@@ -360,6 +366,45 @@ router.post(
       if (!req.file?.buffer) return res.status(400).json({ error: 'الملف مطلوب' });
       const kinds = await importCompanionKindsFromBuffer(req.file.buffer);
       res.json({ success: true, kinds });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
+
+router.get('/exam-specialties', lookupListHandler(
+  (activeOnly) => getExamSpecialties({ activeOnly }),
+  'daily_charges.view'
+));
+
+router.put('/exam-specialties', requirePermission('settings.*'), async (req, res) => {
+  try {
+    res.json(await saveExamSpecialties(req.body.specialties || req.body || []));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/exam-specialties/template', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const buffer = await buildExamSpecialtyTemplate();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="exam-specialties-template.xlsx"');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post(
+  '/exam-specialties/import',
+  requirePermission('settings.*'),
+  companionUpload.single('file'),
+  async (req, res) => {
+    try {
+      if (!req.file?.buffer) return res.status(400).json({ error: 'الملف مطلوب' });
+      const specialties = await importExamSpecialtiesFromBuffer(req.file.buffer);
+      res.json({ success: true, specialties });
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

@@ -1223,6 +1223,31 @@ function bindEvents() {
       e.target.value = '';
     }
   });
+  document.getElementById('add-exam-specialty-btn')?.addEventListener('click', addExamSpecialty);
+  document.getElementById('exam-specialty-template-btn')?.addEventListener('click', () => {
+    window.open('/api/settings/exam-specialties/template', '_blank');
+  });
+  document.getElementById('exam-specialty-import-btn')?.addEventListener('click', () => {
+    document.getElementById('exam-specialty-import-file')?.click();
+  });
+  document.getElementById('exam-specialty-import-file')?.addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const res = await apiFetch('/api/settings/exam-specialties/import', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showToast('تم استيراد تخصصات الكشوفات', 'success');
+      await loadExamSpecialtiesSettings();
+      if (typeof reloadDailyServiceCaches === 'function') await reloadDailyServiceCaches();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      e.target.value = '';
+    }
+  });
   document.getElementById('add-financial-treatment-btn')?.addEventListener('click', addFinancialTreatment);
   document.getElementById('add-invoice-type-btn').addEventListener('click', addInvoiceType);
   document.getElementById('add-payment-method-btn').addEventListener('click', addPaymentMethod);
@@ -3903,6 +3928,147 @@ async function deleteCompanionKind(code) {
   }
 }
 
+function renderExamSpecialtiesList(specialties = []) {
+  if (!specialties.length) {
+    return '<li class="list-group-item text-muted">لا توجد تخصصات — أضف تخصصًا أو ارفع ملف Excel</li>';
+  }
+  return specialties
+    .map(
+      (s) => `<li class="list-group-item">
+        <div class="row g-2 align-items-center">
+          <div class="col-md-4">
+            <input type="text" class="form-control form-control-sm exam-specialty-name" data-code="${escapeAttr(s.code)}" value="${escapeAttr(s.name)}">
+          </div>
+          <div class="col-md-3">
+            <select class="form-select form-select-sm exam-specialty-section" data-code="${escapeAttr(s.code)}">
+              <option value="consultant_exam"${s.section_code === 'consultant_exam' ? ' selected' : ''}>كشف استشاري</option>
+              <option value="specialist_exam"${s.section_code === 'specialist_exam' ? ' selected' : ''}>كشف أخصائي</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <input type="text" inputmode="decimal" class="form-control form-control-sm exam-specialty-price comma-amount" data-code="${escapeAttr(s.code)}" value="${escapeAttr(s.price ?? '')}" placeholder="السعر">
+          </div>
+          <div class="col-md-3 d-flex gap-1 justify-content-end">
+            <button type="button" class="btn btn-sm btn-outline-primary exam-specialty-save-btn" data-code="${escapeAttr(s.code)}">حفظ</button>
+            <button type="button" class="btn btn-sm btn-outline-${s.is_active ? 'warning' : 'success'} exam-specialty-toggle-btn" data-code="${escapeAttr(s.code)}" data-active="${s.is_active ? '1' : '0'}">${s.is_active ? 'تعطيل' : 'تفعيل'}</button>
+            <button type="button" class="btn btn-sm btn-outline-danger exam-specialty-delete-btn" data-code="${escapeAttr(s.code)}">حذف</button>
+          </div>
+        </div>
+      </li>`
+    )
+    .join('');
+}
+
+async function loadExamSpecialtiesSettings() {
+  try {
+    const specialties = await apiJson(`${SETTINGS_API}/exam-specialties?all=1`);
+    const list = document.getElementById('exam-specialties-list');
+    if (!list) return specialties;
+    list.innerHTML = renderExamSpecialtiesList(specialties);
+    list.querySelectorAll('.exam-specialty-save-btn').forEach((btn) => {
+      btn.addEventListener('click', () => saveExamSpecialtyRow(btn.dataset.code));
+    });
+    list.querySelectorAll('.exam-specialty-toggle-btn').forEach((btn) => {
+      btn.addEventListener('click', () => toggleExamSpecialtyRow(btn.dataset.code, btn.dataset.active !== '1'));
+    });
+    list.querySelectorAll('.exam-specialty-delete-btn').forEach((btn) => {
+      btn.addEventListener('click', () => deleteExamSpecialty(btn.dataset.code));
+    });
+    bindCommaAmountInputs(list);
+    return specialties;
+  } catch (err) {
+    console.error(err);
+    return [];
+  }
+}
+
+function collectExamSpecialtiesFromDom(current = []) {
+  const list = document.getElementById('exam-specialties-list');
+  if (!list) return current;
+  const byCode = new Map((current || []).map((s) => [s.code, { ...s }]));
+  list.querySelectorAll('.exam-specialty-name').forEach((input) => {
+    const code = input.dataset.code;
+    const row = byCode.get(code) || { code };
+    row.name = input.value.trim();
+    const sectionSel = list.querySelector(`.exam-specialty-section[data-code="${CSS.escape(code)}"]`);
+    row.section_code = sectionSel?.value || row.section_code || 'specialist_exam';
+    const priceInput = list.querySelector(`.exam-specialty-price[data-code="${CSS.escape(code)}"]`);
+    row.price = priceInput ? parseDisplayAmount(priceInput.value) : row.price;
+    byCode.set(code, row);
+  });
+  return [...byCode.values()];
+}
+
+async function saveExamSpecialtyRows(specialties) {
+  await apiJson(`${SETTINGS_API}/exam-specialties`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ specialties }),
+  });
+}
+
+async function saveExamSpecialtyRow(code) {
+  if (!code) return;
+  try {
+    const current = await apiJson(`${SETTINGS_API}/exam-specialties?all=1`);
+    const specialties = collectExamSpecialtiesFromDom(current);
+    await saveExamSpecialtyRows(specialties);
+    showToast('تم الحفظ', 'success');
+    await loadExamSpecialtiesSettings();
+    if (typeof reloadDailyServiceCaches === 'function') await reloadDailyServiceCaches();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function toggleExamSpecialtyRow(code, makeActive) {
+  if (!code) return;
+  try {
+    const current = await apiJson(`${SETTINGS_API}/exam-specialties?all=1`);
+    const specialties = current.map((s) =>
+      s.code === code ? { ...s, is_active: makeActive } : s
+    );
+    await saveExamSpecialtyRows(specialties);
+    showToast(makeActive ? 'تم التفعيل' : 'تم التعطيل', 'success');
+    await loadExamSpecialtiesSettings();
+    if (typeof reloadDailyServiceCaches === 'function') await reloadDailyServiceCaches();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function addExamSpecialty() {
+  const name = document.getElementById('new-exam-specialty-name')?.value.trim();
+  const section_code = document.getElementById('new-exam-specialty-section')?.value || 'specialist_exam';
+  const price = parseDisplayAmount(document.getElementById('new-exam-specialty-price')?.value);
+  if (!name) return showToast('اسم التخصص مطلوب', 'warning');
+  try {
+    const current = await apiJson(`${SETTINGS_API}/exam-specialties?all=1`);
+    const specialties = [...current, { name, section_code, price, is_active: true }];
+    await saveExamSpecialtyRows(specialties);
+    document.getElementById('new-exam-specialty-name').value = '';
+    showToast('تمت الإضافة', 'success');
+    await loadExamSpecialtiesSettings();
+    if (typeof reloadDailyServiceCaches === 'function') await reloadDailyServiceCaches();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function deleteExamSpecialty(code) {
+  if (!code || !confirm('حذف هذا التخصص؟')) return;
+  try {
+    const current = await apiJson(`${SETTINGS_API}/exam-specialties?all=1`);
+    const specialties = current.filter((s) => s.code !== code);
+    await saveExamSpecialtyRows(specialties);
+    showToast('تم الحذف', 'success');
+    await loadExamSpecialtiesSettings();
+    if (typeof reloadDailyServiceCaches === 'function') await reloadDailyServiceCaches();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
 async function loadStayTypes() {
   try {
     const res = await apiFetch(`${SETTINGS_API}/stay-types`);
@@ -4355,6 +4521,7 @@ async function loadSettingsPage() {
 
     document.getElementById('stay-types-list').innerHTML = renderStayTypesList(stayTypes);
     await loadCompanionKindsSettings();
+    await loadExamSpecialtiesSettings();
     document.getElementById('financial-treatments-list').innerHTML = renderAdminLookupList(
       financialTreatments,
       'financial'
