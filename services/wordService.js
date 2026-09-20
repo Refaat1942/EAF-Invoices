@@ -13,6 +13,7 @@ const {
 const { CENTER_NAME } = require('../config/branding');
 
 const { formatAmountAr } = require('./amountFormat');
+const { enrichInvoice } = require('./pdfService');
 
 function formatNumber(n) {
   return formatAmountAr(n, 2);
@@ -77,8 +78,9 @@ function buildSummaryRows(invoice) {
     ([label, value]) =>
       new TableRow({
         children: [
-          cell('', { colSpan: 3, bold: false }),
+          cell('', { colSpan: 4, bold: false }),
           cell(label, { align: AlignmentType.RIGHT, shading: 'F5F5F5' }),
+          cell('', { bold: false }),
           cell('', { bold: false }),
           cell('', { bold: false }),
           cell(formatNumber(value), { shading: 'F5F5F5' }),
@@ -133,8 +135,9 @@ function buildStayDetailsTable(invoice) {
 }
 
 function buildWordDocument(invoice) {
-  const items = invoice.items || [];
-  const payments = invoice.payments || [];
+  const inv = enrichInvoice(invoice);
+  const items = inv.items || [];
+  const payments = inv.payments || [];
   const maxLen = Math.max(items.length, payments.length, 10);
 
   const dataRows = [];
@@ -148,6 +151,7 @@ function buildWordDocument(invoice) {
           cell(pay.receipt_date ? formatDate(pay.receipt_date) : '', { size: 18 }),
           cell(pay.receipt_number || '', { size: 18 }),
           cell(pay.amount ? formatNumber(pay.amount) : '', { size: 18 }),
+          cell(pay.depositor_name || '', { size: 18 }),
           cell(item.description || '', { align: AlignmentType.RIGHT, size: 18 }),
           cell(hasItem && item.item_discount_percent !== undefined ? `${item.item_discount_percent || 0}%` : '', { size: 18 }),
           cell(item.quantity ?? '', { size: 18 }),
@@ -158,14 +162,14 @@ function buildWordDocument(invoice) {
     );
   }
 
-  const summaryRows = buildSummaryRows(invoice);
+  const summaryRows = buildSummaryRows(inv);
 
   const mainTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
       new TableRow({
         children: [
-          cell('المبالغ المسددة', { colSpan: 3, shading: 'C0C0C0', size: 22 }),
+          cell('المبالغ المسددة', { colSpan: 4, shading: 'C0C0C0', size: 22 }),
           cell('كشف حساب', { shading: 'C0C0C0', size: 22 }),
           cell('القيمة المالية', { colSpan: 4, shading: 'C0C0C0', size: 22 }),
         ],
@@ -175,6 +179,7 @@ function buildWordDocument(invoice) {
           cell('تاريخ الإيصال', { shading: 'D9D9D9' }),
           cell('رقم الإيصال', { shading: 'D9D9D9' }),
           cell('المبلغ', { shading: 'D9D9D9' }),
+          cell('اسم المودع', { shading: 'D9D9D9' }),
           cell('البيان', { shading: 'D9D9D9' }),
           cell('الخصم%', { shading: 'D9D9D9' }),
           cell('عدد', { shading: 'D9D9D9' }),

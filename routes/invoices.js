@@ -10,6 +10,7 @@ const {
   getReportsSummary,
   getInvoiceSerialNumberingAudit,
   prepareCalculationData,
+  buildPreviewInvoiceFromFormData,
 } = require('../services/invoiceService');
 const { listInvoiceTypes } = require('../services/invoiceTypeService');
 const { calculateInvoiceTotals, calculateStayDays } = require('../services/calculations');
@@ -72,6 +73,24 @@ router.post('/calculate', requirePermission('invoices.view'), async (req, res) =
     res.json(calculateInvoiceTotals(calcData));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/preview', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const data = req.body || {};
+    if (!data.stay_days && data.admission_date && data.discharge_date) {
+      data.stay_days = calculateStayDays(data.admission_date, data.discharge_date);
+    }
+    const invoice = await buildPreviewInvoiceFromFormData(data);
+    const baseUrl = getBaseUrl(req);
+    const logoUrl = await getLogoUrl(baseUrl);
+    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: false });
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(html);
+  } catch (err) {
+    res.status(500).send(err.message);
   }
 });
 

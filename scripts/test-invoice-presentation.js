@@ -385,6 +385,54 @@ function testPdfStayDetailAndCaptainName() {
   console.log('OK PDF stay detail and captain name');
 }
 
+function testPatientBalanceNegativeWhenOwing() {
+  const { resolvePatientInvoiceBalanceDisplay } = require('../services/patientService');
+  const draftOwing = resolvePatientInvoiceBalanceDisplay(
+    {
+      file_number: '123',
+      status: 'draft',
+      patient_context: { patient: { account_balance: 0 } },
+    },
+    { final_total: 5000, outstanding_amount: 5000, remaining: 5000, patient_credit_applied: 0 }
+  );
+  assertEq(draftOwing.balance, -5000, 'draft patient owes full invoice');
+
+  const draftWithCredit = resolvePatientInvoiceBalanceDisplay(
+    {
+      file_number: '123',
+      status: 'draft',
+      patient_context: { patient: { account_balance: 1000 } },
+    },
+    { final_total: 5000, outstanding_amount: 2000, remaining: 2000, patient_credit_applied: 3000 }
+  );
+  assertEq(draftWithCredit.balance, -4000, 'draft credit and outstanding combined');
+
+  const approved = resolvePatientInvoiceBalanceDisplay(
+    {
+      file_number: '123',
+      status: 'approved',
+      patient_credit_deducted: true,
+      patient_context: { patient: { account_balance: 0 } },
+    },
+    { final_total: 5000, outstanding_amount: 2000, remaining: 2000, patient_credit_applied: 3000 }
+  );
+  assertEq(approved.balance, -2000, 'approved invoice uses post-deduction balance');
+
+  const enriched = enrichInvoice({
+    file_number: '123',
+    status: 'draft',
+    patient_context: { patient: { account_balance: 0 } },
+    items: [{ description: 'خدمة', quantity: 1, amount: 5000, total: 5000, total_raw: 5000 }],
+    payments: [],
+    method_payments: [],
+    admin_expenses_percent: 0,
+    stamp_duty: 0,
+    professional_fees: 0,
+  });
+  assert(enriched.balance < 0, 'enriched invoice balance is negative when patient owes');
+  console.log('OK patient balance negative when owing');
+}
+
 function main() {
   testThreeMedicinesAggregateToOneRow();
   testTwoSuppliesAggregateToOneRow();
@@ -398,6 +446,7 @@ function main() {
   testFreeManualItemsStayManualBundle();
   testPdfStayDetailAndCaptainName();
   testPdfLabelsWithoutProductNames();
+  testPatientBalanceNegativeWhenOwing();
   console.log('ALL INVOICE PRESENTATION TESTS PASSED');
 }
 

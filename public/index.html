@@ -39,7 +39,7 @@
   </div>
   <script>
     (function () {
-      const BUILD = '20260920v';
+      const BUILD = '20260921h';
       window.__eafBuild = BUILD;
 
       function setBootStatus(message, isError) {
@@ -147,6 +147,7 @@
           </div>
         </div>
         <span class="text-light small fw-bold" id="nav-user"></span>
+        <button type="button" class="btn btn-outline-info btn-sm fw-bold" id="nav-invoice-print-btn" style="display:none" title="معاينة طباعة الفاتورة الكبيرة">🖨️ الفاتورة الكبيرة</button>
         <button type="button" class="btn btn-outline-light btn-sm fw-bold" id="nav-home-shortcut">🏠 الرئيسية</button>
         <button type="button" class="btn btn-outline-danger btn-sm fw-bold" id="logout-btn">خروج</button>
       </div>
@@ -236,7 +237,10 @@
         <div class="card shadow-sm">
           <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span class="fw-black" id="patient-register-type-badge">مريض داخلي</span>
-            <button type="button" class="btn btn-sm btn-light fw-bold" id="patient-register-change-type">↩ تغيير النوع</button>
+            <div class="d-flex flex-wrap gap-2">
+              <button type="button" class="btn btn-sm btn-info fw-bold d-none" id="patient-reg-invoice-print-btn">🖨️ معاينة الفاتورة الكبيرة</button>
+              <button type="button" class="btn btn-sm btn-light fw-bold" id="patient-register-change-type">↩ تغيير النوع</button>
+            </div>
           </div>
           <div class="card-body">
             <form id="patient-register-form" autocomplete="off" novalidate data-guard-key="patient:register" data-guard-busy="جاري الحفظ…">
@@ -538,10 +542,10 @@
                         <th style="width:7%">عدد / مرتجع</th>
                         <th style="width:7%">الخصم%</th>
                         <th style="width:26%" class="invoice-desc-header">البيان</th>
-                        <th style="width:9%">خصم رصيد</th>
                         <th style="width:9%">المبلغ</th>
                         <th style="width:11%">رقم الإيصال</th>
                         <th style="width:12%">تاريخ الإيصال</th>
+                        <th style="width:12%">اسم المودع</th>
                       </tr>
                     </thead>
                     <tbody id="items-tbody"></tbody>
@@ -592,14 +596,14 @@
                       <div class="split-item split-refundable" id="split-refundable-wrap" style="display:none"><span>مستحق إرجاع للمريض</span><strong id="split-refundable-total" class="text-danger">0.00</strong></div>
                     </div>
                     <div id="split-payment-breakdown" class="small fw-bold text-primary mb-2" style="display:none"></div>
-                    <p class="small text-muted mb-2">يمكنك تقسيم الدفع على أكثر من طريقة. <strong>خصم من رصيد المريض</strong> يُخصم من رصيد المريض المسجّل — وليس تحصيلًا نقديًا. في مراجعة الفاتورة من الحركة اليومية لا يُملأ الرصيد تلقائيًا؛ أدخل المدفوعات يدويًا.</p>
+                    <p class="small text-muted mb-2">يمكنك تقسيم الدفع على أكثر من طريقة، وإضافة <strong>أكثر من سطر</strong> لنفس الوسيلة (زر +) — كل سطر يُحسب في الإجمالي ويُحفظ ببياناته. <strong>خصم من رصيد المريض</strong> يُخصم من رصيد المريض المسجّل — وليس تحصيلًا نقديًا.</p>
                     <div id="payment-validation-banner" class="payment-validation-banner mb-2" style="display:none"></div>
                     <table class="table table-bordered table-sm payment-methods-table">
                       <thead class="table-light">
                         <tr>
                           <th>طريقة الدفع</th>
                           <th style="width:38%">المبلغ</th>
-                          <th style="width:18%">إكمال</th>
+                          <th style="width:22%">إجراءات</th>
                         </tr>
                       </thead>
                       <tbody id="payment-methods-tbody">
@@ -634,6 +638,7 @@
 
                 <div class="d-flex gap-2 flex-wrap align-items-center">
                   <span class="badge status-badge" id="invoice-status-badge" style="display:none"></span>
+                  <span class="badge bg-light text-muted border fw-bold" id="invoice-autosave-status" title="الحفظ التلقائي">—</span>
                   <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="record-return-btn" style="display:none" title="تسجيل إرجاع بنود محفوظة">↩️ تسجيل إرجاع</button>
                   <button type="button" class="btn btn-outline-secondary btn-lg fw-black" id="save-draft-btn" data-guard-key="invoice:save" data-guard-busy="جاري الحفظ…" data-guard-siblings="submit-review-btn">💾 حفظ مؤقت</button>
                   <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="delete-invoice-btn" style="display:none" title="حذف المسودة أو الفاتورة قيد المراجعة" data-guard-key="invoice:delete" data-guard-busy="جاري الحذف…">🗑️ حذف</button>
@@ -697,7 +702,7 @@
                   <div class="summary-item total"><span>الإجمالي النهائي:</span><strong id="sum_final">0</strong></div>
                   <div class="summary-item"><span>المحصل:</span><strong id="sum_collected">0</strong></div>
                   <div class="summary-item remaining"><span>متبقي الدفع:</span><strong id="sum_remaining">0.00</strong></div>
-                  <div class="summary-item" id="sum_balance_after_wrap" style="display:none"><span>رصيد بعد الفاتورة:</span><strong id="sum_balance_after" class="text-success">0.00</strong></div>
+                  <div class="summary-item" id="sum_balance_after_wrap" style="display:none"><span>رصيد بعد الفاتورة:</span><strong id="sum_balance_after">0.00</strong></div>
                   <div class="summary-item" id="sum_refundable_wrap" style="display:none"><span>مستحق إرجاع:</span><strong id="sum_refundable" class="text-danger">0.00</strong></div>
                 </div>
               </div>
@@ -968,6 +973,7 @@
 
         <div id="daily-invoice-actions" class="d-flex flex-wrap gap-2 mb-3 d-none">
           <button type="button" class="btn btn-primary fw-bold" id="daily-open-invoice-btn">💰 الفاتورة الكبيرة — مدفوعات</button>
+          <button type="button" class="btn btn-info fw-bold" id="daily-invoice-preview-btn">👁️ معاينة الفاتورة الكبيرة</button>
           <button type="button" class="btn btn-outline-secondary fw-bold d-none" id="daily-invoice-pdf-btn">🖨️ طباعة PDF</button>
         </div>
 
@@ -2375,12 +2381,14 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/action-guard.js?v=20260920v"></script>
+  <script src="/js/enter-add-row.js?v=20260921a"></script>
+  <script src="/js/auto-save.js?v=20260921a"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
-  <script src="/js/app.js?v=20260920v"></script>
+  <script src="/js/app.js?v=20260921h"></script>
   <script src="/js/nationality-pricing.js?v=20260920q"></script>
   <script src="/js/daily-picker.js?v=20260920q"></script>
-  <script src="/js/daily-charges.js?v=20260920v"></script>
+  <script src="/js/daily-charges.js?v=20260921a"></script>
   <script src="/js/notifications.js?v=20260915a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260920u"></script>

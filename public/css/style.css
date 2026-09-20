@@ -198,6 +198,18 @@ body {
   background: #f8fff9;
 }
 
+.payment-methods-table tr.payment-method-line-extra td:first-child {
+  padding-inline-start: 1.5rem;
+}
+
+.payment-methods-table .payment-method-actions {
+  white-space: nowrap;
+}
+
+.payment-methods-table .payment-method-actions .btn {
+  margin-inline: 0.1rem;
+}
+
 .stay-types-grid {
   display: flex;
   flex-wrap: wrap;

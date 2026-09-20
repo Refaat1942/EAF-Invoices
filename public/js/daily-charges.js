@@ -1256,20 +1256,21 @@ async function loadOperationsForToday() {
   return loadOperationsForPatient();
 }
 
-async function saveOperationsPanel() {
+async function saveOperationsPanel(options = {}) {
+  const { silent = false } = options;
   if (!dailyCan('daily_charges.manage')) {
-    showToast('ليس لديك صلاحية', 'warning');
-    return;
+    if (!silent) showToast('ليس لديك صلاحية', 'warning');
+    return false;
   }
   const file_number = getStayFileNumber();
   if (!file_number || !dailyStayContext?.invoice?.id) {
-    showToast('لا توجد فاتورة مفتوحة', 'warning');
-    return;
+    if (!silent) showToast('لا توجد فاتورة مفتوحة', 'warning');
+    return false;
   }
   const operations = collectOperationsFromTable();
   if (!operations.length) {
-    showToast('أضف عملية واحدة على الأقل (اسم أو مبلغ)', 'warning');
-    return;
+    if (!silent) showToast('أضف عملية واحدة على الأقل (اسم أو مبلغ)', 'warning');
+    return false;
   }
   try {
     const data = await apiJson(`${DAILY_API}/operations`, {
@@ -1281,15 +1282,27 @@ async function saveOperationsPanel() {
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_id);
     await refreshOperationsTotalsCache();
     await refreshDailyStaySummary(file_number);
-    await loadOperationsForPatient();
-    if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+    if (!silent || !isDailyPanelFocused()) {
+      await loadOperationsForPatient();
+      if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+    }
     const totalLabel =
       data.final_total != null
         ? dailyFmt(data.final_total)
         : dailyFmt(operations.reduce((s, o) => s + getOperationRowTotalFromPayload(o), 0));
-    showToast(`تم الحفظ — أُضيف على الفاتورة الكبيرة (${totalLabel})`, 'success');
+    if (!silent) {
+      showToast(`تم الحفظ — أُضيف على الفاتورة الكبيرة (${totalLabel})`, 'success');
+    } else if (window.AutoSave) {
+      AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+    }
+    return true;
   } catch (err) {
-    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    if (!silent) {
+      showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    } else if (window.AutoSave) {
+      AutoSave.setStatus('daily', 'error', sanitizeApiErrorMessage(err.message));
+    }
+    return false;
   }
 }
 
@@ -1424,20 +1437,21 @@ async function loadFreeItemsPanel() {
   }
 }
 
-async function saveFreeItems() {
+async function saveFreeItems(options = {}) {
+  const { silent = false } = options;
   if (!dailyCan('daily_charges.manage')) {
-    showToast('ليس لديك صلاحية', 'warning');
-    return;
+    if (!silent) showToast('ليس لديك صلاحية', 'warning');
+    return false;
   }
   const file_number = getStayFileNumber();
   if (!file_number || !dailyStayContext?.invoice?.id) {
-    showToast('لا توجد فاتورة مفتوحة', 'warning');
-    return;
+    if (!silent) showToast('لا توجد فاتورة مفتوحة', 'warning');
+    return false;
   }
   const items = collectFreeItemsFromTable();
   if (!items.length) {
-    showToast('أضف بندًا واحدًا على الأقل', 'warning');
-    return;
+    if (!silent) showToast('أضف بندًا واحدًا على الأقل', 'warning');
+    return false;
   }
   try {
     const data = await apiJson(`${DAILY_API}/free-items`, {
@@ -1447,17 +1461,29 @@ async function saveFreeItems() {
     });
     const prevTab = activeDailyTab;
     await refreshDailyStaySummary(file_number);
-    await loadFreeItemsPanel();
-    if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+    if (!silent || !isDailyPanelFocused()) {
+      await loadFreeItemsPanel();
+      if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+    }
     const freeTotal =
       data.free_items_total ??
       (data.items || items).reduce(
         (sum, row) => sum + (Number(row.quantity) || 1) * (Number(row.amount) || 0),
         0
       );
-    showToast(`تم الحفظ — البنود الحرة على الفاتورة: ${dailyFmt(freeTotal)}`, 'success');
+    if (!silent) {
+      showToast(`تم الحفظ — البنود الحرة على الفاتورة: ${dailyFmt(freeTotal)}`, 'success');
+    } else if (window.AutoSave) {
+      AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+    }
+    return true;
   } catch (err) {
-    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    if (!silent) {
+      showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    } else if (window.AutoSave) {
+      AutoSave.setStatus('daily', 'error', sanitizeApiErrorMessage(err.message));
+    }
+    return false;
   }
 }
 
@@ -1528,6 +1554,7 @@ function showDailyPatientPicker() {
   dailySheetSerialMap.clear();
   dailySheetEntriesCache = [];
   updateDailyMilitaryAuthBanner(null);
+  if (typeof window.updateGlobalInvoicePrintButton === 'function') window.updateGlobalInvoicePrintButton();
 }
 
 function resetDailyPatientPickerList() {
@@ -1817,6 +1844,7 @@ function updateDailyInvoicePanel(ctx) {
       inv.status === 'approved';
     pdfBtn.classList.toggle('d-none', !showPdf);
   }
+  if (typeof window.updateGlobalInvoicePrintButton === 'function') window.updateGlobalInvoicePrintButton();
 }
 
 function applyDailyInvoiceSync(data) {
@@ -2544,11 +2572,17 @@ function bustFieldAutocomplete(root) {
 let patientRegSelectedType = null;
 let patientRegEditMode = false;
 let patientRegEditFileNumber = '';
+let patientRegInvoiceId = null;
 let patientRegEntitiesCache = [];
+
+window.getDailyInvoiceId = () => dailyStayContext?.invoice?.id || null;
+window.getPatientRegInvoiceId = () => patientRegInvoiceId || null;
 
 function showPatientRegisterTypePicker() {
   patientRegEditMode = false;
   patientRegEditFileNumber = '';
+  patientRegInvoiceId = null;
+  if (typeof window.updateGlobalInvoicePrintButton === 'function') window.updateGlobalInvoicePrintButton();
   const fileInput = document.getElementById('patient-reg-file-number');
   if (fileInput) fileInput.readOnly = false;
   const saveBtn = document.getElementById('patient-reg-save-btn');
@@ -2611,6 +2645,8 @@ function showPatientRegisterForm(patientType, options = {}) {
 async function fillPatientRegisterFormFromContext(ctx) {
   const p = ctx?.patient || {};
   const inv = ctx?.invoice || {};
+  patientRegInvoiceId = inv.id || null;
+  if (typeof window.updateGlobalInvoicePrintButton === 'function') window.updateGlobalInvoicePrintButton();
   const assignment = ctx?.room_assignment;
   const fileInput = document.getElementById('patient-reg-file-number');
   if (fileInput) {
@@ -2783,6 +2819,10 @@ function clearPatientRegisterForm(options = {}) {
   togglePatientRegEntityFields();
   updatePatientRegMilitarySummary();
   updateLetterAuthorizedDaysDisplay();
+  if (!options.keepInvoiceId) {
+    patientRegInvoiceId = null;
+    if (typeof window.updateGlobalInvoicePrintButton === 'function') window.updateGlobalInvoicePrintButton();
+  }
 }
 
 async function savePatientRegistration(event) {
@@ -6429,26 +6469,27 @@ async function saveAllDailyCharges() {
   await saveFreeItems();
 }
 
-async function saveDailyEntry() {
+async function saveDailyEntry(options = {}) {
+  const { silent = false } = options;
   if (activeDailyTab === 'free-items') {
-    return saveFreeItems();
+    return saveFreeItems(options);
   }
   if (activeDailyTab === 'operations') {
-    return saveOperationsPanel();
+    return saveOperationsPanel(options);
   }
   if (!dailyCan('daily_charges.manage')) {
-    showToast('ليس لديك صلاحية تسجيل الحركة اليومية', 'warning');
-    return;
+    if (!silent) showToast('ليس لديك صلاحية تسجيل الحركة اليومية', 'warning');
+    return false;
   }
   if (!dailyStayContext?.invoice?.id) {
-    showToast('لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا', 'warning');
-    return;
+    if (!silent) showToast('لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا', 'warning');
+    return false;
   }
   const file_number = getStayFileNumber();
   const entries = collectDailyRowsForSave();
   if (!file_number || !entries.length) {
-    showToast('أضف صفًا واحدًا على الأقل مع بيانات', 'warning');
-    return;
+    if (!silent) showToast('أضف صفًا واحدًا على الأقل مع بيانات', 'warning');
+    return false;
   }
 
   try {
@@ -6479,15 +6520,100 @@ async function saveDailyEntry() {
     const toastMsg = `تم الحفظ — أُضيف تلقائياً على الفاتورة الكبيرة (#${data.invoice_sync.invoice_id})`;
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
     await refreshDailyStaySummary(file_number);
-    await loadDailyEntriesIntoSheet();
-    await loadDailyPatientHistory();
-    if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+    if (!silent || !isDailyPanelFocused()) {
+      await loadDailyEntriesIntoSheet();
+      await loadDailyPatientHistory();
+      if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+    }
 
     const statusEl = document.getElementById('daily-entry-status');
-    if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
-    showToast(toastMsg, 'success');
+    if (!silent) {
+      if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
+      showToast(toastMsg, 'success');
+    }
+    if (window.AutoSave) {
+      AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+    }
+    return true;
   } catch (err) {
-    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    if (!silent) {
+      showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    } else if (window.AutoSave) {
+      AutoSave.setStatus('daily', 'error', sanitizeApiErrorMessage(err.message));
+    }
+    return false;
+  }
+}
+
+function isDailyPanelFocused() {
+  const el = document.activeElement;
+  return Boolean(
+    el &&
+      el.closest('#daily-tabs-sheet-panel, #daily-operations-panel, #daily-free-items-panel')
+  );
+}
+
+function getDailyAutosaveFingerprint() {
+  if (activeDailyTab === 'free-items') return JSON.stringify(collectFreeItemsFromTable());
+  if (activeDailyTab === 'operations') return JSON.stringify(collectOperationsFromTable());
+  return JSON.stringify({
+    tab: activeDailyTab,
+    entries: collectDailyRowsForSave(),
+    notes: document.getElementById('daily-notes')?.value || '',
+  });
+}
+
+function canAutoSaveDailyCharges() {
+  if (!dailyCan('daily_charges.manage')) return false;
+  if (!dailyStayContext?.invoice?.id) return false;
+  const view = document.getElementById('view-daily');
+  if (view && view.style.display === 'none') return false;
+  if (activeDailyTab === 'free-items') return collectFreeItemsFromTable().length > 0;
+  if (activeDailyTab === 'operations') return collectOperationsFromTable().length > 0;
+  return collectDailyRowsForSave().length > 0;
+}
+
+async function autoSaveDailyCharges() {
+  return saveDailyEntry({ silent: true, auto: true });
+}
+
+function initDailyAutosaveAndEnterRow() {
+  if (window.AutoSave && !window.__dailyAutosaveReady) {
+    window.__dailyAutosaveReady = true;
+    AutoSave.register('daily', {
+      statusEl: 'daily-entry-status',
+      debounceMs: 2500,
+      canSave: canAutoSaveDailyCharges,
+      getFingerprint: getDailyAutosaveFingerprint,
+      save: autoSaveDailyCharges,
+    });
+    const panel = document.getElementById('view-daily');
+    if (panel) AutoSave.installChangeListeners(panel, 'daily');
+  }
+
+  if (window.EnterAddRow && !window.__dailyEnterRowReady) {
+    window.__dailyEnterRowReady = true;
+    EnterAddRow.register({
+      rowSelector: '.daily-entry-row',
+      container: '#daily-sections-body',
+      canHandle: () => dailyCan('daily_charges.manage') && Boolean(dailyStayContext?.invoice?.id),
+      rowHasData: (row) => rowHasChargeData(row),
+      addRow: () => handleDailySheetAddRow(),
+    });
+    EnterAddRow.register({
+      rowSelector: '.daily-operation-row',
+      container: '#daily-operations-tbody',
+      canHandle: () => dailyCan('daily_charges.manage') && Boolean(dailyStayContext?.invoice?.id),
+      rowHasData: (row) => !operationRowIsBlank(row),
+      addRow: () => addOperationRow(),
+    });
+    EnterAddRow.register({
+      rowSelector: '.daily-free-item-row',
+      container: '#daily-free-items-tbody',
+      canHandle: () => dailyCan('daily_charges.manage') && Boolean(dailyStayContext?.invoice?.id),
+      rowHasData: (row) => !freeItemRowIsBlank(row),
+      addRow: () => addFreeItemRow(),
+    });
   }
 }
 
@@ -6787,6 +6913,16 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
   document.getElementById('daily-invoice-pdf-btn')?.addEventListener('click', openDailyInvoicePdf);
+  document.getElementById('daily-invoice-preview-btn')?.addEventListener('click', () => {
+    const invId = dailyStayContext?.invoice?.id;
+    if (!invId) {
+      showToast('لا توجد فاتورة مفتوحة', 'warning');
+      return;
+    }
+    if (typeof window.openInvoicePrintPreview === 'function') {
+      window.openInvoicePrintPreview({ invoiceId: invId, forceSaved: true });
+    }
+  });
   document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
     const q = document.getElementById('daily-patient-search')?.value || '';
     void loadDailyPatientGrid(q);
@@ -6876,6 +7012,7 @@ document.addEventListener('DOMContentLoaded', () => {
     void saveFreeItems();
   });
   document.getElementById('import-daily-charges-btn')?.addEventListener('click', importDailyChargesToInvoice);
+  initDailyAutosaveAndEnterRow();
 });
 
 window.initDailyChargesView = initDailyChargesView;

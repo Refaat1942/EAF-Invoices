@@ -213,6 +213,19 @@ const decimalValidation = validateInvoiceCalculations(
 );
 assert(decimalValidation.is_valid, `decimal validation: ${decimalValidation.errors.join('; ')}`);
 
+const splitCash = calculateInvoiceTotals({
+  ...base,
+  items: [{ description: 'بند', quantity: 1, amount: 1000 }],
+  method_payments: [
+    { code: 'cash', amount: 300 },
+    { code: 'cash', amount: 200 },
+    { code: 'bank_transfer', amount: 150 },
+  ],
+});
+assertEq(splitCash.cash_private, 500, 'multiple cash lines summed');
+assertEq(splitCash.bank_private, 150, 'bank line preserved');
+assertEq(splitCash.total_collected_raw, 650, 'split payment total');
+
 // Fractional unit price × quantity
 const qtyTotals = calculateInvoiceTotals({
   ...base,

@@ -48,6 +48,7 @@
   }
 
   function inferBundleKeyFromItem(item) {
+    if (item?.is_stay_entry) return 'stay';
     const code = String(item?.section_code || item?.bundle_code || '').trim();
     if (code && BUNDLE_LABELS[code]) return code;
     if (code) return inferBundleKey(code);

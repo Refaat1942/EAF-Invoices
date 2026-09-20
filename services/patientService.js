@@ -458,6 +458,23 @@ async function convertExternalPatientToInternal(fileNumber) {
   return getPatientByFileNumber(fn);
 }
 
+function resolvePatientInvoiceBalanceDisplay(invoice, totals = {}) {
+  const fileNumber = String(invoice?.file_number || '').trim();
+  if (!fileNumber) return null;
+
+  const account = Math.round((Number(invoice?.patient_context?.patient?.account_balance) || 0) * 100) / 100;
+  const outstanding =
+    Math.round((Number(totals.outstanding_amount ?? totals.remaining) || 0) * 100) / 100;
+  const credit = Math.round((Number(totals.patient_credit_applied) || 0) * 100) / 100;
+  const creditAlreadyDeducted =
+    Boolean(invoice?.patient_credit_deducted) || invoice?.status === 'approved';
+  const balance = creditAlreadyDeducted
+    ? Math.round((account - outstanding) * 100) / 100
+    : Math.round((account - credit - outstanding) * 100) / 100;
+
+  return { balance, balance_raw: balance };
+}
+
 async function bumpPatientFileCounter(patientType, fileNumber, client = null) {
   const n = parseInt(String(fileNumber || '').trim(), 10);
   if (!Number.isFinite(n) || n <= 0) return;
@@ -488,4 +505,5 @@ module.exports = {
   bumpPatientFileCounter,
   convertExternalPatientToInternal,
   checkFileNumberAvailability,
+  resolvePatientInvoiceBalanceDisplay,
 };

@@ -40,6 +40,8 @@ let paymentMethodsCache = [];
 let contractedEntitiesCache = [];
 let stayTypesCache = [];
 let lastCalculationTotals = null;
+let excludedDailyLineIds = new Set();
+let excludedSectionCodes = new Set();
 let patientAccountBalance = null;
 let permissionCatalog = [];
 let roleDefaults = {};
@@ -99,6 +101,41 @@ function parseDisplayAmount(text) {
 
 const fmt = (n) => formatPlainNumber(n, 2);
 const fmtInt = (n) => formatPlainNumber(n, 0);
+
+function patientBalanceClass(value) {
+  const n = Number(value) || 0;
+  if (n < -0.009) return 'text-danger';
+  if (n > 0.009) return 'text-success';
+  return '';
+}
+
+function applyPatientBalanceStyle(el, value) {
+  if (!el) return;
+  el.classList.remove('text-danger', 'text-success');
+  const cls = patientBalanceClass(value);
+  if (cls) el.classList.add(cls);
+}
+
+function applyPatientBalanceBadge(balanceDisplayEl, balance) {
+  const badge = balanceDisplayEl?.closest('.badge');
+  const n = Number(balance) || 0;
+  if (balanceDisplayEl) {
+    balanceDisplayEl.textContent = fmt(balance);
+    applyPatientBalanceStyle(balanceDisplayEl, balance);
+  }
+  if (!badge) return;
+  badge.classList.remove(
+    'bg-success-subtle',
+    'text-success',
+    'bg-danger-subtle',
+    'text-danger',
+    'bg-secondary-subtle',
+    'text-dark'
+  );
+  if (n < -0.009) badge.classList.add('bg-danger-subtle', 'text-danger');
+  else if (n > 0.009) badge.classList.add('bg-success-subtle', 'text-success');
+  else badge.classList.add('bg-secondary-subtle', 'text-dark');
+}
 
 function formatAmountInput(n, decimals = 2) {
   if (n === '' || n === null || n === undefined) return '';
@@ -483,7 +520,13 @@ function renderInvoicePatientRegistrationSummary(inv) {
   const collected = Number(inv.total_collected) || 0;
   const finalTotal = Number(inv.final_total) || 0;
   const invoiceDue = Number(inv.remaining ?? inv.outstanding_amount) || 0;
-  const balanceAfter = Math.round((balance - finalTotal) * 100) / 100;
+  const creditApplied = Number(inv.patient_credit_applied) || 0;
+  const creditAlreadyDeducted = Boolean(inv.patient_credit_deducted) || inv.status === 'approved';
+  const balanceAfter = creditAlreadyDeducted
+    ? Math.round((balance - invoiceDue) * 100) / 100
+    : Math.round((balance - creditApplied - invoiceDue) * 100) / 100;
+  const balanceClass = patientBalanceClass(balance);
+  const balanceAfterClass = patientBalanceClass(balanceAfter);
   const entityName = String(inv.contracted_entity_name || '').trim();
   const showEntity =
     (inv.invoice_type === 'contracted' || inv.invoice_type === 'non_contracted') && entityName;
@@ -534,7 +577,7 @@ function renderInvoicePatientRegistrationSummary(inv) {
       <th class="invoice-patient-summary-label">إجمالي الفاتورة</th>
       <td class="fw-bold text-primary">${fmt(finalTotal)}</td>
       <th class="invoice-patient-summary-label">رصيد الحساب</th>
-      <td class="fw-bold text-success">${fmt(balance)}</td>
+      <td class="fw-bold ${balanceClass}">${fmt(balance)}</td>
     </tr>
     <tr>
       <th class="invoice-patient-summary-label">المحصل</th>
@@ -542,9 +585,9 @@ function renderInvoicePatientRegistrationSummary(inv) {
       <th class="invoice-patient-summary-label">متبقي الدفع على الفاتورة</th>
       <td class="fw-bold ${invoiceDue > 0.009 ? 'text-danger' : ''}">${fmt(invoiceDue)}</td>
     </tr>
-    <tr class="table-success">
+    <tr class="${balanceAfter < -0.009 ? 'table-danger' : balanceAfter > 0.009 ? 'table-success' : ''}">
       <th class="invoice-patient-summary-label">رصيد بعد الفاتورة</th>
-      <td class="fw-bold text-success" colspan="3">${fmt(balanceAfter)} <span class="small text-muted">(${fmt(balance)} − ${fmt(finalTotal)})</span></td>
+      <td class="fw-bold ${balanceAfterClass}" colspan="3">${fmt(balanceAfter)} <span class="small text-muted">(${fmt(balance)} − ${fmt(creditApplied)} − ${fmt(invoiceDue)})</span></td>
     </tr>`;
   panel.style.display = '';
 }
@@ -560,6 +603,7 @@ function updateInvoicePreviewButtons(inv) {
   if (docxBtn) docxBtn.style.display = showDownload ? 'inline-block' : 'none';
   const topPreview = document.getElementById('invoice-preview-top-btn');
   if (topPreview) topPreview.style.display = showPrint ? 'inline-block' : 'none';
+  updateGlobalInvoicePrintButton();
 }
 
 function updateInvoicePatientSummary(inv) {
@@ -862,8 +906,7 @@ function invoiceRowIsBlank(tr) {
   const amt = parseDisplayAmount(tr.querySelector('[data-field="amount"]')?.value);
   const qty = parseDisplayAmount(tr.querySelector('[data-field="quantity"]')?.value);
   const pay = parseDisplayAmount(tr.querySelector('[data-field="pay_amount"]')?.value);
-  const credit = parseDisplayAmount(tr.querySelector('[data-field="patient_credit_applied"]')?.value);
-  return !desc && amt <= 0 && qty <= 0 && pay <= 0 && credit <= 0;
+  return !desc && amt <= 0 && qty <= 0 && pay <= 0;
 }
 
 function findBlankInvoiceRow() {
@@ -888,6 +931,178 @@ function findBlankStayEntryRow() {
   return null;
 }
 
+function resetInvoiceExclusions(lineIds = [], sectionCodes = []) {
+  excludedDailyLineIds = new Set((lineIds || []).map((id) => Number(id)).filter((id) => id > 0));
+  excludedSectionCodes = new Set((sectionCodes || []).map((code) => String(code || '').trim()).filter(Boolean));
+}
+
+function addExcludedDailyLineId(id) {
+  const lineId = Number(id);
+  if (lineId > 0) excludedDailyLineIds.add(lineId);
+}
+
+function addExcludedSectionCode(code) {
+  const sectionCode = String(code || '').trim();
+  if (sectionCode) excludedSectionCodes.add(sectionCode);
+}
+
+function excludeInvoiceSection(sectionKey) {
+  if (!sectionKey) return;
+  const items = (lastCalculationTotals?.items || []).filter((item) => !item.is_stay_entry);
+  let matched = false;
+  for (const item of items) {
+    if (inferInvoiceItemSectionKey(item) !== sectionKey) continue;
+    matched = true;
+    if (item.daily_entry_line_id) addExcludedDailyLineId(item.daily_entry_line_id);
+  }
+  if (matched || sectionKey) addExcludedSectionCode(sectionKey);
+}
+
+function findLastRemovableInvoiceRow(tbody) {
+  if (!tbody) return null;
+  for (let i = tbody.children.length - 1; i >= 0; i--) {
+    const row = tbody.children[i];
+    if (row.dataset.sectionHeader) continue;
+    return row;
+  }
+  return null;
+}
+
+function attachInvoiceRowDeleteButton(row) {
+  if (!row || row.dataset.sectionHeader || row.querySelector('.remove-invoice-item-btn')) return;
+  if (isInvoiceFollowUpLocked()) return;
+  const host = row.querySelector('.service-cell') || row.querySelector('[data-field="description"]')?.closest('td');
+  if (!host) return;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn btn-sm btn-outline-danger remove-invoice-item-btn ms-1';
+  btn.title = 'حذف السطر';
+  btn.textContent = '×';
+  btn.tabIndex = -1;
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    removeInvoiceItemRow(row);
+    recalculate();
+  });
+  host.appendChild(btn);
+}
+
+function removeInvoiceItemRow(row) {
+  if (!row || row.dataset.sectionHeader) return false;
+  const tbody = row.parentElement;
+  if (!tbody || tbody.children.length <= 1) return false;
+  if (row.dataset.sectionAggregate) {
+    excludeInvoiceSection(row.dataset.sectionKey || row.dataset.sectionCode || '');
+    row.remove();
+    rowCount = Math.max(0, rowCount - 1);
+    return true;
+  }
+  if (row.dataset.dailyLineId) {
+    addExcludedDailyLineId(row.dataset.dailyLineId);
+  }
+  row.remove();
+  rowCount = Math.max(0, rowCount - 1);
+  return true;
+}
+
+function canViewInvoicePrint() {
+  return can('invoices.view') || can('invoices.edit') || can('invoices.create');
+}
+
+function resolveActiveInvoiceId() {
+  if (currentInvoiceId) return Number(currentInvoiceId);
+  if (typeof window.getDailyInvoiceId === 'function') {
+    const dailyId = window.getDailyInvoiceId();
+    if (dailyId) return Number(dailyId);
+  }
+  if (typeof window.getPatientRegInvoiceId === 'function') {
+    const regId = window.getPatientRegInvoiceId();
+    if (regId) return Number(regId);
+  }
+  return null;
+}
+
+function updateGlobalInvoicePrintButton() {
+  const btn = document.getElementById('nav-invoice-print-btn');
+  const regBtn = document.getElementById('patient-reg-invoice-print-btn');
+  const invoiceId = resolveActiveInvoiceId();
+  const show = Boolean(invoiceId && canViewInvoicePrint());
+  if (btn) {
+    btn.style.display = show ? '' : 'none';
+    if (show) btn.dataset.invoiceId = String(invoiceId);
+    else delete btn.dataset.invoiceId;
+  }
+  if (regBtn) {
+    const onRegister =
+      document.getElementById('view-patient-register')?.style.display !== 'none' &&
+      !document.getElementById('patient-register-form-panel')?.classList.contains('d-none');
+    regBtn.classList.toggle('d-none', !(show && onRegister));
+  }
+}
+
+async function openInvoicePreviewFromForm() {
+  const data = collectFormData();
+  if (!data.invoice_type) {
+    showToast('يجب اختيار نوع الفاتورة أولاً', 'warning');
+    return;
+  }
+  if (!lastCalculationTotals) await recalculate();
+  const res = await apiFetch(`${API}/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const html = await res.text();
+  if (!res.ok) throw new Error(html || 'فشل معاينة الفاتورة');
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function openInvoicePrintPreview(options = {}) {
+  try {
+    const invoiceId =
+      options.invoiceId != null ? Number(options.invoiceId) : resolveActiveInvoiceId();
+    if (!invoiceId) {
+      showToast('لا توجد فاتورة للطباعة', 'warning');
+      return;
+    }
+    if (!canViewInvoicePrint()) {
+      showToast('لا تملك صلاحية معاينة الفواتير', 'warning');
+      return;
+    }
+
+    const viewCreate = document.getElementById('view-create');
+    const onInvoiceForm =
+      !options.forceSaved &&
+      viewCreate &&
+      viewCreate.style.display !== 'none' &&
+      Number(currentInvoiceId) === invoiceId;
+
+    if (onInvoiceForm) {
+      await openInvoicePreviewFromForm();
+      return;
+    }
+
+    window.open(`${API}/${invoiceId}/preview`, '_blank');
+  } catch (err) {
+    showToast(err.message || 'فشل معاينة الفاتورة', 'danger');
+  }
+}
+
+async function openInvoicePreview() {
+  try {
+    await openInvoicePrintPreview();
+  } catch (err) {
+    showToast(err.message || 'فشل معاينة الفاتورة', 'danger');
+  }
+}
+
+window.openInvoicePrintPreview = openInvoicePrintPreview;
+window.resolveActiveInvoiceId = resolveActiveInvoiceId;
+window.updateGlobalInvoicePrintButton = updateGlobalInvoicePrintButton;
+
 function createRow(index) {
   const tr = document.createElement('tr');
   tr.dataset.index = index;
@@ -899,13 +1114,14 @@ function createRow(index) {
     <td class="service-cell">
       <input type="hidden" data-field="invoice_item_id" value="">
       <input type="hidden" data-field="service_id" value="">
+      <input type="hidden" data-field="patient_credit_applied" value="">
       <input type="text" class="desc-input calc-trigger service-search" data-field="description" autocomplete="off" placeholder="ابحث عن خدمة من اللائحة...">
       <div class="service-suggest d-none"></div>
     </td>
-    <td><input type="text" inputmode="decimal" class="calc-trigger comma-amount patient-credit-input" data-field="patient_credit_applied" value="" placeholder="0" title="خصم من رصيد المريض"></td>
     <td><input type="text" inputmode="decimal" class="pay-amt calc-trigger comma-amount" data-field="pay_amount" value=""></td>
     <td><input type="text" class="pay-num calc-trigger" data-field="receipt_number"></td>
     <td><input type="date" class="pay-date calc-trigger" data-field="receipt_date"></td>
+    <td><input type="text" class="pay-depositor calc-trigger" data-field="depositor_name" autocomplete="off" placeholder="اسم المودع"></td>
   `;
   return tr;
 }
@@ -930,6 +1146,7 @@ function estimateInvoiceItemLineTotal(item) {
 }
 
 function inferInvoiceItemSectionKey(item) {
+  if (item?.is_stay_entry) return 'stay';
   if (window.DailySectionBundles) {
     return DailySectionBundles.inferBundleKeyFromItem(item);
   }
@@ -943,7 +1160,7 @@ function inferInvoiceItemSectionKey(item) {
 }
 
 function invoiceGroupShouldAggregate(key, groupItems = []) {
-  if (key === 'stay') return false;
+  if (key === 'stay') return true;
   if (key === '__manual__') {
     return groupItems.every((item) => item.daily_entry_line_id || item.daily_entry_id);
   }
@@ -1021,6 +1238,7 @@ function fillInvoiceAggregateRow(tr, part = {}, pay = {}) {
   if (!tr) return;
   tr.dataset.sectionAggregate = '1';
   tr.classList.add('invoice-section-aggregate-row');
+  if (part.sectionKey) tr.dataset.sectionKey = part.sectionKey;
   if (part.sectionCode) tr.dataset.sectionCode = part.sectionCode;
   const descEl = tr.querySelector('[data-field="description"]');
   const qtyEl = tr.querySelector('[data-field="quantity"]');
@@ -1036,8 +1254,13 @@ function fillInvoiceAggregateRow(tr, part = {}, pay = {}) {
   const receiptNumEl = tr.querySelector('[data-field="receipt_number"]');
   const payAmtEl = tr.querySelector('[data-field="pay_amount"]');
   if (receiptDateEl) receiptDateEl.value = pay.receipt_date || '';
-  if (receiptNumEl) receiptNumEl.value = pay.receipt_number || '';
+  if (receiptNumEl) {
+    receiptNumEl.value =
+      pay.receipt_number != null && pay.receipt_number !== '' ? String(pay.receipt_number) : '';
+  }
   if (payAmtEl) payAmtEl.value = pay.amount ? formatAmountInput(pay.amount) : '';
+  const depositorEl = tr.querySelector('[data-field="depositor_name"]');
+  if (depositorEl) depositorEl.value = pay.depositor_name || '';
   tr.querySelectorAll(
     '[data-field="description"], [data-field="quantity"], [data-field="amount"], [data-field="total"], [data-field="discount_percent"]'
   ).forEach((el) => {
@@ -1049,6 +1272,7 @@ function fillInvoiceAggregateRow(tr, part = {}, pay = {}) {
     descInput.classList.add('fw-bold', 'text-primary');
     descInput.removeAttribute('placeholder');
   }
+  attachInvoiceRowDeleteButton(tr);
 }
 
 function fillInvoiceItemRow(row, item = {}, pay = {}) {
@@ -1088,8 +1312,13 @@ function fillInvoiceItemRow(row, item = {}, pay = {}) {
   const receiptNumEl = row.querySelector('[data-field="receipt_number"]');
   const payAmtEl = row.querySelector('[data-field="pay_amount"]');
   if (receiptDateEl) receiptDateEl.value = pay.receipt_date || '';
-  if (receiptNumEl) receiptNumEl.value = pay.receipt_number || '';
+  if (receiptNumEl) {
+    receiptNumEl.value =
+      pay.receipt_number != null && pay.receipt_number !== '' ? String(pay.receipt_number) : '';
+  }
   if (payAmtEl) payAmtEl.value = pay.amount ? formatAmountInput(pay.amount) : '';
+  const depositorEl = row.querySelector('[data-field="depositor_name"]');
+  if (depositorEl) depositorEl.value = pay.depositor_name || '';
   if (item.daily_entry_line_id) row.dataset.dailyLineId = item.daily_entry_line_id;
   else delete row.dataset.dailyLineId;
   if (item.daily_entry_id) row.dataset.dailyEntryId = item.daily_entry_id;
@@ -1097,6 +1326,7 @@ function fillInvoiceItemRow(row, item = {}, pay = {}) {
   if (item.section_code) row.dataset.sectionCode = item.section_code;
   else delete row.dataset.sectionCode;
   updateInvoiceReturnHint(row, item);
+  attachInvoiceRowDeleteButton(row);
 }
 
 function populateInvoiceItemsGrouped(items = [], payments = []) {
@@ -1164,16 +1394,14 @@ function bindEvents() {
   });
   document.getElementById('remove-row-btn').addEventListener('click', () => {
     const tbody = document.getElementById('items-tbody');
-    if (tbody.children.length > 1) {
-      tbody.removeChild(tbody.lastElementChild);
-      rowCount--;
-      recalculate();
-    }
+    const row = findLastRemovableInvoiceRow(tbody);
+    if (!row) return;
+    removeInvoiceItemRow(row);
+    recalculate();
   });
 
   document.getElementById('add-stay-entry-btn')?.addEventListener('click', () => {
     addStayEntryRow();
-    bindStayEntryTriggers();
   });
 
   document.getElementById('admission_date').addEventListener('change', () => {
@@ -1188,10 +1416,16 @@ function bindEvents() {
   document.getElementById('download-pdf-btn').addEventListener('click', () => downloadFile('pdf'));
   document.getElementById('download-docx-btn').addEventListener('click', () => downloadFile('docx'));
   document.getElementById('preview-btn').addEventListener('click', () => {
-    if (currentInvoiceId) window.open(`${API}/${currentInvoiceId}/preview`, '_blank');
+    openInvoicePreview();
   });
   document.getElementById('invoice-preview-top-btn')?.addEventListener('click', () => {
-    if (currentInvoiceId) window.open(`${API}/${currentInvoiceId}/preview`, '_blank');
+    openInvoicePreview();
+  });
+  document.getElementById('nav-invoice-print-btn')?.addEventListener('click', () => {
+    openInvoicePrintPreview();
+  });
+  document.getElementById('patient-reg-invoice-print-btn')?.addEventListener('click', () => {
+    openInvoicePrintPreview();
   });
 
   const returnModalEl = document.getElementById('invoice-return-modal');
@@ -1380,6 +1614,7 @@ function bindEvents() {
   document.getElementById('contracted_entity_id')?.addEventListener('change', onContractedEntityChange);
 
   bindCalcTriggers();
+  initInvoiceAutosaveAndEnterRow();
   } catch (err) {
     console.error('[app] bindEvents partial failure:', err);
     if (typeof showToast === 'function') {
@@ -1414,11 +1649,30 @@ function bindNumberInputWheelBlock() {
 }
 
 function bindPaymentMethodHelpers() {
-  document.querySelectorAll('.pay-remaining-btn').forEach((btn) => {
-    if (btn.dataset.bound === '1') return;
-    btn.dataset.bound = '1';
-    btn.addEventListener('click', () => fillRemainingPayment(btn.dataset.methodCode));
-  });
+  const tbody = document.getElementById('payment-methods-tbody');
+  if (tbody && tbody.dataset.paymentHelpersBound !== '1') {
+    tbody.dataset.paymentHelpersBound = '1';
+    tbody.addEventListener('click', (event) => {
+      const addBtn = event.target.closest('.add-payment-line-btn');
+      if (addBtn) {
+        event.preventDefault();
+        addPaymentMethodLine(addBtn.dataset.methodCode);
+        return;
+      }
+      const removeBtn = event.target.closest('.remove-payment-line-btn');
+      if (removeBtn) {
+        event.preventDefault();
+        removePaymentMethodLine(removeBtn);
+        return;
+      }
+      const remainBtn = event.target.closest('.pay-remaining-btn');
+      if (remainBtn) {
+        event.preventDefault();
+        const row = remainBtn.closest('.payment-method-line');
+        fillRemainingPayment(remainBtn.dataset.methodCode, row?.querySelector('.payment-method-input'));
+      }
+    });
+  }
 
   document.querySelectorAll('.payment-method-input').forEach((input) => {
     if (input.dataset.helperBound === '1') return;
@@ -1470,25 +1724,17 @@ function updatePaymentRowHints() {
   const paid = sumAllPaymentInputs();
   const remaining = getPaymentGap();
 
-  document.querySelectorAll('.payment-method-row').forEach((row) => {
-    const hintRow = row.nextElementSibling?.classList?.contains('payment-row-remaining')
-      ? row.nextElementSibling
-      : null;
-    const input = row.querySelector('.payment-method-input');
-    const btn = row.querySelector('.pay-remaining-btn');
-    if (!input || !btn) return;
-
+  document.querySelectorAll('.payment-method-line .pay-remaining-btn').forEach((btn) => {
     btn.disabled = remaining <= 0 || finalTotal <= 0;
     btn.title = remaining > 0 ? `إضافة المتبقي ${fmt(remaining)}` : 'لا يوجد متبقي — تم تغطية الإجمالي';
+  });
 
-    if (hintRow) {
-      if (remaining > 0 && finalTotal > 0) {
-        hintRow.style.display = '';
-        hintRow.querySelector('.remaining-hint-text').textContent =
-          `المتبقي على الفاتورة: ${fmt(remaining)}`;
-      } else {
-        hintRow.style.display = 'none';
-      }
+  document.querySelectorAll('.payment-method-hint-row').forEach((hintRow) => {
+    if (remaining > 0 && finalTotal > 0) {
+      hintRow.style.display = '';
+      hintRow.querySelector('.remaining-hint-text').textContent = `المتبقي على الفاتورة: ${fmt(remaining)}`;
+    } else {
+      hintRow.style.display = 'none';
     }
   });
 
@@ -1540,10 +1786,9 @@ function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0, 
   }
 }
 
-function fillRemainingPayment(code) {
-  const inputs = getPaymentInputsByCode(code);
-  if (!inputs.length) return;
-  const input = inputs[0];
+function fillRemainingPayment(code, inputEl = null) {
+  const input = inputEl || getPaymentInputsByCode(code)[0];
+  if (!input) return;
   const gap = getPaymentGap();
   if (gap <= 0) {
     showToast('لا يوجد متبقي — تم تغطية إجمالي الفاتورة', 'info');
@@ -1776,53 +2021,31 @@ function appendNewItemRow() {
   return row;
 }
 
-function syncStayEntriesToItemRows() {
-  const activeStayKeys = new Set();
-  document.querySelectorAll('#stay-entries-tbody tr.stay-entry-row').forEach((stayRow) => {
-    const stayKey = getStayRowKey(stayRow);
-    const stayTypeSelect = stayRow.querySelector('[data-field="stay_type_id"]');
-    const stayTypeId = stayTypeSelect?.value;
-    const stayName =
-      stayTypeSelect?.selectedOptions?.[0]?.textContent?.replace(/\s*\([\d,.]+\/يوم\)\s*$/, '')?.trim() || '';
-    const days = parseDisplayAmount(stayRow.querySelector('[data-field="days"]')?.value);
-    const rate = parseDisplayAmount(stayRow.querySelector('[data-field="daily_rate"]')?.value);
-
-    if (!stayTypeId || (!days && !rate)) {
-      const existing = findItemRowByStayKey(stayKey);
-      if (existing) existing.remove();
-      return;
-    }
-
-    activeStayKeys.add(stayKey);
-    let itemRow = findItemRowByStayKey(stayKey);
-    if (!itemRow) {
-      itemRow = findFirstEmptyItemRow() || appendNewItemRow();
-      itemRow.dataset.staySync = stayKey;
-    }
-    itemRow.classList.add('stay-sync-row');
-
-    const desc = stayName ? `إقامة - ${stayName}` : 'إقامة';
-    const descInput = itemRow.querySelector('[data-field="description"]');
-    const qtyInput = itemRow.querySelector('[data-field="quantity"]');
-    const amtInput = itemRow.querySelector('[data-field="amount"]');
-    if (!descInput || !qtyInput || !amtInput) return;
-    descInput.value = desc;
-    qtyInput.value = days ? formatAmountInput(days, 0) : '';
-    amtInput.value = rate ? formatAmountInput(rate) : '';
-
-    const matched = findCatalogServiceByName(stayName);
-    const serviceIdEl = itemRow.querySelector('[data-field="service_id"]');
-    if (matched && serviceIdEl) {
-      serviceIdEl.value = matched.id;
-      itemRow.dataset.discountOverride = matched.discountable ? 'true' : 'false';
-    } else if (serviceIdEl) {
-      serviceIdEl.value = '';
-    }
+function normalizeInvoiceDisplayItems(items = []) {
+  return (items || []).map((item) => {
+    if (!item?.is_stay_entry) return item;
+    return {
+      ...item,
+      section_code: item.section_code || 'accommodation',
+      bundle_code: 'stay',
+      section_sort_order: item.section_sort_order ?? 0,
+    };
   });
+}
 
-  document.querySelectorAll('#items-tbody tr[data-stay-sync]').forEach((row) => {
-    if (!activeStayKeys.has(row.dataset.staySync)) row.remove();
-  });
+function buildInvoiceItemsForDisplay(inv = {}) {
+  const manualItems = (inv.items || []).filter((item) => !item.is_stay_entry);
+  const stayItems = (inv.stay_entries || []).map((entry) => ({
+    description: `إقامة - ${entry.stay_type_name || ''}`.trim(),
+    quantity: entry.days,
+    amount: entry.daily_rate,
+    total: entry.total,
+    total_raw: entry.total_raw ?? entry.total,
+    is_stay_entry: true,
+    section_code: 'accommodation',
+    bundle_code: 'stay',
+  }));
+  return normalizeInvoiceDisplayItems([...manualItems, ...stayItems]);
 }
 
 function calcDaysBetween(fromDate, toDate) {
@@ -1864,15 +2087,23 @@ function createStayEntryRow(entry = {}) {
   return tr;
 }
 
+function appendStayEntryRow(entry = {}) {
+  const tbody = document.getElementById('stay-entries-tbody');
+  if (!tbody) return null;
+  const row = createStayEntryRow(entry);
+  tbody.appendChild(row);
+  getStayRowKey(row);
+  bindStayEntryTriggers();
+  return row;
+}
+
 function initStayEntries(entries = []) {
   const tbody = document.getElementById('stay-entries-tbody');
   if (!tbody) return;
   tbody.innerHTML = '';
   const list = entries.length ? entries : [{}];
-  list.forEach((entry) => tbody.appendChild(createStayEntryRow(entry)));
-  bindStayEntryTriggers();
+  list.forEach((entry) => appendStayEntryRow(entry));
   updateStayEntryTotalsLocal();
-  syncStayEntriesToItemRows();
 }
 
 function addStayEntryRow(entry = {}) {
@@ -1894,10 +2125,9 @@ function addStayEntryRow(entry = {}) {
   const rowEntry = { ...entry };
   if (!rowEntry.from_date) rowEntry.from_date = document.getElementById('admission_date').value;
   if (!rowEntry.to_date) rowEntry.to_date = document.getElementById('discharge_date').value;
-  tbody.appendChild(createStayEntryRow(rowEntry));
-  bindStayEntryTriggers();
-  onStayEntryRowChange(tbody.lastElementChild);
-  if (!hasPreset) tbody.lastElementChild?.querySelector('.stay-type-select')?.focus();
+  const row = appendStayEntryRow(rowEntry);
+  onStayEntryRowChange(row);
+  if (!hasPreset) row?.querySelector('.stay-type-select')?.focus();
 }
 
 function bindStayEntryTriggers() {
@@ -1915,9 +2145,7 @@ function bindStayEntryTriggers() {
   document.querySelectorAll('.remove-stay-entry-btn').forEach((btn) => {
     btn.onclick = () => {
       const stayRow = btn.closest('tr');
-      const stayKey = stayRow?.dataset?.stayKey;
       const tbody = document.getElementById('stay-entries-tbody');
-      if (stayKey) findItemRowByStayKey(stayKey)?.remove();
       if (tbody.children.length > 1) {
         stayRow.remove();
       } else {
@@ -1929,7 +2157,6 @@ function bindStayEntryTriggers() {
       }
       syncStayDaysFromEntries();
       updateStayEntryTotalsLocal();
-      syncStayEntriesToItemRows();
       recalculate();
     };
   });
@@ -1941,7 +2168,7 @@ function onStayTypeSelect(e) {
   const rate = option?.dataset?.rate;
   if (rate !== undefined && rate !== '') {
     const rateEl = row?.querySelector('[data-field="daily_rate"]');
-    if (rateEl) rateEl.value = rate;
+    if (rateEl) rateEl.value = formatAmountInput(rate);
   }
   onStayEntryRowChange(row);
 }
@@ -1970,7 +2197,6 @@ function onStayEntryRowChange(row) {
   if (totalEl) totalEl.value = total ? fmt(total) : '';
   syncStayDaysFromEntries();
   updateStayEntryTotalsLocal();
-  syncStayEntriesToItemRows();
   recalculate();
 }
 
@@ -2126,12 +2352,35 @@ function sumManualPaymentMethods() {
   return Math.round(total * 100) / 100;
 }
 
+function isPatientCreditAlreadyDeducted() {
+  const inv = lastLoadedInvoice;
+  return Boolean(inv?.patient_credit_deducted) || inv?.status === 'approved';
+}
+
 function getPatientNetBalance() {
   if (!hasPatientFileNumber()) return 0;
   const creditUsed = computeInvoicePatientCredit(
     Number(lastCalculationTotals?.final_total) || sumBillableLineTotals()
   );
   return Math.round((getPatientAccountBalance() - creditUsed) * 100) / 100;
+}
+
+function getPatientBalanceAfterInvoice(totals = lastCalculationTotals) {
+  if (!hasPatientFileNumber()) {
+    return Math.round((Number(totals?.balance) || 0) * 100) / 100;
+  }
+  const account = getPatientAccountBalance();
+  const outstanding =
+    Math.round((Number(totals?.outstanding_amount ?? totals?.remaining) || 0) * 100) / 100;
+  const credit =
+    Math.round(
+      (Number(totals?.patient_credit_applied) ||
+        computeInvoicePatientCredit(Number(totals?.final_total) || 0)) * 100
+    ) / 100;
+  if (isPatientCreditAlreadyDeducted()) {
+    return Math.round((account - outstanding) * 100) / 100;
+  }
+  return Math.round((account - credit - outstanding) * 100) / 100;
 }
 
 function computeInvoicePatientCredit(finalTotal, otherPaid = null) {
@@ -2174,15 +2423,15 @@ function syncPatientBalanceField() {
   if (!balanceEl) return;
 
   if (hasPatientFileNumber()) {
-    const net = getPatientNetBalance();
+    const net = getPatientBalanceAfterInvoice();
     balanceEl.value = formatAmountInput(net);
     balanceEl.readOnly = true;
     balanceEl.classList.add('bg-light');
-    balanceEl.classList.toggle('text-danger', net < 0);
+    applyPatientBalanceStyle(balanceEl, net);
     if (labelEl) labelEl.textContent = 'رصيد المريض (بعد البنود)';
   } else {
     balanceEl.readOnly = false;
-    balanceEl.classList.remove('bg-light', 'text-danger');
+    balanceEl.classList.remove('bg-light', 'text-danger', 'text-success');
     if (labelEl) labelEl.textContent = 'الرصيد';
   }
 }
@@ -2263,7 +2512,7 @@ function updatePatientCreditSummary(totals) {
     const net = getPatientNetBalance();
     afterHint.style.display = '';
     afterDisplay.textContent = fmt(net);
-    afterDisplay.classList.toggle('text-danger', net < 0);
+    applyPatientBalanceStyle(afterDisplay, net);
   } else if (afterHint) {
     afterHint.style.display = 'none';
   }
@@ -2305,7 +2554,7 @@ async function loadPatientBalance(options = {}) {
     const nationalityEl = document.getElementById('invoice-patient-nationality');
     if (nationalityEl) nationalityEl.value = patient.nationality || '';
     const balanceDisplay = document.getElementById('patient-balance-display');
-    if (balanceDisplay) balanceDisplay.textContent = fmt(balance);
+    if (balanceDisplay) applyPatientBalanceBadge(balanceDisplay, balance);
     if (hint) hint.style.display = '';
     if (!isInvoiceFollowUpLocked()) {
       const editBtn = document.getElementById('edit-patient-balance-btn');
@@ -2426,6 +2675,7 @@ function collectFormData() {
     const creditAmt = parseDisplayAmount(row.querySelector('[data-field="patient_credit_applied"]')?.value);
     const receiptDate = receiptDateEl?.value || '';
     const receiptNum = receiptNumEl?.value || '';
+    const depositorName = row.querySelector('[data-field="depositor_name"]')?.value?.trim() || '';
 
     if (desc || qty || amt) {
       const serviceIdEl = row.querySelector('[data-field="service_id"]');
@@ -2443,9 +2693,19 @@ function collectFormData() {
         item.discount_eligible_override = override === 'true';
       }
       items.push(item);
-    }
-    if (payAmt || receiptDate || receiptNum) {
-      payments.push({ receipt_date: receiptDate, receipt_number: receiptNum, amount: payAmt });
+      payments.push({
+        receipt_date: receiptDate,
+        receipt_number: receiptNum,
+        amount: payAmt,
+        depositor_name: depositorName,
+      });
+    } else if (payAmt || receiptDate || receiptNum || depositorName) {
+      payments.push({
+        receipt_date: receiptDate,
+        receipt_number: receiptNum,
+        amount: payAmt,
+        depositor_name: depositorName,
+      });
     }
   });
 
@@ -2496,19 +2756,25 @@ function collectFormData() {
     manager_name: fieldVal('manager_name'),
     items,
     payments,
+    excluded_daily_line_ids: [...excludedDailyLineIds],
+    excluded_section_codes: [...excludedSectionCodes],
   });
 }
 
 function collectMethodPayments() {
   const entries = [];
-  document.querySelectorAll('.payment-method-input').forEach((input) => {
-    const code = input.dataset.methodCode;
+  document.querySelectorAll('.payment-method-line').forEach((row) => {
+    const code = row.dataset.methodCode;
+    const lineIndex = row.dataset.lineIndex || '0';
+    const input = row.querySelector('.payment-method-input');
+    if (!input) return;
     entries.push({
       payment_method_id: Number(input.dataset.methodId),
       code,
       name: input.dataset.methodName || '',
       amount: parseDisplayAmount(input.value),
-      metadata: collectPaymentMetadata(code),
+      metadata: collectPaymentMetadata(code, lineIndex),
+      line_index: Number(lineIndex) || 0,
     });
   });
   return entries;
@@ -2564,6 +2830,7 @@ async function recalculate(options = {}) {
       }
     }
 
+    if (window.AutoSave) AutoSave.schedule('invoice');
     return totals;
   } catch (err) {
     console.error(err);
@@ -2572,23 +2839,81 @@ async function recalculate(options = {}) {
   }
 }
 
+function canAutoSaveInvoice() {
+  if (!can('invoices.create') && !can('invoices.edit')) return false;
+  if (currentInvoiceStatus === 'approved') return false;
+  if (isInvoiceFollowUpLocked()) return false;
+  const view = document.getElementById('view-create');
+  if (view && view.style.display === 'none') return false;
+  const invoiceType = document.getElementById('invoice_type')?.value;
+  if (!invoiceType) return false;
+  if (
+    (invoiceType === 'contracted' || invoiceType === 'non_contracted') &&
+    !document.getElementById('contracted_entity_id')?.value
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function initInvoiceAutosaveAndEnterRow() {
+  if (window.AutoSave && !window.__invoiceAutosaveReady) {
+    window.__invoiceAutosaveReady = true;
+    AutoSave.register('invoice', {
+      statusEl: 'invoice-autosave-status',
+      debounceMs: 2000,
+      canSave: canAutoSaveInvoice,
+      getFingerprint: () => JSON.stringify(collectFormData()),
+      save: async () => saveInvoiceWithMode('draft', { silent: true, auto: true }),
+    });
+    const form = document.getElementById('invoice-form');
+    if (form) AutoSave.installChangeListeners(form, 'invoice');
+  }
+
+  if (window.EnterAddRow && !window.__invoiceEnterRowReady) {
+    window.__invoiceEnterRowReady = true;
+    EnterAddRow.register({
+      rowSelector: 'tr',
+      container: '#items-tbody',
+      canHandle: (row) =>
+        !row.dataset.sectionHeader &&
+        !row.dataset.sectionAggregate &&
+        !row.dataset.staySync &&
+        !isInvoiceFollowUpLocked(),
+      rowHasData: (row) => !invoiceRowIsBlank(row),
+      addRow: () => document.getElementById('add-row-btn')?.click(),
+    });
+    EnterAddRow.register({
+      rowSelector: 'tr',
+      container: '#stay-entries-tbody',
+      canHandle: () => {
+        if (isInvoiceFollowUpLocked()) return false;
+        const section = document.getElementById('invoice-stay-section');
+        return section && !section.classList.contains('d-none') && section.style.display !== 'none';
+      },
+      rowHasData: (row) => !stayEntryRowIsBlank(row),
+      addRow: () => document.getElementById('add-stay-entry-btn')?.click(),
+    });
+  }
+}
+
 function collectPaymentsFromInvoiceRows() {
   const payments = [];
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
     if (row.dataset.staySync || row.dataset.sectionHeader || row.dataset.sectionAggregate) return;
-    const payAmt = parseDisplayAmount(row.querySelector('[data-field="pay_amount"]')?.value);
-    const receiptDate = row.querySelector('[data-field="receipt_date"]')?.value;
-    const receiptNum = row.querySelector('[data-field="receipt_number"]')?.value;
-    if (payAmt || receiptDate || receiptNum) {
-      payments.push({ receipt_date: receiptDate, receipt_number: receiptNum, amount: payAmt });
-    }
+    payments.push({
+      receipt_date: row.querySelector('[data-field="receipt_date"]')?.value || '',
+      receipt_number: row.querySelector('[data-field="receipt_number"]')?.value || '',
+      amount: parseDisplayAmount(row.querySelector('[data-field="pay_amount"]')?.value),
+      depositor_name: row.querySelector('[data-field="depositor_name"]')?.value?.trim() || '',
+    });
   });
   return payments;
 }
 
 function refreshInvoiceDisplayFromCalculatedItems(items = []) {
-  const billable = (items || []).filter((item) => !item.is_stay_entry);
-  populateInvoiceItemsGrouped(billable, collectPaymentsFromInvoiceRows());
+  const displayItems = normalizeInvoiceDisplayItems(items || []);
+  populateInvoiceItemsGrouped(displayItems, collectPaymentsFromInvoiceRows());
   lockDailyInvoiceRows();
 }
 
@@ -2822,21 +3147,40 @@ async function submitInvoiceReturns() {
 function updateStayEntriesFromTotals(entries) {
   if (invoiceFollowUpMode) return;
   const list = entries || [];
-  document.querySelectorAll('#stay-entries-tbody tr').forEach((row, i) => {
+  const tbody = document.getElementById('stay-entries-tbody');
+  if (!tbody) return;
+
+  let rows = [...tbody.querySelectorAll('tr.stay-entry-row')];
+  while (rows.length < list.length) {
+    appendStayEntryRow({});
+    rows = [...tbody.querySelectorAll('tr.stay-entry-row')];
+  }
+  while (rows.length > list.length) {
+    rows[rows.length - 1].remove();
+    rows = [...tbody.querySelectorAll('tr.stay-entry-row')];
+  }
+
+  rows.forEach((row, i) => {
     const entry = list[i];
     if (!entry) return;
+    const typeEl = row.querySelector('[data-field="stay_type_id"]');
+    const fromEl = row.querySelector('[data-field="from_date"]');
+    const toEl = row.querySelector('[data-field="to_date"]');
     const daysEl = row.querySelector('[data-field="days"]');
+    const rateEl = row.querySelector('[data-field="daily_rate"]');
     const totalEl = row.querySelector('[data-field="total"]');
-    if (daysEl) daysEl.value = entry.days ?? '';
+    if (typeEl && entry.stay_type_id) typeEl.value = String(entry.stay_type_id);
+    if (fromEl && entry.from_date) fromEl.value = fmtDate(entry.from_date);
+    if (toEl && entry.to_date) toEl.value = fmtDate(entry.to_date);
+    if (daysEl && entry.days != null && entry.days !== '') {
+      daysEl.value = formatAmountInput(entry.days, 0);
+    }
+    if (rateEl && entry.daily_rate != null && entry.daily_rate !== '') {
+      rateEl.value = formatAmountInput(entry.daily_rate);
+    }
     if (totalEl) totalEl.value = entry.total ? fmt(entry.total) : '';
   });
-  const staySubtotalEl = document.getElementById('stay-subtotal-display');
-  if (list.length && staySubtotalEl) {
-    staySubtotalEl.innerHTML = fmtDual(
-      list.reduce((sum, entry) => sum + (Number(entry.total_raw ?? entry.total) || 0), 0),
-      list.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0)
-    );
-  }
+  updateStayEntryTotalsLocal();
 }
 
 function refreshFollowUpPatientSummary(totals) {
@@ -2896,12 +3240,10 @@ function updateSummaryDisplay(t) {
   const balanceAfterWrap = document.getElementById('sum_balance_after_wrap');
   const balanceAfterEl = document.getElementById('sum_balance_after');
   if (balanceAfterWrap && balanceAfterEl) {
-    const accountBalance =
-      lastLoadedInvoice?.patient_context?.patient?.account_balance ?? getPatientAccountBalance();
-    if (hasPatientFileNumber() && accountBalance != null) {
-      const balanceAfter =
-        Math.round((Number(accountBalance) - (Number(t.final_total) || 0)) * 100) / 100;
+    if (hasPatientFileNumber()) {
+      const balanceAfter = getPatientBalanceAfterInvoice(t);
       balanceAfterEl.innerHTML = fmtDual(balanceAfter, balanceAfter);
+      applyPatientBalanceStyle(balanceAfterEl, balanceAfter);
       balanceAfterWrap.style.display = '';
     } else {
       balanceAfterWrap.style.display = 'none';
@@ -3087,8 +3429,12 @@ function fillFullPayment(code) {
   const remainingForCash = Math.max(total - creditSum, 0);
   document.querySelectorAll('.payment-method-input').forEach((input) => {
     if (input.dataset.methodCode === 'patient_credit') return;
-    input.value = input.dataset.methodCode === code ? formatAmountInput(remainingForCash) : formatAmountInput(0);
+    input.value = formatAmountInput(0);
   });
+  const firstInput = document.querySelector(
+    `.payment-method-input[data-method-code="${code}"][data-line-index="0"]`
+  );
+  if (firstInput) firstInput.value = formatAmountInput(remainingForCash);
   syncPatientCreditPaymentMethod(creditSum);
   recalculate();
 }
@@ -3150,46 +3496,51 @@ function updateSummaryTable(t) {
 
   const discountRows = hasDiscount
     ? `
-    <tr><td>${fmtDual(t.discount_amount_raw, t.discount_amount)}</td><td></td><td></td><td></td><td class="summary-label">خصم جهة متعاقدة ${t.discount_percent}%</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.net_after_discount_raw ?? t.items_subtotal_after_discount_raw, t.net_after_discount ?? t.items_subtotal_after_discount)}</td><td></td><td></td><td></td><td class="summary-label">صافي بعد الخصم</td><td></td><td></td><td></td></tr>`
+    <tr><td>${fmtDual(t.discount_amount_raw, t.discount_amount)}</td><td></td><td></td><td></td><td class="summary-label">خصم جهة متعاقدة ${t.discount_percent}%</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.net_after_discount_raw ?? t.items_subtotal_after_discount_raw, t.net_after_discount ?? t.items_subtotal_after_discount)}</td><td></td><td></td><td></td><td class="summary-label">صافي بعد الخصم</td><td></td><td></td><td></td><td></td></tr>`
     : '';
 
   const stayRows =
     Number(t.stay_subtotal) > 0
-      ? `<tr><td>${fmtDual(t.stay_subtotal_raw, t.stay_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي تكلفة الإقامة</td><td></td><td></td><td></td></tr>`
+      ? `<tr><td>${fmtDual(t.stay_subtotal_raw, t.stay_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي تكلفة الإقامة</td><td></td><td></td><td></td><td></td></tr>`
       : '';
 
   const tfoot = document.getElementById('summary-tfoot');
   if (!tfoot) return;
+  const patientBalanceAfter = hasPatientFileNumber() ? getPatientBalanceAfterInvoice(t) : null;
+  const patientBalanceCell = hasPatientFileNumber()
+    ? `<td class="${patientBalanceClass(patientBalanceAfter)}">${fmt(patientBalanceAfter)}</td>`
+    : `<td>${fmtDual(t.balance_raw, t.balance)}</td>`;
   tfoot.innerHTML = `
     ${stayRows}
-    <tr><td>${fmtDual(t.items_subtotal_raw, t.items_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي البنود</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td></td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.professional_fees_raw, t.professional_fees)}</td><td></td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.subtotal_before_admin_raw, t.subtotal_before_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td></td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.items_subtotal_raw, t.items_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي البنود</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td></td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.professional_fees_raw, t.professional_fees)}</td><td></td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.subtotal_before_admin_raw, t.subtotal_before_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td></td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td><td></td></tr>
     ${discountRows}
-    <tr><td>${hasPatientFileNumber() ? fmt(getPatientNetBalance()) : fmtDual(t.balance_raw, t.balance)}</td><td></td><td></td><td></td><td class="summary-label">${hasPatientFileNumber() ? 'رصيد المريض (بعد البنود)' : 'الرصيد'}</td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td></td><td></td></tr>
+    <tr>${patientBalanceCell}<td></td><td></td><td></td><td class="summary-label">${hasPatientFileNumber() ? 'رصيد المريض (بعد البنود)' : 'الرصيد'}</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td></td><td></td><td></td></tr>
   `;
 }
 
-async function saveInvoiceWithMode(saveMode) {
+async function saveInvoiceWithMode(saveMode, options = {}) {
+  const { silent = false, auto = false } = options;
   const data = collectFormData();
   data.save_mode = saveMode;
 
   if (!data.invoice_type) {
-    showToast('يجب اختيار نوع الفاتورة', 'danger');
-    return;
+    if (!silent) showToast('يجب اختيار نوع الفاتورة', 'danger');
+    return false;
   }
   if (data.invoice_type === 'contracted' && !data.contracted_entity_id) {
-    showToast('يجب اختيار الجهة المتعاقدة', 'danger');
-    return;
+    if (!silent) showToast('يجب اختيار الجهة المتعاقدة', 'danger');
+    return false;
   }
   if (data.invoice_type === 'non_contracted' && !data.contracted_entity_id) {
-    showToast('يجب اختيار الجهة', 'danger');
-    return;
+    if (!silent) showToast('يجب اختيار الجهة', 'danger');
+    return false;
   }
 
   if (!lastCalculationTotals) {
@@ -3198,15 +3549,15 @@ async function saveInvoiceWithMode(saveMode) {
 
   const calcCheck = validateCalculationsBeforeSave(lastCalculationTotals);
   if (!calcCheck.ok) {
-    showToast(calcCheck.message, 'danger');
-    return;
+    if (!silent) showToast(calcCheck.message, 'danger');
+    return false;
   }
 
   if (saveMode === 'submit') {
     const paymentCheck = validatePaymentsBeforeSave(lastCalculationTotals);
     if (!paymentCheck.ok) {
-      showToast(paymentCheck.message, 'danger');
-      return;
+      if (!silent) showToast(paymentCheck.message, 'danger');
+      return false;
     }
   }
 
@@ -3247,9 +3598,21 @@ async function saveInvoiceWithMode(saveMode) {
         : result.status === 'approved'
           ? `تم حفظ الفاتورة - ${result.serial_number}`
           : 'تم حفظ الفاتورة مؤقتًا (بدون رقم)';
-    showToast(msg, 'success');
+    if (!silent) {
+      showToast(msg, 'success');
+    }
+    if (window.AutoSave) {
+      AutoSave.noteSaved('invoice', JSON.stringify(collectFormData()));
+    }
+    return true;
   } catch (err) {
-    showToast(err.message, 'danger');
+    if (!silent) {
+      showToast(err.message, 'danger');
+    } else if (window.AutoSave) {
+      AutoSave.setStatus('invoice', 'error', err.message || 'فشل الحفظ التلقائي');
+    }
+    if (!auto) throw err;
+    return false;
   }
 }
 
@@ -3303,6 +3666,7 @@ function downloadFile(format) {
 function resetForm() {
   applyInvoiceFollowUpMode(false);
   followUpPatientSnapshot = null;
+  resetInvoiceExclusions();
   currentInvoiceId = null;
   currentInvoiceReturns = [];
   renderInvoiceReturnsHistory([]);
@@ -3339,6 +3703,7 @@ function resetForm() {
   initRows();
   bindCalcTriggers();
   recalculate();
+  updateGlobalInvoicePrintButton();
 }
 
 function setFieldValue(id, value) {
@@ -3358,6 +3723,7 @@ async function loadInvoiceForEdit(id, options = {}) {
 
     lastLoadedInvoice = inv;
     currentInvoiceId = inv.id;
+    resetInvoiceExclusions(inv.excluded_daily_line_ids || [], inv.excluded_section_codes || []);
     switchView('create', { keepForm: true });
 
     const followUp = options.followUp === true || isDailySourcedInvoice(inv);
@@ -3414,28 +3780,39 @@ async function loadInvoiceForEdit(id, options = {}) {
     if (!inv.file_number) setFieldValue('balance', formatAmountInput(inv.balance ?? 0));
     setFieldValue('admin_expenses_percent', formatAmountInput(inv.admin_expenses_percent ?? 0));
 
-    const paymentValues = {};
-    const paymentMeta = {};
+    const methodLinesByCode = {};
     if (inv.method_payments?.length) {
       inv.method_payments.forEach((m) => {
-        paymentValues[m.payment_method_id] = m.amount;
-        if (m.code) paymentMeta[m.code] = m.metadata || {};
+        if (!m.code) return;
+        if (!methodLinesByCode[m.code]) methodLinesByCode[m.code] = [];
+        methodLinesByCode[m.code].push({
+          amount: m.amount,
+          metadata: m.metadata || {},
+        });
       });
     } else {
-      paymentValues.cash = inv.cash_private;
-      paymentValues.bank_transfer = inv.bank_private;
-      paymentValues.check = inv.cash_external;
+      if (Number(inv.cash_private) > 0) {
+        methodLinesByCode.cash = [{ amount: inv.cash_private, metadata: {} }];
+      }
+      if (Number(inv.bank_private) > 0) {
+        methodLinesByCode.bank_transfer = [{ amount: inv.bank_private, metadata: {} }];
+      }
+      if (Number(inv.cash_external) > 0) {
+        methodLinesByCode.check = [{ amount: inv.cash_external, metadata: {} }];
+      }
     }
-    await loadPaymentMethodsForm(paymentValues, paymentMeta);
+    await loadPaymentMethodsForm(methodLinesByCode);
 
     setFieldValue('employee_name', inv.employee_name);
     setFieldValue('auditor_name', inv.auditor_name);
     setFieldValue('captain_name', inv.captain_name);
     setFieldValue('manager_name', inv.manager_name);
 
-    const invItems = inv.items || [];
+    const invItems = buildInvoiceItemsForDisplay(inv);
     const invPayments = inv.payments || [];
-    const shouldGroupInvoice = invItems.some((item) => item.section_code || item.daily_entry_line_id);
+    const shouldGroupInvoice = invItems.some(
+      (item) => item.section_code || item.daily_entry_line_id || item.is_stay_entry
+    );
 
     if (shouldGroupInvoice) {
       populateInvoiceItemsGrouped(invItems, invPayments);
@@ -3455,6 +3832,7 @@ async function loadInvoiceForEdit(id, options = {}) {
       document.getElementById(id).style.display = 'none';
     });
     updateInvoicePreviewButtons(inv);
+    updateGlobalInvoicePrintButton();
 
     if (inv.status === 'approved') {
       setFormReadonly(true);
@@ -3519,6 +3897,7 @@ function switchView(view, options = {}) {
     initPatientRegistration();
   }
   if (view === 'daily' && typeof initDailyChargesView === 'function') initDailyChargesView(options);
+  updateGlobalInvoicePrintButton();
 }
 
 function renderReportTiles() {
@@ -4198,11 +4577,8 @@ async function loadFinancialTreatments(selected = {}) {
 }
 
 const PAYMENT_META_FIELDS = {
-  cash: [{ key: 'depositor_name', label: 'اسم المودع', placeholder: 'اسم المودع' }],
-  bank_transfer: [
-    { key: 'depositor_name', label: 'المودع', placeholder: 'اسم المودع' },
-    { key: 'transfer_ref', label: 'رقم التحويل', placeholder: 'رقم العملية أو الإيصال' },
-  ],
+  cash: [],
+  bank_transfer: [{ key: 'transfer_ref', label: 'رقم التحويل', placeholder: 'رقم العملية أو الإيصال' }],
   check: [
     { key: 'cheque_number', label: 'رقم الشيك', placeholder: 'رقم الشيك' },
     { key: 'cheque_date', label: 'تاريخ الشيك', placeholder: '', type: 'date' },
@@ -4210,39 +4586,180 @@ const PAYMENT_META_FIELDS = {
   ],
 };
 
-function buildPaymentMetaFieldsHtml(code, meta = {}) {
+function buildPaymentMetaFieldsHtml(code, meta = {}, lineIndex = 0) {
   const fields = PAYMENT_META_FIELDS[code];
   if (!fields?.length) return '';
   return fields
     .map((field) => {
       const val = meta[field.key] || '';
       const type = field.type || 'text';
-      const inputClass = type === 'date' ? 'form-control form-control-sm payment-meta-input' : 'form-control form-control-sm payment-meta-input comma-amount';
+      const inputClass = 'form-control form-control-sm payment-meta-input calc-trigger';
       return `<div class="col-md-4"><label class="form-label small mb-0">${field.label}</label>
-        <input type="${type}" class="${inputClass}" data-meta-key="${field.key}" data-method-code="${code}" placeholder="${escapeAttr(field.placeholder || '')}" value="${escapeAttr(val)}"></div>`;
+        <input type="${type}" class="${inputClass}" data-meta-key="${field.key}" data-method-code="${code}" data-line-index="${lineIndex}" placeholder="${escapeAttr(field.placeholder || '')}" value="${escapeAttr(val)}"></div>`;
     })
     .join('');
+}
+
+function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) {
+  const { methodIndex = 0, isFirstLine = lineIndex === 0 } = options;
+  const isPatientCredit = method.code === 'patient_credit';
+  const amount = Number(line.amount) || 0;
+  const displayVal = amount ? formatAmountInput(amount) : '';
+  const readonlyAttr = isPatientCredit ? 'readonly' : '';
+  const extraClass = isPatientCredit ? ' bg-light' : '';
+  const labelContent = isFirstLine
+    ? `${methodIndex} - ${method.name}${isPatientCredit ? ' <small class="text-muted">(تلقائي من البيان)</small>' : ''}`
+    : `<span class="text-muted small">↳ سطر ${lineIndex + 1}</span>`;
+
+  const actions = [];
+  if (!isPatientCredit) {
+    actions.push(
+      `<button type="button" class="btn btn-outline-success btn-sm fw-bold pay-remaining-btn" data-method-code="${method.code}">الباقي</button>`
+    );
+    actions.push(
+      `<button type="button" class="btn btn-outline-primary btn-sm fw-bold add-payment-line-btn" data-method-code="${method.code}" title="سطر دفع إضافي">+</button>`
+    );
+  }
+  if (!isFirstLine && !isPatientCredit) {
+    actions.push(
+      `<button type="button" class="btn btn-outline-danger btn-sm remove-payment-line-btn" data-method-code="${method.code}" title="حذف السطر">×</button>`
+    );
+  }
+  if (isPatientCredit) {
+    actions.push('<span class="text-muted small">—</span>');
+  }
+
+  const lineRow = `<tr class="payment-method-line${isFirstLine ? '' : ' payment-method-line-extra'}" data-method-code="${method.code}" data-line-index="${lineIndex}">
+      <td class="${isFirstLine ? 'fw-bold' : ''}">${labelContent}</td>
+      <td><input type="text" inputmode="decimal" class="form-control form-control-sm payment-method-input comma-amount${extraClass}"
+        data-method-id="${method.id}" data-method-code="${method.code}" data-method-name="${escapeAttr(method.name)}" data-line-index="${lineIndex}"
+        value="${displayVal}" placeholder="0" ${readonlyAttr}></td>
+      <td class="text-center payment-method-actions">${actions.join(' ')}</td>
+    </tr>`;
+  const metaRow = `<tr class="payment-meta-row" data-method-code="${method.code}" data-line-index="${lineIndex}" style="display:none"><td colspan="3" class="py-2 bg-light">
+      <div class="payment-meta-fields row g-2">${buildPaymentMetaFieldsHtml(method.code, line.metadata || {}, lineIndex)}</div>
+    </td></tr>`;
+  return `${lineRow}${metaRow}`;
+}
+
+function paymentMethodLineIsBlank(row) {
+  if (!row) return true;
+  const amount = parseDisplayAmount(row.querySelector('.payment-method-input')?.value);
+  const code = row.dataset.methodCode;
+  const lineIndex = row.dataset.lineIndex || '0';
+  const meta = collectPaymentMetadata(code, lineIndex);
+  return amount <= 0 && !Object.keys(meta).length;
+}
+
+function reindexPaymentMethodLines(code) {
+  const lines = [...document.querySelectorAll(`.payment-method-line[data-method-code="${code}"]`)];
+  lines.forEach((row, index) => {
+    row.dataset.lineIndex = String(index);
+    row.classList.toggle('payment-method-line-extra', index > 0);
+    const input = row.querySelector('.payment-method-input');
+    if (input) input.dataset.lineIndex = String(index);
+    if (index > 0) {
+      const labelCell = row.querySelector('td:first-child');
+      if (labelCell) {
+        labelCell.className = '';
+        labelCell.innerHTML = `<span class="text-muted small">↳ سطر ${index + 1}</span>`;
+      }
+    }
+    const metaRow = row.nextElementSibling?.classList?.contains('payment-meta-row')
+      ? row.nextElementSibling
+      : null;
+    if (metaRow) {
+      metaRow.dataset.lineIndex = String(index);
+      metaRow.querySelectorAll('.payment-meta-input').forEach((el) => {
+        el.dataset.lineIndex = String(index);
+      });
+    }
+    const actions = row.querySelector('.payment-method-actions');
+    if (!actions || code === 'patient_credit') return;
+    const removeBtn = actions.querySelector('.remove-payment-line-btn');
+    if (index === 0 && removeBtn) removeBtn.remove();
+    if (index > 0 && !removeBtn) {
+      actions.insertAdjacentHTML(
+        'beforeend',
+        `<button type="button" class="btn btn-outline-danger btn-sm remove-payment-line-btn" data-method-code="${code}" title="حذف السطر">×</button>`
+      );
+    }
+  });
+}
+
+function addPaymentMethodLine(code) {
+  if (!code || code === 'patient_credit' || isInvoiceFollowUpLocked()) return;
+  const method = (paymentMethodsCache || []).find((m) => m.code === code);
+  if (!method) return;
+  const lines = [...document.querySelectorAll(`.payment-method-line[data-method-code="${code}"]`)];
+  if (lines.length) {
+    const last = lines[lines.length - 1];
+    if (paymentMethodLineIsBlank(last)) {
+      showToast('أدخل بيانات السطر الحالي أولاً', 'warning');
+      last.querySelector('.payment-method-input')?.focus();
+      return;
+    }
+  }
+  const lineIndex = lines.length;
+  const hintRow = document.querySelector(`.payment-method-hint-row[data-method-code="${code}"]`);
+  if (!hintRow) return;
+  const wrapper = document.createElement('tbody');
+  wrapper.innerHTML = buildPaymentMethodLineHtml(method, lineIndex, {}, { isFirstLine: false });
+  while (wrapper.firstChild) {
+    hintRow.parentNode.insertBefore(wrapper.firstChild, hintRow);
+  }
+  bindCalcTriggers();
+  bindPaymentMethodHelpers();
+  togglePaymentMetaRows();
+  updatePaymentRowHints();
+  const newMetaRow = hintRow.previousElementSibling;
+  const newLineRow = newMetaRow?.previousElementSibling;
+  newLineRow?.querySelector('.payment-method-input')?.focus();
+}
+
+function removePaymentMethodLine(btn) {
+  const row = btn.closest('.payment-method-line');
+  if (!row || row.dataset.lineIndex === '0') return;
+  const code = row.dataset.methodCode;
+  const metaRow = row.nextElementSibling?.classList?.contains('payment-meta-row') ? row.nextElementSibling : null;
+  row.remove();
+  metaRow?.remove();
+  reindexPaymentMethodLines(code);
+  bindCalcTriggers();
+  togglePaymentMetaRows();
+  updatePaymentRowHints();
+  recalculate({ skipAutoCredit: true, skipAutoPayments: true });
 }
 
 function togglePaymentMetaRows() {
   document.querySelectorAll('.payment-meta-row').forEach((row) => {
     const code = row.dataset.methodCode;
-    const input = document.querySelector(`.payment-method-input[data-method-code="${code}"]`);
+    const lineIndex = row.dataset.lineIndex || '0';
+    const hasFields = Boolean(PAYMENT_META_FIELDS[code]?.length);
+    const input = document.querySelector(
+      `.payment-method-input[data-method-code="${code}"][data-line-index="${lineIndex}"]`
+    );
     const amount = input ? parseDisplayAmount(input.value) : 0;
-    row.style.display = amount > 0 ? '' : 'none';
+    const meta = collectPaymentMetadata(code, lineIndex);
+    const hasMeta = Object.keys(meta).length > 0;
+    row.style.display = hasFields && (amount > 0 || hasMeta) ? '' : 'none';
   });
 }
 
-function collectPaymentMetadata(code) {
+function collectPaymentMetadata(code, lineIndex = '0') {
   const meta = {};
-  document.querySelectorAll(`.payment-meta-input[data-method-code="${code}"]`).forEach((input) => {
-    const val = String(input.value || '').trim();
-    if (val) meta[input.dataset.metaKey] = val;
-  });
+  document
+    .querySelectorAll(
+      `.payment-meta-input[data-method-code="${code}"][data-line-index="${lineIndex}"]`
+    )
+    .forEach((input) => {
+      const val = String(input.value || '').trim();
+      if (val) meta[input.dataset.metaKey] = val;
+    });
   return meta;
 }
 
-async function loadPaymentMethodsForm(values = {}, metadataByCode = {}) {
+async function loadPaymentMethodsForm(methodLinesByCode = {}) {
   try {
     const res = await apiFetch(`${SETTINGS_API}/payment-methods`);
     const methods = await res.json();
@@ -4254,25 +4771,16 @@ async function loadPaymentMethodsForm(values = {}, metadataByCode = {}) {
 
     let html = amountMethods
       .map((m, i) => {
-        const val = values[m.id] ?? values[m.code] ?? 0;
-        const displayVal = val ? formatAmountInput(val) : '';
-        const isPatientCredit = m.code === 'patient_credit';
-        const readonlyAttr = isPatientCredit ? 'readonly' : '';
-        const extraClass = isPatientCredit ? ' bg-light' : '';
-        const actionCell = isPatientCredit
-          ? '<span class="text-muted small">—</span>'
-          : `<button type="button" class="btn btn-outline-success btn-sm fw-bold pay-remaining-btn" data-method-code="${m.code}">الباقي</button>`;
-        const labelSuffix = isPatientCredit ? ' <small class="text-muted">(تلقائي من البيان)</small>' : '';
-        return `<tr class="payment-method-row" data-method-code="${m.code}">
-          <td class="fw-bold">${i + 1} - ${m.name}${labelSuffix}</td>
-          <td><input type="text" inputmode="decimal" class="form-control form-control-sm payment-method-input comma-amount${extraClass}"
-            data-method-id="${m.id}" data-method-code="${m.code}" data-method-name="${escapeAttr(m.name)}" value="${displayVal}" placeholder="0" ${readonlyAttr}></td>
-          <td class="text-center">${actionCell}</td>
-        </tr>
-        <tr class="payment-row-remaining" style="display:none"><td colspan="3" class="remaining-hint-text py-1"></td></tr>
-        <tr class="payment-meta-row" data-method-code="${m.code}" style="display:none"><td colspan="3" class="py-2 bg-light">
-          <div class="payment-meta-fields row g-2">${buildPaymentMetaFieldsHtml(m.code, metadataByCode[m.code] || {})}</div>
-        </td></tr>`;
+        const lines = methodLinesByCode[m.code]?.length
+          ? methodLinesByCode[m.code]
+          : [{ amount: 0, metadata: {} }];
+        const lineHtml = lines
+          .map((line, lineIndex) =>
+            buildPaymentMethodLineHtml(m, lineIndex, line, { methodIndex: i + 1, isFirstLine: lineIndex === 0 })
+          )
+          .join('');
+        const hintRow = `<tr class="payment-method-hint-row" data-method-code="${m.code}" style="display:none"><td colspan="3" class="remaining-hint-text py-1 text-muted small"></td></tr>`;
+        return `${lineHtml}${hintRow}`;
       })
       .join('');
 
@@ -4283,7 +4791,9 @@ async function loadPaymentMethodsForm(values = {}, metadataByCode = {}) {
     }
 
     tbody.innerHTML = html || '<tr><td colspan="3" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
+    tbody.dataset.paymentHelpersBound = '0';
     bindCalcTriggers();
+    bindPaymentMethodHelpers();
     togglePaymentMetaRows();
     updatePaymentRowHints();
   } catch (err) {
@@ -5035,6 +5545,7 @@ async function loadInvoicesList() {
           <td>${inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ar-EG') : new Date(inv.created_at).toLocaleDateString('ar-EG')}</td>
           <td class="text-nowrap">
             <button class="btn btn-sm btn-outline-primary" onclick="loadInvoiceForEdit(${inv.id})">${canEdit ? '✏️' : '👁️'}</button>
+            <button class="btn btn-sm btn-outline-info" onclick="openInvoicePrintPreview({ invoiceId: ${inv.id}, forceSaved: true })" title="معاينة الفاتورة الكبيرة">🖨️</button>
             ${inv.status === 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="window.open('${API}/${inv.id}/pdf')">📄</button>` : ''}
             ${canApprove && inv.status === 'pending_review' ? `<button class="btn btn-sm btn-outline-success" onclick="quickApproveInvoice(${inv.id})">✅</button>` : ''}
             ${canDelete && inv.status !== 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})" title="حذف المسودة">🗑️</button>` : ''}
@@ -5455,7 +5966,7 @@ function renderPatientStatusReport(data) {
             <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الخروج</span><strong>${data.stay.latest_discharge ? new Date(data.stay.latest_discharge).toLocaleDateString('ar-EG') : '—'}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>مدة الإقامة</span><strong>${data.stay.duration_label}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>أيام الإقامة (مجموع)</span><strong>${data.stay.total_stay_days || 0} يوم</strong></div></div>
-            <div class="col-md-3"><div class="patient-stat-box"><span>رصيد الحساب</span><strong class="text-success">${fmt(data.patient.account_balance)}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>رصيد الحساب</span><strong class="${patientBalanceClass(data.patient.account_balance)}">${fmt(data.patient.account_balance)}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>عدد الفواتير</span><strong>${data.totals.invoices_count}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>معتمدة / مسودة / مراجعة</span><strong>${data.totals.approved_count} / ${data.totals.draft_count} / ${data.totals.pending_count}</strong></div></div>
           </div>

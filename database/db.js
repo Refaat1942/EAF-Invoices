@@ -381,6 +381,12 @@ async function runMigrations() {
   await query(
     `ALTER TABLE invoice_payment_amounts ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`
   );
+  await query(
+    `ALTER TABLE invoice_payment_amounts ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`
+  );
+  await query(
+    `ALTER TABLE invoice_payment_amounts DROP CONSTRAINT IF EXISTS invoice_payment_amounts_invoice_id_payment_method_id_key`
+  );
 
   await query(`
     CREATE TABLE IF NOT EXISTS contracted_entities (
@@ -440,6 +446,8 @@ async function runMigrations() {
   const phase4InvoiceColumns = [
     'stay_subtotal NUMERIC(14,2) DEFAULT 0',
     'stay_subtotal_raw NUMERIC(14,4) DEFAULT 0',
+    'excluded_daily_line_ids JSONB NOT NULL DEFAULT \'[]\'::jsonb',
+    'excluded_section_codes JSONB NOT NULL DEFAULT \'[]\'::jsonb',
   ];
   for (const col of phase4InvoiceColumns) {
     const name = col.split(' ')[0];
@@ -495,6 +503,7 @@ async function runMigrations() {
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_by_name TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_credit_applied NUMERIC(14,2) DEFAULT 0`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_credit_deducted BOOLEAN DEFAULT FALSE`);
+  await query(`ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS depositor_name TEXT DEFAULT ''`);
 
   await query(
     `INSERT INTO payment_methods (code, name, accepts_amount, sort_order, is_active)

@@ -123,6 +123,9 @@ function enrichInvoice(invoice) {
     stay_entries: invoice.stay_entries || [],
   });
 
+  const { resolvePatientInvoiceBalanceDisplay } = require('./patientService');
+  const patientBalance = resolvePatientInvoiceBalanceDisplay(invoice, totals);
+
   const calcItems = (totals.items || []).filter((item) => !item.is_stay_entry);
   const calcByLineId = new Map(
     calcItems.filter((item) => item.daily_entry_line_id).map((item) => [String(item.daily_entry_line_id), item])
@@ -153,6 +156,7 @@ function enrichInvoice(invoice) {
   return {
     ...invoice,
     ...totals,
+    ...(patientBalance ? { balance: patientBalance.balance, balance_raw: patientBalance.balance_raw } : {}),
     items: mergedItems,
     stay_entries: totals.stay_entries || invoice.stay_entries || [],
     invoice_type_label: invoice.invoice_type_label || invoice.invoice_type,
@@ -188,7 +192,9 @@ function buildInvoiceHtml(invoice, options = {}) {
     if (i._customer_display_aggregate) return true;
     return formatInvoiceLineDescription(i) || i.quantity || i.amount;
   });
-  const realPayments = (inv.payments || []).filter((p) => p.amount || p.receipt_number || p.receipt_date);
+  const realPayments = (inv.payments || []).filter(
+    (p) => p.amount || p.receipt_number || p.receipt_date || p.depositor_name
+  );
 
   const itemLineCount = realItems.filter((item) => !item._section_header).length;
   const printProfile = resolveInvoicePrintProfile(itemLineCount);
@@ -586,7 +592,7 @@ function buildInvoiceHtml(invoice, options = {}) {
         <tr class="title-row">
           <th colspan="4">القيمة المالية</th>
           <th>كشف حساب - البيان</th>
-          <th colspan="3">المبالغ المسددة</th>
+          <th colspan="4">المبالغ المسددة</th>
         </tr>
         <tr>
           <th class="col-tot">الإجمالي</th>
@@ -597,6 +603,7 @@ function buildInvoiceHtml(invoice, options = {}) {
           <th class="col-pay-amt">المبلغ</th>
           <th class="col-pay-num">رقم الإيصال</th>
           <th class="col-pay-date">تاريخ الإيصال</th>
+          <th class="col-pay-depositor">اسم المودع</th>
         </tr>
       </thead>
       <tbody>
@@ -648,11 +655,9 @@ function buildInvoiceHtml(invoice, options = {}) {
 function formatPaymentMethodLabel(method = {}) {
   const meta = method.metadata && typeof method.metadata === 'object' ? method.metadata : {};
   const parts = [String(method.name || '').trim()];
-  const depositor = String(meta.depositor_name || '').trim();
   const transferRef = String(meta.transfer_ref || '').trim();
   const chequeNumber = String(meta.cheque_number || '').trim();
   const chequeDrawer = String(meta.cheque_drawer || '').trim();
-  if (depositor) parts.push(`المودع: ${depositor}`);
   if (transferRef) parts.push(`رقم التحويل: ${transferRef}`);
   if (chequeNumber) parts.push(`شيك رقم: ${chequeNumber}`);
   if (chequeDrawer) parts.push(`الساحب: ${chequeDrawer}`);
@@ -687,7 +692,7 @@ function buildCombinedRows(items, payments) {
       html += `<tr class="print-section-header">
         <td colspan="4"></td>
         <td class="desc">${escapeHtml(String(item.description || '').trim())}</td>
-        <td colspan="3"></td>
+        <td colspan="4"></td>
       </tr>`;
       continue;
     }
@@ -696,7 +701,7 @@ function buildCombinedRows(items, payments) {
       ? String(item.description || '').trim()
       : formatInvoiceLineDescription(item);
     const hasItem = !!(lineDesc || item.quantity || item.amount || isAggregate);
-    const hasPay = !!(pay.amount || pay.receipt_number || pay.receipt_date);
+    const hasPay = !!(pay.amount || pay.receipt_number || pay.receipt_date || pay.depositor_name);
     const rowClass = !hasItem && !hasPay ? 'empty-row' : '';
     const descClass = hasItem && /[A-Za-z]/.test(lineDesc) ? 'desc desc-ltr-cell' : 'desc';
     const dash = '—';
@@ -710,6 +715,7 @@ function buildCombinedRows(items, payments) {
       <td class="num">${hasPay ? fmtPlain(pay.amount) : ''}</td>
       <td>${escapeHtml(pay.receipt_number || '')}</td>
       <td>${pay.receipt_date ? formatDate(pay.receipt_date) : ''}</td>
+      <td>${escapeHtml(pay.depositor_name || '')}</td>
     </tr>`;
   }
   return html;
@@ -806,7 +812,7 @@ function buildSummaryRows(inv) {
       <td></td><td></td><td></td>
       <td class="summary-label">${label}</td>
       <td class="num">${payVal}</td>
-      <td></td><td></td>
+      <td></td><td></td><td></td>
     </tr>`
     )
     .join('');

@@ -152,6 +152,7 @@
               <td class="small">${escapeHtml(inv.created_by_name || '—')}</td>
               <td class="text-nowrap">
                 <button type="button" class="btn btn-sm btn-outline-primary ops-open-invoice" data-id="${inv.id}">عرض</button>
+                <button type="button" class="btn btn-sm btn-outline-info ops-print-invoice" data-id="${inv.id}" title="معاينة الفاتورة الكبيرة">🖨️</button>
                 ${canApprove ? `<button type="button" class="btn btn-sm btn-outline-success ops-approve-invoice" data-id="${inv.id}">اعتماد</button>` : ''}
                 ${canDelete ? `<button type="button" class="btn btn-sm btn-outline-danger ops-delete-invoice" data-id="${inv.id}">حذف</button>` : ''}
               </td>
@@ -177,6 +178,7 @@
               <td class="small">${escapeHtml(inv.created_by_name || '—')}</td>
               <td class="text-nowrap">
                 <button type="button" class="btn btn-sm btn-outline-primary ops-open-invoice" data-id="${inv.id}">عرض</button>
+                <button type="button" class="btn btn-sm btn-outline-info ops-print-invoice" data-id="${inv.id}" title="معاينة الفاتورة الكبيرة">🖨️</button>
                 ${canDelete ? `<button type="button" class="btn btn-sm btn-outline-danger ops-delete-invoice" data-id="${inv.id}">حذف</button>` : ''}
               </td>
             </tr>`
@@ -237,6 +239,13 @@
           () => window.loadInvoiceForEdit(id),
           { elements: [openBtn], busyText: 'جاري الفتح…' }
         );
+        return;
+      }
+      const printBtn = e.target.closest('.ops-print-invoice');
+      if (printBtn && typeof window.openInvoicePrintPreview === 'function') {
+        const id = Number(printBtn.dataset.id);
+        if (!id) return;
+        window.openInvoicePrintPreview({ invoiceId: id, forceSaved: true });
         return;
       }
       const approveBtn = e.target.closest('.ops-approve-invoice');

@@ -195,7 +195,11 @@ function resolvePaymentTotals(data) {
 
     const byCode = {};
     data.method_payments.forEach((entry) => {
-      if (entry.code) byCode[entry.code] = roundNearest(entry.amount);
+      if (!entry.code) return;
+      byCode[entry.code] = round2((byCode[entry.code] || 0) + (Number(entry.amount) || 0));
+    });
+    Object.keys(byCode).forEach((code) => {
+      byCode[code] = roundNearest(byCode[code]);
     });
 
     return {
@@ -276,8 +280,11 @@ function sumItemPatientCredit(data) {
 
 function resolvePatientCreditAmount(data) {
   const fromItems = sumItemPatientCredit(data);
-  const methodEntry = (data.method_payments || []).find((entry) => entry.code === 'patient_credit');
-  const fromMethod = round2(methodEntry?.amount || 0);
+  const fromMethod = round2(
+    (data.method_payments || [])
+      .filter((entry) => entry.code === 'patient_credit')
+      .reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0)
+  );
   return round2(Math.max(fromItems, fromMethod));
 }
 

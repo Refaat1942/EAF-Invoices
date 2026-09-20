@@ -213,6 +213,11 @@ async function prepareCalculationData(data, client = null) {
     calcData.discount_percent = 0;
   }
 
+  const excludedLineIds = normalizeExcludedLineIds(calcData);
+  const excludedSectionCodes = normalizeExcludedSectionCodes(calcData);
+  calcData.excluded_daily_line_ids = excludedLineIds;
+  calcData.excluded_section_codes = excludedSectionCodes;
+
   if (
     calcData.file_number &&
     calcData.admission_date &&
@@ -223,7 +228,7 @@ async function prepareCalculationData(data, client = null) {
     let toDate = fmtDateOnly(calcData.discharge_date);
     if (!toDate && fromDate) toDate = fromDate;
     const { getInvoiceItemsFromDailyCharges, dedupeDailyInvoiceItemsByLineId } = require('./dailyChargeService');
-    const dailyItems = dedupeDailyInvoiceItemsByLineId(
+    let dailyItems = dedupeDailyInvoiceItemsByLineId(
       await getInvoiceItemsFromDailyCharges(
         calcData.file_number,
         fromDate,
@@ -231,6 +236,7 @@ async function prepareCalculationData(data, client = null) {
         calcData.invoice_id || calcData.id || null
       )
     );
+    dailyItems = filterDailyItemsByExclusions(dailyItems, excludedLineIds, excludedSectionCodes);
     const manualOnly = (Array.isArray(calcData.items) ? calcData.items : []).filter(
       (item) => !item.daily_entry_line_id && !item.daily_entry_id && !isStaleDailyInvoiceItem(item)
     );
@@ -255,6 +261,62 @@ async function prepareCalculationData(data, client = null) {
 function isStaleDailyInvoiceItem(item) {
   const desc = String(item?.description || '');
   return /^\[\d{2}-\d{2}-\d{4}\]/.test(desc) || /GMT|Coordinated Universal Time/i.test(desc);
+}
+
+function normalizeExcludedLineIds(data = {}) {
+  const raw = data.excluded_daily_line_ids;
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((id) => Number(id)).filter((id) => id > 0))];
+}
+
+function normalizeExcludedSectionCodes(data = {}) {
+  const raw = data.excluded_section_codes;
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((code) => String(code || '').trim()).filter(Boolean))];
+}
+
+const SECTION_BUNDLE_ALIASES = {
+  accommodation: 'stay',
+  companion: 'stay',
+  nursing_point: 'stay',
+  patient_assistant: 'stay',
+};
+
+function itemMatchesExcludedSection(item, sectionSet) {
+  if (!sectionSet.size) return false;
+  const sectionCode = String(item.section_code || '').trim();
+  const bundleCode = String(item.bundle_code || '').trim();
+  const keys = [sectionCode, bundleCode, SECTION_BUNDLE_ALIASES[sectionCode]].filter(Boolean);
+  return keys.some((key) => sectionSet.has(key));
+}
+
+function filterDailyItemsByExclusions(items = [], excludedLineIds = [], excludedSectionCodes = []) {
+  const lineSet = new Set(excludedLineIds);
+  const sectionSet = new Set(excludedSectionCodes);
+  return (items || []).filter((item) => {
+    const lineId = Number(item.daily_entry_line_id) || 0;
+    if (lineId && lineSet.has(lineId)) return false;
+    if (!lineId && itemMatchesExcludedSection(item, sectionSet)) return false;
+    return true;
+  });
+}
+
+async function buildPreviewInvoiceFromFormData(data) {
+  const calcData = await prepareCalculationData(data);
+  const totals = calculateInvoiceTotals(calcData);
+  const typeMap = await getInvoiceTypesMap();
+  const manualItems = (totals.items || []).filter((item) => !item.is_stay_entry);
+  return attachInvoiceLabels(
+    {
+      ...calcData,
+      ...totals,
+      items: manualItems,
+      payments: totals.payments || calcData.payments || [],
+      method_payments: totals.method_payments || calcData.method_payments || [],
+      stay_entries: totals.stay_entries || [],
+    },
+    typeMap
+  );
 }
 
 async function saveDiscountFields(client, invoiceId, data, totals, createdBy = null) {
@@ -305,19 +367,34 @@ async function attachInvoiceLabels(invoice, typeMap) {
   };
 }
 
+function parsePaymentMetadata(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 async function loadMethodPayments(invoiceId, client = null) {
   const run = client ? client.query.bind(client) : query;
   const { rows } = await run(
-    `SELECT ipa.amount, ipa.metadata, pm.id AS payment_method_id, pm.code, pm.name, pm.accepts_amount
+    `SELECT ipa.amount, ipa.metadata, ipa.sort_order, pm.id AS payment_method_id, pm.code, pm.name, pm.accepts_amount
      FROM invoice_payment_amounts ipa
      JOIN payment_methods pm ON pm.id = ipa.payment_method_id
      WHERE ipa.invoice_id = $1
-     ORDER BY pm.sort_order, pm.name`,
+     ORDER BY pm.sort_order, pm.name, ipa.sort_order, ipa.id`,
     [invoiceId]
   );
   return rows.map((row) => ({
     ...row,
-    metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+    metadata: parsePaymentMetadata(row.metadata),
+    line_index: Number(row.sort_order) || 0,
   }));
 }
 
@@ -326,21 +403,25 @@ async function saveMethodPayments(client, invoiceId, methodPayments = []) {
   await client.query('DELETE FROM invoice_payment_amounts WHERE invoice_id = $1', [invoiceId]);
   for (const entry of methodPayments) {
     const amount = Number(entry.amount) || 0;
-    if (amount === 0) continue;
+    const metadata = parsePaymentMetadata(entry.metadata);
+    const hasMetadata = Object.values(metadata).some((value) => String(value || '').trim() !== '');
+    if (amount === 0 && !hasMetadata) continue;
     let methodId = entry.payment_method_id;
     if (!methodId && entry.code) {
       methodId = await getPaymentMethodIdByCode(entry.code, client);
     }
     if (!methodId) continue;
-    const metadata =
-      entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
+    const sortOrder = Number(entry.line_index);
     await client.query(
-      `INSERT INTO invoice_payment_amounts (invoice_id, payment_method_id, amount, metadata)
-       VALUES ($1, $2, $3, $4::jsonb)
-       ON CONFLICT (invoice_id, payment_method_id) DO UPDATE SET
-         amount = EXCLUDED.amount,
-         metadata = EXCLUDED.metadata`,
-      [invoiceId, methodId, amount, JSON.stringify(metadata)]
+      `INSERT INTO invoice_payment_amounts (invoice_id, payment_method_id, amount, metadata, sort_order)
+       VALUES ($1, $2, $3, $4::jsonb, $5)`,
+      [
+        invoiceId,
+        methodId,
+        amount,
+        JSON.stringify(metadata),
+        Number.isFinite(sortOrder) ? sortOrder : 0,
+      ]
     );
   }
 }
@@ -566,6 +647,8 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
 
   const saveMode = options.save_mode || data.save_mode || 'draft';
   const calcData = await prepareCalculationData(data);
+  const excludedLineIds = normalizeExcludedLineIds(calcData);
+  const excludedSectionCodes = normalizeExcludedSectionCodes(calcData);
   const totals = calculateInvoiceTotals(calcData);
 
   const calcValidation = totals.calculation_validation || validateInvoiceCalculations(calcData, totals);
@@ -729,6 +812,15 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
         ]
       );
 
+      await client.query(
+        `UPDATE invoices SET excluded_daily_line_ids = $2::jsonb, excluded_section_codes = $3::jsonb WHERE id = $1`,
+        [
+          existingId,
+          JSON.stringify(excludedLineIds),
+          JSON.stringify(excludedSectionCodes),
+        ]
+      );
+
       await client.query('DELETE FROM invoice_items WHERE invoice_id = $1', [existingId]);
       await client.query('DELETE FROM invoice_payments WHERE invoice_id = $1', [existingId]);
       await client.query('DELETE FROM invoice_stay_entries WHERE invoice_id = $1', [existingId]);
@@ -807,6 +899,14 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
 
       invoiceId = inserted.rows[0]?.id;
       if (!invoiceId) throw new Error('فشل إنشاء الفاتورة');
+      await client.query(
+        `UPDATE invoices SET excluded_daily_line_ids = $2::jsonb, excluded_section_codes = $3::jsonb WHERE id = $1`,
+        [
+          invoiceId,
+          JSON.stringify(excludedLineIds),
+          JSON.stringify(excludedSectionCodes),
+        ]
+      );
       await saveDiscountFields(client, invoiceId, calcData, totals, createdBy);
     }
 
@@ -867,13 +967,14 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
     for (let index = 0; index < totals.payments.length; index++) {
       const payment = totals.payments[index];
       await client.query(
-        `INSERT INTO invoice_payments (invoice_id, receipt_date, receipt_number, amount, sort_order)
-         VALUES ($1, $2, $3, $4, $5)`,
+        `INSERT INTO invoice_payments (invoice_id, receipt_date, receipt_number, amount, depositor_name, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           invoiceId,
           payment.receipt_date || null,
           payment.receipt_number || '',
           payment.amount || 0,
+          payment.depositor_name || '',
           index,
         ]
       );
@@ -1169,6 +1270,8 @@ function buildCalcDataFromInvoice(invoice) {
     })),
     items,
     include_daily_charges: false,
+    excluded_daily_line_ids: normalizeExcludedLineIds(invoice),
+    excluded_section_codes: normalizeExcludedSectionCodes(invoice),
   };
 }
 
@@ -1285,6 +1388,8 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
     payments: invoice.payments || [],
     items: manualItems,
     include_daily_charges: true,
+    excluded_daily_line_ids: normalizeExcludedLineIds(invoice),
+    excluded_section_codes: normalizeExcludedSectionCodes(invoice),
     save_mode: 'draft',
   };
 }
@@ -1303,7 +1408,13 @@ async function verifyInvoiceDailyLineSync(invoiceId, fileNumber, fromDate, toDat
 
   const { getInvoiceItemsFromDailyCharges } = require('./dailyChargeService');
   const expected = await getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, invoiceId);
-  const expectedWithLine = expected.filter((item) => item.daily_entry_line_id);
+  const excludedLineIds = normalizeExcludedLineIds(invoice);
+  const excludedSectionCodes = normalizeExcludedSectionCodes(invoice);
+  const expectedWithLine = filterDailyItemsByExclusions(
+    expected.filter((item) => item.daily_entry_line_id),
+    excludedLineIds,
+    excludedSectionCodes
+  );
 
   if (expectedWithLine.length !== dailyItems.length) {
     throw new Error(
@@ -1953,6 +2064,10 @@ module.exports = {
   getReportsSummary,
   getInvoiceSerialNumberingAudit,
   prepareCalculationData,
+  buildPreviewInvoiceFromFormData,
+  normalizeExcludedLineIds,
+  normalizeExcludedSectionCodes,
+  filterDailyItemsByExclusions,
   syncInvoiceDailyCharges,
   syncInvoiceAfterDailyChange,
   syncDailyEntryToInvoices,
