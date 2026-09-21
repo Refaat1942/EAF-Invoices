@@ -5554,8 +5554,18 @@ async function loadDailyEntriesIntoSheet() {
       return;
     }
     const seenEntryIds = new Set();
+    // Every branch below renders once per (entry, line) pair straight from todayEntries — if
+    // that array ever carries the same entry twice (a stale/overlapping reload response, or a
+    // future query change), each of that entry's lines would be rendered twice too. The
+    // stay/default branches already guarded against this; apply the same guard here so a
+    // repeated entry can never show as a repeated row.
+    const seenLoopEntryIds = new Set();
     if (activeDailyTab === 'exams') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenLoopEntryIds.has(entry.id)) continue;
+          seenLoopEntryIds.add(entry.id);
+        }
         const examLines = (entry.lines || []).filter(
           (l) => ['consultant_exam', 'specialist_exam'].includes(l.section_code) && lineHasChargeData(l)
         );
@@ -5568,6 +5578,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'lab') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenLoopEntryIds.has(entry.id)) continue;
+          seenLoopEntryIds.add(entry.id);
+        }
         const labLines = serviceLinesFromEntry(entry, 'analyses');
         if (labLines.length) {
           for (const line of labLines) {
@@ -5578,6 +5592,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'radiology') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenLoopEntryIds.has(entry.id)) continue;
+          seenLoopEntryIds.add(entry.id);
+        }
         const radLines = serviceLinesFromEntry(entry, 'xray_total');
         if (radLines.length) {
           for (const line of radLines) {
@@ -5588,6 +5606,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'other') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenLoopEntryIds.has(entry.id)) continue;
+          seenLoopEntryIds.add(entry.id);
+        }
         const miscLines = catalogLinesFromEntry(entry, ['other', 'prosthetics']);
         if (miscLines.length) {
           for (const line of miscLines) {
@@ -5598,6 +5620,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'medicines') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenLoopEntryIds.has(entry.id)) continue;
+          seenLoopEntryIds.add(entry.id);
+        }
         const medLines = catalogLinesFromEntry(entry, 'medicines');
         if (medLines.length) {
           for (const line of medLines) {
@@ -5608,6 +5634,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'supplies') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenLoopEntryIds.has(entry.id)) continue;
+          seenLoopEntryIds.add(entry.id);
+        }
         const supLines = catalogLinesFromEntry(entry, ['supplies', 'cosmetics']);
         if (supLines.length) {
           for (const line of supLines) {
@@ -5618,6 +5648,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'sessions') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenLoopEntryIds.has(entry.id)) continue;
+          seenLoopEntryIds.add(entry.id);
+        }
         const sessionLines = serviceLinesFromEntry(entry, 'sessions');
         const hasSessionMeta =
           lineHasChargeData(getLineForSection(entry, 'sessions_date')) ||

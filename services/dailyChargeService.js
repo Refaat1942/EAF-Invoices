@@ -1062,11 +1062,12 @@ async function validateServiceForSection(section, serviceId, sectionsWithService
     throw new Error(`قسم «${section.name}»: الخدمة غير موجودة في اللائحة`);
   }
   const sectionCategory = full.category_code || section.category_code;
-  const matchesExactCategory = sectionCategory && service.category_code === sectionCategory;
-  // Sections like medicines/supplies/cosmetics have no single category_code (they were
-  // catalog-only historically) but do have a multi-category price-list mapping — validate
-  // against that instead of skipping the check entirely when sectionCategory is empty.
-  if (!matchesExactCategory && service.category_code) {
+  // Only validate against a known section category_code. Sections like medicines/supplies/
+  // cosmetics have none (they were catalog-only historically) — a prior attempt to validate
+  // these against a guessed price-list category (PHARMACY/MEDICINE/SUPPLIES/COSMETICS)
+  // wrongly rejected real items because production price lists use different category
+  // codes for these; skip validation for them rather than guess wrong.
+  if (sectionCategory && service.category_code && service.category_code !== sectionCategory) {
     if (!sectionAllowsServiceCategory(full, service.category_code)) {
       throw new Error(`قسم «${section.name}»: الخدمة لا تنتمي لهذا القسم في اللائحة`);
     }
