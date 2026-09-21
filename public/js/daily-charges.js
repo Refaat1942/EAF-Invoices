@@ -5923,6 +5923,18 @@ function addDailyEntryRow(preset = {}) {
     }
   }
   const entryDate = getLocalDateString();
+  if (activeDailyTab === 'stay' && isDailyEntryPresetEmpty(preset)) {
+    const existingStay = [...document.querySelectorAll('#daily-sections-body .daily-stay-row')].find(
+      (tr) =>
+        fmtStayDate(tr.querySelector('.daily-row-date')?.value) === entryDate &&
+        stayRowGroupHasChargeData(tr)
+    );
+    if (existingStay) {
+      focusDailyEntryRow(existingStay);
+      showToast('يوجد صف إقامة لهذا اليوم بالفعل', 'info');
+      return;
+    }
+  }
   if (activeDailyTab === 'stay' && !preset.stay_type_id) {
     preset.stay_type_id = getDefaultStayTypeIdForRow() || preset.stay_type_id;
   }
@@ -6265,6 +6277,7 @@ async function loadDailyEntriesIntoSheet() {
           body.appendChild(row);
           mountStayAddonRows(row);
         }
+        pruneDuplicateStayDomRows();
         if (!body.querySelector('.daily-stay-row')) addDailyEntryRow();
       }
     } else {
@@ -6433,6 +6446,56 @@ function dedupeStayEntriesByDate(entries = []) {
   return [...byDate.values()].sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)));
 }
 
+function collectStayEntryIdsForDate(date) {
+  const normalized = fmtStayDate(date);
+  if (!normalized) return [];
+  const ids = new Set();
+  for (const entry of dailySheetEntriesCache || []) {
+    if (fmtStayDate(entry.entry_date) !== normalized) continue;
+    if (!entryHasStayChargeData(entry)) continue;
+    if (entry.id) ids.add(Number(entry.id));
+  }
+  for (const tr of document.querySelectorAll('#daily-sections-body .daily-stay-row')) {
+    const rowDate = fmtStayDate(tr.querySelector('.daily-row-date')?.value);
+    if (rowDate !== normalized) continue;
+    const entryId = Number(tr.dataset.entryId) || 0;
+    if (entryId > 0) ids.add(entryId);
+  }
+  return [...ids].filter((id) => id > 0);
+}
+
+function removeStayRowsForDate(date) {
+  const normalized = fmtStayDate(date);
+  if (!normalized) return;
+  [...document.querySelectorAll('#daily-sections-body .daily-stay-row')].forEach((tr) => {
+    const rowDate = fmtStayDate(tr.querySelector('.daily-row-date')?.value);
+    if (rowDate === normalized) removeDailyEntryRowFromDom(tr);
+  });
+}
+
+function pruneDuplicateStayDomRows() {
+  const byDate = new Map();
+  for (const row of [...document.querySelectorAll('#daily-sections-body .daily-stay-row')]) {
+    const date = fmtStayDate(row.querySelector('.daily-row-date')?.value);
+    if (!date) continue;
+    const existing = byDate.get(date);
+    if (!existing) {
+      byDate.set(date, row);
+      continue;
+    }
+    const existingScore = Number(existing.dataset.entryId) || 0;
+    const rowScore = Number(row.dataset.entryId) || 0;
+    if (rowScore > existingScore) {
+      removeDailyEntryRowFromDom(existing);
+      byDate.set(date, row);
+    } else {
+      removeDailyEntryRowFromDom(row);
+    }
+  }
+  renumberSheetRowSerials();
+  updateDailyGrandTotal();
+}
+
 function dailyPreviewKindForActiveTab() {
   if (!activeDailyTab || activeDailyTab === 'free-items') return '';
   return activeDailyTab;
@@ -6479,48 +6542,69 @@ async function deleteDailyEntryById(entryId, options = {}) {
   }
 }
 
-async function deleteStayDuplicatesForRow(tr) {
+async function deleteStayRowGroup(tr) {
+  if (!dailyCan('daily_charges.manage')) {
+    showToast('ليس لديك صلاحية الحذف', 'warning');
+    return;
+  }
   const date = tr.querySelector('.daily-row-date')?.value || getLocalDateString();
-  const idsToDelete = [
-    ...new Set(
-      (dailySheetEntriesCache || [])
-        .filter((entry) => fmtStayDate(entry.entry_date) === date && entryHasStayChargeData(entry) && entry.id)
-        .map((entry) => Number(entry.id))
-        .filter((id) => id > 0)
-    ),
-  ];
-  if (!idsToDelete.length) return false;
-  if (idsToDelete.length > 1) {
-    const ok = confirm(`يوجد ${idsToDelete.length} حركات إقامة لتاريخ ${date}. حذفها كلها؟`);
-    if (!ok) return false;
-  } else if (!confirm('حذف حركة إقامة هذا اليوم؟')) {
-    return false;
+  const idsToDelete = collectStayEntryIdsForDate(date);
+  const message =
+    idsToDelete.length > 1
+      ? `يوجد ${idsToDelete.length} حركات إقامة لتاريخ ${date}. حذفها كلها؟`
+      : idsToDelete.length === 1
+        ? 'حذف حركة إقامة هذا اليوم؟'
+        : 'حذف صف الإقامة؟';
+  if (!confirm(message)) return;
+
+  removeStayRowsForDate(date);
+
+  if (!idsToDelete.length) {
+    dailySheetEntriesCache = (dailySheetEntriesCache || []).filter(
+      (entry) =>
+        fmtStayDate(entry.entry_date) !== fmtStayDate(date) || !entryHasStayChargeData(entry)
+    );
+    if (!document.querySelector('.daily-stay-row')) addDailyEntryRow();
+    updateDailyGrandTotal();
+    if (window.AutoSave) {
+      AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+    }
+    return;
   }
-  let lastSync = null;
-  for (const id of idsToDelete) {
-    const data = await apiJson(`${DAILY_API}/entries/${id}`, { method: 'DELETE' });
-    lastSync = data;
+
+  try {
+    let lastSync = null;
+    for (const id of idsToDelete) {
+      const data = await apiJson(`${DAILY_API}/entries/${id}`, { method: 'DELETE' });
+      lastSync = data;
+      dailySheetEntriesCache = (dailySheetEntriesCache || []).filter(
+        (entry) => Number(entry.id) !== Number(id)
+      );
+    }
+    if (lastSync) applyDailyInvoiceSync(lastSync);
+    if (!document.querySelector('.daily-stay-row')) addDailyEntryRow();
+    updateDailyGrandTotal();
+    await loadDailyPatientHistory();
+    const fileNumber = getStayFileNumber();
+    if (lastSync?.invoice_sync?.invoice_id && fileNumber) {
+      await refreshInvoiceFormAfterDailySave(fileNumber, lastSync.invoice_sync.invoice_id);
+    }
+    if (fileNumber) await loadOpenPatientStay(fileNumber);
+    showToast(idsToDelete.length > 1 ? `تم حذف ${idsToDelete.length} حركات إقامة` : 'تم حذف الحركة', 'success');
+    if (window.AutoSave) {
+      AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+    }
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    await loadDailyEntriesIntoSheet();
   }
-  if (lastSync) applyDailyInvoiceSync(lastSync);
-  await loadDailyEntriesIntoSheet();
-  await loadDailyPatientHistory();
-  const fileNumber = getStayFileNumber();
-  if (lastSync?.invoice_sync?.invoice_id && fileNumber) {
-    await refreshInvoiceFormAfterDailySave(fileNumber, lastSync.invoice_sync.invoice_id);
-  }
-  if (fileNumber) await loadOpenPatientStay(fileNumber);
-  showToast(idsToDelete.length > 1 ? `تم حذف ${idsToDelete.length} حركات إقامة` : 'تم حذف الحركة', 'success');
-  if (window.AutoSave) {
-    AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
-  }
-  return true;
 }
 
 async function deleteDailyEntryRow(tr) {
   return withDailyAutosavePaused(async () => {
     if (tr.classList.contains('daily-stay-row')) {
-      const removed = await deleteStayDuplicatesForRow(tr);
-      if (removed) return;
+      await deleteStayRowGroup(tr);
+      return;
     }
     const entryId = tr.dataset.entryId;
     if (entryId && shouldDeleteEntireDailyEntryForRow(tr)) {
@@ -6544,19 +6628,24 @@ async function deleteDailyEntryRow(tr) {
 
 function mergeStaySaveRows(rows) {
   if (!rows.length) return rows;
-  const merged = { ...rows[0], lines: [...(rows[0].lines || [])] };
-  const lineMap = new Map((merged.lines || []).map((line) => [dailyLineMergeKey(line), line]));
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
+  const byDate = new Map();
+  for (const row of rows) {
+    const dateKey = fmtStayDate(row.entry_date) || getLocalDateString();
+    if (!byDate.has(dateKey)) {
+      byDate.set(dateKey, { ...row, entry_date: dateKey, lines: [...(row.lines || [])] });
+      continue;
+    }
+    const merged = byDate.get(dateKey);
     if (row.entry_id && !merged.entry_id) merged.entry_id = row.entry_id;
     if (row.stay_type_id) merged.stay_type_id = row.stay_type_id;
     if (row.notes) merged.notes = row.notes;
+    const lineMap = new Map((merged.lines || []).map((line) => [dailyLineMergeKey(line), line]));
     for (const line of row.lines || []) {
       lineMap.set(dailyLineMergeKey(line), line);
     }
+    merged.lines = [...lineMap.values()];
   }
-  merged.lines = [...lineMap.values()];
-  return [merged];
+  return [...byDate.values()];
 }
 
 function getDailyChargeDomRows() {
@@ -6633,12 +6722,24 @@ function applySavedEntriesToDomRows(savedEntries = []) {
     const existingId = tr.dataset.entryId;
     if (existingId && savedById.has(String(existingId))) {
       entry = savedById.get(String(existingId));
+    } else if (tr.classList.contains('daily-stay-row')) {
+      const rowDate = fmtStayDate(tr.querySelector('.daily-row-date')?.value);
+      entry = savedEntries.find(
+        (candidate) =>
+          candidate?.id &&
+          fmtStayDate(candidate.entry_date) === rowDate &&
+          entryHasStayChargeData(candidate)
+      );
     } else {
       const fingerprint = buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
       entry = fingerprint ? savedByFingerprint.get(fingerprint) : null;
     }
     if (!entry?.id) continue;
     tr.dataset.entryId = String(entry.id);
+    if (tr.classList.contains('daily-stay-row')) {
+      tr._entryLinesSnapshot = (entry.lines || []).map((line) => ({ ...line }));
+      if (entry.stay_type_id) tr.dataset.stayTypeId = String(entry.stay_type_id);
+    }
     applySavedLineIdsToRow(tr, entry);
     if (tr.classList.contains('daily-lab-row')) {
       tr._entryLinesSnapshot = dailyRowSnapshotExcluding(
@@ -6688,9 +6789,10 @@ function collectDailyRowsForSave() {
     if (activeDailyTab === 'stay' && !stayRowGroupHasChargeData(tr)) return;
     if (activeDailyTab !== 'stay' && !rowHasChargeData(tr)) return;
     const entryId = tr.dataset.entryId ? Number(tr.dataset.entryId) : null;
+    const rowDate = tr.querySelector('.daily-row-date')?.value || today;
     rows.push({
       entry_id: entryId,
-      entry_date: today,
+      entry_date: activeDailyTab === 'stay' ? rowDate : today,
       stay_type_id:
         tr.querySelector('.daily-row-stay-type')?.value || tr.dataset.stayTypeId || null,
       doctor_specialty:
@@ -6915,6 +7017,7 @@ async function saveDailyEntry(options = {}) {
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
     await refreshDailyStaySummary(file_number);
     applySavedEntriesToDomRows(data.saved || []);
+    if (activeDailyTab === 'stay') pruneDuplicateStayDomRows();
     if (silent) {
       if (window.AutoSave) {
         AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
@@ -7071,19 +7174,7 @@ function clearDailyForm() {
 
 async function showDailyBuildBadge() {
   const el = document.getElementById('daily-build-badge');
-  if (!el) return;
-  const meta = document.querySelector('meta[name="app-build"]')?.content || '';
-  try {
-    const health = await apiJson('/api/health');
-    const serverBuild = String(health.ui_build || '').trim();
-    if (serverBuild && meta && serverBuild !== meta) {
-      el.innerHTML = `<span class="text-warning fw-bold">الخادم ${serverBuild} — المتصفح ${meta}. اضغط Ctrl+F5 لتحديث الصفحة.</span>`;
-      return;
-    }
-    el.textContent = serverBuild ? `نسخة التطبيق: ${serverBuild}` : '';
-  } catch {
-    el.textContent = meta ? `نسخة التطبيق: ${meta}` : '';
-  }
+  if (el) el.textContent = '';
 }
 
 async function initDailyChargesView(options = {}) {

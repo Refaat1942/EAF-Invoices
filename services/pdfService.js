@@ -182,17 +182,44 @@ function resolveInvoicePrintProfile(lineCount = 0) {
   return { className: 'print-fit print-ultra' };
 }
 
+function formatManagerNameForSignature(name) {
+  const cleaned = String(name || '')
+    .replace(/\s*[-–—]\s*المدير المالي\s*$/u, '')
+    .trim();
+  return cleaned || 'رائد / جمال عبد الناصر';
+}
+
+function scopeInvoiceForDailyKindPreview(invoice, dailyKind) {
+  const kind = String(dailyKind || '').trim();
+  if (!kind) return invoice;
+
+  const { inferBundleKeyFromItem, getBundleLabel } = require('./dailySectionBundles');
+  const scopedItems = (invoice.items || []).filter((item) => inferBundleKeyFromItem(item) === kind);
+
+  return {
+    ...invoice,
+    items: scopedItems,
+    stay_entries: kind === 'stay' ? invoice.stay_entries || [] : [],
+    payments: [],
+    method_payments: [],
+    balance: 0,
+    stamp_duty: 0,
+    professional_fees: 0,
+    _daily_kind_label: getBundleLabel(kind),
+  };
+}
+
 function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '', dailyKind = '' } = options;
-  const inv = enrichInvoice(invoice);
+  const scopedInvoice = scopeInvoiceForDailyKindPreview(invoice, dailyKind);
+  const inv = enrichInvoice(scopedInvoice);
+  if (scopedInvoice._daily_kind_label) {
+    inv._daily_kind_label = scopedInvoice._daily_kind_label;
+  }
   let sourceItems = inv.items || [];
-  if (dailyKind) {
-    const { inferBundleKeyFromItem, getBundleLabel } = require('./dailySectionBundles');
-    sourceItems = sourceItems.filter((item) => inferBundleKeyFromItem(item) === dailyKind);
-    if (dailyKind !== 'stay') {
-      inv.stay_entries = [];
-    }
-    inv._daily_kind_label = getBundleLabel(dailyKind);
+  if (dailyKind && dailyKind !== 'stay') {
+    sourceItems = sourceItems.filter((item) => !item.is_stay_entry);
+    inv.stay_entries = [];
   }
   const displayItems = buildCustomerPrintLines(sourceItems);
 
@@ -207,8 +234,9 @@ function buildInvoiceHtml(invoice, options = {}) {
 
   const itemLineCount = realItems.filter((item) => !item._section_header).length;
   const printProfile = resolveInvoicePrintProfile(itemLineCount);
-  const items = [...realItems];
-  const payments = [...realPayments];
+  const printRows = appendMethodPaymentsToPrintRows(realItems, realPayments, inv.method_payments || []);
+  const items = printRows.items;
+  const payments = printRows.payments;
 
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -651,7 +679,7 @@ function buildInvoiceHtml(invoice, options = {}) {
     </div>
 
     <div class="signatures">
-      <div class="sig-block"><div class="sig-title">المدير المالي</div><div class="sig-line">${escapeHtml(inv.manager_name)}</div></div>
+      <div class="sig-block"><div class="sig-title">المدير المالي</div><div class="sig-line">${escapeHtml(formatManagerNameForSignature(inv.manager_name))}</div></div>
       <div class="sig-block"><div class="sig-title">رئيس حسابات المرضى</div><div class="sig-line">${escapeHtml(inv.captain_name || 'نقيب عمرو صالح')}</div></div>
       <div class="sig-block"><div class="sig-title">المراجع المالي</div><div class="sig-line">${escapeHtml(inv.auditor_name || 'المراجع المالي')}</div></div>
       <div class="sig-block"><div class="sig-title">الموظف المختص</div><div class="sig-line">${escapeHtml(inv.employee_name || 'الموظف المختص')}</div></div>
@@ -665,13 +693,52 @@ function buildInvoiceHtml(invoice, options = {}) {
 function formatPaymentMethodLabel(method = {}) {
   const meta = method.metadata && typeof method.metadata === 'object' ? method.metadata : {};
   const parts = [String(method.name || '').trim()];
+  const depositor = String(meta.depositor_name || '').trim();
   const transferRef = String(meta.transfer_ref || '').trim();
   const chequeNumber = String(meta.cheque_number || '').trim();
   const chequeDrawer = String(meta.cheque_drawer || '').trim();
+  if (depositor) parts.push(`المودع: ${depositor}`);
   if (transferRef) parts.push(`رقم التحويل: ${transferRef}`);
   if (chequeNumber) parts.push(`شيك رقم: ${chequeNumber}`);
   if (chequeDrawer) parts.push(`الساحب: ${chequeDrawer}`);
   return parts.filter(Boolean).join(' — ');
+}
+
+function methodPaymentsToReceiptRows(methodPayments = []) {
+  return (methodPayments || [])
+    .filter((entry) => entry.accepts_amount !== false && (Number(entry.amount) || 0) > 0)
+    .map((entry) => {
+      const meta = entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
+      return {
+        amount: entry.amount,
+        depositor_name: String(meta.depositor_name || '').trim(),
+        receipt_number: String(meta.transfer_ref || meta.cheque_number || '').trim(),
+        receipt_date: String(meta.cheque_date || '').trim(),
+      };
+    });
+}
+
+function appendMethodPaymentsToPrintRows(items, payments, methodPayments = []) {
+  const methodReceipts = methodPaymentsToReceiptRows(methodPayments);
+  if (!methodReceipts.length) return { items, payments };
+
+  const nextItems = [...items];
+  const nextPayments = [...payments];
+  const hasLegacyPayments = nextPayments.some(
+    (pay) => pay.amount || pay.receipt_number || pay.receipt_date || pay.depositor_name
+  );
+  if (!hasLegacyPayments) {
+    return {
+      items: [...nextItems, ...methodReceipts.map(() => ({}))],
+      payments: methodReceipts,
+    };
+  }
+
+  methodReceipts.forEach((pay) => {
+    nextItems.push({});
+    nextPayments.push(pay);
+  });
+  return { items: nextItems, payments: nextPayments };
 }
 
 function buildPaymentRows(inv) {

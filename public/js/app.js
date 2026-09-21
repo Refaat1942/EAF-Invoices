@@ -637,11 +637,11 @@ function updateInvoicePatientSummary(inv) {
 function applyInvoiceFollowUpPaymentsOnly() {
   setFormReadonly(true);
   setInvoiceItemsReadonly(true);
-  document.querySelectorAll('.payment-method-input, .payment-meta-input').forEach((el) => {
+  document.querySelectorAll('.payment-method-input, .payment-meta-input, .payment-depositor-input').forEach((el) => {
     el.removeAttribute('readonly');
     el.disabled = false;
   });
-  document.querySelectorAll('.pay-remaining-btn').forEach((btn) => {
+  document.querySelectorAll('.pay-remaining-btn, .add-payment-line-btn, .remove-payment-line-btn').forEach((btn) => {
     btn.style.display = '';
   });
   ['pay-full-cash-btn', 'pay-full-bank-btn', 'pay-full-check-btn', 'clear-payments-btn'].forEach((id) => {
@@ -827,11 +827,11 @@ function applyInvoiceEditMode() {
 
   setFormReadonly(true);
   setInvoiceItemsReadonly(true);
-  document.querySelectorAll('.payment-method-input, .payment-meta-input').forEach((el) => {
+  document.querySelectorAll('.payment-method-input, .payment-meta-input, .payment-depositor-input').forEach((el) => {
     el.removeAttribute('readonly');
     el.disabled = false;
   });
-  document.querySelectorAll('.pay-remaining-btn').forEach((btn) => {
+  document.querySelectorAll('.pay-remaining-btn, .add-payment-line-btn, .remove-payment-line-btn').forEach((btn) => {
     btn.style.display = '';
   });
   ['pay-full-cash-btn', 'pay-full-bank-btn', 'pay-full-check-btn', 'clear-payments-btn'].forEach((id) => {
@@ -971,14 +971,12 @@ function addExcludedSectionCode(code) {
 
 function excludeInvoiceSection(sectionKey) {
   if (!sectionKey) return;
+  addExcludedSectionCode(sectionKey);
   const items = (lastCalculationTotals?.items || []).filter((item) => !item.is_stay_entry);
-  let matched = false;
   for (const item of items) {
     if (inferInvoiceItemSectionKey(item) !== sectionKey) continue;
-    matched = true;
     if (item.daily_entry_line_id) addExcludedDailyLineId(item.daily_entry_line_id);
   }
-  if (matched || sectionKey) addExcludedSectionCode(sectionKey);
 }
 
 function findLastRemovableInvoiceRow(tbody) {
@@ -1022,6 +1020,8 @@ function removeInvoiceItemRow(row) {
   }
   if (row.dataset.dailyLineId) {
     addExcludedDailyLineId(row.dataset.dailyLineId);
+  } else if (row.dataset.sectionCode || row.dataset.sectionKey) {
+    addExcludedSectionCode(row.dataset.sectionKey || row.dataset.sectionCode || '');
   }
   row.remove();
   rowCount = Math.max(0, rowCount - 1);
@@ -1726,9 +1726,26 @@ function bindPaymentMethodHelpers() {
       updatePaymentRowHints();
       togglePaymentMetaRows();
       if (input.dataset.methodCode !== 'patient_credit') {
+        syncInvoicePaymentColumnsFromMethodPayments();
         recalculate({ skipAutoCredit: true, skipAutoPayments: true });
       }
     });
+  });
+
+  document.querySelectorAll('.payment-depositor-input').forEach((input) => {
+    if (input.dataset.helperBound === '1') return;
+    input.dataset.helperBound = '1';
+    input.addEventListener('input', () => {
+      togglePaymentMetaRows();
+      syncInvoicePaymentColumnsFromMethodPayments();
+    });
+  });
+
+  document.querySelectorAll('.payment-meta-input').forEach((input) => {
+    if (input.dataset.paymentMetaSyncBound === '1') return;
+    input.dataset.paymentMetaSyncBound = '1';
+    input.addEventListener('input', syncInvoicePaymentColumnsFromMethodPayments);
+    input.addEventListener('change', syncInvoicePaymentColumnsFromMethodPayments);
   });
 }
 
@@ -2453,11 +2470,8 @@ function getPatientBalanceAfterInvoice(totals = lastCalculationTotals) {
   const outstanding =
     Math.round((Number(totals?.outstanding_amount ?? totals?.remaining) || 0) * 100) / 100;
   const refundable = resolveRefundableFromTotals(totals);
-  const credit =
-    Math.round(
-      (Number(totals?.patient_credit_applied) ||
-        computeInvoicePatientCredit(Number(totals?.final_total) || 0)) * 100
-    ) / 100;
+  const finalTotal = Number(totals?.final_total_raw ?? totals?.final_total) || 0;
+  const credit = Math.round(computeInvoicePatientCredit(finalTotal) * 100) / 100;
   if (isPatientCreditAlreadyDeducted()) {
     return Math.round((prepaid - outstanding + refundable) * 100) / 100;
   }
@@ -2745,6 +2759,7 @@ function autoStayDays() {
 }
 
 function collectFormData() {
+  syncInvoicePaymentColumnsFromMethodPayments();
   const rows = document.querySelectorAll('#items-tbody tr');
   const items = [];
   const payments = [];
@@ -2897,6 +2912,7 @@ async function recalculate(options = {}) {
     } else {
       refreshInvoiceDisplayFromCalculatedItems(totals.items || []);
     }
+    syncInvoicePaymentColumnsFromMethodPayments();
     updateSummaryDisplay(totals);
     updateSummaryTable(totals);
     updatePaymentValidationUI(totals);
@@ -3003,7 +3019,11 @@ function collectPaymentsFromInvoiceRows() {
 
 function refreshInvoiceDisplayFromCalculatedItems(items = []) {
   const displayItems = normalizeInvoiceDisplayItems(items || []);
-  populateInvoiceItemsGrouped(displayItems, collectPaymentsFromInvoiceRows());
+  const isDailyInvoice = displayItems.some(
+    (item) => item.daily_entry_line_id || item.daily_entry_id || item.section_code
+  );
+  const payments = isDailyInvoice ? [] : collectPaymentsFromInvoiceRows();
+  populateInvoiceItemsGrouped(displayItems, payments);
   lockDailyInvoiceRows();
 }
 
@@ -3273,15 +3293,34 @@ function updateStayEntriesFromTotals(entries) {
   updateStayEntryTotalsLocal();
 }
 
-function refreshFollowUpPatientSummary(totals) {
-  if (!invoiceFollowUpMode || !lastLoadedInvoice) return;
+function refreshInvoicePatientSummaryFromTotals(totals) {
+  const panel = document.getElementById('invoice-patient-data-summary');
+  if (!panel || panel.style.display === 'none') return;
+  const base = lastLoadedInvoice || {};
+  const finalTotal = Number(totals?.final_total_raw ?? totals?.final_total) || 0;
   renderInvoicePatientRegistrationSummary({
-    ...lastLoadedInvoice,
-    final_total: totals?.final_total ?? lastLoadedInvoice.final_total,
-    total_collected: totals?.total_collected ?? lastLoadedInvoice.total_collected,
-    remaining: totals?.remaining ?? lastLoadedInvoice.remaining,
-    patient_context: lastLoadedInvoice.patient_context,
+    ...base,
+    patient_name: document.getElementById('patient_name')?.value?.trim() || base.patient_name,
+    file_number: document.getElementById('file_number')?.value?.trim() || base.file_number,
+    financial_treatment: document.getElementById('financial_treatment')?.value || base.financial_treatment,
+    admission_date: document.getElementById('admission_date')?.value || base.admission_date,
+    discharge_date: document.getElementById('discharge_date')?.value || base.discharge_date,
+    invoice_type: document.getElementById('invoice_type')?.value || base.invoice_type,
+    contracted_entity_name:
+      document.getElementById('contracted_entity_id')?.selectedOptions?.[0]?.textContent?.trim() ||
+      base.contracted_entity_name,
+    final_total: totals?.final_total ?? base.final_total,
+    total_collected: totals?.total_collected ?? base.total_collected,
+    remaining: totals?.remaining ?? totals?.outstanding_amount ?? base.remaining,
+    outstanding_amount: totals?.outstanding_amount ?? totals?.remaining ?? base.outstanding_amount,
+    refundable_amount: totals?.refundable_amount ?? base.refundable_amount,
+    patient_credit_applied: computeInvoicePatientCredit(finalTotal),
+    patient_context: base.patient_context || {},
   });
+}
+
+function refreshFollowUpPatientSummary(totals) {
+  refreshInvoicePatientSummaryFromTotals(totals);
 }
 
 function setSummaryEl(id, html) {
@@ -3364,7 +3403,7 @@ function updateSummaryDisplay(t) {
   updatePatientCreditSummary(t);
   updatePaymentRowHints();
   updatePaymentValidationUI(t);
-  refreshFollowUpPatientSummary(t);
+  refreshInvoicePatientSummaryFromTotals(t);
 }
 
 function updateCalculationFlowUI(t) {
@@ -3533,6 +3572,17 @@ function clearAllPayments() {
   document.querySelectorAll('.payment-method-input').forEach((input) => {
     input.value = formatAmountInput(0);
   });
+  document.querySelectorAll('.payment-depositor-input, .payment-meta-input').forEach((input) => {
+    input.value = '';
+  });
+  document.querySelectorAll('.payment-method-line-extra').forEach((row) => {
+    const code = row.dataset.methodCode;
+    const metaRow = row.nextElementSibling?.classList?.contains('payment-meta-row') ? row.nextElementSibling : null;
+    row.remove();
+    metaRow?.remove();
+    if (code) reindexPaymentMethodLines(code);
+  });
+  togglePaymentMetaRows();
   recalculate();
 }
 
@@ -3767,7 +3817,7 @@ function resetForm() {
   document.getElementById('issue_date').value = new Date().toISOString().slice(0, 10);
   updateInvoiceStatusUI(null);
   document.getElementById('captain_name').value = 'نقيب عمرو صالح';
-  document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر - المدير المالي';
+  document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر';
   document.getElementById('admin_expenses_percent').value = formatAmountInput(12);
   document.getElementById('stamp_duty').value = formatAmountInput(0);
   document.getElementById('professional_fees').value = formatAmountInput(0);
@@ -4696,9 +4746,13 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
   const { methodIndex = 0, isFirstLine = lineIndex === 0 } = options;
   const isPatientCredit = method.code === 'patient_credit';
   const amount = Number(line.amount) || 0;
+  const metadata = line.metadata && typeof line.metadata === 'object' ? line.metadata : {};
   const displayVal = amount ? formatAmountInput(amount) : '';
+  const depositorVal = String(metadata.depositor_name || '').trim();
   const readonlyAttr = isPatientCredit ? 'readonly' : '';
   const extraClass = isPatientCredit ? ' bg-light' : '';
+  const depositorReadonly = isPatientCredit ? 'readonly' : '';
+  const depositorExtraClass = isPatientCredit ? ' bg-light' : '';
   const labelContent = isFirstLine
     ? `${methodIndex} - ${method.name}${isPatientCredit ? ' <small class="text-muted">(تلقائي من البيان)</small>' : ''}`
     : `<span class="text-muted small">↳ سطر ${lineIndex + 1}</span>`;
@@ -4709,7 +4763,7 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
       `<button type="button" class="btn btn-outline-success btn-sm fw-bold pay-remaining-btn" data-method-code="${method.code}">الباقي</button>`
     );
     actions.push(
-      `<button type="button" class="btn btn-outline-primary btn-sm fw-bold add-payment-line-btn" data-method-code="${method.code}" title="سطر دفع إضافي">+</button>`
+      `<button type="button" class="btn btn-outline-primary btn-sm fw-bold add-payment-line-btn" data-method-code="${method.code}" title="سطر دفع إضافي لنفس الطريقة">+</button>`
     );
   }
   if (!isFirstLine && !isPatientCredit) {
@@ -4726,10 +4780,13 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
       <td><input type="text" inputmode="decimal" class="form-control form-control-sm payment-method-input comma-amount${extraClass}"
         data-method-id="${method.id}" data-method-code="${method.code}" data-method-name="${escapeAttr(method.name)}" data-line-index="${lineIndex}"
         value="${displayVal}" placeholder="0" ${readonlyAttr}></td>
+      <td><input type="text" class="form-control form-control-sm payment-depositor-input calc-trigger${depositorExtraClass}"
+        data-method-code="${method.code}" data-line-index="${lineIndex}" value="${escapeAttr(depositorVal)}"
+        placeholder="اسم المودع" autocomplete="off" ${depositorReadonly}></td>
       <td class="text-center payment-method-actions">${actions.join(' ')}</td>
     </tr>`;
-  const metaRow = `<tr class="payment-meta-row" data-method-code="${method.code}" data-line-index="${lineIndex}" style="display:none"><td colspan="3" class="py-2 bg-light">
-      <div class="payment-meta-fields row g-2">${buildPaymentMetaFieldsHtml(method.code, line.metadata || {}, lineIndex)}</div>
+  const metaRow = `<tr class="payment-meta-row" data-method-code="${method.code}" data-line-index="${lineIndex}" style="display:none"><td colspan="4" class="py-2 bg-light">
+      <div class="payment-meta-fields row g-2">${buildPaymentMetaFieldsHtml(method.code, metadata, lineIndex)}</div>
     </td></tr>`;
   return `${lineRow}${metaRow}`;
 }
@@ -4740,7 +4797,8 @@ function paymentMethodLineIsBlank(row) {
   const code = row.dataset.methodCode;
   const lineIndex = row.dataset.lineIndex || '0';
   const meta = collectPaymentMetadata(code, lineIndex);
-  return amount <= 0 && !Object.keys(meta).length;
+  const depositor = collectMethodPaymentDepositor(code, lineIndex);
+  return amount <= 0 && !depositor && !Object.keys(meta).length;
 }
 
 function reindexPaymentMethodLines(code) {
@@ -4750,6 +4808,9 @@ function reindexPaymentMethodLines(code) {
     row.classList.toggle('payment-method-line-extra', index > 0);
     const input = row.querySelector('.payment-method-input');
     if (input) input.dataset.lineIndex = String(index);
+    row.querySelectorAll('.payment-depositor-input').forEach((el) => {
+      el.dataset.lineIndex = String(index);
+    });
     if (index > 0) {
       const labelCell = row.querySelector('td:first-child');
       if (labelCell) {
@@ -4838,6 +4899,13 @@ function togglePaymentMetaRows() {
   });
 }
 
+function collectMethodPaymentDepositor(code, lineIndex = '0') {
+  const el = document.querySelector(
+    `.payment-depositor-input[data-method-code="${code}"][data-line-index="${lineIndex}"]`
+  );
+  return String(el?.value || '').trim();
+}
+
 function collectPaymentMetadata(code, lineIndex = '0') {
   const meta = {};
   document
@@ -4848,7 +4916,72 @@ function collectPaymentMetadata(code, lineIndex = '0') {
       const val = String(input.value || '').trim();
       if (val) meta[input.dataset.metaKey] = val;
     });
+  const depositor = collectMethodPaymentDepositor(code, lineIndex);
+  if (depositor) meta.depositor_name = depositor;
   return meta;
+}
+
+function collectMethodPaymentReceiptRows() {
+  const receipts = [];
+  document.querySelectorAll('.payment-method-line').forEach((lineRow) => {
+    const code = lineRow.dataset.methodCode;
+    if (!code || code === 'patient_credit') return;
+    const lineIndex = lineRow.dataset.lineIndex || '0';
+    const amount = parseDisplayAmount(lineRow.querySelector('.payment-method-input')?.value);
+    const meta = collectPaymentMetadata(code, lineIndex);
+    const hasDetails =
+      amount > 0 ||
+      meta.depositor_name ||
+      meta.transfer_ref ||
+      meta.cheque_number ||
+      meta.cheque_date;
+    if (!hasDetails) return;
+    receipts.push({
+      amount,
+      depositor_name: String(meta.depositor_name || '').trim(),
+      receipt_number: String(meta.transfer_ref || meta.cheque_number || '').trim(),
+      receipt_date: String(meta.cheque_date || '').trim(),
+    });
+  });
+  return receipts;
+}
+
+function fillInvoicePaymentFields(row, pay = {}) {
+  if (!row) return;
+  const payAmtEl = row.querySelector('[data-field="pay_amount"]');
+  const receiptNumEl = row.querySelector('[data-field="receipt_number"]');
+  const receiptDateEl = row.querySelector('[data-field="receipt_date"]');
+  const depositorEl = row.querySelector('[data-field="depositor_name"]');
+  if (payAmtEl) payAmtEl.value = Number(pay.amount) > 0 ? formatAmountInput(pay.amount) : '';
+  if (receiptNumEl) receiptNumEl.value = pay.receipt_number || '';
+  if (receiptDateEl) receiptDateEl.value = pay.receipt_date || '';
+  if (depositorEl) depositorEl.value = pay.depositor_name || '';
+}
+
+function syncInvoicePaymentColumnsFromMethodPayments() {
+  const receipts = collectMethodPaymentReceiptRows();
+  document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
+
+  if (!receipts.length) return;
+
+  const tbody = document.getElementById('items-tbody');
+  if (!tbody) return;
+
+  for (const pay of receipts) {
+    const row = createRow(rowCount++);
+    row.dataset.methodPaymentSync = '1';
+    row.classList.add('invoice-method-payment-row');
+    fillInvoicePaymentFields(row, pay);
+    row.querySelectorAll('[data-field="description"], [data-field="quantity"], [data-field="amount"]').forEach((el) => {
+      el.value = '';
+      el.setAttribute('readonly', 'readonly');
+      el.classList.add('bg-light');
+    });
+    const totalEl = row.querySelector('[data-field="total"]');
+    if (totalEl) totalEl.value = '';
+    tbody.appendChild(row);
+  }
+  bindCalcTriggers();
 }
 
 async function loadPaymentMethodsForm(methodLinesByCode = {}) {
@@ -4871,23 +5004,24 @@ async function loadPaymentMethodsForm(methodLinesByCode = {}) {
             buildPaymentMethodLineHtml(m, lineIndex, line, { methodIndex: i + 1, isFirstLine: lineIndex === 0 })
           )
           .join('');
-        const hintRow = `<tr class="payment-method-hint-row" data-method-code="${m.code}" style="display:none"><td colspan="3" class="remaining-hint-text py-1 text-muted small"></td></tr>`;
+        const hintRow = `<tr class="payment-method-hint-row" data-method-code="${m.code}" style="display:none"><td colspan="4" class="remaining-hint-text py-1 text-muted small"></td></tr>`;
         return `${lineHtml}${hintRow}`;
       })
       .join('');
 
     if (infoMethods.length) {
       html += infoMethods
-        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="3">ℹ️ ${m.name}</td></tr>`)
+        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="4">ℹ️ ${m.name}</td></tr>`)
         .join('');
     }
 
-    tbody.innerHTML = html || '<tr><td colspan="3" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
+    tbody.innerHTML = html || '<tr><td colspan="4" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
     tbody.dataset.paymentHelpersBound = '0';
     bindCalcTriggers();
     bindPaymentMethodHelpers();
     togglePaymentMetaRows();
     updatePaymentRowHints();
+    syncInvoicePaymentColumnsFromMethodPayments();
   } catch (err) {
     console.error(err);
   }

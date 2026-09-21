@@ -6,8 +6,8 @@
   <title>نظام الفواتير — مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
-  <meta name="app-build" content="20260916p">
-  <link href="/css/style.css?v=20260921p" rel="stylesheet">
+  <meta name="app-build" content="20260921u">
+  <link href="/css/style.css?v=20260921u" rel="stylesheet">
 </head>
 <body>
   <!-- Login Screen -->
@@ -30,24 +30,12 @@
         <div id="login-error" class="alert alert-danger small fw-bold mt-3 mb-0" style="display:none" role="alert"></div>
         <button type="submit" class="btn btn-primary w-100 fw-black btn-lg">دخول</button>
       </form>
-      <p id="login-boot-status" class="small text-muted text-center mt-3 mb-1">جاري فحص الاتصال بالسيرفر…</p>
-      <p class="small text-muted text-center mb-0">نسخة <span id="login-build-tag">20260916p</span></p>
-      <p class="small text-muted text-center mt-2 mb-0">
-        المثلث بجانب الرابط = HTTP عادي (مش خطأ في الدخول). لو النسخة فوق مش <strong>20260916p</strong> نفّذ <code>git pull</code> على السيرفر.
-      </p>
     </div>
   </div>
   <script>
     (function () {
-      const BUILD = '20260921p';
+      const BUILD = '20260921u';
       window.__eafBuild = BUILD;
-
-      function setBootStatus(message, isError) {
-        const el = document.getElementById('login-boot-status');
-        if (!el) return;
-        el.textContent = message;
-        el.className = 'small text-center mt-3 mb-1 ' + (isError ? 'text-danger fw-bold' : 'text-muted');
-      }
 
       function showLoginError(message) {
         const el = document.getElementById('login-error');
@@ -84,7 +72,6 @@
           if (!res.ok) {
             throw new Error(data.error || 'اسم المستخدم أو كلمة المرور غير صحيحة');
           }
-          setBootStatus('تم الدخول — جاري فتح النظام…');
           window.location.replace(window.location.pathname);
         } catch (err) {
           showLoginError(err.message || 'فشل الدخول');
@@ -106,10 +93,9 @@
         try {
           const health = await fetch('/api/health', { credentials: 'include' });
           if (!health.ok) throw new Error('health HTTP ' + health.status);
-          setBootStatus('السيرفر متصل — أدخل اسم المستخدم وكلمة المرور');
           window.__eafApiOk = true;
         } catch (err) {
-          setBootStatus('تعذر الاتصال بالسيرفر: ' + (err.message || err), true);
+          showLoginError('تعذر الاتصال بالسيرفر: ' + (err.message || err));
         }
       }
 
@@ -602,15 +588,16 @@
                       <thead class="table-light">
                         <tr>
                           <th>طريقة الدفع</th>
-                          <th style="width:38%">المبلغ</th>
-                          <th style="width:22%">إجراءات</th>
+                          <th style="width:24%">المبلغ</th>
+                          <th style="width:24%">اسم المودع</th>
+                          <th style="width:18%">إجراءات</th>
                         </tr>
                       </thead>
                       <tbody id="payment-methods-tbody">
-                        <tr><td colspan="3" class="text-muted text-center">جاري تحميل طرق الدفع...</td></tr>
+                        <tr><td colspan="4" class="text-muted text-center">جاري تحميل طرق الدفع...</td></tr>
                       </tbody>
                       <tfoot>
-                        <tr class="table-warning"><td class="fw-black">إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected">0.00</td></tr>
+                        <tr class="table-warning"><td class="fw-black" colspan="2">إجمالي المبالغ المحصلة</td><td class="fw-black" id="display_total_collected" colspan="2">0.00</td></tr>
                       </tfoot>
                     </table>
                   </div>
@@ -630,7 +617,7 @@
 
                 <!-- Signatures (same roles as print preview / PDF) -->
                 <div class="row g-2 mb-3">
-                  <div class="col-md-3"><label class="form-label fw-bold">المدير المالي</label><input type="text" class="form-control" id="manager_name" value="رائد / جمال عبد الناصر - المدير المالي"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">المدير المالي</label><input type="text" class="form-control" id="manager_name" value="رائد / جمال عبد الناصر"></div>
                   <div class="col-md-3"><label class="form-label fw-bold">رئيس حسابات المرضى</label><input type="text" class="form-control" id="captain_name" value="نقيب عمرو صالح"></div>
                   <div class="col-md-3"><label class="form-label fw-bold">المراجع المالي</label><input type="text" class="form-control" id="auditor_name"></div>
                   <div class="col-md-3"><label class="form-label fw-bold">الموظف المختص</label><input type="text" class="form-control" id="employee_name"></div>
@@ -1015,7 +1002,6 @@
           <ul class="nav nav-tabs daily-entry-tabs flex-wrap mb-3" id="daily-entry-tabs" role="tablist"></ul>
 
           <p class="small text-muted mb-2" id="daily-tab-hint"></p>
-          <p class="small text-muted mb-2" id="daily-build-badge" aria-live="polite"></p>
           <div class="alert alert-secondary py-2 mb-2 small fw-bold d-none" id="daily-clinical-context-bar" role="status"></div>
           <h5 class="fw-black text-primary mb-2 d-none" id="daily-focused-section-title"></h5>
 
@@ -2382,13 +2368,13 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="/js/action-guard.js?v=20260920v"></script>
   <script src="/js/enter-add-row.js?v=20260921a"></script>
-  <script src="/js/auto-save.js?v=20260921p"></script>
+  <script src="/js/auto-save.js?v=20260921u"></script>
   <script src="/js/api-client.js?v=20260829b"></script>
   <script src="/js/daily-section-bundles.js?v=20260905a"></script>
-  <script src="/js/app.js?v=20260921p"></script>
+  <script src="/js/app.js?v=20260921u"></script>
   <script src="/js/nationality-pricing.js?v=20260920q"></script>
   <script src="/js/daily-picker.js?v=20260920q"></script>
-  <script src="/js/daily-charges.js?v=20260921p"></script>
+  <script src="/js/daily-charges.js?v=20260921u"></script>
   <script src="/js/notifications.js?v=20260921a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260920u"></script>

@@ -157,7 +157,7 @@ async function initDatabase() {
       employee_name TEXT DEFAULT '',
       auditor_name TEXT DEFAULT '',
       captain_name TEXT DEFAULT 'نقيب عمرو صالح',
-      manager_name TEXT DEFAULT 'رائد / جمال عبد الناصر - المدير المالي',
+      manager_name TEXT DEFAULT 'رائد / جمال عبد الناصر',
       qr_token UUID UNIQUE NOT NULL,
       file_password TEXT DEFAULT '',
       notes TEXT DEFAULT '',

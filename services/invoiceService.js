@@ -293,10 +293,11 @@ function itemMatchesExcludedSection(item, sectionSet) {
 function filterDailyItemsByExclusions(items = [], excludedLineIds = [], excludedSectionCodes = []) {
   const lineSet = new Set(excludedLineIds);
   const sectionSet = new Set(excludedSectionCodes);
+  if (!lineSet.size && !sectionSet.size) return items || [];
   return (items || []).filter((item) => {
     const lineId = Number(item.daily_entry_line_id) || 0;
     if (lineId && lineSet.has(lineId)) return false;
-    if (!lineId && itemMatchesExcludedSection(item, sectionSet)) return false;
+    if (sectionSet.size && itemMatchesExcludedSection(item, sectionSet)) return false;
     return true;
   });
 }
@@ -801,7 +802,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           data.employee_name || '',
           data.auditor_name || '',
           data.captain_name || 'نقيب عمرو صالح',
-          data.manager_name || 'رائد / جمال عبد الناصر - المدير المالي',
+          data.manager_name || 'رائد / جمال عبد الناصر',
           filePassword,
           data.notes || '',
           invoiceStatus,
@@ -887,7 +888,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           data.employee_name || '',
           data.auditor_name || '',
           data.captain_name || 'نقيب عمرو صالح',
-          data.manager_name || 'رائد / جمال عبد الناصر - المدير المالي',
+          data.manager_name || 'رائد / جمال عبد الناصر',
           qrToken,
           filePassword,
           data.notes || '',
@@ -1380,7 +1381,7 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
     employee_name: invoice.employee_name || '',
     auditor_name: invoice.auditor_name || '',
     captain_name: invoice.captain_name || 'نقيب عمرو صالح',
-    manager_name: invoice.manager_name || 'رائد / جمال عبد الناصر - المدير المالي',
+    manager_name: invoice.manager_name || 'رائد / جمال عبد الناصر',
     stay_entries: invoice.stay_entries || [],
     method_payments: (invoice.method_payments || []).map((m) => ({
       payment_method_id: m.payment_method_id,
