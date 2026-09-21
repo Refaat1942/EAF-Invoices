@@ -4841,8 +4841,12 @@ function dailyLineMergeKey(line) {
   if (lineId) return `id:${lineId}`;
   const code = String(line.section_code || '');
   const svc = line.service_id || '';
+  const cat = line.catalog_item_id || '';
   const text = String(line.extra_text || '').trim();
-  return `new:${code}:${svc}:${text}:${line.amount || 0}`;
+  // catalog_item_id was missing here — two different catalog-picked items (e.g. two
+  // differently priced-the-same medicines) in the same unsaved batch collapsed onto the
+  // same key and one silently overwrote the other before either reached the server.
+  return `new:${code}:${svc}:${cat}:${text}:${line.amount || 0}`;
 }
 
 function renderDailyCellHtml(section, line = {}) {
