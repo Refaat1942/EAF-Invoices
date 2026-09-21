@@ -2584,7 +2584,7 @@ function showPatientRegisterTypePicker() {
   patientRegInvoiceId = null;
   if (typeof window.updateGlobalInvoicePrintButton === 'function') window.updateGlobalInvoicePrintButton();
   const fileInput = document.getElementById('patient-reg-file-number');
-  if (fileInput) fileInput.readOnly = false;
+  if (fileInput) fileInput.readOnly = true;
   const saveBtn = document.getElementById('patient-reg-save-btn');
   if (saveBtn) saveBtn.textContent = '💾 حفظ تسجيل المريض';
   document.getElementById('patient-register-change-type')?.classList.remove('d-none');
@@ -2625,6 +2625,7 @@ function showPatientRegisterForm(patientType, options = {}) {
       fileInput.placeholder = 'جاري تخصيص رقم الملف...';
     }
     void suggestPatientRegisterFileNumber(type);
+    document.getElementById('patient-reg-name')?.focus();
   }
   void loadDailyStayTypes().then(async () => {
     await loadDailyStayGrades();
@@ -2637,8 +2638,7 @@ function showPatientRegisterForm(patientType, options = {}) {
   }
   const fileInput = document.getElementById('patient-reg-file-number');
   if (fileInput) {
-    fileInput.readOnly = isEdit;
-    if (!isEdit) fileInput.focus();
+    fileInput.readOnly = true;
   }
 }
 
@@ -5298,8 +5298,12 @@ function dailyLineMergeKey(line) {
   if (lineId) return `id:${lineId}`;
   const code = String(line.section_code || '');
   const svc = line.service_id || '';
+  const cat = line.catalog_item_id || '';
   const text = String(line.extra_text || '').trim();
-  return `new:${code}:${svc}:${text}:${line.amount || 0}`;
+  // catalog_item_id was missing here — two different catalog-picked items in the same
+  // section with the same amount and no notes collapsed onto the same key and one
+  // silently overwrote the other before either reached the server.
+  return `new:${code}:${svc}:${cat}:${text}:${line.amount || 0}`;
 }
 
 function renderDailyCellHtml(section, line = {}) {
@@ -6021,6 +6025,10 @@ async function loadDailyEntriesIntoSheet() {
     const seenEntryIds = new Set();
     if (activeDailyTab === 'exams') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenEntryIds.has(entry.id)) continue;
+          seenEntryIds.add(entry.id);
+        }
         const examLines = (entry.lines || []).filter(
           (l) => ['consultant_exam', 'specialist_exam'].includes(l.section_code) && lineHasChargeData(l)
         );
@@ -6033,6 +6041,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'lab') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenEntryIds.has(entry.id)) continue;
+          seenEntryIds.add(entry.id);
+        }
         const labLines = serviceLinesFromEntry(entry, 'analyses');
         if (labLines.length) {
           for (const line of labLines) {
@@ -6043,6 +6055,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'radiology') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenEntryIds.has(entry.id)) continue;
+          seenEntryIds.add(entry.id);
+        }
         const radLines = serviceLinesFromEntry(entry, 'xray_total');
         if (radLines.length) {
           for (const line of radLines) {
@@ -6053,6 +6069,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'other') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenEntryIds.has(entry.id)) continue;
+          seenEntryIds.add(entry.id);
+        }
         const miscLines = catalogLinesFromEntry(entry, ['other', 'prosthetics']);
         if (miscLines.length) {
           for (const line of miscLines) {
@@ -6063,6 +6083,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'medicines') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenEntryIds.has(entry.id)) continue;
+          seenEntryIds.add(entry.id);
+        }
         const medLines = catalogLinesFromEntry(entry, 'medicines');
         if (medLines.length) {
           for (const line of medLines) {
@@ -6073,6 +6097,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'supplies') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenEntryIds.has(entry.id)) continue;
+          seenEntryIds.add(entry.id);
+        }
         const supLines = catalogLinesFromEntry(entry, ['supplies', 'cosmetics']);
         if (supLines.length) {
           for (const line of supLines) {
@@ -6083,6 +6111,10 @@ async function loadDailyEntriesIntoSheet() {
       addDailyEntryRow();
     } else if (activeDailyTab === 'sessions') {
       for (const entry of todayEntries) {
+        if (entry.id) {
+          if (seenEntryIds.has(entry.id)) continue;
+          seenEntryIds.add(entry.id);
+        }
         const sessionLines = serviceLinesFromEntry(entry, 'sessions');
         const hasSessionMeta =
           lineHasChargeData(getLineForSection(entry, 'sessions_date')) ||

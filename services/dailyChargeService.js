@@ -1199,16 +1199,15 @@ async function validateServiceForSection(section, serviceId, sectionsWithService
   if (!service || !service.is_active) {
     throw new Error(`قسم «${section.name}»: الخدمة غير موجودة في اللائحة`);
   }
-  const allowedCodes = getSectionPickerCategoryCodes(full);
   const serviceCategory = String(service.category_code || '').trim();
-  if (allowedCodes.length) {
-    if (!allowedCodes.includes(serviceCategory)) {
-      throw new Error(`قسم «${section.name}»: البند لا ينتمي لهذا القسم في اللائحة`);
-    }
-    return service;
-  }
   const sectionCategory = full.category_code || section.category_code;
-  if (sectionCategory && serviceCategory && serviceCategory !== sectionCategory) {
+  // Sections without a real category_code (medicines/supplies/cosmetics — catalog-only
+  // historically) only have a *guessed* price-list category mapping (PHARMACY/MEDICINE/
+  // DRUGS etc.) for search purposes. That guess has repeatedly not matched the real price
+  // list's actual category codes and wrongly rejected valid items here — the picker search
+  // already scoped this id to the section correctly, so don't hard-block on a guess.
+  if (!sectionCategory) return service;
+  if (serviceCategory && serviceCategory !== sectionCategory) {
     if (!sectionAllowsServiceCategory(full, serviceCategory)) {
       throw new Error(`قسم «${section.name}»: البند لا ينتمي لهذا القسم في اللائحة`);
     }
