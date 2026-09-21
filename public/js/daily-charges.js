@@ -1885,6 +1885,10 @@ function setDailyTodayDate() {
   const headerDate = document.getElementById('daily-entry-date');
   if (headerDate) headerDate.value = today;
   document.querySelectorAll('.daily-row-date').forEach((input) => {
+    if (activeDailyTab === 'stay') {
+      if (!input.value) input.value = today;
+      return;
+    }
     input.value = today;
   });
 }
@@ -6186,6 +6190,7 @@ function addDailyEntryRow(preset = {}) {
   if (!row.dataset.dailySerial) stampDailyRowSerial(row, allocateDailyRowSerial());
   if (activeDailyTab === 'stay') mountStayAddonRows(row);
   setDailyTodayDate();
+  if (activeDailyTab === 'stay') pruneDuplicateStayDomRows();
   updateDailyGrandTotal();
   if (activeDailyTab === 'stay') void applyAutoRoomToTodayRows();
   if (isDailyEntryPresetEmpty(preset)) focusDailyEntryRow(row);
@@ -6480,6 +6485,7 @@ async function loadDailyEntriesIntoSheet(options = {}) {
       addDailyEntryRow();
     }
     setDailyTodayDate();
+    if (activeDailyTab === 'stay') pruneDuplicateStayDomRows();
     renumberSheetRowSerials();
     updateDailyGrandTotal();
     updateSectionTabTotal();
