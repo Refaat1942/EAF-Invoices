@@ -122,6 +122,20 @@
     root.addEventListener('change', handler, true);
   }
 
+  function cancel(scope) {
+    const cfg = scopes.get(scope);
+    if (!cfg) return;
+    clearTimeout(cfg.timer);
+    cfg.timer = null;
+  }
+
+  function setDisabled(scope, disabled) {
+    const cfg = scopes.get(scope);
+    if (!cfg) return;
+    cfg.disabled = Boolean(disabled);
+    if (cfg.disabled) cancel(scope);
+  }
+
   const AutoSave = {
     register,
     schedule,
@@ -129,6 +143,8 @@
     noteSaved,
     setStatus,
     installChangeListeners,
+    cancel,
+    setDisabled,
   };
 
   global.AutoSave = AutoSave;

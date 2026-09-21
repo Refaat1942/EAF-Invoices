@@ -183,9 +183,18 @@ function resolveInvoicePrintProfile(lineCount = 0) {
 }
 
 function buildInvoiceHtml(invoice, options = {}) {
-  const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '' } = options;
+  const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '', dailyKind = '' } = options;
   const inv = enrichInvoice(invoice);
-  const displayItems = buildCustomerPrintLines(inv.items || []);
+  let sourceItems = inv.items || [];
+  if (dailyKind) {
+    const { inferBundleKeyFromItem, getBundleLabel } = require('./dailySectionBundles');
+    sourceItems = sourceItems.filter((item) => inferBundleKeyFromItem(item) === dailyKind);
+    if (dailyKind !== 'stay') {
+      inv.stay_entries = [];
+    }
+    inv._daily_kind_label = getBundleLabel(dailyKind);
+  }
+  const displayItems = buildCustomerPrintLines(sourceItems);
 
   const realItems = displayItems.filter((i) => {
     if (i._section_header) return true;
@@ -519,6 +528,7 @@ function buildInvoiceHtml(invoice, options = {}) {
       ${inv.fiscal_year_label ? `&nbsp;|&nbsp; السنة المالية: ${escapeHtml(inv.fiscal_year_label)}` : ''}
       &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(inv.issue_date || inv.created_at)}
       &nbsp;|&nbsp; النوع: ${escapeHtml(inv.invoice_type_label)}
+      ${inv._daily_kind_label ? `&nbsp;|&nbsp; معاينة القسم: ${escapeHtml(inv._daily_kind_label)}` : ''}
     </div>
 
     <div class="header">

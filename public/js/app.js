@@ -1108,7 +1108,11 @@ async function openInvoicePrintPreview(options = {}) {
       return;
     }
 
-    window.open(`${API}/${invoiceId}/preview`, '_blank');
+    const dailyKind = String(options.dailyKind || '').trim();
+    const previewUrl = dailyKind
+      ? `${API}/${invoiceId}/preview?daily_kind=${encodeURIComponent(dailyKind)}`
+      : `${API}/${invoiceId}/preview`;
+    window.open(previewUrl, '_blank');
   } catch (err) {
     showToast(err.message || 'فشل معاينة الفاتورة', 'danger');
   }

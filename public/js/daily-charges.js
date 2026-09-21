@@ -6249,10 +6249,12 @@ async function loadDailyEntriesIntoSheet() {
         body.innerHTML = '';
       } else {
         const periodBounds = getDailyInvoicePeriodBounds();
-        const periodEntries = entries
-          .filter((entry) => entryInInvoicePeriod(entry, periodBounds) && entryHasStayChargeData(entry))
-          .sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)));
-        const rowsToRender = periodEntries.length ? periodEntries : todayEntries;
+        const periodEntries = dedupeStayEntriesByDate(
+          entries
+            .filter((entry) => entryInInvoicePeriod(entry, periodBounds) && entryHasStayChargeData(entry))
+            .sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)))
+        );
+        const rowsToRender = periodEntries.length ? periodEntries : dedupeStayEntriesByDate(todayEntries);
         for (const entry of rowsToRender) {
           if (!entryHasStayChargeData(entry)) continue;
           if (entry.id) {
@@ -6384,11 +6386,67 @@ async function removeRowLinesFromEntry(tr, entryId) {
       await refreshInvoiceFormAfterDailySave(fileNumber, data.invoice_sync.invoice_id);
     }
     await refreshDailyStaySummary(fileNumber);
+    if (window.AutoSave) {
+      AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+    }
     return true;
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
     return false;
   }
+}
+
+function pauseDailyAutosave() {
+  if (window.AutoSave?.cancel) window.AutoSave.cancel('daily');
+  if (window.AutoSave?.setDisabled) window.AutoSave.setDisabled('daily', true);
+}
+
+function resumeDailyAutosave() {
+  if (window.AutoSave?.setDisabled) window.AutoSave.setDisabled('daily', false);
+}
+
+async function withDailyAutosavePaused(fn) {
+  pauseDailyAutosave();
+  try {
+    return await fn();
+  } finally {
+    resumeDailyAutosave();
+  }
+}
+
+function dedupeStayEntriesByDate(entries = []) {
+  const byDate = new Map();
+  for (const entry of entries) {
+    const dateKey = fmtStayDate(entry.entry_date);
+    if (!dateKey) continue;
+    const existing = byDate.get(dateKey);
+    if (!existing) {
+      byDate.set(dateKey, entry);
+      continue;
+    }
+    const existingScore = (existing.lines || []).length + (existing.id ? 1 : 0);
+    const entryScore = (entry.lines || []).length + (entry.id ? 1 : 0);
+    if (entryScore > existingScore || (entryScore === existingScore && Number(entry.id) > Number(existing.id))) {
+      byDate.set(dateKey, entry);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)));
+}
+
+function dailyPreviewKindForActiveTab() {
+  if (!activeDailyTab || activeDailyTab === 'free-items') return '';
+  return activeDailyTab;
+}
+
+function openDailyInvoicePreview() {
+  const invId = dailyStayContext?.invoice?.id;
+  if (!invId) {
+    showToast('لا توجد فاتورة مفتوحة', 'warning');
+    return;
+  }
+  if (typeof window.openInvoicePrintPreview !== 'function') return;
+  const dailyKind = dailyPreviewKindForActiveTab();
+  window.openInvoicePrintPreview({ invoiceId: invId, forceSaved: true, dailyKind });
 }
 
 async function deleteDailyEntryById(entryId, options = {}) {
@@ -6411,6 +6469,9 @@ async function deleteDailyEntryById(entryId, options = {}) {
       await refreshInvoiceFormAfterDailySave(fileNumber, data.invoice_sync.invoice_id);
     }
     if (fileNumber) await loadOpenPatientStay(fileNumber);
+    if (window.AutoSave) {
+      AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+    }
     return true;
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
@@ -6418,21 +6479,67 @@ async function deleteDailyEntryById(entryId, options = {}) {
   }
 }
 
+async function deleteStayDuplicatesForRow(tr) {
+  const date = tr.querySelector('.daily-row-date')?.value || getLocalDateString();
+  const idsToDelete = [
+    ...new Set(
+      (dailySheetEntriesCache || [])
+        .filter((entry) => fmtStayDate(entry.entry_date) === date && entryHasStayChargeData(entry) && entry.id)
+        .map((entry) => Number(entry.id))
+        .filter((id) => id > 0)
+    ),
+  ];
+  if (!idsToDelete.length) return false;
+  if (idsToDelete.length > 1) {
+    const ok = confirm(`يوجد ${idsToDelete.length} حركات إقامة لتاريخ ${date}. حذفها كلها؟`);
+    if (!ok) return false;
+  } else if (!confirm('حذف حركة إقامة هذا اليوم؟')) {
+    return false;
+  }
+  let lastSync = null;
+  for (const id of idsToDelete) {
+    const data = await apiJson(`${DAILY_API}/entries/${id}`, { method: 'DELETE' });
+    lastSync = data;
+  }
+  if (lastSync) applyDailyInvoiceSync(lastSync);
+  await loadDailyEntriesIntoSheet();
+  await loadDailyPatientHistory();
+  const fileNumber = getStayFileNumber();
+  if (lastSync?.invoice_sync?.invoice_id && fileNumber) {
+    await refreshInvoiceFormAfterDailySave(fileNumber, lastSync.invoice_sync.invoice_id);
+  }
+  if (fileNumber) await loadOpenPatientStay(fileNumber);
+  showToast(idsToDelete.length > 1 ? `تم حذف ${idsToDelete.length} حركات إقامة` : 'تم حذف الحركة', 'success');
+  if (window.AutoSave) {
+    AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+  }
+  return true;
+}
+
 async function deleteDailyEntryRow(tr) {
-  const entryId = tr.dataset.entryId;
-  if (entryId && shouldDeleteEntireDailyEntryForRow(tr)) {
+  return withDailyAutosavePaused(async () => {
+    if (tr.classList.contains('daily-stay-row')) {
+      const removed = await deleteStayDuplicatesForRow(tr);
+      if (removed) return;
+    }
+    const entryId = tr.dataset.entryId;
+    if (entryId && shouldDeleteEntireDailyEntryForRow(tr)) {
+      await deleteDailyEntryById(entryId);
+      return;
+    }
+    if (entryId) {
+      const removed = await removeRowLinesFromEntry(tr, Number(entryId));
+      if (removed) return;
+    }
+    if (!entryId) {
+      removeDailyEntryRowFromDom(tr);
+      if (window.AutoSave) {
+        AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+      }
+      return;
+    }
     await deleteDailyEntryById(entryId);
-    return;
-  }
-  if (entryId) {
-    const removed = await removeRowLinesFromEntry(tr, Number(entryId));
-    if (removed) return;
-  }
-  if (!entryId) {
-    removeDailyEntryRowFromDom(tr);
-    return;
-  }
-  await deleteDailyEntryById(entryId);
+  });
 }
 
 function mergeStaySaveRows(rows) {
@@ -6808,17 +6915,20 @@ async function saveDailyEntry(options = {}) {
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
     await refreshDailyStaySummary(file_number);
     applySavedEntriesToDomRows(data.saved || []);
-    await loadDailyEntriesIntoSheet();
-    await loadDailyPatientHistory();
-    if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+    if (silent) {
+      if (window.AutoSave) {
+        AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+      }
+    } else {
+      await loadDailyEntriesIntoSheet();
+      await loadDailyPatientHistory();
+      if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+    }
 
     const statusEl = document.getElementById('daily-entry-status');
     if (!silent) {
       if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
       showToast(toastMsg, 'success');
-    }
-    if (window.AutoSave) {
-      AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
     }
     return true;
   } catch (err) {
@@ -6868,7 +6978,7 @@ function initDailyAutosaveAndEnterRow() {
     window.__dailyAutosaveReady = true;
     AutoSave.register('daily', {
       statusEl: 'daily-entry-status',
-      debounceMs: 2500,
+      debounceMs: 6000,
       canSave: canAutoSaveDailyCharges,
       getFingerprint: getDailyAutosaveFingerprint,
       save: autoSaveDailyCharges,
@@ -7201,14 +7311,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
   document.getElementById('daily-invoice-pdf-btn')?.addEventListener('click', openDailyInvoicePdf);
   document.getElementById('daily-invoice-preview-btn')?.addEventListener('click', () => {
-    const invId = dailyStayContext?.invoice?.id;
-    if (!invId) {
-      showToast('لا توجد فاتورة مفتوحة', 'warning');
-      return;
-    }
-    if (typeof window.openInvoicePrintPreview === 'function') {
-      window.openInvoicePrintPreview({ invoiceId: invId, forceSaved: true });
-    }
+    openDailyInvoicePreview();
   });
   document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
     const q = document.getElementById('daily-patient-search')?.value || '';

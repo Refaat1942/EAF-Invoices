@@ -337,7 +337,8 @@ router.get('/:id/preview', requirePermission('invoices.view'), async (req, res) 
       qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
     }
 
-    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr, qrDataUrl });
+    const dailyKind = String(req.query.daily_kind || '').trim();
+    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr, qrDataUrl, dailyKind });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.send(html);
