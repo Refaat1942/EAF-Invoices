@@ -13,6 +13,7 @@ const {
   saveEntry,
   saveEntriesBatch,
   deleteEntry,
+  deleteStayEntriesForDate,
   getEntriesForInvoice,
   getInvoiceItemsFromDailyCharges,
 } = require('../services/dailyChargeService');
@@ -601,6 +602,19 @@ router.post('/entries/batch', requirePermission('daily_charges.manage'), async (
   try {
     const result = await saveEntriesBatch(req.body, req.session?.user || null);
     res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/entries/stay-by-date', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const file_number = req.query.file_number?.trim();
+    const entry_date = req.query.entry_date?.trim();
+    if (!file_number || !entry_date) {
+      return res.status(400).json({ error: 'file_number و entry_date مطلوبان' });
+    }
+    res.json(await deleteStayEntriesForDate(file_number, entry_date));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

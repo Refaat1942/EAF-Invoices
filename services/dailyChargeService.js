@@ -1636,19 +1636,116 @@ async function resolveEntryDoctorFields(data, existing = null, client = null) {
   };
 }
 
+async function listStayEntryIdsForDate(patientId, entryDate, client = null) {
+  const runQuery = client
+    ? (sql, params) => client.query(sql, params)
+    : (sql, params) => query(sql, params);
+  const { rows } = await runQuery(
+    `SELECT DISTINCT e.id
+     FROM patient_daily_entries e
+     JOIN patient_daily_entry_lines l ON l.entry_id = e.id
+     WHERE e.patient_id = $1 AND e.entry_date = $2::date
+       AND l.section_code = ANY($3::text[])
+     ORDER BY e.id`,
+    [patientId, entryDate, [...STAY_SECTION_CODES]]
+  );
+  return rows.map((row) => Number(row.id)).filter(Boolean);
+}
+
+async function deleteDuplicateStayEntriesForDate(client, patientId, entryDate, keepId) {
+  const keep = Number(keepId) || 0;
+  if (!keep) return 0;
+  const ids = await listStayEntryIdsForDate(patientId, entryDate, client);
+  let removed = 0;
+  for (const id of ids) {
+    if (id === keep) continue;
+    await client.query(`DELETE FROM patient_daily_entry_lines WHERE entry_id = $1`, [id]);
+    await client.query(`DELETE FROM patient_daily_entry_history WHERE entry_id = $1`, [id]);
+    await client.query(`DELETE FROM patient_daily_entries WHERE id = $1`, [id]);
+    removed += 1;
+  }
+  return removed;
+}
+
 async function findStayEntryForDate(client, patientId, entryDate, excludeId = null) {
-  const params = [patientId, entryDate, [...STAY_SECTION_CODES]];
-  let sql = `
-    SELECT DISTINCT e.id
-    FROM patient_daily_entries e
-    JOIN patient_daily_entry_lines l ON l.entry_id = e.id
-    WHERE e.patient_id = $1 AND e.entry_date = $2::date
-      AND l.section_code = ANY($3::text[])`;
+  const ids = await listStayEntryIdsForDate(patientId, entryDate, client);
+  const candidateId = excludeId ? ids.find((id) => id !== Number(excludeId)) : ids[0];
+  if (!candidateId) return null;
+  return getEntryById(candidateId, client);
+}
+
+function buildDailyLineMergeKey(line) {
+  const lineId = Number(line?.id) || 0;
+  if (lineId) return `id:${lineId}`;
+  return [
+    'new',
+    line.section_code || '',
+    line.service_id || '',
+    line.catalog_item_id || '',
+    String(line.extra_text || '').trim(),
+    round2(line.amount),
+  ].join(':');
+}
+
+async function consolidateDailyEntriesForDate(client, patientId, entryDate, preferredKeepId = null) {
+  const { rows } = await client.query(
+    `SELECT id FROM patient_daily_entries WHERE patient_id = $1 AND entry_date = $2::date ORDER BY id`,
+    [patientId, entryDate]
+  );
+  const ids = rows.map((row) => Number(row.id)).filter(Boolean);
+  if (ids.length <= 1) return ids[0] || null;
+
+  const keepId =
+    preferredKeepId && ids.includes(Number(preferredKeepId))
+      ? Number(preferredKeepId)
+      : ids[ids.length - 1];
+
+  const lineMap = new Map();
+  let keepSnapshot = null;
+  for (const id of ids) {
+    const entry = await getEntryById(id, client);
+    if (id === keepId) keepSnapshot = entry;
+    for (const line of entry?.lines || []) {
+      const key = buildDailyLineMergeKey(line);
+      const prev = lineMap.get(key);
+      if (!prev || Number(line.id) > Number(prev.id)) {
+        lineMap.set(key, line);
+      }
+    }
+  }
+
+  const mergedData = {
+    entry_id: keepId,
+    file_number: keepSnapshot?.file_number || '',
+    patient_name: keepSnapshot?.patient_name || '',
+    entry_date: entryDate,
+    stay_type_id: keepSnapshot?.stay_type_id || null,
+    notes: keepSnapshot?.notes || '',
+    doctor_id: keepSnapshot?.doctor_id || null,
+    doctor_specialty: keepSnapshot?.doctor_specialty || '',
+    lines: [...lineMap.values()].map((line) => ({ ...line })),
+  };
+  const context = await prepareEntrySaveContext(mergedData);
+  await persistEntryInTransaction(client, mergedData, null, context);
+
+  for (const id of ids) {
+    if (id === keepId) continue;
+    await client.query(`DELETE FROM patient_daily_entry_lines WHERE entry_id = $1`, [id]);
+    await client.query(`DELETE FROM patient_daily_entry_history WHERE entry_id = $1`, [id]);
+    await client.query(`DELETE FROM patient_daily_entries WHERE id = $1`, [id]);
+  }
+
+  return keepId;
+}
+
+async function findDailyEntryForDate(client, patientId, entryDate, excludeId = null) {
+  const params = [patientId, entryDate];
+  let sql = `SELECT id FROM patient_daily_entries WHERE patient_id = $1 AND entry_date = $2::date`;
   if (excludeId) {
-    sql += ` AND e.id <> $4`;
+    sql += ` AND id <> $3`;
     params.push(excludeId);
   }
-  sql += ` ORDER BY e.id LIMIT 1`;
+  sql += ` ORDER BY id LIMIT 1`;
   const { rows } = await client.query(sql, params);
   if (!rows[0]?.id) return null;
   return getEntryById(rows[0].id, client);
@@ -1698,6 +1795,9 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     } else if (linesIncludeStay(lines)) {
       const stayEntry = await findStayEntryForDate(client, patient.id, entryDate);
       if (stayEntry) existing = stayEntry;
+    } else {
+      const dayEntry = await findDailyEntryForDate(client, patient.id, entryDate);
+      if (dayEntry) existing = dayEntry;
     }
   }
 
@@ -1957,6 +2057,35 @@ async function saveEntriesBatch(data, user = null) {
     for (const plan of batchPlan) {
       results.push(await persistEntryInTransaction(client, plan.entryData, user, plan.context));
     }
+    if (fileNumber) {
+      const patient = await resolvePatient(fileNumber, data.patient_name);
+      const keepStayByDate = new Map();
+      for (const saved of results) {
+        if (!saved?.id || !linesIncludeStay(saved.lines || [])) continue;
+        const dateKey = normalizeCalendarDate(saved.entry_date);
+        if (!dateKey) continue;
+        keepStayByDate.set(dateKey, Number(saved.id));
+      }
+      for (const [dateKey, keepId] of keepStayByDate) {
+        await deleteDuplicateStayEntriesForDate(client, patient.id, dateKey, keepId);
+      }
+      const keepByDate = new Map();
+      for (const saved of results) {
+        const dateKey = normalizeCalendarDate(saved.entry_date);
+        if (!dateKey || !saved?.id) continue;
+        const prev = keepByDate.get(dateKey);
+        if (!prev || Number(saved.id) >= Number(prev)) keepByDate.set(dateKey, Number(saved.id));
+      }
+      for (const [dateKey, keepId] of keepByDate) {
+        const finalId = await consolidateDailyEntriesForDate(client, patient.id, dateKey, keepId);
+        const idx = results.findIndex(
+          (saved) => normalizeCalendarDate(saved.entry_date) === dateKey
+        );
+        if (idx >= 0 && finalId) {
+          results[idx] = await getEntryById(finalId, client);
+        }
+      }
+    }
     return results;
   });
 
@@ -1987,6 +2116,85 @@ async function saveEntriesBatch(data, user = null) {
     await rollbackDailyEntriesOnInvoiceFailure(savedMeta, fileNumber);
     throw err;
   }
+}
+
+async function deleteStayEntriesForDate(fileNumber, entryDate) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) throw new Error('file_number مطلوب');
+  const normalizedDate = normalizeCalendarDate(entryDate);
+  if (!normalizedDate) throw new Error('تاريخ غير صالح');
+
+  const patient = await resolvePatient(fn);
+  const ids = await listStayEntryIdsForDate(patient.id, normalizedDate);
+  if (!ids.length) {
+    return {
+      deleted: true,
+      ids: [],
+      count: 0,
+      entry_date: normalizedDate,
+      invoice_sync: { synced: false, reason: 'no_entries' },
+    };
+  }
+
+  let linkedInvoiceId = null;
+  for (const id of ids) {
+    const snapshot = await getEntryById(id);
+    if (!snapshot?.invoice_id) continue;
+    const invRes = await query(`SELECT status FROM invoices WHERE id = $1`, [snapshot.invoice_id]);
+    if (invRes.rows[0]?.status === 'approved') {
+      throw new Error('لا يمكن حذف حركة مرتبطة بفاتورة معتمدة');
+    }
+    linkedInvoiceId = snapshot.invoice_id;
+  }
+
+  for (const id of ids) {
+    await deleteDailyEntryCascade(id);
+  }
+
+  let invoiceId = linkedInvoiceId;
+  if (!invoiceId) {
+    const openRes = await query(
+      `SELECT id FROM invoices
+       WHERE TRIM(file_number) = TRIM($1)
+         AND status IN ('draft', 'pending_review')
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [fn]
+    );
+    invoiceId = openRes.rows[0]?.id || null;
+  }
+
+  if (!invoiceId) {
+    return {
+      deleted: true,
+      ids,
+      count: ids.length,
+      entry_date: normalizedDate,
+      invoice_sync: { synced: false, reason: 'no_open_invoice' },
+    };
+  }
+
+  const { syncInvoiceAfterDailyChange } = require('./invoiceService');
+  const updated = await syncInvoiceAfterDailyChange(invoiceId, fn);
+  if (!updated) {
+    throw new Error('تعذّر تحديث الفاتورة بعد حذف حركة الإقامة');
+  }
+  const daily_summary = await getDailySummaryForPatient(fn);
+  return {
+    deleted: true,
+    ids,
+    count: ids.length,
+    entry_date: normalizedDate,
+    invoice_sync: {
+      synced: true,
+      invoice_id: invoiceId,
+      final_total: updated.final_total,
+      items_subtotal: updated.items_subtotal,
+      admission_date: updated.admission_date,
+      discharge_date: updated.discharge_date,
+      daily_summary,
+    },
+  };
 }
 
 async function deleteEntry(entryId) {
@@ -2823,6 +3031,7 @@ module.exports = {
   saveEntry,
   saveEntriesBatch,
   deleteEntry,
+  deleteStayEntriesForDate,
   getEntriesForInvoice,
   getInvoiceItemsFromDailyCharges,
   entriesToInvoiceItems,

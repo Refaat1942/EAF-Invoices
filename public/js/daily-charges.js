@@ -26,6 +26,16 @@ const DAILY_INVOICE_TYPE_LABELS = {
 };
 
 const DAILY_CLINICAL_TABS = ['exams', 'lab', 'radiology', 'sessions', 'medicines', 'supplies'];
+const DAILY_TODAY_MERGE_TABS = [...DAILY_CLINICAL_TABS, 'other'];
+const DAILY_SHEET_ROW_CLASS_BY_TAB = {
+  medicines: 'daily-med-row',
+  supplies: 'daily-sup-row',
+  lab: 'daily-lab-row',
+  radiology: 'daily-rad-row',
+  exams: 'daily-exam-row',
+  sessions: 'daily-session-row',
+  other: 'daily-misc-row',
+};
 
 const DAILY_SHEET_PANEL_TABS = ['operations', 'free-items'];
 
@@ -278,6 +288,9 @@ function getLocalDateString() {
 let dailySheetSerialNext = 1;
 const dailySheetSerialMap = new Map();
 let dailySheetEntriesCache = [];
+let dailyChargesDeleteInProgress = false;
+let dailyAutosaveInFlight = null;
+let dailySaveInFlight = null;
 let dailyOperationsAllTotalCache = 0;
 let dailyOperationsTodaySavedTotal = 0;
 
@@ -5394,6 +5407,178 @@ function buildClientLinesFingerprint(lines = []) {
     .join(';');
 }
 
+function resolveTodayDailyEntryId() {
+  const today = getLocalDateString();
+  for (const entry of dailySheetEntriesCache || []) {
+    if (fmtStayDate(entry.entry_date) === today && entry.id) return Number(entry.id);
+  }
+  for (const tr of document.querySelectorAll(
+    '#daily-sections-body .daily-entry-row[data-entry-id]'
+  )) {
+    const id = Number(tr.dataset.entryId) || 0;
+    if (id > 0) return id;
+  }
+  return 0;
+}
+
+function mergeTodayTabSaveRows(rows = []) {
+  if (!rows.length) return rows;
+  const today = getLocalDateString();
+  let entryId = 0;
+  for (const row of rows) {
+    const id = Number(row.entry_id) || 0;
+    if (id > 0) entryId = id;
+  }
+  if (!entryId) entryId = resolveTodayDailyEntryId();
+
+  const lineMap = new Map();
+  let notes = '';
+  let stayTypeId = null;
+  for (const row of rows) {
+    if (row.notes) notes = row.notes;
+    if (row.stay_type_id) stayTypeId = row.stay_type_id;
+    for (const line of row.lines || []) {
+      lineMap.set(dailyLineMergeKey(line), line);
+    }
+  }
+  const merged = {
+    entry_date: today,
+    lines: [...lineMap.values()],
+    notes,
+  };
+  if (entryId > 0) merged.entry_id = entryId;
+  if (stayTypeId) merged.stay_type_id = stayTypeId;
+  return merged.lines.length ? [merged] : [];
+}
+
+function catalogRowDedupeKey(tr, sectionCode) {
+  const lineId = Number(tr.dataset.lineId) || 0;
+  if (lineId > 0) return `line:${lineId}`;
+  const picker = tr.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
+  const catId =
+    Number(picker?.dataset?.catalogItemId) ||
+    Number(picker?._selectedItem?.id) ||
+    Number(tr.dataset.catalogCode) ||
+    0;
+  if (catId > 0) return `cat:${sectionCode}:${catId}`;
+  return buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
+}
+
+function serviceRowDedupeKey(tr, sectionCode) {
+  const lineId = Number(tr.dataset.lineId) || Number(tr.dataset.examLineId) || 0;
+  if (lineId > 0) return `line:${lineId}`;
+  const picker = tr.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
+  const svcId =
+    Number(picker?.dataset?.serviceId) ||
+    Number(tr.dataset.serviceCode) ||
+    Number(picker?._selectedItem?.service_id) ||
+    0;
+  const catId =
+    Number(picker?.dataset?.catalogItemId) ||
+    Number(picker?._selectedItem?.id) ||
+    Number(tr.dataset.catalogCode) ||
+    0;
+  if (svcId > 0) return `svc:${sectionCode}:${svcId}`;
+  if (catId > 0) return `cat:${sectionCode}:${catId}`;
+  return buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
+}
+
+function sheetRowDedupeKey(tr, tab = activeDailyTab) {
+  if (tab === 'exams') {
+    const examLineId = Number(tr.dataset.examLineId) || 0;
+    if (examLineId > 0) return `line:${examLineId}`;
+    return buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
+  }
+  if (tab === 'lab') return serviceRowDedupeKey(tr, 'analyses');
+  if (tab === 'radiology') return serviceRowDedupeKey(tr, 'xray_total');
+  if (tab === 'sessions') return serviceRowDedupeKey(tr, 'sessions');
+  if (tab === 'medicines') return catalogRowDedupeKey(tr, 'medicines');
+  if (tab === 'supplies') return catalogRowDedupeKey(tr, tr.dataset.sectionCode || 'supplies');
+  if (tab === 'other') return catalogRowDedupeKey(tr, tr.dataset.sectionCode || 'other');
+  return buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
+}
+
+function pruneDuplicateSheetDomRows(tab = activeDailyTab) {
+  const rowClass = DAILY_SHEET_ROW_CLASS_BY_TAB[tab];
+  if (!rowClass) return;
+  const byKey = new Map();
+  for (const row of [...document.querySelectorAll(`#daily-sections-body .${rowClass}`)]) {
+    const key = sheetRowDedupeKey(row, tab);
+    if (!key) continue;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, row);
+      continue;
+    }
+    const existingScore =
+      (Number(existing.dataset.lineId) || Number(existing.dataset.examLineId) || 0) * 1000 +
+      (Number(existing.dataset.entryId) || 0);
+    const rowScore =
+      (Number(row.dataset.lineId) || Number(row.dataset.examLineId) || 0) * 1000 +
+      (Number(row.dataset.entryId) || 0);
+    if (rowScore > existingScore) {
+      removeDailyEntryRowFromDom(existing);
+      byKey.set(key, row);
+    } else {
+      removeDailyEntryRowFromDom(row);
+    }
+  }
+  renumberSheetRowSerials();
+  updateDailyGrandTotal();
+  updateSectionTabTotal();
+}
+
+function dedupeTodayLineRows(entries = [], linePicker) {
+  const byLineKey = new Map();
+  for (const entry of entries) {
+    const lines = typeof linePicker === 'function' ? linePicker(entry) : [];
+    for (const line of lines) {
+      const key = dailyLineMergeKey(line);
+      const score = (Number(entry.id) || 0) * 1000 + (Number(line.id) || 0);
+      const prev = byLineKey.get(key);
+      if (!prev || score > prev.score) {
+        byLineKey.set(key, { entry, line, score });
+      }
+    }
+  }
+  return [...byLineKey.values()].sort(
+    (a, b) => (Number(a.line?.id) || 0) - (Number(b.line?.id) || 0)
+  );
+}
+
+function dedupeTodayCatalogRows(entries = [], sectionCodes) {
+  const codes = Array.isArray(sectionCodes) ? sectionCodes : [sectionCodes];
+  return dedupeTodayLineRows(entries, (entry) => catalogLinesFromEntry(entry, codes));
+}
+
+function dedupeTodayServiceRows(entries = [], sectionCode) {
+  return dedupeTodayLineRows(entries, (entry) => serviceLinesFromEntry(entry, sectionCode));
+}
+
+function dedupeTodayExamRows(entries = []) {
+  return dedupeTodayLineRows(entries, (entry) =>
+    (entry.lines || []).filter(
+      (line) =>
+        ['consultant_exam', 'specialist_exam'].includes(line.section_code) && lineHasChargeData(line)
+    )
+  );
+}
+
+function dedupeTodaySessionRows(entries = []) {
+  const rows = dedupeTodayServiceRows(entries, 'sessions');
+  const seenEntryIds = new Set(rows.map((row) => row.entry?.id).filter(Boolean));
+  for (const entry of entries) {
+    if (entry.id && seenEntryIds.has(entry.id)) continue;
+    const hasSessionMeta =
+      lineHasChargeData(getLineForSection(entry, 'sessions_date')) ||
+      lineHasChargeData(getLineForSection(entry, 'sessions_detail'));
+    if (!hasSessionMeta) continue;
+    rows.push({ entry, line: null, score: Number(entry.id) || 0 });
+    if (entry.id) seenEntryIds.add(entry.id);
+  }
+  return rows;
+}
+
 function mergeFreshDailySaveRows(rows = []) {
   const withEntryId = [];
   const freshByFingerprint = new Map();
@@ -6143,7 +6328,7 @@ async function loadDailyEntriesIntoSheet() {
     dailySheetSerialNext = 1;
     const today = getLocalDateString();
     const todayEntries = entries.filter((entry) => fmtStayDate(entry.entry_date) === today);
-    if (!todayEntries.length) {
+    if (!todayEntries.length && activeDailyTab !== 'stay') {
       addDailyEntryRow();
       setDailyTodayDate();
       renumberSheetRowSerials();
@@ -6152,109 +6337,51 @@ async function loadDailyEntriesIntoSheet() {
     }
     const seenEntryIds = new Set();
     if (activeDailyTab === 'exams') {
-      for (const entry of todayEntries) {
-        if (entry.id) {
-          if (seenEntryIds.has(entry.id)) continue;
-          seenEntryIds.add(entry.id);
-        }
-        const examLines = (entry.lines || []).filter(
-          (l) => ['consultant_exam', 'specialist_exam'].includes(l.section_code) && lineHasChargeData(l)
-        );
-        if (examLines.length) {
-          examLines.forEach((line, idx) => {
-            body.appendChild(createExamDailyEntryRow(entry, line, { showStamp: idx === 0 }));
-          });
-        }
+      const examRows = dedupeTodayExamRows(todayEntries);
+      const stampShown = new Set();
+      for (const { entry, line } of examRows) {
+        const stampKey = entry.id ? String(entry.id) : dailyLineMergeKey(line);
+        const showStamp = !stampShown.has(stampKey);
+        if (showStamp) stampShown.add(stampKey);
+        body.appendChild(createExamDailyEntryRow(entry, line, { showStamp }));
       }
+      pruneDuplicateSheetDomRows('exams');
       addDailyEntryRow();
     } else if (activeDailyTab === 'lab') {
-      for (const entry of todayEntries) {
-        if (entry.id) {
-          if (seenEntryIds.has(entry.id)) continue;
-          seenEntryIds.add(entry.id);
-        }
-        const labLines = serviceLinesFromEntry(entry, 'analyses');
-        if (labLines.length) {
-          for (const line of labLines) {
-            body.appendChild(createLabRow(entry, line));
-          }
-        }
+      for (const { entry, line } of dedupeTodayServiceRows(todayEntries, 'analyses')) {
+        body.appendChild(createLabRow(entry, line));
       }
+      pruneDuplicateSheetDomRows('lab');
       addDailyEntryRow();
     } else if (activeDailyTab === 'radiology') {
-      for (const entry of todayEntries) {
-        if (entry.id) {
-          if (seenEntryIds.has(entry.id)) continue;
-          seenEntryIds.add(entry.id);
-        }
-        const radLines = serviceLinesFromEntry(entry, 'xray_total');
-        if (radLines.length) {
-          for (const line of radLines) {
-            body.appendChild(createRadiologyRow(entry, line));
-          }
-        }
+      for (const { entry, line } of dedupeTodayServiceRows(todayEntries, 'xray_total')) {
+        body.appendChild(createRadiologyRow(entry, line));
       }
+      pruneDuplicateSheetDomRows('radiology');
       addDailyEntryRow();
     } else if (activeDailyTab === 'other') {
-      for (const entry of todayEntries) {
-        if (entry.id) {
-          if (seenEntryIds.has(entry.id)) continue;
-          seenEntryIds.add(entry.id);
-        }
-        const miscLines = catalogLinesFromEntry(entry, ['other', 'prosthetics']);
-        if (miscLines.length) {
-          for (const line of miscLines) {
-            body.appendChild(createMiscServiceRow(entry, line, line.section_code));
-          }
-        }
+      for (const { entry, line } of dedupeTodayCatalogRows(todayEntries, ['other', 'prosthetics'])) {
+        body.appendChild(createMiscServiceRow(entry, line, line.section_code));
       }
+      pruneDuplicateSheetDomRows('other');
       addDailyEntryRow();
     } else if (activeDailyTab === 'medicines') {
-      for (const entry of todayEntries) {
-        if (entry.id) {
-          if (seenEntryIds.has(entry.id)) continue;
-          seenEntryIds.add(entry.id);
-        }
-        const medLines = catalogLinesFromEntry(entry, 'medicines');
-        if (medLines.length) {
-          for (const line of medLines) {
-            body.appendChild(createMedicineCatalogRow(entry, line));
-          }
-        }
+      for (const { entry, line } of dedupeTodayCatalogRows(todayEntries, 'medicines')) {
+        body.appendChild(createMedicineCatalogRow(entry, line));
       }
+      pruneDuplicateSheetDomRows('medicines');
       addDailyEntryRow();
     } else if (activeDailyTab === 'supplies') {
-      for (const entry of todayEntries) {
-        if (entry.id) {
-          if (seenEntryIds.has(entry.id)) continue;
-          seenEntryIds.add(entry.id);
-        }
-        const supLines = catalogLinesFromEntry(entry, ['supplies', 'cosmetics']);
-        if (supLines.length) {
-          for (const line of supLines) {
-            body.appendChild(createSupplyCatalogRow(entry, line, line.section_code));
-          }
-        }
+      for (const { entry, line } of dedupeTodayCatalogRows(todayEntries, ['supplies', 'cosmetics'])) {
+        body.appendChild(createSupplyCatalogRow(entry, line, line.section_code));
       }
+      pruneDuplicateSheetDomRows('supplies');
       addDailyEntryRow();
     } else if (activeDailyTab === 'sessions') {
-      for (const entry of todayEntries) {
-        if (entry.id) {
-          if (seenEntryIds.has(entry.id)) continue;
-          seenEntryIds.add(entry.id);
-        }
-        const sessionLines = serviceLinesFromEntry(entry, 'sessions');
-        const hasSessionMeta =
-          lineHasChargeData(getLineForSection(entry, 'sessions_date')) ||
-          lineHasChargeData(getLineForSection(entry, 'sessions_detail'));
-        if (sessionLines.length) {
-          for (const line of sessionLines) {
-            body.appendChild(createSessionsRow(entry, line));
-          }
-        } else if (hasSessionMeta) {
-          body.appendChild(createSessionsRow(entry));
-        }
+      for (const { entry, line } of dedupeTodaySessionRows(todayEntries)) {
+        body.appendChild(line ? createSessionsRow(entry, line) : createSessionsRow(entry));
       }
+      pruneDuplicateSheetDomRows('sessions');
       addDailyEntryRow();
     } else if (activeDailyTab === 'stay') {
       if (!canUseDailyStayCharges()) {
@@ -6419,10 +6546,19 @@ function resumeDailyAutosave() {
 }
 
 async function withDailyAutosavePaused(fn) {
+  dailyChargesDeleteInProgress = true;
   pauseDailyAutosave();
+  if (dailyAutosaveInFlight || dailySaveInFlight) {
+    try {
+      await Promise.allSettled([dailyAutosaveInFlight, dailySaveInFlight]);
+    } catch {
+      /* ignore autosave errors while deleting */
+    }
+  }
   try {
     return await fn();
   } finally {
+    dailyChargesDeleteInProgress = false;
     resumeDailyAutosave();
   }
 }
@@ -6525,13 +6661,17 @@ async function deleteDailyEntryById(entryId, options = {}) {
     applyDailyInvoiceSync(data);
     showToast('تم حذف الحركة', 'success');
 
+    dailySheetEntriesCache = (dailySheetEntriesCache || []).filter(
+      (entry) => Number(entry.id) !== Number(entryId)
+    );
     await loadDailyEntriesIntoSheet();
+    if (activeDailyTab === 'stay') pruneDuplicateStayDomRows();
     await loadDailyPatientHistory();
     const fileNumber = getStayFileNumber();
     if (data.invoice_sync?.invoice_id && fileNumber) {
       await refreshInvoiceFormAfterDailySave(fileNumber, data.invoice_sync.invoice_id);
     }
-    if (fileNumber) await loadOpenPatientStay(fileNumber);
+    if (fileNumber) await refreshDailyStaySummary(fileNumber);
     if (window.AutoSave) {
       AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
     }
@@ -6547,11 +6687,14 @@ async function deleteStayRowGroup(tr) {
     showToast('ليس لديك صلاحية الحذف', 'warning');
     return;
   }
-  const date = tr.querySelector('.daily-row-date')?.value || getLocalDateString();
+  const date = fmtStayDate(tr.querySelector('.daily-row-date')?.value || getLocalDateString());
   const idsToDelete = collectStayEntryIdsForDate(date);
+  const domRowsForDate = [...document.querySelectorAll('#daily-sections-body .daily-stay-row')].filter(
+    (row) => fmtStayDate(row.querySelector('.daily-row-date')?.value) === date
+  );
   const message =
-    idsToDelete.length > 1
-      ? `يوجد ${idsToDelete.length} حركات إقامة لتاريخ ${date}. حذفها كلها؟`
+    domRowsForDate.length > 1 || idsToDelete.length > 1
+      ? `يوجد ${Math.max(domRowsForDate.length, idsToDelete.length)} حركات إقامة لتاريخ ${date}. حذفها كلها؟`
       : idsToDelete.length === 1
         ? 'حذف حركة إقامة هذا اليوم؟'
         : 'حذف صف الإقامة؟';
@@ -6559,10 +6702,11 @@ async function deleteStayRowGroup(tr) {
 
   removeStayRowsForDate(date);
 
-  if (!idsToDelete.length) {
+  const fileNumber = getStayFileNumber();
+  if (!fileNumber) {
     dailySheetEntriesCache = (dailySheetEntriesCache || []).filter(
       (entry) =>
-        fmtStayDate(entry.entry_date) !== fmtStayDate(date) || !entryHasStayChargeData(entry)
+        fmtStayDate(entry.entry_date) !== date || !entryHasStayChargeData(entry)
     );
     if (!document.querySelector('.daily-stay-row')) addDailyEntryRow();
     updateDailyGrandTotal();
@@ -6573,24 +6717,29 @@ async function deleteStayRowGroup(tr) {
   }
 
   try {
-    let lastSync = null;
-    for (const id of idsToDelete) {
-      const data = await apiJson(`${DAILY_API}/entries/${id}`, { method: 'DELETE' });
-      lastSync = data;
-      dailySheetEntriesCache = (dailySheetEntriesCache || []).filter(
-        (entry) => Number(entry.id) !== Number(id)
-      );
-    }
-    if (lastSync) applyDailyInvoiceSync(lastSync);
+    const data = await apiJson(
+      `${DAILY_API}/entries/stay-by-date?file_number=${encodeURIComponent(fileNumber)}&entry_date=${encodeURIComponent(date)}`,
+      { method: 'DELETE' }
+    );
+    dailySheetEntriesCache = (dailySheetEntriesCache || []).filter(
+      (entry) =>
+        fmtStayDate(entry.entry_date) !== date || !entryHasStayChargeData(entry)
+    );
+    if (data?.invoice_sync) applyDailyInvoiceSync(data);
+    await loadDailyEntriesIntoSheet();
+    pruneDuplicateStayDomRows();
     if (!document.querySelector('.daily-stay-row')) addDailyEntryRow();
     updateDailyGrandTotal();
     await loadDailyPatientHistory();
-    const fileNumber = getStayFileNumber();
-    if (lastSync?.invoice_sync?.invoice_id && fileNumber) {
-      await refreshInvoiceFormAfterDailySave(fileNumber, lastSync.invoice_sync.invoice_id);
+    if (data?.invoice_sync?.invoice_id) {
+      await refreshInvoiceFormAfterDailySave(fileNumber, data.invoice_sync.invoice_id);
     }
-    if (fileNumber) await loadOpenPatientStay(fileNumber);
-    showToast(idsToDelete.length > 1 ? `تم حذف ${idsToDelete.length} حركات إقامة` : 'تم حذف الحركة', 'success');
+    await refreshDailyStaySummary(fileNumber);
+    const deletedCount = Number(data?.count) || idsToDelete.length || 1;
+    showToast(
+      deletedCount > 1 ? `تم حذف ${deletedCount} حركات إقامة` : 'تم حذف الحركة',
+      'success'
+    );
     if (window.AutoSave) {
       AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
     }
@@ -6662,7 +6811,20 @@ function getDailyChargeDomRows() {
 function applySavedLineIdsToRow(tr, entry) {
   const lines = entry?.lines || [];
   if (tr.classList.contains('daily-lab-row')) {
-    const main = lines.find((line) => line.section_code === 'analyses');
+    const lineId = Number(tr.dataset.lineId) || 0;
+    const main =
+      (lineId && lines.find((line) => Number(line.id) === lineId)) ||
+      lines.find((line) => {
+        if (line.section_code !== 'analyses') return false;
+        const picker = tr.querySelector('.daily-picker[data-section="analyses"]');
+        const svcId =
+          Number(picker?.dataset?.serviceId) ||
+          Number(tr.dataset.serviceCode) ||
+          Number(picker?._selectedItem?.service_id) ||
+          0;
+        if (svcId > 0) return Number(line.service_id) === svcId;
+        return true;
+      });
     const stamp = lines.find((line) => line.section_code === 'analyses_stamp');
     if (main?.id) tr.dataset.lineId = String(main.id);
     if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
@@ -6671,7 +6833,16 @@ function applySavedLineIdsToRow(tr, entry) {
     return;
   }
   if (tr.classList.contains('daily-rad-row')) {
-    const main = lines.find((line) => line.section_code === 'xray_total');
+    const lineId = Number(tr.dataset.lineId) || 0;
+    const main =
+      (lineId && lines.find((line) => Number(line.id) === lineId)) ||
+      lines.find((line) => {
+        if (line.section_code !== 'xray_total') return false;
+        const picker = tr.querySelector('.daily-picker[data-section="xray_total"]');
+        const svcId = Number(picker?.dataset?.serviceId) || Number(picker?._selectedItem?.service_id) || 0;
+        if (svcId > 0) return Number(line.service_id) === svcId;
+        return true;
+      });
     const stamp = lines.find((line) => line.section_code === 'xray_stamp');
     const type = lines.find((line) => line.section_code === 'xray_type');
     if (main?.id) tr.dataset.lineId = String(main.id);
@@ -6680,19 +6851,48 @@ function applySavedLineIdsToRow(tr, entry) {
     return;
   }
   if (tr.classList.contains('daily-exam-row')) {
-    const exam = lines.find((line) => ['consultant_exam', 'specialist_exam'].includes(line.section_code));
+    const examLineId = Number(tr.dataset.examLineId) || 0;
+    const exam =
+      (examLineId && lines.find((line) => Number(line.id) === examLineId)) ||
+      lines.find((line) => ['consultant_exam', 'specialist_exam'].includes(line.section_code));
     const stamp = lines.find((line) => line.section_code === 'consultation_stamp');
     if (exam?.id) tr.dataset.examLineId = String(exam.id);
     if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
     return;
   }
+  if (tr.classList.contains('daily-session-row')) {
+    const lineId = Number(tr.dataset.lineId) || 0;
+    const session =
+      (lineId && lines.find((line) => Number(line.id) === lineId)) ||
+      lines.find((line) => line.section_code === 'sessions');
+    if (session?.id) tr.dataset.lineId = String(session.id);
+    return;
+  }
   const primary =
     lines.find((line) => line.id && String(line.id) === String(tr.dataset.lineId)) ||
     lines.find((line) => {
-      if (tr.classList.contains('daily-med-row')) return line.section_code === 'medicines';
+      if (tr.classList.contains('daily-med-row')) {
+        if (line.section_code !== 'medicines') return false;
+        const picker = tr.querySelector('.daily-picker[data-section="medicines"]');
+        const catId =
+          Number(picker?.dataset?.catalogItemId) ||
+          Number(picker?._selectedItem?.id) ||
+          Number(tr.dataset.catalogCode) ||
+          0;
+        if (catId > 0) return Number(line.catalog_item_id) === catId;
+        return true;
+      }
       if (tr.classList.contains('daily-sup-row')) {
         const code = tr.dataset.sectionCode || 'supplies';
-        return line.section_code === code;
+        if (line.section_code !== code) return false;
+        const picker = tr.querySelector(`.daily-picker[data-section="${code}"]`);
+        const catId =
+          Number(picker?.dataset?.catalogItemId) ||
+          Number(picker?._selectedItem?.id) ||
+          Number(tr.dataset.catalogCode) ||
+          0;
+        if (catId > 0) return Number(line.catalog_item_id) === catId;
+        return true;
       }
       if (tr.classList.contains('daily-misc-row')) {
         const code = tr.dataset.sectionCode || 'other';
@@ -6711,10 +6911,14 @@ function applySavedEntriesToDomRows(savedEntries = []) {
     savedEntries.filter((entry) => entry?.id).map((entry) => [String(entry.id), entry])
   );
   const savedByFingerprint = new Map();
+  const savedByLineKey = new Map();
   for (const entry of savedEntries) {
     if (!entry?.id) continue;
     const fingerprint = buildClientLinesFingerprint(entry.lines || []);
     if (fingerprint) savedByFingerprint.set(fingerprint, entry);
+    for (const line of entry.lines || []) {
+      savedByLineKey.set(dailyLineMergeKey(line), entry);
+    }
   }
 
   for (const tr of domRows) {
@@ -6731,8 +6935,18 @@ function applySavedEntriesToDomRows(savedEntries = []) {
           entryHasStayChargeData(candidate)
       );
     } else {
-      const fingerprint = buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
-      entry = fingerprint ? savedByFingerprint.get(fingerprint) : null;
+      const rowLines = collectDailyLinesFromRow(tr);
+      for (const line of rowLines) {
+        const match = savedByLineKey.get(dailyLineMergeKey(line));
+        if (match) {
+          entry = match;
+          break;
+        }
+      }
+      if (!entry) {
+        const fingerprint = buildClientLinesFingerprint(rowLines);
+        entry = fingerprint ? savedByFingerprint.get(fingerprint) : null;
+      }
     }
     if (!entry?.id) continue;
     tr.dataset.entryId = String(entry.id);
@@ -6773,6 +6987,26 @@ function applySavedEntriesToDomRows(savedEntries = []) {
         entry.lines?.find((line) => line.section_code === code),
         ['other', 'prosthetics']
       );
+    } else if (tr.classList.contains('daily-exam-row')) {
+      const examLineId = Number(tr.dataset.examLineId) || 0;
+      const examLine =
+        entry.lines?.find((line) => examLineId && Number(line.id) === examLineId) ||
+        entry.lines?.find((line) => ['consultant_exam', 'specialist_exam'].includes(line.section_code));
+      tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, examLine, [
+        'consultant_exam',
+        'specialist_exam',
+        'consultation_stamp',
+      ]);
+    } else if (tr.classList.contains('daily-session-row')) {
+      const lineId = Number(tr.dataset.lineId) || 0;
+      const sessionLine =
+        entry.lines?.find((line) => lineId && Number(line.id) === lineId) ||
+        entry.lines?.find((line) => line.section_code === 'sessions');
+      tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, sessionLine, [
+        'sessions',
+        'sessions_date',
+        'sessions_detail',
+      ]);
     }
   }
 }
@@ -6808,6 +7042,9 @@ function collectDailyRowsForSave() {
   });
   if (activeDailyTab === 'stay') {
     return mergeStaySaveRows(mergeDailySaveEntries(rows));
+  }
+  if (DAILY_TODAY_MERGE_TABS.includes(activeDailyTab)) {
+    return mergeTodayTabSaveRows(mergeDailySaveEntries(rows));
   }
   return mergeDailySaveEntries(rows);
 }
@@ -6858,7 +7095,7 @@ function mergeExamSaveEntries(rows) {
     if (row.notes) merged.notes = row.notes;
   }
 
-  return [...byEntryId.values(), ...freshRows];
+  return mergeFreshDailySaveRows([...byEntryId.values(), ...freshRows]);
 }
 
 function mergeDailySaveEntries(rows) {
@@ -6981,6 +7218,24 @@ async function saveDailyEntry(options = {}) {
     if (!silent) showToast('لا توجد فاتورة مفتوحة — سجّل المريض من تسجيل مريض جديد أولًا', 'warning');
     return false;
   }
+  if (dailySaveInFlight) {
+    try {
+      return await dailySaveInFlight;
+    } catch {
+      /* retry below */
+    }
+  }
+
+  dailySaveInFlight = saveDailyEntryNow({ silent });
+  try {
+    return await dailySaveInFlight;
+  } finally {
+    dailySaveInFlight = null;
+  }
+}
+
+async function saveDailyEntryNow(options = {}) {
+  const { silent = false } = options;
   const file_number = getStayFileNumber();
   const entries = collectDailyRowsForSave();
   if (!file_number || !entries.length) {
@@ -7018,6 +7273,7 @@ async function saveDailyEntry(options = {}) {
     await refreshDailyStaySummary(file_number);
     applySavedEntriesToDomRows(data.saved || []);
     if (activeDailyTab === 'stay') pruneDuplicateStayDomRows();
+    if (DAILY_SHEET_ROW_CLASS_BY_TAB[activeDailyTab]) pruneDuplicateSheetDomRows(activeDailyTab);
     if (silent) {
       if (window.AutoSave) {
         AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
@@ -7063,6 +7319,7 @@ function getDailyAutosaveFingerprint() {
 }
 
 function canAutoSaveDailyCharges() {
+  if (dailyChargesDeleteInProgress) return false;
   if (!dailyCan('daily_charges.manage')) return false;
   if (!dailyStayContext?.invoice?.id) return false;
   const view = document.getElementById('view-daily');
@@ -7073,7 +7330,12 @@ function canAutoSaveDailyCharges() {
 }
 
 async function autoSaveDailyCharges() {
-  return saveDailyEntry({ silent: true, auto: true });
+  if (dailyChargesDeleteInProgress) return false;
+  if (dailyAutosaveInFlight) return dailyAutosaveInFlight;
+  dailyAutosaveInFlight = saveDailyEntry({ silent: true, auto: true }).finally(() => {
+    dailyAutosaveInFlight = null;
+  });
+  return dailyAutosaveInFlight;
 }
 
 function initDailyAutosaveAndEnterRow() {

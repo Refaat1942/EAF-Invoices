@@ -124,7 +124,9 @@ function enrichInvoice(invoice) {
   });
 
   const { resolvePatientInvoiceBalanceDisplay } = require('./patientService');
-  const patientBalance = resolvePatientInvoiceBalanceDisplay(invoice, totals);
+  const patientBalance = invoice._daily_kind_preview
+    ? null
+    : resolvePatientInvoiceBalanceDisplay(invoice, totals);
 
   const calcItems = (totals.items || []).filter((item) => !item.is_stay_entry);
   const calcByLineId = new Map(
@@ -202,9 +204,19 @@ function scopeInvoiceForDailyKindPreview(invoice, dailyKind) {
     stay_entries: kind === 'stay' ? invoice.stay_entries || [] : [],
     payments: [],
     method_payments: [],
+    cash_private: 0,
+    bank_private: 0,
+    cash_external: 0,
+    bank_external: 0,
+    patient_credit_applied: 0,
+    patient_credit_deducted: false,
     balance: 0,
+    balance_raw: 0,
     stamp_duty: 0,
+    stamp_duty_raw: 0,
     professional_fees: 0,
+    professional_fees_raw: 0,
+    _daily_kind_preview: true,
     _daily_kind_label: getBundleLabel(kind),
   };
 }
@@ -215,6 +227,7 @@ function buildInvoiceHtml(invoice, options = {}) {
   const inv = enrichInvoice(scopedInvoice);
   if (scopedInvoice._daily_kind_label) {
     inv._daily_kind_label = scopedInvoice._daily_kind_label;
+    inv._daily_kind_preview = true;
   }
   let sourceItems = inv.items || [];
   if (dailyKind && dailyKind !== 'stay') {
@@ -659,11 +672,18 @@ function buildInvoiceHtml(invoice, options = {}) {
           </thead>
           <tbody>
             ${buildPaymentRows(inv)}
-            <tr><td colspan="2" class="label-cell" style="font-weight:900">إجمالي المبالغ المحصلة</td><td class="num" style="font-weight:900">${fmtDual(inv.total_collected_raw, inv.total_collected)}</td></tr>
+            ${
+              inv._daily_kind_preview
+                ? ''
+                : `<tr><td colspan="2" class="label-cell" style="font-weight:900">إجمالي المبالغ المحصلة</td><td class="num" style="font-weight:900">${fmtDual(inv.total_collected_raw, inv.total_collected)}</td></tr>`
+            }
           </tbody>
         </table>
       </div>
-      <div class="bottom-table-wrap">
+      ${
+        inv._daily_kind_preview
+          ? ''
+          : `<div class="bottom-table-wrap">
         <table class="bottom-table">
           <thead>
             <tr><th colspan="3">حركة الرصيد النقدي للمريض</th></tr>
@@ -675,7 +695,8 @@ function buildInvoiceHtml(invoice, options = {}) {
             <tr><td>3</td><td class="label-cell">المتبقي</td><td class="num">${fmtDual(inv.remaining_raw, inv.remaining)}</td></tr>
           </tbody>
         </table>
-      </div>
+      </div>`
+      }
     </div>
 
     <div class="signatures">
@@ -742,6 +763,9 @@ function appendMethodPaymentsToPrintRows(items, payments, methodPayments = []) {
 }
 
 function buildPaymentRows(inv) {
+  if (inv._daily_kind_preview) {
+    return `<tr><td colspan="3" class="label-cell" style="text-align:center">معاينة القسم — المدفوعات في الفاتورة الكاملة فقط</td></tr>`;
+  }
   const methodPayments = (inv.method_payments || []).filter((m) => m.accepts_amount !== false);
   if (methodPayments.length) {
     return methodPayments
@@ -852,6 +876,7 @@ function buildStayDetailsTable(inv) {
 }
 
 function buildSummaryRows(inv) {
+  const sectionPreview = Boolean(inv._daily_kind_preview);
   const adminLabel = `مصروفات إدارية ${inv.admin_expenses_percent || 12}%`;
   const hasDiscount = Number(inv.discount_amount) > 0 || Number(inv.discount_percent) > 0;
   const hasStay = Number(inv.stay_subtotal) > 0;
@@ -876,10 +901,14 @@ function buildSummaryRows(inv) {
     );
   }
 
-  rows.push(
-    ['الرصيد', inv.balance_raw, inv.balance, ''],
-    ['الإجمالي', inv.final_total_raw, inv.final_total, fmtDual(inv.total_collected_raw, inv.total_collected)]
-  );
+  if (sectionPreview) {
+    rows.push(['إجمالي القسم', inv.final_total_raw, inv.final_total, '']);
+  } else {
+    rows.push(
+      ['الرصيد', inv.balance_raw, inv.balance, ''],
+      ['الإجمالي', inv.final_total_raw, inv.final_total, fmtDual(inv.total_collected_raw, inv.total_collected)]
+    );
+  }
 
   return rows
     .map(
