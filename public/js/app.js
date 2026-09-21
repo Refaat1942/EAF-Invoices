@@ -6949,6 +6949,7 @@ async function saveServiceEditor() {
 }
 
 window.loadInvoiceForEdit = loadInvoiceForEdit;
+window.switchView = switchView;
 window.renderPatientStatusReport = renderPatientStatusReport;
 window.loadFinancialTreatments = loadFinancialTreatments;
 window.parseDisplayAmount = parseDisplayAmount;

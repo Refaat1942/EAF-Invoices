@@ -49,7 +49,7 @@
       body.innerHTML = rows
         .map(
           (row) => `
-        <tr class="${row.is_read ? '' : 'table-warning'}">
+        <tr class="audit-alert-row ${row.is_read ? '' : 'table-warning'}" data-id="${row.id}" data-entity-type="${escapeHtml(row.entity_type || '')}" data-entity-id="${escapeHtml(row.entity_id || '')}" data-alert-type="${escapeHtml(row.alert_type || '')}" style="cursor:pointer" title="فتح">
           <td>${severityBadge(row.severity)}</td>
           <td class="fw-bold">${escapeHtml(row.title)}</td>
           <td>${escapeHtml(row.message)}</td>
@@ -65,10 +65,33 @@
         )
         .join('');
       body.querySelectorAll('.audit-mark-read').forEach((btn) => {
-        btn.addEventListener('click', async () => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
           await apiFetch(`${API}/alerts/${btn.dataset.id}/read`, { method: 'POST' });
           await loadAlertsPanel();
           await refreshAlertBadge();
+        });
+      });
+      body.querySelectorAll('.audit-alert-row').forEach((row) => {
+        row.addEventListener('click', async () => {
+          if (typeof window.openAlertTarget === 'function') {
+            await window.openAlertTarget({
+              id: Number(row.dataset.id),
+              is_read: !row.classList.contains('table-warning'),
+              entity_type: row.dataset.entityType,
+              entity_id: row.dataset.entityId,
+              alert_type: row.dataset.alertType,
+            });
+            await loadAlertsPanel();
+            return;
+          }
+          if (typeof window.navigateFromAlert === 'function') {
+            await window.navigateFromAlert({
+              entity_type: row.dataset.entityType,
+              entity_id: row.dataset.entityId,
+              alert_type: row.dataset.alertType,
+            });
+          }
         });
       });
     } catch (err) {

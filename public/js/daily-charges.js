@@ -4455,7 +4455,9 @@ function collectSessionsLinesFromRow(tr) {
 
 function catalogLinesFromEntry(entry, sectionCodes) {
   const codes = Array.isArray(sectionCodes) ? sectionCodes : [sectionCodes];
-  return (entry.lines || []).filter((l) => codes.includes(l.section_code) && lineHasChargeData(l));
+  return dedupeLinesByMergeKey(
+    (entry.lines || []).filter((l) => codes.includes(l.section_code) && lineHasChargeData(l))
+  );
 }
 
 function getCatalogRowUnitPrice(tr, sectionCode) {
@@ -4611,7 +4613,7 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
   if (line.catalog_item_code) tr.dataset.catalogCode = line.catalog_item_code;
   if (line.id) tr.dataset.lineId = String(line.id);
-  tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
+  tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, line, ['medicines']);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const invoiceLabel = getDailyInvoiceDisplayLabel();
@@ -4673,7 +4675,7 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
   if (line.cost_price != null) tr.dataset.costPrice = String(line.cost_price);
   if (line.markup_percent != null) tr.dataset.markupPercent = String(line.markup_percent);
   if (line.id) tr.dataset.lineId = String(line.id);
-  tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
+  tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, line, ['supplies', 'cosmetics']);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const invoiceLabel = getDailyInvoiceDisplayLabel();
@@ -4755,7 +4757,9 @@ function collectSupplyLinesFromRow(tr) {
 }
 
 function serviceLinesFromEntry(entry, mainSectionCode) {
-  return (entry.lines || []).filter((l) => l.section_code === mainSectionCode && lineHasChargeData(l));
+  return dedupeLinesByMergeKey(
+    (entry.lines || []).filter((l) => l.section_code === mainSectionCode && lineHasChargeData(l))
+  );
 }
 
 function syncSimpleServiceRow(tr, item, unitPrice, mainSection, ui) {
@@ -4842,7 +4846,7 @@ function createLabRow(entry = {}, analysisLine = null) {
   if (line.service_id) tr.dataset.serviceCode = String(line.service_id);
   if (line.id) tr.dataset.lineId = String(line.id);
   if (stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
-  tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
+  tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, line, ['analyses', 'analyses_stamp']);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
@@ -4892,7 +4896,11 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
   if (line.id) tr.dataset.lineId = String(line.id);
   if (stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
   if (typeLine.id) tr.dataset.typeLineId = String(typeLine.id);
-  tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
+  tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, line, [
+    'xray_total',
+    'xray_stamp',
+    'xray_type',
+  ]);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
@@ -4955,7 +4963,7 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
   if (line.id) tr.dataset.lineId = String(line.id);
-  tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
+  tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, line, ['other', 'prosthetics']);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
 
@@ -5357,6 +5365,61 @@ function dailyLineMergeKey(line) {
   // section with the same amount and no notes collapsed onto the same key and one
   // silently overwrote the other before either reached the server.
   return `new:${code}:${svc}:${cat}:${text}:${line.amount || 0}`;
+}
+
+function dedupeLinesByMergeKey(lines = []) {
+  const map = new Map();
+  for (const line of lines || []) {
+    map.set(dailyLineMergeKey(line), line);
+  }
+  return [...map.values()];
+}
+
+function dailyRowSnapshotExcluding(entry, primaryLine, sectionCodes = []) {
+  const codes = new Set(sectionCodes);
+  const primaryId = Number(primaryLine?.id) || 0;
+  return (entry?.lines || [])
+    .filter((line) => {
+      if (primaryId && Number(line.id) === primaryId) return false;
+      if (codes.has(line.section_code)) return false;
+      return true;
+    })
+    .map((line) => ({ ...line }));
+}
+
+function buildClientLinesFingerprint(lines = []) {
+  return dedupeLinesByMergeKey(lines)
+    .map((line) => dailyLineMergeKey(line))
+    .sort()
+    .join(';');
+}
+
+function mergeFreshDailySaveRows(rows = []) {
+  const withEntryId = [];
+  const freshByFingerprint = new Map();
+  for (const row of rows) {
+    const entryId = Number(row.entry_id) || 0;
+    if (entryId) {
+      withEntryId.push(row);
+      continue;
+    }
+    const fingerprint = buildClientLinesFingerprint(row.lines || []);
+    if (!fingerprint) {
+      withEntryId.push(row);
+      continue;
+    }
+    if (!freshByFingerprint.has(fingerprint)) {
+      freshByFingerprint.set(fingerprint, { ...row, lines: [...(row.lines || [])] });
+      continue;
+    }
+    const merged = freshByFingerprint.get(fingerprint);
+    const lineMap = new Map((merged.lines || []).map((line) => [dailyLineMergeKey(line), line]));
+    for (const line of row.lines || []) {
+      lineMap.set(dailyLineMergeKey(line), line);
+    }
+    merged.lines = [...lineMap.values()];
+  }
+  return [...withEntryId, ...freshByFingerprint.values()];
 }
 
 function renderDailyCellHtml(section, line = {}) {
@@ -6236,6 +6299,35 @@ async function reloadDailyCatalogSectionsFromSettings() {
   await loadDailySections();
 }
 
+function countDailyRowsForEntryId(entryId) {
+  if (!entryId) return 0;
+  const id = String(entryId);
+  return document.querySelectorAll(
+    `#daily-sheet-body tr.daily-entry-row[data-entry-id="${CSS.escape(id)}"]`
+  ).length;
+}
+
+function shouldDeleteEntireDailyEntryForRow(tr) {
+  if (activeDailyTab === 'stay' || tr.classList.contains('daily-stay-row')) return true;
+  if (['lab', 'radiology'].includes(activeDailyTab)) return true;
+  const entryId = tr.dataset.entryId;
+  if (entryId && countDailyRowsForEntryId(entryId) <= 1) return true;
+  return false;
+}
+
+function removeDailyEntryRowFromDom(tr) {
+  if (tr.classList.contains('daily-stay-addon-row')) {
+    deleteStayAddonRow(tr);
+  } else if (tr.classList.contains('daily-stay-row')) {
+    getStayDayGroupRows(tr).forEach((row) => row.remove());
+  } else {
+    tr.remove();
+  }
+  if (activeDailyTab !== 'stay' && !document.querySelector('.daily-entry-row')) addDailyEntryRow();
+  renumberSheetRowSerials();
+  updateDailyGrandTotal();
+}
+
 async function removeRowLinesFromEntry(tr, entryId) {
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية الحذف', 'warning');
@@ -6254,20 +6346,15 @@ async function removeRowLinesFromEntry(tr, entryId) {
   }
 
   if (remaining.length === snapshot.length) {
-    if (tr.classList.contains('daily-stay-addon-row')) {
-      deleteStayAddonRow(tr);
-    } else if (tr.classList.contains('daily-stay-row')) {
-      getStayDayGroupRows(tr).forEach((row) => row.remove());
-    } else {
-      tr.remove();
+    const orphanPersistedRow = entryId && removeIds.size > 0 && !snapshot.length;
+    if (entryId && (shouldDeleteEntireDailyEntryForRow(tr) || orphanPersistedRow)) {
+      return deleteDailyEntryById(entryId, { skipConfirm: true });
     }
-    if (activeDailyTab !== 'stay' && !document.querySelector('.daily-entry-row')) addDailyEntryRow();
-    renumberSheetRowSerials();
-    updateDailyGrandTotal();
+    removeDailyEntryRowFromDom(tr);
     return true;
   }
 
-  if (!remaining.length) return deleteDailyEntryById(entryId);
+  if (!remaining.length) return deleteDailyEntryById(entryId, { skipConfirm: true });
 
   try {
     const data = await apiJson(`${DAILY_API}/entries/batch`, {
@@ -6304,13 +6391,13 @@ async function removeRowLinesFromEntry(tr, entryId) {
   }
 }
 
-async function deleteDailyEntryById(entryId) {
+async function deleteDailyEntryById(entryId, options = {}) {
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية الحذف', 'warning');
     return false;
   }
   if (!entryId) return false;
-  if (!confirm('حذف حركة هذا اليوم؟')) return false;
+  if (!options.skipConfirm && !confirm('حذف حركة هذا اليوم؟')) return false;
 
   try {
     const data = await apiJson(`${DAILY_API}/entries/${entryId}`, { method: 'DELETE' });
@@ -6333,23 +6420,16 @@ async function deleteDailyEntryById(entryId) {
 
 async function deleteDailyEntryRow(tr) {
   const entryId = tr.dataset.entryId;
+  if (entryId && shouldDeleteEntireDailyEntryForRow(tr)) {
+    await deleteDailyEntryById(entryId);
+    return;
+  }
   if (entryId) {
     const removed = await removeRowLinesFromEntry(tr, Number(entryId));
     if (removed) return;
   }
   if (!entryId) {
-    if (tr.classList.contains('daily-stay-addon-row')) {
-      deleteStayAddonRow(tr);
-      return;
-    }
-    if (tr.classList.contains('daily-stay-row')) {
-      getStayDayGroupRows(tr).forEach((row) => row.remove());
-    } else {
-      tr.remove();
-    }
-    if (activeDailyTab !== 'stay' && !document.querySelector('.daily-entry-row')) addDailyEntryRow();
-    renumberSheetRowSerials();
-    updateDailyGrandTotal();
+    removeDailyEntryRowFromDom(tr);
     return;
   }
   await deleteDailyEntryById(entryId);
@@ -6370,6 +6450,123 @@ function mergeStaySaveRows(rows) {
   }
   merged.lines = [...lineMap.values()];
   return [merged];
+}
+
+function getDailyChargeDomRows() {
+  const rowSelector =
+    activeDailyTab === 'stay'
+      ? '#daily-sections-body .daily-stay-row'
+      : '#daily-sections-body .daily-entry-row:not(.daily-stay-addon-row)';
+  return [...document.querySelectorAll(rowSelector)].filter((tr) => {
+    if (activeDailyTab === 'stay') return stayRowGroupHasChargeData(tr);
+    return rowHasChargeData(tr);
+  });
+}
+
+function applySavedLineIdsToRow(tr, entry) {
+  const lines = entry?.lines || [];
+  if (tr.classList.contains('daily-lab-row')) {
+    const main = lines.find((line) => line.section_code === 'analyses');
+    const stamp = lines.find((line) => line.section_code === 'analyses_stamp');
+    if (main?.id) tr.dataset.lineId = String(main.id);
+    if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
+    const hidden = tr.querySelector('.daily-field.daily-amount[data-section="analyses"]');
+    if (main?.id && hidden) hidden.dataset.lineId = String(main.id);
+    return;
+  }
+  if (tr.classList.contains('daily-rad-row')) {
+    const main = lines.find((line) => line.section_code === 'xray_total');
+    const stamp = lines.find((line) => line.section_code === 'xray_stamp');
+    const type = lines.find((line) => line.section_code === 'xray_type');
+    if (main?.id) tr.dataset.lineId = String(main.id);
+    if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
+    if (type?.id) tr.dataset.typeLineId = String(type.id);
+    return;
+  }
+  if (tr.classList.contains('daily-exam-row')) {
+    const exam = lines.find((line) => ['consultant_exam', 'specialist_exam'].includes(line.section_code));
+    const stamp = lines.find((line) => line.section_code === 'consultation_stamp');
+    if (exam?.id) tr.dataset.examLineId = String(exam.id);
+    if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
+    return;
+  }
+  const primary =
+    lines.find((line) => line.id && String(line.id) === String(tr.dataset.lineId)) ||
+    lines.find((line) => {
+      if (tr.classList.contains('daily-med-row')) return line.section_code === 'medicines';
+      if (tr.classList.contains('daily-sup-row')) {
+        const code = tr.dataset.sectionCode || 'supplies';
+        return line.section_code === code;
+      }
+      if (tr.classList.contains('daily-misc-row')) {
+        const code = tr.dataset.sectionCode || 'other';
+        return line.section_code === code;
+      }
+      return false;
+    });
+  if (primary?.id) tr.dataset.lineId = String(primary.id);
+}
+
+function applySavedEntriesToDomRows(savedEntries = []) {
+  const domRows = getDailyChargeDomRows();
+  if (!domRows.length || !savedEntries.length) return;
+
+  const savedById = new Map(
+    savedEntries.filter((entry) => entry?.id).map((entry) => [String(entry.id), entry])
+  );
+  const savedByFingerprint = new Map();
+  for (const entry of savedEntries) {
+    if (!entry?.id) continue;
+    const fingerprint = buildClientLinesFingerprint(entry.lines || []);
+    if (fingerprint) savedByFingerprint.set(fingerprint, entry);
+  }
+
+  for (const tr of domRows) {
+    let entry = null;
+    const existingId = tr.dataset.entryId;
+    if (existingId && savedById.has(String(existingId))) {
+      entry = savedById.get(String(existingId));
+    } else {
+      const fingerprint = buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
+      entry = fingerprint ? savedByFingerprint.get(fingerprint) : null;
+    }
+    if (!entry?.id) continue;
+    tr.dataset.entryId = String(entry.id);
+    applySavedLineIdsToRow(tr, entry);
+    if (tr.classList.contains('daily-lab-row')) {
+      tr._entryLinesSnapshot = dailyRowSnapshotExcluding(
+        entry,
+        entry.lines?.find((line) => line.section_code === 'analyses'),
+        ['analyses', 'analyses_stamp']
+      );
+    } else if (tr.classList.contains('daily-rad-row')) {
+      tr._entryLinesSnapshot = dailyRowSnapshotExcluding(
+        entry,
+        entry.lines?.find((line) => line.section_code === 'xray_total'),
+        ['xray_total', 'xray_stamp', 'xray_type']
+      );
+    } else if (tr.classList.contains('daily-med-row')) {
+      tr._entryLinesSnapshot = dailyRowSnapshotExcluding(
+        entry,
+        entry.lines?.find((line) => line.section_code === 'medicines'),
+        ['medicines']
+      );
+    } else if (tr.classList.contains('daily-sup-row')) {
+      const code = tr.dataset.sectionCode || 'supplies';
+      tr._entryLinesSnapshot = dailyRowSnapshotExcluding(
+        entry,
+        entry.lines?.find((line) => line.section_code === code),
+        ['supplies', 'cosmetics']
+      );
+    } else if (tr.classList.contains('daily-misc-row')) {
+      const code = tr.dataset.sectionCode || 'other';
+      tr._entryLinesSnapshot = dailyRowSnapshotExcluding(
+        entry,
+        entry.lines?.find((line) => line.section_code === code),
+        ['other', 'prosthetics']
+      );
+    }
+  }
 }
 
 function collectDailyRowsForSave() {
@@ -6484,7 +6681,7 @@ function mergeDailySaveEntries(rows) {
     if (row.notes) merged.notes = row.notes;
   }
 
-  return [...byEntryId.values(), ...freshRows];
+  return mergeFreshDailySaveRows([...byEntryId.values(), ...freshRows]);
 }
 
 async function loadDailyPatientHistory() {
@@ -6610,11 +6807,10 @@ async function saveDailyEntry(options = {}) {
     const toastMsg = `تم الحفظ — أُضيف تلقائياً على الفاتورة الكبيرة (#${data.invoice_sync.invoice_id})`;
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
     await refreshDailyStaySummary(file_number);
-    if (!silent || !isDailyPanelFocused()) {
-      await loadDailyEntriesIntoSheet();
-      await loadDailyPatientHistory();
-      if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
-    }
+    applySavedEntriesToDomRows(data.saved || []);
+    await loadDailyEntriesIntoSheet();
+    await loadDailyPatientHistory();
+    if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
 
     const statusEl = document.getElementById('daily-entry-status');
     if (!silent) {

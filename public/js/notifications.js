@@ -52,6 +52,59 @@
     }
   }
 
+  function closeNotificationPanel() {
+    panelOpen = false;
+    document.getElementById('nav-alerts-dropdown')?.classList.remove('show');
+  }
+
+  async function navigateFromAlert(alert = {}) {
+    const entityType = String(alert.entity_type || '').trim();
+    const entityId = String(alert.entity_id || '').trim();
+    const alertType = String(alert.alert_type || '').trim();
+
+    if (entityType === 'invoice' && entityId) {
+      if (typeof window.loadInvoiceForEdit === 'function') {
+        await window.loadInvoiceForEdit(Number(entityId));
+        return true;
+      }
+    }
+
+    if (entityType === 'patient' && entityId) {
+      if (typeof window.switchView === 'function') {
+        window.switchView('daily', { openFileNumber: entityId });
+        return true;
+      }
+    }
+
+    if (
+      alertType === 'pending_review_count' ||
+      (entityType === 'system' && entityId === 'pending_review')
+    ) {
+      if (typeof window.switchView === 'function') {
+        window.switchView('approvals');
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async function openAlertTarget(alert = {}) {
+    closeNotificationPanel();
+    if (!alert.is_read && alert.id) {
+      try {
+        await apiFetch(`${API}/alerts/${alert.id}/read`, { method: 'POST' });
+        await refreshNotificationBadge();
+      } catch {
+        /* navigation still useful if mark-read fails */
+      }
+    }
+    const opened = await navigateFromAlert(alert);
+    if (!opened && typeof showToast === 'function') {
+      showToast('لا يمكن فتح موقع هذا التنبيه', 'warning');
+    }
+  }
+
   async function loadNotificationDropdown() {
     const body = document.getElementById('nav-alerts-dropdown-body');
     if (!body) return;
@@ -67,7 +120,7 @@
       body.innerHTML = rows
         .map(
           (row) => `
-        <button type="button" class="dropdown-item text-wrap nav-alert-item${row.is_read ? '' : ' fw-bold'}" data-id="${row.id}">
+        <button type="button" class="dropdown-item text-wrap nav-alert-item${row.is_read ? '' : ' fw-bold'}" data-id="${row.id}" data-entity-type="${escapeHtml(row.entity_type || '')}" data-entity-id="${escapeHtml(row.entity_id || '')}" data-alert-type="${escapeHtml(row.alert_type || '')}" title="فتح">
           <div class="small text-muted">${escapeHtml(row.created_at ? new Date(row.created_at).toLocaleString('ar-EG') : '')}</div>
           <div>${escapeHtml(row.title || 'تنبيه')}</div>
           <div class="small text-muted">${escapeHtml(row.message || '')}</div>
@@ -76,9 +129,13 @@
         .join('');
       body.querySelectorAll('.nav-alert-item').forEach((btn) => {
         btn.addEventListener('click', async () => {
-          await apiFetch(`${API}/alerts/${btn.dataset.id}/read`, { method: 'POST' });
-          await refreshNotificationBadge();
-          await loadNotificationDropdown();
+          await openAlertTarget({
+            id: Number(btn.dataset.id),
+            is_read: !btn.classList.contains('fw-bold'),
+            entity_type: btn.dataset.entityType,
+            entity_id: btn.dataset.entityId,
+            alert_type: btn.dataset.alertType,
+          });
         });
       });
     } catch (err) {
@@ -130,4 +187,6 @@
 
   window.refreshNotificationBadge = refreshNotificationBadge;
   window.startNotificationPolling = startNotificationPolling;
+  window.navigateFromAlert = navigateFromAlert;
+  window.openAlertTarget = openAlertTarget;
 })();
