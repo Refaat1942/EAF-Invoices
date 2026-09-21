@@ -4958,29 +4958,60 @@ function fillInvoicePaymentFields(row, pay = {}) {
   if (depositorEl) depositorEl.value = pay.depositor_name || '';
 }
 
+function invoiceRowHasBillableItem(row) {
+  const desc = row.querySelector('[data-field="description"]')?.value?.trim();
+  const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
+  const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
+  return Boolean(desc) || qty > 0 || amt > 0;
+}
+
+function invoicePaymentSlotRows(tbody) {
+  return [...tbody.querySelectorAll('tr')].filter((row) => {
+    if (row.dataset.sectionHeader || row.dataset.sectionAggregate || row.dataset.staySync) return false;
+    return !invoiceRowHasBillableItem(row);
+  });
+}
+
+function markInvoicePaymentOnlyRow(row) {
+  if (!row) return;
+  row.querySelectorAll('[data-field="description"], [data-field="quantity"], [data-field="amount"]').forEach((el) => {
+    el.value = '';
+    el.setAttribute('readonly', 'readonly');
+    el.classList.add('bg-light');
+  });
+  const totalEl = row.querySelector('[data-field="total"]');
+  if (totalEl) totalEl.value = '';
+}
+
 function syncInvoicePaymentColumnsFromMethodPayments() {
   const receipts = collectMethodPaymentReceiptRows();
-  document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
-
-  if (!receipts.length) return;
-
   const tbody = document.getElementById('items-tbody');
   if (!tbody) return;
 
-  for (const pay of receipts) {
-    const row = createRow(rowCount++);
-    row.dataset.methodPaymentSync = '1';
-    row.classList.add('invoice-method-payment-row');
-    fillInvoicePaymentFields(row, pay);
-    row.querySelectorAll('[data-field="description"], [data-field="quantity"], [data-field="amount"]').forEach((el) => {
-      el.value = '';
-      el.setAttribute('readonly', 'readonly');
-      el.classList.add('bg-light');
-    });
-    const totalEl = row.querySelector('[data-field="total"]');
-    if (totalEl) totalEl.value = '';
-    tbody.appendChild(row);
+  document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
+
+  const slotRows = invoicePaymentSlotRows(tbody);
+  slotRows.forEach((row) => fillInvoicePaymentFields(row, {}));
+
+  if (!receipts.length) {
+    bindCalcTriggers();
+    return;
   }
+
+  receipts.forEach((pay, index) => {
+    let row = slotRows[index];
+    if (!row) {
+      row = createRow(rowCount++);
+      row.dataset.methodPaymentSync = '1';
+      row.classList.add('invoice-method-payment-row');
+      markInvoicePaymentOnlyRow(row);
+      const anchor = tbody.querySelector('tr:not([data-section-header])');
+      if (anchor) tbody.insertBefore(row, anchor);
+      else tbody.appendChild(row);
+      slotRows.push(row);
+    }
+    fillInvoicePaymentFields(row, pay);
+  });
   bindCalcTriggers();
 }
 

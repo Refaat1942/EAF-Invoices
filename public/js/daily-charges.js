@@ -3849,7 +3849,7 @@ function onCompanionKindChange(selectEl) {
 async function onStayTypeChangeForRow(selectEl) {
   const tr = selectEl.closest('.daily-stay-row');
   if (!tr) return;
-  await applyStayTypeRateToRow(tr);
+  await applyStayTypeRateToRow(tr, { force: true });
   updateStayAccUnitPriceDisplay(tr);
   updateRowTotal(tr);
   updateDailyGrandTotal();
@@ -6032,31 +6032,54 @@ async function findAccommodationServiceForStayType(stayType) {
   }
 }
 
-async function applyStayTypeRateToRow(tr) {
+function setStayAccommodationUnitPrice(tr, rate) {
+  const accInput = tr.querySelector('.daily-amount[data-section="accommodation"]');
+  const display = tr.querySelector('.daily-stay-acc-unit-price');
+  if (!accInput) return false;
+  const displayRate = dailyAmountForDisplay(Number(rate) || 0);
+  if (displayRate <= 0) return false;
+  accInput.value = String(displayRate);
+  accInput.dataset.unitPrice = String(displayRate);
+  accInput.dataset.manualAmount = '0';
+  if (display) {
+    if (typeof setCommaAmountValue === 'function') setCommaAmountValue(display, displayRate);
+    else display.value = formatAmountFieldValue(displayRate);
+  }
+  return true;
+}
+
+async function applyStayTypeRateToRow(tr, options = {}) {
+  const force = options.force === true;
   if (!canUseDailyStayCharges()) return;
   const select = tr.querySelector('.daily-row-stay-type');
   const stayTypeId = select?.value;
   if (!stayTypeId) return;
+  tr.dataset.stayTypeId = String(stayTypeId);
   const stayType = dailyStayTypesCache.find((t) => String(t.id) === String(stayTypeId));
   const accInput = tr.querySelector('.daily-amount[data-section="accommodation"]');
   const accPicker = tr.querySelector('.daily-picker[data-section="accommodation"]');
   if (!accInput) return;
 
   const grade = dailyStayGradesCache.find((g) => String(g.stay_type_id) === String(stayTypeId));
-  const gradeRate = Number(grade?.daily_rate) || Number(stayType?.daily_rate) || 0;
-  if (gradeRate > 0 && dailyParseAmount(accInput.value) <= 0) {
-    const displayRate = dailyAmountForDisplay(gradeRate);
-    accInput.value = String(displayRate);
-    accInput.dataset.unitPrice = String(displayRate);
-    accInput.dataset.manualAmount = '0';
-    updateStayAccUnitPriceDisplay(tr);
+  const gradeRate =
+    Number(grade?.daily_rate) ||
+    Number(stayType?.daily_rate) ||
+    Number(select.selectedOptions[0]?.dataset.rate) ||
+    0;
+  const hasAmount = dailyParseAmount(accInput.value) > 0;
+
+  if (gradeRate > 0 && (force || !hasAmount)) {
+    setStayAccommodationUnitPrice(tr, gradeRate);
     return;
   }
 
-  if (dailyParseAmount(accInput.value) > 0) return;
+  if (!force && hasAmount) return;
 
   const match = await findAccommodationServiceForStayType(stayType);
-  if (!match || !accPicker) return;
+  if (!match || !accPicker) {
+    if (force && gradeRate > 0) setStayAccommodationUnitPrice(tr, gradeRate);
+    return;
+  }
 
   const section = dailySectionsCache.find((s) => s.code === 'accommodation');
   if (section && window.DailyEntryPicker) {
