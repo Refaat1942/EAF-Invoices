@@ -875,6 +875,21 @@ async function runMigrations() {
     )
   `);
 
+  await query(`
+    CREATE TABLE IF NOT EXISTS patient_stay_excluded_dates (
+      id SERIAL PRIMARY KEY,
+      patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+      entry_date DATE NOT NULL,
+      excluded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      excluded_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      excluded_by_name TEXT DEFAULT '',
+      UNIQUE (patient_id, entry_date)
+    )
+  `);
+  await query(
+    `CREATE INDEX IF NOT EXISTS idx_stay_excluded_patient_date ON patient_stay_excluded_dates(patient_id, entry_date)`
+  );
+
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_patient_date ON patient_daily_entries(patient_id, entry_date)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_daily_entries_invoice ON patient_daily_entries(invoice_id)`);
   await query(

@@ -1971,8 +1971,14 @@ async function saveEntry(data, user = null, options = {}) {
   const context = await prepareEntrySaveContext(data);
   const isNewEntry = context.isNewEntry;
 
-  return withTransaction(async (client) => persistEntryInTransaction(client, data, user, context)).then(
-    async (saved) => {
+  return withTransaction(async (client) => {
+    const saved = await persistEntryInTransaction(client, data, user, context);
+    if (linesIncludeStay(saved.lines || [])) {
+      const dateKey = normalizeCalendarDate(saved.entry_date);
+      if (dateKey) await clearStayDateExcluded(context.patient.id, dateKey, client);
+    }
+    return saved;
+  }).then(async (saved) => {
       if (options.skip_invoice_sync) return saved;
       try {
         const { syncDailyEntryToInvoices } = require('./invoiceService');
@@ -1992,8 +1998,7 @@ async function saveEntry(data, user = null, options = {}) {
         }
         throw err;
       }
-    }
-  );
+    });
 }
 
 async function saveEntriesBatch(data, user = null) {
@@ -2085,6 +2090,9 @@ async function saveEntriesBatch(data, user = null) {
           results[idx] = await getEntryById(finalId, client);
         }
       }
+      for (const dateKey of keepStayByDate.keys()) {
+        await clearStayDateExcluded(patient.id, dateKey, client);
+      }
     }
     return results;
   });
@@ -2116,6 +2124,78 @@ async function saveEntriesBatch(data, user = null) {
     await rollbackDailyEntriesOnInvoiceFailure(savedMeta, fileNumber);
     throw err;
   }
+}
+
+async function markStayDateExcluded(patientId, entryDate, meta = {}, client = null) {
+  const pid = Number(patientId);
+  const date = normalizeCalendarDate(entryDate);
+  if (!pid || !date) return false;
+  const runQuery = client
+    ? (sql, params) => client.query(sql, params)
+    : (sql, params) => query(sql, params);
+  await runQuery(
+    `INSERT INTO patient_stay_excluded_dates (
+       patient_id, entry_date, excluded_by_user_id, excluded_by_name
+     ) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (patient_id, entry_date) DO UPDATE SET
+       excluded_at = NOW(),
+       excluded_by_user_id = EXCLUDED.excluded_by_user_id,
+       excluded_by_name = EXCLUDED.excluded_by_name`,
+    [pid, date, meta.userId || null, meta.userName || '']
+  );
+  return true;
+}
+
+async function clearStayDateExcluded(patientId, entryDate, client = null) {
+  const pid = Number(patientId);
+  const date = normalizeCalendarDate(entryDate);
+  if (!pid || !date) return false;
+  const runQuery = client
+    ? (sql, params) => client.query(sql, params)
+    : (sql, params) => query(sql, params);
+  await runQuery(
+    `DELETE FROM patient_stay_excluded_dates WHERE patient_id = $1 AND entry_date = $2::date`,
+    [pid, date]
+  );
+  return true;
+}
+
+async function isStayDateExcluded(patientId, entryDate, client = null) {
+  const pid = Number(patientId);
+  const date = normalizeCalendarDate(entryDate);
+  if (!pid || !date) return false;
+  const runQuery = client
+    ? (sql, params) => client.query(sql, params)
+    : (sql, params) => query(sql, params);
+  const { rows } = await runQuery(
+    `SELECT 1 FROM patient_stay_excluded_dates
+     WHERE patient_id = $1 AND entry_date = $2::date
+     LIMIT 1`,
+    [pid, date]
+  );
+  return rows.length > 0;
+}
+
+async function listStayExcludedDatesForPatient(patientId, fromDate = null, toDate = null) {
+  const pid = Number(patientId);
+  if (!pid) return [];
+  const params = [pid];
+  let sql = `SELECT entry_date::text AS entry_date
+             FROM patient_stay_excluded_dates
+             WHERE patient_id = $1`;
+  const from = normalizeCalendarDate(fromDate);
+  const to = normalizeCalendarDate(toDate);
+  if (from) {
+    params.push(from);
+    sql += ` AND entry_date >= $${params.length}::date`;
+  }
+  if (to) {
+    params.push(to);
+    sql += ` AND entry_date <= $${params.length}::date`;
+  }
+  sql += ' ORDER BY entry_date';
+  const { rows } = await query(sql, params);
+  return rows.map((row) => normalizeCalendarDate(row.entry_date)).filter(Boolean);
 }
 
 async function stripStayChargeLinesForDate(patientId, entryDate, client = null) {
@@ -2156,7 +2236,7 @@ async function stripStayChargeLinesForDate(patientId, entryDate, client = null) 
   return { linesRemoved, entryIdsTouched };
 }
 
-async function deleteStayEntriesForDate(fileNumber, entryDate) {
+async function deleteStayEntriesForDate(fileNumber, entryDate, meta = {}) {
   const fn = String(fileNumber || '').trim();
   if (!fn) throw new Error('file_number مطلوب');
   const normalizedDate = normalizeCalendarDate(entryDate);
@@ -2168,11 +2248,13 @@ async function deleteStayEntriesForDate(fileNumber, entryDate) {
   if (!ids.length) {
     const stripped = await stripStayChargeLinesForDate(patient.id, normalizedDate);
     if (!stripped.linesRemoved) {
+      await markStayDateExcluded(patient.id, normalizedDate, meta);
       return {
         deleted: true,
         ids: [],
         count: 0,
         entry_date: normalizedDate,
+        stay_excluded: true,
         invoice_sync: { synced: false, reason: 'no_entries' },
       };
     }
@@ -2211,11 +2293,13 @@ async function deleteStayEntriesForDate(fileNumber, entryDate) {
   }
 
   if (!invoiceId) {
+    await markStayDateExcluded(patient.id, normalizedDate, meta);
     return {
       deleted: true,
       ids,
       count: ids.length,
       entry_date: normalizedDate,
+      stay_excluded: true,
       invoice_sync: { synced: false, reason: 'no_open_invoice' },
     };
   }
@@ -2225,12 +2309,14 @@ async function deleteStayEntriesForDate(fileNumber, entryDate) {
   if (!updated) {
     throw new Error('تعذّر تحديث الفاتورة بعد حذف حركة الإقامة');
   }
+  await markStayDateExcluded(patient.id, normalizedDate, meta);
   const daily_summary = await getDailySummaryForPatient(fn);
   return {
     deleted: true,
     ids,
     count: ids.length,
     entry_date: normalizedDate,
+    stay_excluded: true,
     invoice_sync: {
       synced: true,
       invoice_id: invoiceId,
@@ -2250,6 +2336,10 @@ async function deleteEntry(entryId) {
   const snapshot = await getEntryById(id);
   if (!snapshot) throw new Error('الحركة غير موجودة');
 
+  const hadStay = linesIncludeStay(snapshot.lines || []);
+  const stayPatientId = Number(snapshot.patient_id) || 0;
+  const stayEntryDate = normalizeCalendarDate(snapshot.entry_date);
+
   const fileNumber = snapshot.file_number?.trim();
   const linkedInvoiceId = snapshot.invoice_id;
 
@@ -2261,6 +2351,9 @@ async function deleteEntry(entryId) {
   }
 
   await deleteDailyEntryCascade(id);
+  if (hadStay && stayPatientId && stayEntryDate) {
+    await markStayDateExcluded(stayPatientId, stayEntryDate);
+  }
 
   if (!fileNumber) {
     return { deleted: true, id, entry_date: snapshot.entry_date, invoice_sync: null };
@@ -3078,6 +3171,10 @@ module.exports = {
   saveEntriesBatch,
   deleteEntry,
   deleteStayEntriesForDate,
+  markStayDateExcluded,
+  clearStayDateExcluded,
+  isStayDateExcluded,
+  listStayExcludedDatesForPatient,
   getEntriesForInvoice,
   getInvoiceItemsFromDailyCharges,
   entriesToInvoiceItems,

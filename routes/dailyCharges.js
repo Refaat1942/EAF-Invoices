@@ -614,7 +614,12 @@ router.delete('/entries/stay-by-date', requirePermission('daily_charges.manage')
     if (!file_number || !entry_date) {
       return res.status(400).json({ error: 'file_number و entry_date مطلوبان' });
     }
-    res.json(await deleteStayEntriesForDate(file_number, entry_date));
+    res.json(
+      await deleteStayEntriesForDate(file_number, entry_date, {
+        userId: req.session?.user?.id || null,
+        userName: req.session?.user?.name || req.session?.user?.username || '',
+      })
+    );
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -1847,8 +1847,16 @@ async function getOpenPatientStay(fileNumber) {
     invoice = await getInvoiceById(invoice.id);
   }
 
-  const { getDailySummaryForPatient } = require('./dailyChargeService');
+  const { getDailySummaryForPatient, listStayExcludedDatesForPatient } = require('./dailyChargeService');
   const dailySummary = await getDailySummaryForPatient(fn);
+  const stay_excluded_dates =
+    patient?.id
+      ? await listStayExcludedDatesForPatient(
+          patient.id,
+          fmtDateOnly(invoice?.admission_date),
+          fmtDateOnly(invoice?.discharge_date)
+        )
+      : [];
 
   let room_assignment = null;
   if (patient?.id) {
@@ -1871,6 +1879,7 @@ async function getOpenPatientStay(fileNumber) {
     invoice,
     daily_summary: dailySummary,
     room_assignment,
+    stay_excluded_dates,
   };
 }
 

@@ -7,6 +7,7 @@ const {
   listAccommodationStayGrades,
   getCurrentBusinessDateString,
   normalizeCalendarDate,
+  isStayDateExcluded,
 } = require('./dailyChargeService');
 
 function round2(n) {
@@ -190,6 +191,10 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
   const missingAssignment = [];
 
   for (const date of dates) {
+    if (await isStayDateExcluded(patient.id, date)) {
+      skipped.push(date);
+      continue;
+    }
     const assignment = await getAssignmentForDate(patient.id, date);
     if (!assignment?.stay_type_id) {
       missingAssignment.push(date);

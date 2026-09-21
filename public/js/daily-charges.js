@@ -3023,8 +3023,17 @@ function initPatientRegistration(options = {}) {
   if (typeof loadFinancialTreatments === 'function') loadFinancialTreatments();
 }
 
+function applyStayExcludedDatesFromContext(ctx) {
+  const fileNumber = ctx?.patient?.file_number || ctx?.invoice?.file_number || getStayFileNumber();
+  resetDailyStaySuppression(fileNumber);
+  for (const date of ctx?.stay_excluded_dates || []) {
+    suppressDailyStayDate(date);
+  }
+}
+
 function applyDailyStayContext(ctx) {
   dailyStayContext = ctx;
+  applyStayExcludedDatesFromContext(ctx);
   const hasOpenInvoice = Boolean(ctx?.invoice?.id);
   setDailyWorkflowSteps(hasOpenInvoice);
 
@@ -3196,9 +3205,6 @@ async function loadOpenPatientStay(fileNumber) {
     applyDailyStayContext(null);
     showDailyPatientPicker();
     return null;
-  }
-  if (fn !== dailyStaySuppressedFile) {
-    resetDailyStaySuppression(fn);
   }
   try {
     let data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
