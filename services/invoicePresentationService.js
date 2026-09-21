@@ -79,11 +79,20 @@ function groupItemsByBundle(items = []) {
 }
 
 function shouldAggregateBundleForPrint(bundleKey, groupItems = []) {
-  if (bundleKey === 'stay') return false;
   if (bundleKey === '__manual__') {
     return groupItems.every((item) => item.daily_entry_line_id || item.daily_entry_id);
   }
   return true;
+}
+
+function countStayBillableDays(groupItems = []) {
+  const dates = new Set();
+  for (const item of groupItems) {
+    if (isStampLineItem(item)) continue;
+    const d = String(item.entry_date || item.daily_entry_date || '').slice(0, 10);
+    if (d) dates.add(d);
+  }
+  return dates.size;
 }
 
 function buildAggregatePrintRow(bundleKey, groupItems = [], options = {}) {
@@ -99,6 +108,8 @@ function buildAggregatePrintRow(bundleKey, groupItems = [], options = {}) {
     total = round2(total + (Number(item.total) || 0));
     totalRaw = round2(totalRaw + (Number(item.total_raw ?? item.total) || 0));
   }
+  const dayCount = bundleKey === 'stay' ? countStayBillableDays(groupItems) : 0;
+  const unitAmount = dayCount > 0 ? round2(total / dayCount) : '';
   return {
     description: label,
     section_code: bundleKey === '__manual__' ? '' : bundleKey,
@@ -106,8 +117,8 @@ function buildAggregatePrintRow(bundleKey, groupItems = [], options = {}) {
     section_sort_order: getBundleSortOrder(bundleKey),
     total,
     total_raw: totalRaw,
-    quantity: '',
-    amount: '',
+    quantity: dayCount > 0 ? dayCount : '',
+    amount: unitAmount || '',
     item_discount_percent: '',
     _customer_display_aggregate: true,
     _section_aggregate: true,
@@ -115,7 +126,7 @@ function buildAggregatePrintRow(bundleKey, groupItems = [], options = {}) {
 }
 
 /**
- * Print/PDF rows: stay/care lines in detail; other daily bundles aggregated.
+ * Print/PDF rows: one summary line per daily bundle (including stay/care).
  */
 function buildCustomerPrintLines(items = [], options = {}) {
   const { groups, order } = groupItemsByBundle(items);

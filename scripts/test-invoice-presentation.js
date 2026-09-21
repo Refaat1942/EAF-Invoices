@@ -279,6 +279,7 @@ function testStayBundleShowsDetailInPrint() {
       section_code: 'accommodation',
       section_name: 'إقامة',
       description: 'إقامة رعاية مركزة',
+      entry_date: '2026-09-14',
       quantity: 1,
       amount: 5000,
       total: 5000,
@@ -289,6 +290,7 @@ function testStayBundleShowsDetailInPrint() {
       section_code: 'nursing_point',
       section_name: 'نقطة تمريض',
       description: 'نقطة تمريض',
+      entry_date: '2026-09-14',
       quantity: 1,
       amount: 500,
       total: 500,
@@ -299,6 +301,7 @@ function testStayBundleShowsDetailInPrint() {
       section_code: 'patient_assistant',
       section_name: 'مساعد تمريض',
       description: 'مساعد تمريض',
+      entry_date: '2026-09-14',
       quantity: 1,
       amount: 500,
       total: 500,
@@ -308,12 +311,12 @@ function testStayBundleShowsDetailInPrint() {
     makeCatalogItem('supplies', 'المستلزمات', 487, { idx: 1 }),
   ];
   const display = buildCustomerPrintLines(items);
-  assertEq(display.length, 5, 'stay header + 3 stay lines + supplies aggregate');
-  assert(display[0]._section_header, 'first row is stay header');
-  assertEq(display[0].description, 'إقامة ورعاية', 'stay header label');
-  assertEq(display[1].total, 5000, 'accommodation line total');
-  assertEq(display[4].description, 'المستلزمات', 'supplies still aggregated');
-  console.log('OK stay bundle shows detail in print lines');
+  assertEq(display.length, 2, 'stay aggregate + supplies aggregate');
+  assertEq(display[0].description, 'إقامة ورعاية', 'stay aggregate label');
+  assertEq(display[0].total, 6000, 'stay bundle total sums all stay lines');
+  assertEq(display[0].quantity, 1, 'stay day count from entry dates');
+  assertEq(display[1].description, 'المستلزمات', 'supplies still aggregated');
+  console.log('OK stay bundle aggregated in print lines');
 }
 
 function testStampExcludedFromBundleTotals() {
@@ -377,12 +380,15 @@ function testPdfStayDetailAndCaptainName() {
     stay_entries: [],
   });
   const html = buildInvoiceHtml(invoice, { showQr: false });
-  assert(html.includes('إقامة ورعاية'), 'PDF contains stay section header');
-  assert(html.includes('مساعد تمريض'), 'PDF contains stay line detail');
+  assert(html.includes('إقامة ورعاية'), 'PDF contains stay aggregate row');
+  assert(!html.includes('مساعد تمريض'), 'PDF does not repeat individual stay lines');
   assert(html.includes('رئيس حسابات المرضى'), 'PDF contains patient accounts manager role label');
-  assert(html.includes('نقيب عمرو صالح'), 'PDF contains captain name before financial manager');
+  assert(html.includes('نقيب عمرو صالح'), 'PDF contains captain name');
   assert(html.includes('المدير المالي'), 'PDF contains financial manager role label');
-  console.log('OK PDF stay detail and captain name');
+  const managerIdx = html.indexOf('المدير المالي');
+  const captainIdx = html.indexOf('رئيس حسابات المرضى');
+  assert(managerIdx >= 0 && captainIdx > managerIdx, 'financial manager appears before patient accounts manager');
+  console.log('OK PDF stay aggregate and signature order');
 }
 
 function testPatientBalanceNegativeWhenOwing() {

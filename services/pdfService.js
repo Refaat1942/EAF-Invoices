@@ -641,8 +641,8 @@ function buildInvoiceHtml(invoice, options = {}) {
     </div>
 
     <div class="signatures">
-      <div class="sig-block"><div class="sig-title">رئيس حسابات المرضى</div><div class="sig-line">${escapeHtml(inv.captain_name || 'نقيب عمرو صالح')}</div></div>
       <div class="sig-block"><div class="sig-title">المدير المالي</div><div class="sig-line">${escapeHtml(inv.manager_name)}</div></div>
+      <div class="sig-block"><div class="sig-title">رئيس حسابات المرضى</div><div class="sig-line">${escapeHtml(inv.captain_name || 'نقيب عمرو صالح')}</div></div>
       <div class="sig-block"><div class="sig-title">المراجع المالي</div><div class="sig-line">${escapeHtml(inv.auditor_name || 'المراجع المالي')}</div></div>
       <div class="sig-block"><div class="sig-title">الموظف المختص</div><div class="sig-line">${escapeHtml(inv.employee_name || 'الموظف المختص')}</div></div>
     </div>

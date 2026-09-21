@@ -488,7 +488,7 @@ function fmtInvoiceSummaryDate(value) {
 function formatInvoicePeriodRange(admissionDate, dischargeDate) {
   const from = fmtInvoiceSummaryDate(admissionDate);
   const to = dischargeDate ? fmtInvoiceSummaryDate(dischargeDate) : '—';
-  return `<span dir="ltr" class="invoice-period-range text-nowrap">${from} → ${to}</span>`;
+  return `${from} → ${to}`;
 }
 
 const INVOICE_TYPE_LABELS = {
@@ -578,7 +578,7 @@ function renderInvoicePatientRegistrationSummary(inv) {
       <th class="invoice-patient-summary-label">المعاملة المالية</th>
       <td>${cell(inv.financial_treatment || p.financial_treatment)}</td>
       <th class="invoice-patient-summary-label">فترة الفاتورة</th>
-      <td>${cell(period)}</td>
+      <td class="invoice-period-range text-nowrap" dir="ltr">${cell(period)}</td>
     </tr>
     ${
       showEntity
@@ -2073,9 +2073,19 @@ function normalizeInvoiceDisplayItems(items = []) {
   });
 }
 
+function invoiceItemsIncludeDailyStay(items = []) {
+  return items.some((item) => {
+    if (!item?.daily_entry_line_id && !item?.daily_entry_id) return false;
+    const key = window.DailySectionBundles?.inferBundleKeyFromItem?.(item);
+    return key === 'stay' || item.section_code === 'accommodation';
+  });
+}
+
 function buildInvoiceItemsForDisplay(inv = {}) {
   const manualItems = (inv.items || []).filter((item) => !item.is_stay_entry);
-  const stayItems = (inv.stay_entries || []).map((entry) => ({
+  const useLegacyStayEntries = !invoiceItemsIncludeDailyStay(manualItems);
+  const stayItems = useLegacyStayEntries
+    ? (inv.stay_entries || []).map((entry) => ({
     description: `إقامة - ${entry.stay_type_name || ''}`.trim(),
     quantity: entry.days,
     amount: entry.daily_rate,
@@ -2084,8 +2094,16 @@ function buildInvoiceItemsForDisplay(inv = {}) {
     is_stay_entry: true,
     section_code: 'accommodation',
     bundle_code: 'stay',
-  }));
+      }))
+    : [];
   return normalizeInvoiceDisplayItems([...manualItems, ...stayItems]);
+}
+
+function shouldSkipLegacyStayEntries() {
+  if (invoiceFollowUpMode) return true;
+  return Boolean(
+    hasPatientFileNumber() && document.getElementById('admission_date')?.value?.trim()
+  );
 }
 
 function calcDaysBetween(fromDate, toDate) {
@@ -2811,7 +2829,7 @@ function collectFormData() {
     discharge_date: fieldVal('discharge_date'),
     stay_days: parseDisplayAmount(fieldVal('stay_days')),
     financial_treatment: fieldVal('financial_treatment'),
-    stay_entries: invoiceFollowUpMode ? [] : collectStayEntries(),
+    stay_entries: shouldSkipLegacyStayEntries() ? [] : collectStayEntries(),
     notes: '',
     stamp_duty: parseDisplayAmount(fieldVal('stamp_duty')),
     professional_fees: parseDisplayAmount(fieldVal('professional_fees')),
@@ -3213,7 +3231,7 @@ async function submitInvoiceReturns() {
 }
 
 function updateStayEntriesFromTotals(entries) {
-  if (invoiceFollowUpMode) return;
+  if (shouldSkipLegacyStayEntries()) return;
   const list = entries || [];
   const tbody = document.getElementById('stay-entries-tbody');
   if (!tbody) return;
@@ -3842,7 +3860,8 @@ async function loadInvoiceForEdit(id, options = {}) {
     await loadFinancialTreatments({ financial_treatment: inv.financial_treatment || '' });
     await loadStayTypes();
     if (!invoiceFollowUpMode) {
-      initStayEntries(inv.stay_entries || []);
+      const dailyStayInvoice = invoiceItemsIncludeDailyStay(inv.items || []);
+      initStayEntries(dailyStayInvoice ? [] : inv.stay_entries || []);
     }
     setFieldValue('stamp_duty', formatAmountInput(inv.stamp_duty ?? 0));
     setFieldValue('professional_fees', formatAmountInput(inv.professional_fees ?? 0));

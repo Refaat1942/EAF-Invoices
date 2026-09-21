@@ -227,7 +227,7 @@ function fmtStayDate(value) {
 function formatDailyInvoicePeriodRange(admissionDate, dischargeDate) {
   const from = fmtStayDate(admissionDate) || '—';
   const to = fmtStayDate(dischargeDate) || '—';
-  return `<span dir="ltr" class="invoice-period-range text-nowrap">${from} → ${to}</span>`;
+  return `${from} → ${to}`;
 }
 
 function getDailyInvoicePeriodBounds() {
@@ -1699,12 +1699,7 @@ function updateDailyPatientSummaryTable(ctx) {
   const period = inv.admission_date
     ? formatDailyInvoicePeriodRange(inv.admission_date, inv.discharge_date)
     : '—';
-  const financial = inv.financial_treatment || p.financial_treatment || '—';
-  const entityName = inv.contracted_entity_name || '';
-  const financialDisplay =
-    entityName && isEntityInvoiceType(inv.invoice_type)
-      ? `${financial} — ${entityName}`
-      : financial;
+  const financialDisplay = formatFinancialTreatmentDisplay(inv, p);
 
   body.innerHTML = `
     <tr>
@@ -1735,7 +1730,7 @@ function updateDailyPatientSummaryTable(ctx) {
       <th class="daily-summary-label text-nowrap">المعاملة المالية</th>
       <td>${dailyEscapeHtml(financialDisplay)}</td>
       <th class="daily-summary-label text-nowrap">فترة الفاتورة</th>
-      <td>${dailyEscapeHtml(period)}</td>
+      <td class="invoice-period-range text-nowrap" dir="ltr">${dailyEscapeHtml(period)}</td>
     </tr>
     <tr>
       <th class="daily-summary-label text-nowrap">إجمالي الفاتورة</th>
@@ -4218,6 +4213,19 @@ function getDailyInvoiceTypeLabel(code) {
 function isGenericEntityFinancialLabel(text) {
   const t = String(text || '').trim();
   return /جهات?\s*(متعاقد|غير\s*متعاقد)/i.test(t);
+}
+
+function formatFinancialTreatmentDisplay(inv = {}, patient = {}) {
+  const financial = String(inv.financial_treatment || patient.financial_treatment || '—').trim() || '—';
+  const entityName = String(inv.contracted_entity_name || '').trim();
+  const invoiceType = String(inv.invoice_type || '').trim();
+  if (!entityName || !isEntityInvoiceType(invoiceType)) return financial;
+  if (financial.includes(entityName)) return financial;
+  const typeLabel = getDailyInvoiceTypeLabel(invoiceType);
+  if (isGenericEntityFinancialLabel(financial) || financial === typeLabel || financial === '—') {
+    return `${typeLabel} — ${entityName}`;
+  }
+  return financial;
 }
 
 function updateDailyClinicalContextBar() {
@@ -6843,6 +6851,7 @@ function appendInvoiceItemRow(item) {
 }
 
 function syncDailyChargeRowsFromTotals(totalsItems = []) {
+  if (document.querySelector('#items-tbody .invoice-section-aggregate-row')) return 0;
   const dailyItems = (totalsItems || []).filter(
     (item) => item.daily_entry_line_id && !item.is_stay_entry
   );

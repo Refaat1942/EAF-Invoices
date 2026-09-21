@@ -290,7 +290,7 @@ function buildWordDocument(invoice) {
             bidirectional: true,
             children: [
               new TextRun({
-                text: `رئيس حسابات المرضى: ${invoice.captain_name || 'نقيب عمرو صالح'}          المدير المالي: ${invoice.manager_name || 'المدير المالي'}          المراجع المالي: ${invoice.auditor_name || 'المراجع المالي'}          الموظف المختص: ${invoice.employee_name || 'الموظف المختص'}`,
+                text: `المدير المالي: ${invoice.manager_name || 'المدير المالي'}          رئيس حسابات المرضى: ${invoice.captain_name || 'نقيب عمرو صالح'}          المراجع المالي: ${invoice.auditor_name || 'المراجع المالي'}          الموظف المختص: ${invoice.employee_name || 'الموظف المختص'}`,
                 bold: true,
                 size: 18,
                 rightToLeft: true,
