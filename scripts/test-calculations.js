@@ -8,6 +8,7 @@ const {
   validateInvoiceCalculations,
   isItemAdminApplicable,
   computeItemAdminFeeRaw,
+  calculateStayDays,
   round2,
 } = require('../services/calculations');
 
@@ -264,6 +265,10 @@ assertEq(stampTotals.stamp_duty_raw, 25, 'stamp billable from header or line ite
 assertEq(stampTotals.subtotal_before_admin_raw, 225, 'stamp added separately before admin');
 const stampValidation = validateInvoiceCalculations({ ...base, stamp_duty: 25 }, stampTotals);
 assert(stampValidation.is_valid, `stamp validation: ${stampValidation.errors.join('; ')}`);
+
+assertEq(calculateStayDays('2026-09-14', '2026-09-20'), 7, 'inclusive stay days across a week');
+assertEq(calculateStayDays('2026-09-20', '2026-09-20'), 1, 'single-day stay');
+assertEq(calculateStayDays('2026-09-20', null), 1, 'open stay defaults to one day');
 
 console.log('OK invoice calculation tests passed');
 process.exit(0);

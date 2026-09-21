@@ -224,6 +224,48 @@ function fmtStayDate(value) {
   return String(value).slice(0, 10);
 }
 
+function formatDailyInvoicePeriodRange(admissionDate, dischargeDate) {
+  const from = fmtStayDate(admissionDate) || '—';
+  const to = fmtStayDate(dischargeDate) || '—';
+  return `<span dir="ltr" class="invoice-period-range text-nowrap">${from} → ${to}</span>`;
+}
+
+function getDailyInvoicePeriodBounds() {
+  const inv = dailyStayContext?.invoice;
+  const from =
+    fmtStayDate(inv?.admission_date) ||
+    document.getElementById('daily-stay-admission')?.value?.trim() ||
+    '';
+  let to =
+    fmtStayDate(inv?.discharge_date) ||
+    document.getElementById('daily-stay-discharge')?.value?.trim() ||
+    '';
+  if (!to && from) to = getLocalDateString();
+  return { from, to };
+}
+
+function entryInInvoicePeriod(entry, bounds = getDailyInvoicePeriodBounds()) {
+  const d = fmtStayDate(entry?.entry_date);
+  if (!d) return false;
+  if (bounds.from && d < bounds.from) return false;
+  if (bounds.to && d > bounds.to) return false;
+  return true;
+}
+
+function computeStayPeriodTotal() {
+  const bounds = getDailyInvoicePeriodBounds();
+  let total = 0;
+  for (const entry of dailySheetEntriesCache || []) {
+    if (!entryInInvoicePeriod(entry, bounds)) continue;
+    if (!entryHasStayChargeData(entry)) continue;
+    for (const line of entry.lines || []) {
+      if (!STAY_CHARGE_SECTIONS.includes(line.section_code)) continue;
+      total += dailyParseAmount(line.amount || line.unit_price);
+    }
+  }
+  return total;
+}
+
 function getLocalDateString() {
   if (dailyBusinessDate) return dailyBusinessDate;
   const d = new Date();
@@ -678,9 +720,13 @@ function computeSectionFooterTotal(tab) {
       total += dailyParseAmount(tr.querySelector('.daily-session-total')?.value);
     });
   } else if (tab === 'stay') {
-    document.querySelectorAll('.daily-stay-row').forEach((tr) => {
-      total += dailyParseAmount(tr.querySelector('.daily-row-total')?.textContent);
-    });
+    if (dailySheetEntriesCache?.length) {
+      total = computeStayPeriodTotal();
+    } else {
+      document.querySelectorAll('.daily-stay-row').forEach((tr) => {
+        total += dailyParseAmount(tr.querySelector('.daily-row-total')?.textContent);
+      });
+    }
   } else if (tab === 'exams') {
     document.querySelectorAll('.daily-exam-row').forEach((tr) => {
       total += getExamRowGrandTotal(tr);
@@ -1650,10 +1696,9 @@ function updateDailyPatientSummaryTable(ctx) {
       : inv.status === 'approved'
         ? 'bg-success'
         : 'bg-secondary';
-  const period =
-    inv.admission_date
-      ? `${fmtStayDate(inv.admission_date) || '—'} → ${fmtStayDate(inv.discharge_date) || '—'}`
-      : '—';
+  const period = inv.admission_date
+    ? formatDailyInvoicePeriodRange(inv.admission_date, inv.discharge_date)
+    : '—';
   const financial = inv.financial_treatment || p.financial_treatment || '—';
   const entityName = inv.contracted_entity_name || '';
   const financialDisplay =
@@ -3978,7 +4023,7 @@ function createStayDailyEntryRow(entry = {}) {
   if (entry.stay_type_id) tr.dataset.stayTypeId = String(entry.stay_type_id);
   tr._entryLinesSnapshot = (entry.lines || []).map((line) => ({ ...line }));
 
-  const dateVal = getLocalDateString();
+  const dateVal = fmtStayDate(entry.entry_date) || getLocalDateString();
   const stayTypeId = entry.stay_type_id || getDefaultStayTypeIdForRow();
   const accLine = getLineForSection(entry, 'accommodation');
   const companionLines = getLinesForSection(entry, 'companion');
@@ -6132,7 +6177,12 @@ async function loadDailyEntriesIntoSheet() {
       if (!canUseDailyStayCharges()) {
         body.innerHTML = '';
       } else {
-        for (const entry of todayEntries) {
+        const periodBounds = getDailyInvoicePeriodBounds();
+        const periodEntries = entries
+          .filter((entry) => entryInInvoicePeriod(entry, periodBounds) && entryHasStayChargeData(entry))
+          .sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)));
+        const rowsToRender = periodEntries.length ? periodEntries : todayEntries;
+        for (const entry of rowsToRender) {
           if (!entryHasStayChargeData(entry)) continue;
           if (entry.id) {
             if (seenEntryIds.has(entry.id)) continue;

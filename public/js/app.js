@@ -479,11 +479,16 @@ function getInvoiceSelectLabel(id) {
 
 function fmtInvoiceSummaryDate(value) {
   if (!value) return '—';
-  try {
-    return new Date(value).toLocaleDateString('ar-EG');
-  } catch {
-    return value;
-  }
+  const iso = String(value).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const [year, month, day] = iso.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function formatInvoicePeriodRange(admissionDate, dischargeDate) {
+  const from = fmtInvoiceSummaryDate(admissionDate);
+  const to = dischargeDate ? fmtInvoiceSummaryDate(dischargeDate) : '—';
+  return `<span dir="ltr" class="invoice-period-range text-nowrap">${from} → ${to}</span>`;
 }
 
 const INVOICE_TYPE_LABELS = {
@@ -513,10 +518,7 @@ function renderInvoicePatientRegistrationSummary(inv) {
       : inv.status === 'approved'
         ? 'bg-success'
         : 'bg-secondary';
-  const period =
-    inv.admission_date
-      ? `${fmtInvoiceSummaryDate(inv.admission_date)} → ${fmtInvoiceSummaryDate(inv.discharge_date) || '—'}`
-      : '—';
+  const period = inv.admission_date ? formatInvoicePeriodRange(inv.admission_date, inv.discharge_date) : '—';
   const account = Number(p.account_balance) || 0;
   const roomInsurance = Number(p.room_insurance_amount) || 0;
   const prepaid = Math.round((account + roomInsurance) * 100) / 100;
@@ -1188,6 +1190,16 @@ function invoiceGroupShouldAggregate(key, groupItems = []) {
   return true;
 }
 
+function countStayBillableDays(groupItems = []) {
+  const dates = new Set();
+  for (const item of groupItems) {
+    if (window.DailySectionBundles?.isStampLineItem?.(item)) continue;
+    const d = String(item.entry_date || item.daily_entry_date || '').slice(0, 10);
+    if (d) dates.add(d);
+  }
+  return dates.size;
+}
+
 function buildInvoiceItemsRenderPlan(items = []) {
   const sorted = [...items].sort((a, b) => {
     const sa = a.section_sort_order ?? 999;
@@ -1221,14 +1233,18 @@ function buildInvoiceItemsRenderPlan(items = []) {
         total += estimateInvoiceItemLineTotal(item);
       }
       const label = key === '__manual__' ? 'بنود يدوية' : getInvoiceSectionLabel(groupItems[0]);
+      const dayCount = key === 'stay' ? countStayBillableDays(groupItems) : 0;
+      const roundedTotal = Math.round(total * 100) / 100;
       plan.push({
         type: 'aggregate',
         label,
         sectionKey: key,
         sectionCode: key === '__manual__' ? '' : key,
         bundleCode: key === '__manual__' ? '' : key,
-        total: Math.round(total * 100) / 100,
-        count: groupItems.length,
+        total: roundedTotal,
+        count: dayCount || groupItems.length,
+        dayCount,
+        unitAmount: dayCount > 0 ? Math.round((roundedTotal / dayCount) * 100) / 100 : 0,
       });
       continue;
     }
@@ -1265,8 +1281,11 @@ function fillInvoiceAggregateRow(tr, part = {}, pay = {}) {
   const qtyEl = tr.querySelector('[data-field="quantity"]');
   const amtEl = tr.querySelector('[data-field="amount"]');
   if (descEl) descEl.value = part.label || '';
-  if (qtyEl) qtyEl.value = '';
-  if (amtEl) amtEl.value = '';
+  if (qtyEl) {
+    const dayCount = Number(part.dayCount) || 0;
+    qtyEl.value = dayCount > 0 ? String(dayCount) : part.count > 0 ? String(part.count) : '';
+  }
+  if (amtEl) amtEl.value = part.unitAmount > 0 ? fmt(part.unitAmount) : '';
   const totalEl = tr.querySelector('[data-field="total"]');
   if (totalEl) totalEl.value = part.total > 0 ? fmt(part.total) : '';
   const pctField = tr.querySelector('[data-field="discount_percent"]');

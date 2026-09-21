@@ -873,13 +873,28 @@ function validatePaymentBalance(totals) {
   };
 }
 
+function parseCalendarDateOnly(value) {
+  const text = String(value || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const [year, month, day] = text.split('-').map(Number);
+  const parsed = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+  return parsed;
+}
+
 function calculateStayDays(admissionDate, dischargeDate) {
-  if (!admissionDate || !dischargeDate) return 0;
-  const start = new Date(admissionDate);
-  const end = new Date(dischargeDate);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  const diff = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-  return Math.max(diff, 0);
+  const start = parseCalendarDateOnly(admissionDate);
+  if (!start) return 0;
+  const end = parseCalendarDateOnly(dischargeDate) || start;
+  const diff = Math.round((end - start) / (1000 * 60 * 60 * 24));
+  return Math.max(diff + 1, 1);
 }
 
 function formatDual(raw, rounded, formatter) {

@@ -1363,7 +1363,10 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
       'discharge_date' in dateOverrides
         ? fmtDateOnly(dateOverrides.discharge_date)
         : fmtDateOnly(invoice.discharge_date),
-    stay_days: invoice.stay_days,
+    stay_days:
+      dateOverrides.stay_days !== undefined && dateOverrides.stay_days !== null
+        ? dateOverrides.stay_days
+        : invoice.stay_days,
     financial_treatment: invoice.financial_treatment || '',
     notes: invoice.notes || '',
     stamp_duty: dateOverrides.stamp_duty ?? invoice.stamp_duty,
@@ -1491,16 +1494,27 @@ async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) 
     `SELECT MIN(e.entry_date) AS min_date, MAX(e.entry_date) AS max_date
      FROM patient_daily_entries e
      JOIN patients p ON p.id = e.patient_id
-     WHERE TRIM(p.file_number) = TRIM($1)`,
-    [fileNumber.trim()]
+     WHERE TRIM(p.file_number) = TRIM($1)
+       AND (e.invoice_id IS NULL OR e.invoice_id = $2)`,
+    [fileNumber.trim(), invoiceId]
   );
-  const minDate = fmtDateOnly(rangeRows[0]?.min_date);
-  const maxDate = fmtDateOnly(rangeRows[0]?.max_date);
+  const entryMin = fmtDateOnly(rangeRows[0]?.min_date);
+  const entryMax = fmtDateOnly(rangeRows[0]?.max_date);
+  const existingAdmission = fmtDateOnly(invoice.admission_date);
+  const existingDischarge = fmtDateOnly(invoice.discharge_date);
+
+  let admission = existingAdmission || entryMin;
+  let discharge = existingDischarge || entryMax;
+  if (entryMin && admission && entryMin < admission) admission = entryMin;
+  if (entryMax && discharge && entryMax > discharge) discharge = entryMax;
+  if (entryMin && !admission) admission = entryMin;
+  if (entryMax && !discharge) discharge = entryMax;
 
   const manualItems = invoiceManualItems(invoice);
   const dateOverrides = {
-    admission_date: minDate || fmtDateOnly(invoice.admission_date),
-    discharge_date: maxDate || null,
+    admission_date: admission,
+    discharge_date: discharge,
+    stay_days: calculateStayDays(admission, discharge),
   };
   const { computeDailyStampLinesTotal } = require('./dailyChargeService');
   const stampTotals = await computeDailyStampLinesTotal(fileNumber);
