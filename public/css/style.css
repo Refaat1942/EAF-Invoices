@@ -14,6 +14,36 @@
   box-shadow: 0 8px 32px rgba(0,0,0,.3);
 }
 
+.password-toggle-wrap {
+  position: relative;
+}
+
+.password-toggle-wrap .form-control {
+  padding-inline-end: 2.75rem;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 0.35rem;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #6c757d;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0.25rem 0.45rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+.password-toggle-btn:hover,
+.password-toggle-btn:focus-visible {
+  color: #0d6efd;
+  background: rgba(13, 110, 253, 0.08);
+  outline: none;
+}
+
 .login-logo {
   max-height: 110px;
   max-width: 220px;
