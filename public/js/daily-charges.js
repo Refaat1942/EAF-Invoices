@@ -291,6 +291,32 @@ let dailySheetEntriesCache = [];
 let dailyChargesDeleteInProgress = false;
 let dailyAutosaveInFlight = null;
 let dailySaveInFlight = null;
+/** Dates the user explicitly deleted on the stay tab — skip auto-room refill and autosave. */
+const dailyStaySuppressedDates = new Set();
+let dailyStaySuppressedFile = '';
+
+function resetDailyStaySuppression(fileNumber = '') {
+  dailyStaySuppressedDates.clear();
+  dailyStaySuppressedFile = String(fileNumber || '').trim();
+}
+
+function suppressDailyStayDate(date) {
+  const d = fmtStayDate(date);
+  if (!d) return;
+  dailyStaySuppressedDates.add(d);
+  dailyStaySuppressedFile = getStayFileNumber();
+}
+
+function clearDailyStayDateSuppression(date) {
+  dailyStaySuppressedDates.delete(fmtStayDate(date));
+}
+
+function isDailyStayDateSuppressed(date) {
+  const d = fmtStayDate(date);
+  if (!d) return false;
+  if (getStayFileNumber() !== dailyStaySuppressedFile) return false;
+  return dailyStaySuppressedDates.has(d);
+}
 let dailyOperationsAllTotalCache = 0;
 let dailyOperationsTodaySavedTotal = 0;
 
@@ -1211,6 +1237,9 @@ function handleDailySheetAddRow() {
   if (activeDailyTab === 'operations') {
     addOperationRow();
     return;
+  }
+  if (activeDailyTab === 'stay') {
+    clearDailyStayDateSuppression(getLocalDateString());
   }
   addDailyEntryRow();
 }
@@ -2315,9 +2344,10 @@ async function applyAutoRoomToTodayRows() {
   if (!assignment?.stay_type_id) return;
   const rows = document.querySelectorAll('#daily-sections-body .daily-stay-row');
   for (const tr of rows) {
-    const rowDate = tr.querySelector('.daily-row-date')?.value;
+    const rowDate = fmtStayDate(tr.querySelector('.daily-row-date')?.value);
     const today = getLocalDateString();
     if (rowDate && rowDate !== today) continue;
+    if (isDailyStayDateSuppressed(rowDate)) continue;
     await applyRoomAssignmentToRow(tr, assignment);
   }
 }
@@ -3158,9 +3188,13 @@ async function reconcileAllRegisteredPatientsOnce() {
 async function loadOpenPatientStay(fileNumber) {
   const fn = (fileNumber || getStayFileNumber()).trim();
   if (!fn) {
+    resetDailyStaySuppression();
     applyDailyStayContext(null);
     showDailyPatientPicker();
     return null;
+  }
+  if (fn !== dailyStaySuppressedFile) {
+    resetDailyStaySuppression(fn);
   }
   try {
     let data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
@@ -6300,7 +6334,8 @@ function updateDailyGrandTotal() {
   updateSectionTabTotal();
 }
 
-async function loadDailyEntriesIntoSheet() {
+async function loadDailyEntriesIntoSheet(options = {}) {
+  const skipAutoRoom = options.skipAutoRoom === true;
   const body = document.getElementById('daily-sections-body');
   if (!body) return;
   const loadId = ++dailyEntriesLoadSeq;
@@ -6314,7 +6349,7 @@ async function loadDailyEntriesIntoSheet() {
     setDailyTodayDate();
     renumberSheetRowSerials();
     updateSectionTabTotal();
-    await applyAutoRoomToTodayRows();
+    if (!skipAutoRoom) await applyAutoRoomToTodayRows();
     return;
   }
 
@@ -6388,12 +6423,16 @@ async function loadDailyEntriesIntoSheet() {
         body.innerHTML = '';
       } else {
         const periodBounds = getDailyInvoicePeriodBounds();
+        const stayEntriesForSheet = (entry) =>
+          entryHasStayChargeData(entry) && !isDailyStayDateSuppressed(entry.entry_date);
         const periodEntries = dedupeStayEntriesByDate(
           entries
-            .filter((entry) => entryInInvoicePeriod(entry, periodBounds) && entryHasStayChargeData(entry))
+            .filter((entry) => entryInInvoicePeriod(entry, periodBounds) && stayEntriesForSheet(entry))
             .sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)))
         );
-        const rowsToRender = periodEntries.length ? periodEntries : dedupeStayEntriesByDate(todayEntries);
+        const rowsToRender = periodEntries.length
+          ? periodEntries
+          : dedupeStayEntriesByDate(todayEntries.filter(stayEntriesForSheet));
         for (const entry of rowsToRender) {
           if (!entryHasStayChargeData(entry)) continue;
           if (entry.id) {
@@ -6421,7 +6460,7 @@ async function loadDailyEntriesIntoSheet() {
     renumberSheetRowSerials();
     updateDailyGrandTotal();
     updateSectionTabTotal();
-    if (activeDailyTab === 'stay') {
+    if (activeDailyTab === 'stay' && !skipAutoRoom) {
       await applyAutoRoomToTodayRows();
     }
   } catch (err) {
@@ -6700,6 +6739,7 @@ async function deleteStayRowGroup(tr) {
         : 'حذف صف الإقامة؟';
   if (!confirm(message)) return;
 
+  suppressDailyStayDate(date);
   removeStayRowsForDate(date);
 
   const fileNumber = getStayFileNumber();
@@ -6726,8 +6766,18 @@ async function deleteStayRowGroup(tr) {
         fmtStayDate(entry.entry_date) !== date || !entryHasStayChargeData(entry)
     );
     if (data?.invoice_sync) applyDailyInvoiceSync(data);
-    await loadDailyEntriesIntoSheet();
+    if (!Number(data?.count) && idsToDelete.length) {
+      for (const entryId of idsToDelete) {
+        try {
+          await apiJson(`${DAILY_API}/entries/${entryId}`, { method: 'DELETE' });
+        } catch {
+          /* fallback per-entry delete */
+        }
+      }
+    }
+    await loadDailyEntriesIntoSheet({ skipAutoRoom: true });
     pruneDuplicateStayDomRows();
+    removeStayRowsForDate(date);
     if (!document.querySelector('.daily-stay-row')) addDailyEntryRow();
     updateDailyGrandTotal();
     await loadDailyPatientHistory();
@@ -6735,9 +6785,13 @@ async function deleteStayRowGroup(tr) {
       await refreshInvoiceFormAfterDailySave(fileNumber, data.invoice_sync.invoice_id);
     }
     await refreshDailyStaySummary(fileNumber);
-    const deletedCount = Number(data?.count) || idsToDelete.length || 1;
+    const deletedCount = Number(data?.count) || idsToDelete.length || 0;
     showToast(
-      deletedCount > 1 ? `تم حذف ${deletedCount} حركات إقامة` : 'تم حذف الحركة',
+      deletedCount > 1
+        ? `تم حذف ${deletedCount} حركات إقامة`
+        : deletedCount === 1
+          ? 'تم حذف الحركة'
+          : 'تم إزالة الإقامة من الشاشة والفاتورة',
       'success'
     );
     if (window.AutoSave) {
@@ -7024,6 +7078,7 @@ function collectDailyRowsForSave() {
     if (activeDailyTab !== 'stay' && !rowHasChargeData(tr)) return;
     const entryId = tr.dataset.entryId ? Number(tr.dataset.entryId) : null;
     const rowDate = tr.querySelector('.daily-row-date')?.value || today;
+    if (activeDailyTab === 'stay' && isDailyStayDateSuppressed(rowDate)) return;
     rows.push({
       entry_id: entryId,
       entry_date: activeDailyTab === 'stay' ? rowDate : today,

@@ -2118,6 +2118,44 @@ async function saveEntriesBatch(data, user = null) {
   }
 }
 
+async function stripStayChargeLinesForDate(patientId, entryDate, client = null) {
+  const runQuery = client
+    ? (sql, params) => client.query(sql, params)
+    : (sql, params) => query(sql, params);
+  const { rows } = await runQuery(
+    `SELECT id FROM patient_daily_entries WHERE patient_id = $1 AND entry_date = $2::date`,
+    [patientId, entryDate]
+  );
+  let linesRemoved = 0;
+  const entryIdsTouched = [];
+  for (const row of rows) {
+    const entryId = Number(row.id);
+    const del = await runQuery(
+      `DELETE FROM patient_daily_entry_lines
+       WHERE entry_id = $1 AND section_code = ANY($2::text[])
+       RETURNING id`,
+      [entryId, [...STAY_SECTION_CODES]]
+    );
+    if (!del.rows.length) continue;
+    linesRemoved += del.rows.length;
+    entryIdsTouched.push(entryId);
+    const { rows: countRows } = await runQuery(
+      `SELECT COUNT(*)::int AS c FROM patient_daily_entry_lines WHERE entry_id = $1`,
+      [entryId]
+    );
+    if (countRows[0]?.c === 0) {
+      await runQuery(`DELETE FROM patient_daily_entry_history WHERE entry_id = $1`, [entryId]);
+      await runQuery(`DELETE FROM patient_daily_entries WHERE id = $1`, [entryId]);
+    } else {
+      await runQuery(
+        `UPDATE patient_daily_entries SET stay_type_id = NULL, updated_at = NOW() WHERE id = $1`,
+        [entryId]
+      );
+    }
+  }
+  return { linesRemoved, entryIdsTouched };
+}
+
 async function deleteStayEntriesForDate(fileNumber, entryDate) {
   const fn = String(fileNumber || '').trim();
   if (!fn) throw new Error('file_number مطلوب');
@@ -2125,15 +2163,21 @@ async function deleteStayEntriesForDate(fileNumber, entryDate) {
   if (!normalizedDate) throw new Error('تاريخ غير صالح');
 
   const patient = await resolvePatient(fn);
-  const ids = await listStayEntryIdsForDate(patient.id, normalizedDate);
+  let ids = await listStayEntryIdsForDate(patient.id, normalizedDate);
+  let stayLinesStrippedOnly = false;
   if (!ids.length) {
-    return {
-      deleted: true,
-      ids: [],
-      count: 0,
-      entry_date: normalizedDate,
-      invoice_sync: { synced: false, reason: 'no_entries' },
-    };
+    const stripped = await stripStayChargeLinesForDate(patient.id, normalizedDate);
+    if (!stripped.linesRemoved) {
+      return {
+        deleted: true,
+        ids: [],
+        count: 0,
+        entry_date: normalizedDate,
+        invoice_sync: { synced: false, reason: 'no_entries' },
+      };
+    }
+    ids = stripped.entryIdsTouched;
+    stayLinesStrippedOnly = true;
   }
 
   let linkedInvoiceId = null;
@@ -2147,8 +2191,10 @@ async function deleteStayEntriesForDate(fileNumber, entryDate) {
     linkedInvoiceId = snapshot.invoice_id;
   }
 
-  for (const id of ids) {
-    await deleteDailyEntryCascade(id);
+  if (!stayLinesStrippedOnly) {
+    for (const id of ids) {
+      await deleteDailyEntryCascade(id);
+    }
   }
 
   let invoiceId = linkedInvoiceId;
