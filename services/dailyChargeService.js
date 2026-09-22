@@ -2108,7 +2108,12 @@ async function saveEntriesBatch(data, user = null) {
     }
     if (Array.isArray(data.operations)) {
       const { saveOperationsForDate, getOperationsTotal } = require('./patientOperationService');
-      await saveOperationsForDate(patient.id, primaryDate, data.operations);
+      // Other tabs send whatever the (often unloaded) operations table holds; an empty
+      // array must not replace-all and wipe today's operations. Deleting operations goes
+      // through the dedicated /operations endpoint.
+      if (data.operations.length) {
+        await saveOperationsForDate(patient.id, primaryDate, data.operations);
+      }
       supplemental.operations = await getOperationsTotal(patient.id, primaryDate);
     }
     if (data.glasses_total != null && data.glasses_total !== '') {
@@ -2908,9 +2913,17 @@ async function restoreDailyEntrySnapshot(snapshot) {
 }
 
 async function rollbackDailyEntriesOnInvoiceFailure(savedMeta, fileNumber) {
+  // Same-day consolidation can merge a new row into a pre-existing entry, so a
+  // "new" result may carry the surviving entry's id — never delete that one.
+  const preexistingIds = new Set(
+    savedMeta.map(({ snapshot }) => Number(snapshot?.id) || 0).filter(Boolean)
+  );
+  const deleted = new Set();
   for (const { result, wasNew, snapshot } of savedMeta) {
-    if (wasNew && result?.id) {
-      await deleteDailyEntryCascade(result.id);
+    const resultId = Number(result?.id) || 0;
+    if (wasNew && resultId && !preexistingIds.has(resultId) && !deleted.has(resultId)) {
+      deleted.add(resultId);
+      await deleteDailyEntryCascade(resultId);
     } else if (snapshot?.id) {
       await restoreDailyEntrySnapshot(snapshot);
     }

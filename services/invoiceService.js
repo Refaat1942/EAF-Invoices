@@ -336,7 +336,8 @@ function resolveDailyChargePeriodFromDates(admissionDate, dischargeDate, entryMi
   if (entryMin && entryMin < fromDate) fromDate = entryMin;
 
   const discharge = fmtDateOnly(dischargeDate);
-  const today = fmtDateOnly(new Date());
+  const { getCurrentBusinessDateString } = require('./dailyChargeService');
+  const today = getCurrentBusinessDateString();
   let toDate = discharge || entryMax || fromDate;
 
   const openStay = !discharge || discharge === fromDate;
@@ -1349,6 +1350,9 @@ function invoiceManualItems(invoice) {
 }
 
 function buildCalcDataFromInvoice(invoice) {
+  // Form-built preview invoices carry invoice_id but no id; without it the daily
+  // lookup only returns unlinked entries and drops every line already on the invoice.
+  const invoiceId = invoice.id || invoice.invoice_id || null;
   const fileNumber = String(invoice.file_number || '').trim();
   const admissionDate = fmtDateOnly(invoice.admission_date);
   const items = (invoice.items || []).map((item) => ({
@@ -1388,8 +1392,8 @@ function buildCalcDataFromInvoice(invoice) {
   }));
 
   return {
-    invoice_id: invoice.id,
-    id: invoice.id,
+    invoice_id: invoiceId,
+    id: invoiceId,
     invoice_type: invoice.invoice_type,
     patient_name: invoice.patient_name,
     file_number: invoice.file_number,
@@ -1619,6 +1623,20 @@ async function verifyInvoiceDailyLineSync(invoiceId, fileNumber, fromDate, toDat
   };
 }
 
+/**
+ * The window saveInvoice actually merged daily lines over. The stored header dates stay
+ * locked for daily invoices while the merge runs through today for an open stay, so
+ * linking/verifying with the raw header dates misses today's lines and fails the save.
+ */
+async function resolveInvoiceDailySyncPeriod(invoice, fileNumber, invoiceId) {
+  return resolveDailyChargePeriodForCalc({
+    file_number: fileNumber,
+    invoice_id: invoiceId,
+    admission_date: invoice?.admission_date,
+    discharge_date: invoice?.discharge_date,
+  });
+}
+
 async function resolveOpenInvoiceForDailyEntry(fileNumber) {
   const { rows } = await query(
     `SELECT id FROM invoices
@@ -1774,15 +1792,14 @@ async function syncDailyEntryToInvoices(entry, meta = {}) {
   if (entry?.id) {
     await linkEntryToInvoice(entry.id, invoiceId);
   }
-  const linkFrom = fmtDateOnly(updated.admission_date) || entryDate;
-  const linkTo = fmtDateOnly(updated.discharge_date) || entryDate;
+  const period = await resolveInvoiceDailySyncPeriod(updated, fileNumber, invoiceId);
+  const linkFrom = period.fromDate || entryDate;
+  const linkTo = period.toDate || linkFrom;
   await linkEntriesToInvoice(invoiceId, fileNumber, linkFrom, linkTo);
 
   const daily_summary = await getDailySummaryForPatient(fileNumber);
 
-  const verifyFrom = fmtDateOnly(updated.admission_date) || entryDate;
-  const verifyTo = fmtDateOnly(updated.discharge_date) || verifyFrom;
-  await verifyInvoiceDailyLineSync(invoiceId, fileNumber, verifyFrom, verifyTo);
+  await verifyInvoiceDailyLineSync(invoiceId, fileNumber, linkFrom, linkTo);
 
   return {
     synced: true,
@@ -1834,17 +1851,18 @@ async function syncPatientDailyChargesToInvoice(fileNumber, patientName = '') {
   }
 
   const { linkEntriesToInvoice, getDailySummaryForPatient } = require('./dailyChargeService');
-  const linkFrom = fmtDateOnly(updated.admission_date);
-  const linkTo = fmtDateOnly(updated.discharge_date) || linkFrom;
+  const { fromDate: linkFrom, toDate: linkTo } = await resolveInvoiceDailySyncPeriod(
+    updated,
+    fn,
+    invoiceId
+  );
   if (linkFrom) {
     await linkEntriesToInvoice(invoiceId, fn, linkFrom, linkTo);
   }
 
   const daily_summary = await getDailySummaryForPatient(fn);
 
-  const verifyFrom = linkFrom || fmtDateOnly(updated.admission_date);
-  const verifyTo = linkTo || verifyFrom;
-  await verifyInvoiceDailyLineSync(invoiceId, fn, verifyFrom, verifyTo);
+  await verifyInvoiceDailyLineSync(invoiceId, fn, linkFrom, linkTo);
 
   return {
     synced: true,
