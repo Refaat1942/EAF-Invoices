@@ -4593,8 +4593,7 @@ function bindExamRowEvents(tr) {
   const specialtySel = tr.querySelector('.daily-exam-specialty');
   if (specialtySel) specialtySel.addEventListener('change', () => onExamSpecialtyChange(specialtySel));
   bindDailyDoctorSuggestWrap(tr);
-  tr.querySelector('.daily-exam-unit-price')?.addEventListener('input', refreshServiceRowTotals);
-  tr.querySelector('.daily-exam-stamp')?.addEventListener('input', refreshServiceRowTotals);
+  bindDailyAmountRecalc(tr);
 }
 
 function resolveStayTypeIdFromAccommodationLine(line = {}) {
@@ -6360,12 +6359,27 @@ function dedupeTodayServiceRows(entries = [], sectionCode) {
 }
 
 function dedupeTodayExamRows(entries = []) {
-  return dedupeTodayLineRows(entries, (entry) =>
+  const rows = dedupeTodayLineRows(entries, (entry) =>
     (entry.lines || []).filter(
       (line) =>
         ['consultant_exam', 'specialist_exam'].includes(line.section_code) && lineHasChargeData(line)
     )
   );
+  // A saved entry whose only exam-tab content is a consultation_stamp (no exam
+  // case picked) has no consultant_exam/specialist_exam line, so the filter
+  // above skips it entirely — render it too, or a stamp-only save looks like
+  // it never persisted after the sheet reloads.
+  const seenEntryIds = new Set(rows.map((row) => row.entry?.id).filter(Boolean));
+  for (const entry of entries) {
+    if (entry.id && seenEntryIds.has(entry.id)) continue;
+    const stampLine = (entry.lines || []).find(
+      (line) => line.section_code === 'consultation_stamp' && lineHasChargeData(line)
+    );
+    if (!stampLine) continue;
+    rows.push({ entry, line: null, score: Number(entry.id) || 0 });
+    if (entry.id) seenEntryIds.add(entry.id);
+  }
+  return rows;
 }
 
 function dedupeTodaySessionRows(entries = []) {
@@ -8166,8 +8180,11 @@ async function saveDailyEntry(options = {}) {
 
 function validateExamSaveEntries(entries = []) {
   for (const row of entries) {
+    // A doctor is only required when the row actually carries an exam charge
+    // (consultant_exam/specialist_exam) — a row with only a consultation_stamp
+    // line (no exam picked) isn't doctor-attributed and shouldn't be blocked.
     const hasExamLine = (row.lines || []).some((line) =>
-      DAILY_EXAM_CODES.includes(line.section_code)
+      ['consultant_exam', 'specialist_exam'].includes(line.section_code)
     );
     if (!hasExamLine) continue;
     const doctorId = Number(row.doctor_id) || 0;
