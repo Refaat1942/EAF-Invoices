@@ -76,9 +76,9 @@
     const fromEl = document.getElementById('analytics-from');
     const toEl = document.getElementById('analytics-to');
     const today = new Date();
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
-    if (fromEl && !fromEl.value) fromEl.value = monthStart;
-    if (toEl && !toEl.value) toEl.value = today.toISOString().slice(0, 10);
+    const ym = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    if (fromEl && !fromEl.value) fromEl.value = `${ym}-01`;
+    if (toEl && !toEl.value) toEl.value = `${ym}-${String(today.getDate()).padStart(2, '0')}`;
     const refreshBtn = document.getElementById('analytics-refresh-btn');
     if (refreshBtn && !refreshBtn.dataset.bound) {
       refreshBtn.dataset.bound = '1';

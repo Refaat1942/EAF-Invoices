@@ -3263,7 +3263,8 @@ async function openInvoiceReturnModal() {
     }
 
     const tbody = document.getElementById('invoice-return-lines-tbody');
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     document.getElementById('invoice-return-date').value = today;
     document.getElementById('invoice-return-notes').value = '';
 
@@ -4023,7 +4024,8 @@ function resetForm() {
   document.getElementById('invoice-form').reset();
   document.getElementById('invoice-id').value = '';
   document.getElementById('form-title').textContent = 'إنشاء فاتورة جديدة';
-  document.getElementById('issue_date').value = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  document.getElementById('issue_date').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   updateInvoiceStatusUI(null);
   document.getElementById('captain_name').value = 'نقيب عمرو صالح';
   document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر';

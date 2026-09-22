@@ -232,7 +232,15 @@ function getStayPatientName() {
 
 function fmtStayDate(value) {
   if (!value) return '';
-  return String(value).slice(0, 10);
+  const s = String(value);
+  // Timestamps arrive as UTC ISO strings (Cairo midnight = 21:00Z the day before).
+  if (s.length > 10 && s.includes('T')) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+  }
+  return s.slice(0, 10);
 }
 
 function formatDailyInvoicePeriodRange(admissionDate, dischargeDate) {
@@ -319,11 +327,20 @@ function computeDomStayTabTotal() {
 }
 
 function previewInvoiceFinalTotalFromStayEdits(ctx = dailyStayContext) {
-  const base = Number(ctx?.invoice?.final_total) || 0;
+  const inv = ctx?.invoice || {};
+  const base = Number(inv.final_total) || 0;
   if (!document.querySelector('#daily-sections-body .daily-stay-row')) return base;
   const domStay = computeDomStayTabTotal();
-  const savedStay = computeSavedStayTotalForDomDates();
-  return Math.round((base - savedStay + domStay) * 100) / 100;
+  // Saved lines hold list prices; the DOM rows show the nationality-billable price.
+  const savedStay = dailyAmountForDisplay(computeSavedStayTotalForDomDates());
+  const delta = domStay - savedStay;
+  if (Math.abs(delta) < 0.01) return base;
+  const itemsSubtotal = (Number(inv.items_subtotal) || 0) + (Number(inv.stay_subtotal) || 0);
+  const ratio =
+    itemsSubtotal > 0 && base > 0
+      ? base / itemsSubtotal
+      : 1 + (Number(inv.admin_expenses_percent) || 0) / 100;
+  return Math.round((base + delta * ratio) * 100) / 100;
 }
 
 function refreshDailyStayLiveTotals() {
@@ -1352,7 +1369,7 @@ function createOperationRowHtml(op = {}) {
   const nursingVal = shownNursing > 0 ? formatAmountFieldValue(shownNursing) : '';
   const assistantVal = shownAssistant > 0 ? formatAmountFieldValue(shownAssistant) : '';
   const dateVal = op.entry_date
-    ? String(op.entry_date).slice(0, 10)
+    ? fmtStayDate(op.entry_date)
     : document.getElementById('daily-entry-date')?.value?.trim() || getLocalDateString();
   const startTimeVal = formatOperationTimeForInput(op.operation_start_time);
   const endTimeVal = formatOperationTimeForInput(op.operation_end_time);
@@ -4968,9 +4985,9 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
   if (caseServiceId) tr.dataset.examCaseServiceId = caseServiceId;
   if (specialtyCode) tr.dataset.examSpecialtyCode = specialtyCode;
   const dateVal = line.extra_date
-    ? String(line.extra_date).slice(0, 10)
+    ? fmtStayDate(line.extra_date)
     : entry.entry_date
-      ? String(entry.entry_date).slice(0, 10)
+      ? fmtStayDate(entry.entry_date)
       : getLocalDateString();
   const patientName = getDailyPatientDisplayName();
   const priceVal = line.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(line.amount)) : '';
@@ -5200,9 +5217,9 @@ function createSessionsRow(entry = {}, sessionsLine = null) {
         ? formatAmountFieldValue(morning + evening, 0)
         : '';
   const dateVal = dateLine.extra_date
-    ? String(dateLine.extra_date).slice(0, 10)
+    ? fmtStayDate(dateLine.extra_date)
     : entry.entry_date
-      ? String(entry.entry_date).slice(0, 10)
+      ? fmtStayDate(entry.entry_date)
       : getLocalDateString();
   const patientName = getDailyPatientDisplayName();
   const unitVal =
@@ -5454,9 +5471,9 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
   const serialVal = line.catalog_item_code || '';
   const weightVal = line.weight != null && line.weight !== '' ? formatAmountFieldValue(line.weight) : '';
   const dateVal = line.extra_date
-    ? String(line.extra_date).slice(0, 10)
+    ? fmtStayDate(line.extra_date)
     : entry.entry_date
-      ? String(entry.entry_date).slice(0, 10)
+      ? fmtStayDate(entry.entry_date)
       : getLocalDateString();
 
   tr.innerHTML = `
@@ -5515,9 +5532,9 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
   const invoiceLabel = getDailyInvoiceDisplayLabel();
   const serialVal = line.catalog_item_code || '';
   const dateVal = line.extra_date
-    ? String(line.extra_date).slice(0, 10)
+    ? fmtStayDate(line.extra_date)
     : entry.entry_date
-      ? String(entry.entry_date).slice(0, 10)
+      ? fmtStayDate(entry.entry_date)
       : getLocalDateString();
 
   tr.innerHTML = `
@@ -5692,9 +5709,9 @@ function createLabRow(entry = {}, analysisLine = null) {
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
   const dateVal = line.extra_date
-    ? String(line.extra_date).slice(0, 10)
+    ? fmtStayDate(line.extra_date)
     : entry.entry_date
-      ? String(entry.entry_date).slice(0, 10)
+      ? fmtStayDate(entry.entry_date)
       : getLocalDateString();
 
   tr.innerHTML = `
@@ -5746,11 +5763,11 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
   const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
   const dateVal = line.extra_date
-    ? String(line.extra_date).slice(0, 10)
+    ? fmtStayDate(line.extra_date)
     : typeLine.extra_date
-      ? String(typeLine.extra_date).slice(0, 10)
+      ? fmtStayDate(typeLine.extra_date)
       : entry.entry_date
-        ? String(entry.entry_date).slice(0, 10)
+        ? fmtStayDate(entry.entry_date)
         : getLocalDateString();
   const unitVal =
     line.unit_price > 0
@@ -6546,7 +6563,7 @@ function mergeFreshDailySaveRows(rows = []) {
 
 function renderDailyCellHtml(section, line = {}) {
   if (section.input_type === 'date') {
-    const val = line.extra_date ? String(line.extra_date).slice(0, 10) : '';
+    const val = line.extra_date ? fmtStayDate(line.extra_date) : '';
     return `<td class="daily-section-cell" data-section="${section.code}"><label class="form-label small fw-bold text-primary mb-1">${dailyEscapeHtml(section.name)}</label><input type="date" class="form-control form-control-sm daily-field" data-section="${section.code}" data-type="date" value="${val}"></td>`;
   }
   if (section.input_type === 'text') {
@@ -8235,13 +8252,13 @@ async function loadDailyPatientHistory() {
     tbody.innerHTML = entries
       .map(
         (entry) => `<tr>
-          <td>${String(entry.entry_date).slice(0, 10)}</td>
+          <td>${fmtStayDate(entry.entry_date)}</td>
           <td class="fw-bold">${dailyFmt(entry.daily_total)}</td>
           <td>${entry.stay_type_name || '—'}</td>
           <td>${entry.invoice_id ? `#${entry.invoice_id}` : '—'}</td>
           <td>${entry.updated_at ? new Date(entry.updated_at).toLocaleString('ar-EG') : '—'}</td>
           <td class="text-nowrap">
-            <button type="button" class="btn btn-sm btn-outline-primary daily-open-entry" data-date="${String(entry.entry_date).slice(0, 10)}">فتح</button>
+            <button type="button" class="btn btn-sm btn-outline-primary daily-open-entry" data-date="${fmtStayDate(entry.entry_date)}">فتح</button>
             ${
               dailyCan('daily_charges.manage')
                 ? `<button type="button" class="btn btn-sm btn-outline-danger daily-delete-entry" data-id="${entry.id}" title="حذف">×</button>`

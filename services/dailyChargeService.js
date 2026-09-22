@@ -222,7 +222,8 @@ function normalizeCalendarDate(value) {
     return `${y}-${m}-${d}`;
   }
   const text = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{4}-\d{2}-\d{2}/.test(text) && !/^\d{4}-\d{2}-\d{2}T/.test(text)) return text.slice(0, 10);
   const parsed = new Date(text);
   if (!Number.isNaN(parsed.getTime())) {
     const y = parsed.getFullYear();
