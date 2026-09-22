@@ -23,6 +23,7 @@ const { buildSearchPattern, sqlNormalizeArabic } = require('./searchNormalize');
 const { getStayTypeById } = require('./stayTypeService');
 const { resolveServiceForInvoice } = require('./serviceCatalogService');
 const { getSetting } = require('./settingsService');
+const { getNationalityPriceMultiplier } = require('./nationalityPricing');
 
 const LEGACY_CAPTAIN_NAMES = new Set([
   'نقيب / عمرو صالح محمد',
@@ -160,6 +161,10 @@ async function prepareCalculationData(data, client = null) {
       calcData.patient_nationality = calcData.patient_nationality || '';
     }
   }
+  if (calcData.item_amounts_billable) {
+    calcData.items = itemsToListPrices(calcData.items, calcData.patient_nationality);
+  }
+  delete calcData.item_amounts_billable;
   const { ensurePatientCreditMethod, getPaymentMethodIdByCode } = require('./paymentMethodService');
   await ensurePatientCreditMethod();
   calcData.patient_credit_method_id = await getPaymentMethodIdByCode('patient_credit');
@@ -434,17 +439,15 @@ async function resolveInvoiceForPrint(invoice) {
   const derivedStay = deriveStayEntriesFromDailyItems(prepared.items || []);
   const totals = calculateInvoiceTotals(prepared);
   const manualItems = (totals.items || []).filter((item) => !item.is_stay_entry);
-  const stay_entries =
-    (totals.stay_entries && totals.stay_entries.length ? totals.stay_entries : null) ||
-    derivedStay ||
-    invoice.stay_entries ||
-    [];
+  const billedStay = totals.stay_entries && totals.stay_entries.length ? totals.stay_entries : null;
+  const stay_entries = billedStay || derivedStay || invoice.stay_entries || [];
 
   return {
     ...invoice,
     ...totals,
     items: manualItems,
     stay_entries,
+    _stay_entries_display_only: !billedStay && derivedStay.length > 0,
   };
 }
 
@@ -1190,7 +1193,10 @@ async function approveInvoice(id, reviewer) {
     }
 
     const calcData = await getInvoiceById(id, client);
-    const totals = calculateInvoiceTotals(calcData);
+    const totals = calculateInvoiceTotals({
+      ...calcData,
+      items: itemsToListPrices(calcData.items, calcData.patient_nationality),
+    });
     const paymentValidation = validatePaymentBalance(totals);
     if (paymentValidation.has_payments && !paymentValidation.is_balanced) {
       throw new Error('مجموع طرق الدفع لا يساوي إجمالي الفاتورة — راجع المدفوعات قبل الاعتماد');
@@ -1420,7 +1426,7 @@ function buildCalcDataFromInvoice(invoice) {
       amount: m.amount,
       metadata: m.metadata && typeof m.metadata === 'object' ? m.metadata : {},
     })),
-    items,
+    items: itemsToListPrices(items, invoice.patient_nationality),
     include_daily_charges: Boolean(fileNumber && admissionDate),
     excluded_daily_line_ids: normalizeExcludedLineIds(invoice),
     excluded_section_codes: normalizeExcludedSectionCodes(invoice),
@@ -1503,6 +1509,20 @@ async function recalculateAndPersistInvoiceTotals(invoiceId, client = null) {
   return { invoice: await getInvoiceById(invoiceId, client), totals };
 }
 
+/**
+ * Stored/displayed invoice line amounts are nationality-billable (list ×2 for foreigners),
+ * but calculateInvoiceTotals multiplies its input. Feeding stored amounts back unconverted
+ * doubles foreign lines on every save, sync, approve and print.
+ */
+function itemsToListPrices(items = [], nationality) {
+  const mult = getNationalityPriceMultiplier(nationality);
+  if (!(mult > 1)) return items;
+  return (items || []).map((item) => {
+    if (item?.amount === undefined || item.amount === null || item.amount === '') return item;
+    return { ...item, amount: round2((Number(item.amount) || 0) / mult) };
+  });
+}
+
 function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
   return {
     invoice_id: invoice.id,
@@ -1541,7 +1561,7 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
       metadata: m.metadata && typeof m.metadata === 'object' ? m.metadata : {},
     })),
     payments: invoice.payments || [],
-    items: manualItems,
+    items: itemsToListPrices(manualItems, invoice.patient_nationality),
     include_daily_charges: true,
     excluded_daily_line_ids: normalizeExcludedLineIds(invoice),
     excluded_section_codes: normalizeExcludedSectionCodes(invoice),
@@ -2310,5 +2330,6 @@ module.exports = {
   recalculateAndPersistInvoiceTotals,
   normalizeCaptainName,
   resolveInvoiceForPrint,
+  itemsToListPrices,
   deriveStayEntriesFromDailyItems,
 };

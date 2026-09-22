@@ -2950,6 +2950,8 @@ function collectFormData() {
     captain_name: fieldVal('captain_name'),
     manager_name: fieldVal('manager_name'),
     items,
+    // Row amounts show the nationality-billable price; the server converts them back to list.
+    item_amounts_billable: true,
     payments,
     excluded_daily_line_ids: [...excludedDailyLineIds],
     excluded_section_codes: [...excludedSectionCodes],

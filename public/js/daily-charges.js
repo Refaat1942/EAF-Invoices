@@ -1232,8 +1232,9 @@ function renderOperationPickerSuggestions(container, result, query, tr) {
       }
       const amountInput = tr.querySelector('.daily-op-amount');
       if (amountInput && price > 0) {
-        if (typeof setCommaAmountValue === 'function') setCommaAmountValue(amountInput, price);
-        else amountInput.value = formatAmountFieldValue(price);
+        const shown = dailyAmountForDisplay(price);
+        if (typeof setCommaAmountValue === 'function') setCommaAmountValue(amountInput, shown);
+        else amountInput.value = formatAmountFieldValue(shown);
       }
       container.classList.add('d-none');
       updateOperationRowTotal(tr);
@@ -1336,34 +1337,26 @@ function bindOperationNamePicker(tr) {
 }
 
 function createOperationRowHtml(op = {}) {
+  // Stored operation amounts are list prices; show them at the patient's billable price.
+  const shownAmount = dailyAmountForDisplay(op.amount);
+  const shownCompanion = dailyAmountForDisplay(op.companion_amount);
+  const shownNursing = dailyAmountForDisplay(op.nursing_point_amount);
+  const shownAssistant = dailyAmountForDisplay(op.patient_assistant_amount);
   const amountVal =
-    op.amount != null && Number(op.amount) > 0
+    shownAmount > 0
       ? typeof formatAmountInput === 'function'
-        ? formatAmountInput(op.amount)
-        : dailyFormatInput(op.amount)
+        ? formatAmountInput(shownAmount)
+        : dailyFormatInput(shownAmount)
       : '';
-  const companionVal =
-    op.companion_amount != null && Number(op.companion_amount) > 0
-      ? formatAmountFieldValue(op.companion_amount)
-      : '';
-  const nursingVal =
-    op.nursing_point_amount != null && Number(op.nursing_point_amount) > 0
-      ? formatAmountFieldValue(op.nursing_point_amount)
-      : '';
-  const assistantVal =
-    op.patient_assistant_amount != null && Number(op.patient_assistant_amount) > 0
-      ? formatAmountFieldValue(op.patient_assistant_amount)
-      : '';
+  const companionVal = shownCompanion > 0 ? formatAmountFieldValue(shownCompanion) : '';
+  const nursingVal = shownNursing > 0 ? formatAmountFieldValue(shownNursing) : '';
+  const assistantVal = shownAssistant > 0 ? formatAmountFieldValue(shownAssistant) : '';
   const dateVal = op.entry_date
     ? String(op.entry_date).slice(0, 10)
     : document.getElementById('daily-entry-date')?.value?.trim() || getLocalDateString();
   const startTimeVal = formatOperationTimeForInput(op.operation_start_time);
   const endTimeVal = formatOperationTimeForInput(op.operation_end_time);
-  const rowTotal =
-    (Number(op.amount) || 0) +
-    (Number(op.companion_amount) || 0) +
-    (Number(op.nursing_point_amount) || 0) +
-    (Number(op.patient_assistant_amount) || 0);
+  const rowTotal = shownAmount + shownCompanion + shownNursing + shownAssistant;
   const rowTotalVal = rowTotal > 0 ? formatAmountFieldValue(rowTotal) : '';
   return `
     <td class="daily-col-serial"><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1"></td>
@@ -1623,10 +1616,12 @@ function collectOperationsFromTable() {
   const rows = [];
   document.querySelectorAll('#daily-operations-tbody .daily-operation-row').forEach((tr) => {
     const operation_name = getOperationNameFromRow(tr);
-    const amount = dailyParseAmount(tr.querySelector('.daily-op-amount')?.value);
-    const companion_amount = dailyParseAmount(tr.querySelector('.daily-op-companion')?.value);
-    const nursing_point_amount = dailyParseAmount(tr.querySelector('.daily-op-nursing')?.value);
-    const patient_assistant_amount = dailyParseAmount(tr.querySelector('.daily-op-assistant-amt')?.value);
+    const amount = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-op-amount')?.value));
+    const companion_amount = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-op-companion')?.value));
+    const nursing_point_amount = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-op-nursing')?.value));
+    const patient_assistant_amount = dailyAmountForSave(
+      dailyParseAmount(tr.querySelector('.daily-op-assistant-amt')?.value)
+    );
     const operation_start_time = tr.querySelector('.daily-op-start-time')?.value || '';
     const operation_end_time = tr.querySelector('.daily-op-end-time')?.value || '';
     const duration_hours = computeOperationDurationHours(operation_start_time, operation_end_time);
@@ -5694,7 +5689,7 @@ function createLabRow(entry = {}, analysisLine = null) {
   tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, line, ['analyses', 'analyses_stamp']);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
-  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
+  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
   const dateVal = line.extra_date
     ? String(line.extra_date).slice(0, 10)
     : entry.entry_date
@@ -5748,7 +5743,7 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
   ]);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
-  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(stampLine.amount) : '';
+  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
   const dateVal = line.extra_date
     ? String(line.extra_date).slice(0, 10)
     : typeLine.extra_date
@@ -5849,7 +5844,7 @@ function collectLabLinesFromRow(tr) {
     if (dateEl?.value) mainLine.extra_date = dateEl.value;
     if (lineHasChargeData(mainLine)) lines.push(mainLine);
   }
-  const stamp = dailyParseAmount(tr.querySelector('.daily-lab-stamp')?.value);
+  const stamp = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-lab-stamp')?.value));
   if (stamp > 0) {
     const stampLine = { section_code: 'analyses_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
@@ -5877,7 +5872,7 @@ function collectRadiologyLinesFromRow(tr) {
       lines.push(typeLineOut);
     }
   }
-  const stamp = dailyParseAmount(tr.querySelector('.daily-rad-stamp')?.value);
+  const stamp = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-rad-stamp')?.value));
   if (stamp > 0) {
     const stampLine = { section_code: 'xray_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);

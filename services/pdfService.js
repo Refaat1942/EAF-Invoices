@@ -115,14 +115,21 @@ function dailyReportUnitCellClass(text) {
 }
 
 async function enrichInvoice(invoice) {
-  const { resolveInvoiceForPrint } = require('./invoiceService');
+  const { resolveInvoiceForPrint, itemsToListPrices } = require('./invoiceService');
   const resolved = await resolveInvoiceForPrint(invoice);
+  // Derived stay mirrors daily stay lines already in items — billing it again doubles stay.
+  const displayOnlyStay = Boolean(resolved._stay_entries_display_only);
+  const listItems = (resolved.items || []).map((item) =>
+    item.list_amount != null
+      ? { ...item, amount: item.list_amount }
+      : itemsToListPrices([item], resolved.patient_nationality)[0]
+  );
   const totals = calculateInvoiceTotals({
     ...resolved,
-    items: resolved.items || [],
+    items: listItems,
     payments: resolved.payments || invoice.payments || [],
     method_payments: resolved.method_payments || invoice.method_payments || [],
-    stay_entries: resolved.stay_entries || [],
+    stay_entries: displayOnlyStay ? [] : resolved.stay_entries || [],
   });
 
   const { resolvePatientInvoiceBalanceDisplay } = require('./patientService');
@@ -169,7 +176,9 @@ async function enrichInvoice(invoice) {
         }
       : {}),
     items: mergedItems,
-    stay_entries: totals.stay_entries || resolved.stay_entries || [],
+    stay_entries: displayOnlyStay
+      ? resolved.stay_entries || []
+      : totals.stay_entries || resolved.stay_entries || [],
     invoice_type_label: resolved.invoice_type_label || invoice.invoice_type_label || invoice.invoice_type,
     captain_name: normalizeCaptainName(resolved.captain_name || invoice.captain_name),
   };
@@ -230,14 +239,34 @@ function scopeInvoiceForDailyKindPreview(invoice, dailyKind) {
   };
 }
 
+/**
+ * enrichInvoice rebuilds every line from the daily charges, so the section filter must be
+ * applied to the enriched invoice and the totals recomputed for that section alone.
+ */
+async function buildDailyKindPreviewInvoice(invoice, dailyKind) {
+  const full = await enrichInvoice(invoice);
+  const scoped = scopeInvoiceForDailyKindPreview(full, dailyKind);
+  // Enriched amounts are already nationality-billable; recalc from list prices so they aren't multiplied twice.
+  const listItems = (scoped.items || [])
+    .filter((item) => !item.is_stay_entry)
+    .map((item) => ({ ...item, amount: item.list_amount ?? item.amount }));
+  const totals = calculateInvoiceTotals({ ...scoped, items: listItems, stay_entries: [] });
+  const items = (totals.items || [])
+    .filter((item) => !item.is_stay_entry)
+    .map((item) => ({ ...item, description: formatInvoiceLineDescription(item) }));
+  return {
+    ...scoped,
+    ...totals,
+    items,
+    stay_entries: String(dailyKind).trim() === 'stay' ? full.stay_entries || [] : [],
+  };
+}
+
 async function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '', dailyKind = '' } = options;
-  const scopedInvoice = scopeInvoiceForDailyKindPreview(invoice, dailyKind);
-  const inv = await enrichInvoice(scopedInvoice);
-  if (scopedInvoice._daily_kind_label) {
-    inv._daily_kind_label = scopedInvoice._daily_kind_label;
-    inv._daily_kind_preview = true;
-  }
+  const inv = dailyKind
+    ? await buildDailyKindPreviewInvoice(invoice, dailyKind)
+    : await enrichInvoice(invoice);
   let sourceItems = inv.items || [];
   if (dailyKind && dailyKind !== 'stay') {
     sourceItems = sourceItems.filter((item) => !item.is_stay_entry);
