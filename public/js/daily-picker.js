@@ -274,7 +274,7 @@
     const total = Math.round(billedUnit * qty * 100) / 100;
     amountInput.value = formatInputAmount(total);
     amountInput.dataset.manualAmount = '0';
-    amountInput.dataset.unitPrice = String(billedUnit);
+    amountInput.dataset.unitPrice = String(Number(unitPrice) || 0);
   }
 
   function getUnitPriceForSection(tr, sectionCode) {

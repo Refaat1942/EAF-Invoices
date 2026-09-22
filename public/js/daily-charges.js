@@ -5136,11 +5136,12 @@ function syncSessionsRowDisplay(tr, item, unitPrice, opts = {}) {
       if (qtyEl) qtyEl.value = formatAmountFieldValue(qty, 0);
     }
   }
-  const unit =
+  const listUnit =
     Number(unitPrice) ||
     (item?.price != null ? Number(item.price) : 0) ||
     getCatalogRowUnitPrice(tr, 'sessions') ||
     0;
+  const unit = dailyAmountForDisplay(listUnit);
   if (!qty && unit > 0) qty = 1;
   const total = unit > 0 && qty > 0 ? Math.round(unit * qty * 100) / 100 : 0;
   const unitEl = tr.querySelector('.daily-session-unit');
@@ -5150,7 +5151,7 @@ function syncSessionsRowDisplay(tr, item, unitPrice, opts = {}) {
   const hidden = tr.querySelector('.daily-field.daily-amount[data-section="sessions"]');
   if (hidden) {
     hidden.value = String(total);
-    hidden.dataset.unitPrice = String(unit);
+    hidden.dataset.unitPrice = String(listUnit);
     hidden.dataset.manualAmount = '0';
   }
   updateRowTotal(tr);
@@ -5267,8 +5268,8 @@ function collectSessionsLinesFromRow(tr) {
     let qty = dailyParseAmount(tr.querySelector('.daily-session-qty')?.value);
     if (!(qty > 0)) qty = morning + evening;
     if (!(qty > 0)) qty = 1;
-    const amount = dailyParseAmount(tr.querySelector('.daily-session-total')?.value);
-    const unit = dailyParseAmount(tr.querySelector('.daily-session-unit')?.value);
+    const amount = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-session-total')?.value));
+    const unit = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-session-unit')?.value));
     const chargeLine = {
       section_code: 'sessions',
       catalog_item_id: pickerFields.catalog_item_id ?? null,
@@ -5304,7 +5305,8 @@ function getCatalogRowUnitPrice(tr, sectionCode) {
 function syncMedicineRowDisplay(tr, item, unitPrice) {
   if (!tr) return;
   const qty = dailyParseAmount(tr.querySelector('.daily-catalog-qty[data-section="medicines"]')?.value) || 1;
-  const unit = Number(unitPrice) || getCatalogRowUnitPrice(tr, 'medicines') || 0;
+  const listUnit = Number(unitPrice) || getCatalogRowUnitPrice(tr, 'medicines') || 0;
+  const unit = dailyAmountForDisplay(listUnit);
   const total = Math.round(unit * qty * 100) / 100;
   const unitEl = tr.querySelector('.daily-med-unit-price');
   if (unitEl) {
@@ -5316,7 +5318,7 @@ function syncMedicineRowDisplay(tr, item, unitPrice) {
   const hidden = tr.querySelector('.daily-field.daily-amount[data-section="medicines"]');
   if (hidden) {
     hidden.value = String(total);
-    hidden.dataset.unitPrice = String(unit);
+    hidden.dataset.unitPrice = String(listUnit);
     hidden.dataset.manualAmount = '0';
   }
   updateRowTotal(tr);
@@ -5349,12 +5351,13 @@ function syncSupplyRowDisplay(tr, item, unitPrice) {
     dailyParseAmount(tr.querySelector(`.daily-catalog-qty[data-section="${sectionCode}"]`)?.value) || 1;
   const costUnit = Number(item?.cost_price) || Number(tr.dataset.costPrice) || 0;
   const catalogSell = Number(unitPrice) || Number(tr.dataset.sellUnit) || getCatalogRowUnitPrice(tr, sectionCode) || 0;
-  const sellUnit = calcSupplySellUnit(costUnit, catalogSell);
+  const listSellUnit = calcSupplySellUnit(costUnit, catalogSell);
+  const sellUnit = dailyAmountForDisplay(listSellUnit);
   const costTotal = Math.round(costUnit * qty * 100) / 100;
   const sellTotal = Math.round(sellUnit * qty * 100) / 100;
   const markupPct = Number(dailySuppliesMarkupPercent) || 0;
   tr.dataset.costPrice = String(costUnit);
-  tr.dataset.sellUnit = String(sellUnit);
+  tr.dataset.sellUnit = String(listSellUnit);
   tr.dataset.markupPercent = String(markupPct);
   if (item?.code) tr.dataset.catalogCode = item.code;
   const costUnitEl = tr.querySelector('.daily-sup-cost-unit');
@@ -5368,7 +5371,7 @@ function syncSupplyRowDisplay(tr, item, unitPrice) {
   const hidden = tr.querySelector(`.daily-field.daily-amount[data-section="${sectionCode}"]`);
   if (hidden) {
     hidden.value = String(sellTotal);
-    hidden.dataset.unitPrice = String(sellUnit);
+    hidden.dataset.unitPrice = String(listSellUnit);
     hidden.dataset.manualAmount = '0';
   }
   updateRowTotal(tr);
@@ -5598,7 +5601,8 @@ function serviceLinesFromEntry(entry, mainSectionCode) {
 function syncSimpleServiceRow(tr, item, unitPrice, mainSection, ui) {
   if (!tr) return;
   const qty = dailyParseAmount(tr.querySelector(`.daily-catalog-qty[data-section="${mainSection}"]`)?.value) || 1;
-  const unit = Number(unitPrice) || getCatalogRowUnitPrice(tr, mainSection) || 0;
+  const listUnit = Number(unitPrice) || getCatalogRowUnitPrice(tr, mainSection) || 0;
+  const unit = dailyAmountForDisplay(listUnit);
   const total = Math.round(unit * qty * 100) / 100;
   if (item?.code) tr.dataset.serviceCode = item.code;
   const unitEl = tr.querySelector(ui.unit);
@@ -5611,7 +5615,7 @@ function syncSimpleServiceRow(tr, item, unitPrice, mainSection, ui) {
   const hidden = tr.querySelector(`.daily-field.daily-amount[data-section="${mainSection}"]`);
   if (hidden) {
     hidden.value = String(total);
-    hidden.dataset.unitPrice = String(unit);
+    hidden.dataset.unitPrice = String(listUnit);
     hidden.dataset.manualAmount = '0';
   }
   refreshServiceRowTotals(tr);
