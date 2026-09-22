@@ -85,7 +85,7 @@ router.post('/preview', requirePermission('invoices.view'), async (req, res) => 
     const invoice = await buildPreviewInvoiceFromFormData(data);
     const baseUrl = getBaseUrl(req);
     const logoUrl = await getLogoUrl(baseUrl);
-    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: false });
+    const html = await buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: false });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.send(html);
@@ -338,7 +338,7 @@ router.get('/:id/preview', requirePermission('invoices.view'), async (req, res) 
     }
 
     const dailyKind = String(req.query.daily_kind || '').trim();
-    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr, qrDataUrl, dailyKind });
+    const html = await buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr, qrDataUrl, dailyKind });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.send(html);

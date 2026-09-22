@@ -35,7 +35,7 @@ router.get('/:token', async (req, res) => {
     }
 
     const qrDataUrl = await QRCode.toDataURL(`${baseUrl}/download/${invoice.qr_token}`, { width: 200, margin: 1 });
-    const html = buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: true, qrDataUrl });
+    const html = await buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: true, qrDataUrl });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(wrapDownloadPage(html, invoice, baseUrl));
   } catch (err) {

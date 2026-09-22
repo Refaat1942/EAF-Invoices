@@ -759,6 +759,9 @@ function lockDailyInvoiceRows() {
       });
     }
   });
+  if (invoiceFollowUpMode) {
+    document.querySelectorAll('.remove-invoice-item-btn').forEach((btn) => btn.remove());
+  }
 }
 
 function applyPermissions() {
@@ -1029,7 +1032,7 @@ function findLastRemovableInvoiceRow(tbody) {
 
 function attachInvoiceRowDeleteButton(row) {
   if (!row || row.dataset.sectionHeader || row.querySelector('.remove-invoice-item-btn')) return;
-  if (isInvoiceFollowUpLocked()) return;
+  if (invoiceFollowUpMode) return;
   const host = row.querySelector('.service-cell') || row.querySelector('[data-field="description"]')?.closest('td');
   if (!host) return;
   const btn = document.createElement('button');
@@ -2902,6 +2905,7 @@ function collectFormData() {
     payments,
     excluded_daily_line_ids: [...excludedDailyLineIds],
     excluded_section_codes: [...excludedSectionCodes],
+    include_daily_charges: Boolean(String(fieldVal('file_number') || '').trim()),
   });
 }
 

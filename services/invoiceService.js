@@ -302,6 +302,90 @@ function filterDailyItemsByExclusions(items = [], excludedLineIds = [], excluded
   });
 }
 
+const DAILY_STAY_SECTION_CODES = new Set([
+  'accommodation',
+  'companion',
+  'nursing_point',
+  'patient_assistant',
+]);
+
+function deriveStayEntriesFromDailyItems(items = []) {
+  const { inferBundleKeyFromItem, isStampLineItem } = require('./dailySectionBundles');
+  const stayLines = (items || []).filter((item) => {
+    if (isStampLineItem(item)) return false;
+    const code = String(item.section_code || '').trim();
+    if (DAILY_STAY_SECTION_CODES.has(code)) return true;
+    return inferBundleKeyFromItem(item) === 'stay';
+  });
+  if (!stayLines.length) return [];
+
+  const dates = [];
+  let totalRaw = 0;
+  let rateSum = 0;
+  let rateCount = 0;
+  let stayTypeName = '';
+
+  for (const item of stayLines) {
+    const d = fmtDateOnly(item.entry_date || item.daily_entry_date);
+    if (d) dates.push(d);
+    totalRaw = round2(totalRaw + (Number(item.total_raw ?? item.total) || 0));
+    const unit = Number(item.amount) || 0;
+    if (unit > 0) {
+      rateSum = round2(rateSum + unit);
+      rateCount += 1;
+    }
+    if (!stayTypeName && item.service_name_snapshot) stayTypeName = item.service_name_snapshot;
+  }
+
+  dates.sort();
+  const uniqueDays = new Set(dates).size;
+  const from_date = dates[0] || null;
+  const to_date = dates[dates.length - 1] || from_date;
+  const days = uniqueDays || calculateStayDays(from_date, to_date);
+  const daily_rate = rateCount > 0 ? round2(rateSum / rateCount) : days > 0 ? round2(totalRaw / days) : 0;
+
+  return [
+    {
+      stay_type_name: stayTypeName || 'إقامة ورعاية',
+      from_date,
+      to_date,
+      days,
+      daily_rate,
+      total_raw: totalRaw,
+      total: Math.round(totalRaw),
+    },
+  ];
+}
+
+async function resolveInvoiceForPrint(invoice) {
+  if (!invoice) return invoice;
+  const fn = String(invoice.file_number || '').trim();
+  const admission = fmtDateOnly(invoice.admission_date);
+  if (!fn || !admission) return invoice;
+
+  const calcData = buildCalcDataFromInvoice(invoice);
+  calcData.include_daily_charges = true;
+  const prepared = await prepareCalculationData(calcData);
+  const derivedStay = deriveStayEntriesFromDailyItems(prepared.items || []);
+  if (derivedStay.length && !(prepared.stay_entries || []).length) {
+    prepared.stay_entries = derivedStay;
+  }
+  const totals = calculateInvoiceTotals(prepared);
+  const manualItems = (totals.items || []).filter((item) => !item.is_stay_entry);
+  const stay_entries =
+    (totals.stay_entries && totals.stay_entries.length ? totals.stay_entries : null) ||
+    derivedStay ||
+    invoice.stay_entries ||
+    [];
+
+  return {
+    ...invoice,
+    ...totals,
+    items: manualItems,
+    stay_entries,
+  };
+}
+
 async function buildPreviewInvoiceFromFormData(data) {
   const calcData = await prepareCalculationData(data);
   const totals = calculateInvoiceTotals(calcData);
@@ -1204,6 +1288,8 @@ function invoiceManualItems(invoice) {
 }
 
 function buildCalcDataFromInvoice(invoice) {
+  const fileNumber = String(invoice.file_number || '').trim();
+  const admissionDate = fmtDateOnly(invoice.admission_date);
   const items = (invoice.items || []).map((item) => ({
     id: item.id,
     description: item.description,
@@ -1270,7 +1356,7 @@ function buildCalcDataFromInvoice(invoice) {
       metadata: m.metadata && typeof m.metadata === 'object' ? m.metadata : {},
     })),
     items,
-    include_daily_charges: false,
+    include_daily_charges: Boolean(fileNumber && admissionDate),
     excluded_daily_line_ids: normalizeExcludedLineIds(invoice),
     excluded_section_codes: normalizeExcludedSectionCodes(invoice),
   };
@@ -1517,7 +1603,8 @@ async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) 
     discharge_date: discharge,
     stay_days: calculateStayDays(admission, discharge),
   };
-  const { computeDailyStampLinesTotal } = require('./dailyChargeService');
+  const { computeDailyStampLinesTotal, getInvoiceItemsFromDailyCharges } = require('./dailyChargeService');
+  const { inferBundleKeyFromItem } = require('./dailySectionBundles');
   const stampTotals = await computeDailyStampLinesTotal(fileNumber);
   if (stampTotals.rounded > 0) {
     dateOverrides.stamp_duty = stampTotals.rounded;
@@ -1526,6 +1613,19 @@ async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) 
   }
   const payload = invoiceToSavePayload(invoice, manualItems, dateOverrides);
   payload.include_daily_charges = true;
+
+  const excluded = normalizeExcludedSectionCodes(invoice);
+  if (excluded.includes('stay') && admission && discharge) {
+    const dailyPreview = await getInvoiceItemsFromDailyCharges(
+      fileNumber,
+      admission,
+      discharge,
+      invoiceId
+    );
+    if (dailyPreview.some((item) => inferBundleKeyFromItem(item) === 'stay')) {
+      payload.excluded_section_codes = excluded.filter((code) => code !== 'stay');
+    }
+  }
 
   return saveInvoice(payload, invoiceId, null, {
     save_mode: 'draft',
@@ -2104,4 +2204,6 @@ module.exports = {
   buildCalcDataFromInvoice,
   recalculateAndPersistInvoiceTotals,
   normalizeCaptainName,
+  resolveInvoiceForPrint,
+  deriveStayEntriesFromDailyItems,
 };

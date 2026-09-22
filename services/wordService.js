@@ -134,8 +134,8 @@ function buildStayDetailsTable(invoice) {
   });
 }
 
-function buildWordDocument(invoice) {
-  const inv = enrichInvoice(invoice);
+async function buildWordDocument(invoice) {
+  const inv = await enrichInvoice(invoice);
   const items = inv.items || [];
   const payments = inv.payments || [];
   const maxLen = Math.max(items.length, payments.length, 10);

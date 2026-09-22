@@ -114,19 +114,21 @@ function dailyReportUnitCellClass(text) {
   return dailyReportLatinCellClass(text, 'unit');
 }
 
-function enrichInvoice(invoice) {
+async function enrichInvoice(invoice) {
+  const { resolveInvoiceForPrint } = require('./invoiceService');
+  const resolved = await resolveInvoiceForPrint(invoice);
   const totals = calculateInvoiceTotals({
-    ...invoice,
-    items: invoice.items || [],
-    payments: invoice.payments || [],
-    method_payments: invoice.method_payments || [],
-    stay_entries: invoice.stay_entries || [],
+    ...resolved,
+    items: resolved.items || [],
+    payments: resolved.payments || invoice.payments || [],
+    method_payments: resolved.method_payments || invoice.method_payments || [],
+    stay_entries: resolved.stay_entries || [],
   });
 
   const { resolvePatientInvoiceBalanceDisplay } = require('./patientService');
-  const patientBalance = invoice._daily_kind_preview
+  const patientBalance = resolved._daily_kind_preview
     ? null
-    : resolvePatientInvoiceBalanceDisplay(invoice, totals);
+    : resolvePatientInvoiceBalanceDisplay(resolved, totals);
 
   const calcItems = (totals.items || []).filter((item) => !item.is_stay_entry);
   const calcByLineId = new Map(
@@ -134,7 +136,7 @@ function enrichInvoice(invoice) {
   );
   const calcById = new Map(calcItems.filter((item) => item.id).map((item) => [String(item.id), item]));
 
-  const mergedItems = (invoice.items || []).map((item) => {
+  const mergedItems = (resolved.items || []).map((item) => {
     const calc =
       item.daily_entry_line_id && calcByLineId.has(String(item.daily_entry_line_id))
         ? calcByLineId.get(String(item.daily_entry_line_id))
@@ -156,13 +158,13 @@ function enrichInvoice(invoice) {
   });
 
   return {
-    ...invoice,
+    ...resolved,
     ...totals,
     ...(patientBalance ? { balance: patientBalance.balance, balance_raw: patientBalance.balance_raw } : {}),
     items: mergedItems,
-    stay_entries: totals.stay_entries || invoice.stay_entries || [],
-    invoice_type_label: invoice.invoice_type_label || invoice.invoice_type,
-    captain_name: normalizeCaptainName(invoice.captain_name),
+    stay_entries: totals.stay_entries || resolved.stay_entries || [],
+    invoice_type_label: resolved.invoice_type_label || invoice.invoice_type_label || invoice.invoice_type,
+    captain_name: normalizeCaptainName(resolved.captain_name || invoice.captain_name),
   };
 }
 
@@ -221,10 +223,10 @@ function scopeInvoiceForDailyKindPreview(invoice, dailyKind) {
   };
 }
 
-function buildInvoiceHtml(invoice, options = {}) {
+async function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '', dailyKind = '' } = options;
   const scopedInvoice = scopeInvoiceForDailyKindPreview(invoice, dailyKind);
-  const inv = enrichInvoice(scopedInvoice);
+  const inv = await enrichInvoice(scopedInvoice);
   if (scopedInvoice._daily_kind_label) {
     inv._daily_kind_label = scopedInvoice._daily_kind_label;
     inv._daily_kind_preview = true;
