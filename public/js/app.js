@@ -1322,7 +1322,7 @@ function createInvoiceSectionHeaderRow(label) {
   const tr = document.createElement('tr');
   tr.className = 'invoice-section-header-row';
   tr.dataset.sectionHeader = '1';
-  tr.innerHTML = `<td colspan="9" class="invoice-section-header-cell"><span class="invoice-section-header-label fw-black">${label}</span></td>`;
+  tr.innerHTML = `<td colspan="9" class="invoice-section-header-cell"><span class="invoice-section-header-label fw-black">${escapeHtml(label)}</span></td>`;
   return tr;
 }
 
@@ -2198,7 +2198,7 @@ function buildStayTypeOptions(selectedId = '') {
       .map((t) => {
         const rate = Number(t.daily_rate) || 0;
         const rateLabel = rate ? ` (${fmt(rate)}/يوم)` : '';
-        return `<option value="${t.id}" data-rate="${rate}" ${String(selectedId) === String(t.id) ? 'selected' : ''}>${t.name}${rateLabel}</option>`;
+        return `<option value="${t.id}" data-rate="${rate}" ${String(selectedId) === String(t.id) ? 'selected' : ''}>${escapeHtml(t.name)}${rateLabel}</option>`;
       })
       .join('')
   );
@@ -2800,7 +2800,11 @@ function updateInvoiceActionButtons() {
   document.getElementById('save-draft-btn').style.display = canEdit && !isApproved ? '' : 'none';
   document.getElementById('submit-review-btn').style.display = can('invoices.submit') && !isApproved ? '' : 'none';
   document.getElementById('approve-invoice-btn').style.display =
-    can('invoices.approve') && (isPending || currentInvoiceId) && !isApproved ? '' : 'none';
+    can('invoices.approve') &&
+    (isPending || (currentInvoiceId && currentInvoiceStatus !== 'draft')) &&
+    !isApproved
+      ? ''
+      : 'none';
 
   const showExports = isApproved && currentInvoiceId;
   const returnBtn = document.getElementById('record-return-btn');
@@ -4876,14 +4880,14 @@ async function loadInvoiceTypes() {
     const current = select.value;
     select.innerHTML =
       '<option value="">-- اختر النوع --</option>' +
-      types.map((t) => `<option value="${t.code}">${t.name}</option>`).join('');
+      types.map((t) => `<option value="${escapeAttr(t.code)}">${escapeHtml(t.name)}</option>`).join('');
     if (current) select.value = current;
 
     const filter = document.getElementById('list-type-filter');
     const filterCurrent = filter.value;
     filter.innerHTML =
       '<option value="">كل الأنواع</option>' +
-      types.map((t) => `<option value="${t.code}">${t.name}</option>`).join('');
+      types.map((t) => `<option value="${escapeAttr(t.code)}">${escapeHtml(t.name)}</option>`).join('');
     if (filterCurrent) filter.value = filterCurrent;
   } catch (err) {
     console.error(err);

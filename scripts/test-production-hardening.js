@@ -147,6 +147,7 @@ withEnv(
     SESSION_SECRET: 'abcdefghijklmnopqrstuvwxyz0123456789abcdef',
     APP_SECRET: 'abcdefghijklmnopqrstuvwxyz0123456789abcdef',
     ALLOWED_ORIGINS: 'http://localhost:8080',
+    DATABASE_URL: 'postgres://user:pass@localhost:5432/eaf_test',
   },
   () => {
     validateProductionConfig();
@@ -192,7 +193,7 @@ const userReq = {
     user: {
       username: 'user1',
       role: 'user',
-      permissions: ['invoices.view'],
+      custom_permissions: ['invoices.view'],
     },
   },
   method: 'GET',
