@@ -1887,9 +1887,6 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     } else if (linesIncludeStay(lines)) {
       const stayEntry = await findStayEntryForDate(client, patient.id, entryDate);
       if (stayEntry) existing = stayEntry;
-    } else if (!linesIncludeExam(lines)) {
-      const dayEntry = await findDailyEntryForDate(client, patient.id, entryDate);
-      if (dayEntry) existing = dayEntry;
     }
   }
 

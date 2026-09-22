@@ -53,9 +53,9 @@
     if (code && BUNDLE_LABELS[code]) return code;
     if (code) return inferBundleKey(code);
     if (!item?.daily_entry_line_id && !item?.daily_entry_id) return '__manual__';
-    const desc = String(item?.description || '');
-    if (desc.includes('عملية')) return 'operations';
-    if (desc.includes('بصريات') || desc.includes('نظارات')) return 'glasses';
+    const desc = String(item?.description || '').trim();
+    if (desc.startsWith('عملية')) return 'operations';
+    if (desc.startsWith('بصريات') || desc.startsWith('نظارات')) return 'glasses';
     return '__manual__';
   }
 

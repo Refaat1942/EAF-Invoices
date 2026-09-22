@@ -8180,7 +8180,7 @@ function validateExamSaveEntries(entries = []) {
 async function saveDailyEntryNow(options = {}) {
   const { silent = false, previewFlush = false } = options;
   const file_number = getStayFileNumber();
-  const entries = enrichSaveEntriesWithPreservedLines(colollectDailyRowsForSave());
+  const entries = enrichSaveEntriesWithPreservedLines(collectDailyRowsForSave());
   if (!file_number || !entries.length) {
     if (!silent) showToast('أضف صفًا واحدًا على الأقل مع بيانات', 'warning');
     return false;
