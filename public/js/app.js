@@ -1840,7 +1840,7 @@ function updatePaymentRowHints() {
     finalTotal,
     paid,
     remaining,
-    Number(lastCalculationTotals?.refundable_amount) || 0,
+    getDischargeRefundableAmount(lastCalculationTotals),
     sumPaymentMethodsByCode()
   );
 }
@@ -2514,6 +2514,25 @@ function getPatientBalanceAfterInvoice(totals = lastCalculationTotals) {
     return Math.round((prepaid - outstanding + refundable) * 100) / 100;
   }
   return Math.round((prepaid - credit - outstanding + refundable) * 100) / 100;
+}
+
+// "مستحق إرجاع للمريض" at discharge is the patient's full net balance (account
+// credit + unused room insurance + this invoice's own overpayment, minus what's
+// still due), clamped at 0 — not getPatientBalanceAfterInvoice's own early
+// return for file-less invoices (that reflects the manual "balance" field, not
+// a refund). refundable_amount alone (from /calculate) only ever covers this
+// invoice's own payment overage and never includes room_insurance_amount.
+function getDischargeRefundableAmount(totals = lastCalculationTotals) {
+  const prepaid = getPatientPrepaidBalanceLocal();
+  const outstanding =
+    Math.round((Number(totals?.outstanding_amount ?? totals?.remaining) || 0) * 100) / 100;
+  const refundable = resolveRefundableFromTotals(totals);
+  const finalTotal = Number(totals?.final_total_raw ?? totals?.final_total) || 0;
+  const credit = Math.round(computeInvoicePatientCredit(finalTotal) * 100) / 100;
+  const balance = isPatientCreditAlreadyDeducted()
+    ? Math.round((prepaid - outstanding + refundable) * 100) / 100
+    : Math.round((prepaid - credit - outstanding + refundable) * 100) / 100;
+  return Math.max(0, balance);
 }
 
 function computeInvoicePatientCredit(finalTotal, otherPaid = null) {
@@ -3419,8 +3438,8 @@ function updateSummaryDisplay(t) {
     }
   }
 
-  const refundableRaw = Number(t.refundable_amount_raw) || 0;
-  const refundable = Number(t.refundable_amount) || 0;
+  const refundableRaw = getDischargeRefundableAmount(t);
+  const refundable = refundableRaw;
   const showRefundable = refundableRaw > 0.009;
   const refundableWrap = document.getElementById('sum_refundable_wrap');
   if (refundableWrap) refundableWrap.style.display = showRefundable ? '' : 'none';

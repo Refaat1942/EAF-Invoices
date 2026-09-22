@@ -496,6 +496,11 @@ function resolvePatientInvoiceBalanceDisplay(invoice, totals = {}) {
   const balance = creditAlreadyDeducted
     ? Math.round((prepaid - outstanding + refundable) * 100) / 100
     : Math.round((prepaid - credit - outstanding + refundable) * 100) / 100;
+  // "مستحق إرجاع للمريض" at discharge is the patient's full net balance (account
+  // credit + unused room insurance + this invoice's own overpayment, minus what's
+  // still due) — not just refundable_amount, which is this invoice's payment
+  // overage alone and never includes room_insurance_amount.
+  const dischargeRefundable = Math.max(0, balance);
 
   return {
     balance,
@@ -504,6 +509,8 @@ function resolvePatientInvoiceBalanceDisplay(invoice, totals = {}) {
     room_insurance_amount: roomInsurance,
     prepaid_balance: prepaid,
     refundable_amount: refundable,
+    discharge_refundable_amount: dischargeRefundable,
+    discharge_refundable_amount_raw: dischargeRefundable,
   };
 }
 

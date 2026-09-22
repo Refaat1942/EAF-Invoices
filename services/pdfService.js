@@ -160,7 +160,14 @@ async function enrichInvoice(invoice) {
   return {
     ...resolved,
     ...totals,
-    ...(patientBalance ? { balance: patientBalance.balance, balance_raw: patientBalance.balance_raw } : {}),
+    ...(patientBalance
+      ? {
+          balance: patientBalance.balance,
+          balance_raw: patientBalance.balance_raw,
+          discharge_refundable_amount: patientBalance.discharge_refundable_amount,
+          discharge_refundable_amount_raw: patientBalance.discharge_refundable_amount_raw,
+        }
+      : {}),
     items: mergedItems,
     stay_entries: totals.stay_entries || resolved.stay_entries || [],
     invoice_type_label: resolved.invoice_type_label || invoice.invoice_type_label || invoice.invoice_type,
