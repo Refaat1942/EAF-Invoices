@@ -1478,6 +1478,12 @@ function linesIncludeStay(lines = []) {
   return (lines || []).some((line) => STAY_SECTION_CODES.has(line.section_code));
 }
 
+const DAILY_EXAM_LINE_CODES = new Set(['consultant_exam', 'specialist_exam']);
+
+function linesIncludeExam(lines = []) {
+  return (lines || []).some((line) => DAILY_EXAM_LINE_CODES.has(line.section_code));
+}
+
 async function prepareEntrySaveContext(data) {
   const patient = await resolvePatient(data.file_number, data.patient_name);
   const patientType = String(patient.patient_type || 'internal').toLowerCase() === 'external' ? 'external' : 'internal';
@@ -1864,7 +1870,7 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     } else if (linesIncludeStay(lines)) {
       const stayEntry = await findStayEntryForDate(client, patient.id, entryDate);
       if (stayEntry) existing = stayEntry;
-    } else {
+    } else if (!linesIncludeExam(lines)) {
       const dayEntry = await findDailyEntryForDate(client, patient.id, entryDate);
       if (dayEntry) existing = dayEntry;
     }

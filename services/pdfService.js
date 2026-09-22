@@ -736,7 +736,7 @@ function methodPaymentsToReceiptRows(methodPayments = []) {
         amount: entry.amount,
         depositor_name: String(meta.depositor_name || '').trim(),
         receipt_number: String(meta.transfer_ref || meta.cheque_number || '').trim(),
-        receipt_date: String(meta.cheque_date || '').trim(),
+        receipt_date: String(meta.cheque_date || meta.receipt_date || '').trim(),
       };
     });
 }

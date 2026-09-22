@@ -503,6 +503,11 @@ body {
   font-size: 0.82rem;
 }
 
+/* مدفوعات المزامنة من «بيان المدفوعات» — للحفظ/الطباعة فقط، لا تظهر تحت بنود الفاتورة */
+#view-create #items-tbody tr.invoice-method-payment-row {
+  display: none;
+}
+
 .payment-methods-table {
   font-size: 0.92rem;
 }

@@ -3642,30 +3642,96 @@ function validatePaymentsBeforeSave(totals) {
   return { ok: false, message: msg };
 }
 
+function sumInvoiceSectionDiscount(items = [], sectionKey = '') {
+  const key = String(sectionKey || '').trim();
+  if (!key) {
+    return {
+      discountAmt: 0,
+      discountRaw: 0,
+      pct: 0,
+      eligible: false,
+      sectionTotalRaw: 0,
+    };
+  }
+  let discountAmt = 0;
+  let discountRaw = 0;
+  let sectionTotalRaw = 0;
+  let pct = 0;
+  let eligible = false;
+  for (const item of items) {
+    if (item.is_stay_entry) continue;
+    if (window.DailySectionBundles?.isStampLineItem?.(item)) continue;
+    if (inferInvoiceItemSectionKey(item) !== key) continue;
+    discountAmt += Number(item.item_discount_amount) || 0;
+    discountRaw += Number(item.item_discount_amount_raw) || 0;
+    sectionTotalRaw += Number(item.total_raw ?? item.total) || 0;
+    if (item.is_discount_eligible) {
+      eligible = true;
+      if (Number(item.item_discount_percent) > 0) pct = Number(item.item_discount_percent);
+    }
+  }
+  discountAmt = Math.round(discountAmt * 100) / 100;
+  discountRaw = Math.round(discountRaw * 100) / 100;
+  sectionTotalRaw = Math.round(sectionTotalRaw * 100) / 100;
+  if (!pct && sectionTotalRaw > 0 && discountRaw > 0) {
+    pct = Math.round((discountRaw / sectionTotalRaw) * 10000) / 100;
+  }
+  return { discountAmt, discountRaw, pct, eligible, sectionTotalRaw };
+}
+
+function formatInvoiceRowDiscountDisplay(pct, amt) {
+  if (amt > 0 && pct > 0) return `${pct}% (${fmt(amt)})`;
+  if (pct > 0) return `${pct}%`;
+  if (amt > 0) return `(${fmt(amt)})`;
+  return '0%';
+}
+
 function applyItemDiscountPercents(items) {
+  const billable = (items || []).filter((item) => !item.is_stay_entry);
   const byLineId = Object.fromEntries(
-    (items || []).filter((item) => item.daily_entry_line_id).map((item) => [String(item.daily_entry_line_id), item])
+    billable.filter((item) => item.daily_entry_line_id).map((item) => [String(item.daily_entry_line_id), item])
   );
-  const manualItems = (items || []).filter((item) => !item.daily_entry_line_id);
+  const manualItems = billable.filter((item) => !item.daily_entry_line_id);
   let manualIdx = 0;
   const rows = document.querySelectorAll('#items-tbody tr');
   rows.forEach((row) => {
-    if (row.dataset.staySync) return;
-    const lineId = row.dataset.dailyLineId;
-    const item = lineId ? byLineId[String(lineId)] : manualItems[manualIdx++];
+    if (row.dataset.staySync || row.dataset.sectionHeader) return;
     const pctField = row.querySelector('[data-field="discount_percent"]');
     if (!pctField) return;
+
+    if (row.dataset.sectionAggregate === '1') {
+      const sectionKey = row.dataset.sectionKey || row.dataset.sectionCode || '';
+      const sum = sumInvoiceSectionDiscount(billable, sectionKey);
+      if (sum.discountAmt > 0 || sum.discountRaw > 0) {
+        const amt = sum.discountAmt > 0 ? sum.discountAmt : Math.round(sum.discountRaw);
+        pctField.value = formatInvoiceRowDiscountDisplay(sum.pct, amt);
+        pctField.title = sum.eligible
+          ? `خصم القسم — ${fmt(sum.sectionTotalRaw)} إجمالي قبل الخصم`
+          : 'غير خاضع للخصم';
+        pctField.classList.toggle('text-success', sum.eligible);
+        pctField.classList.toggle('text-muted', !sum.eligible);
+      } else {
+        pctField.value = '0%';
+        pctField.title = sum.eligible ? 'خاضع للخصم' : 'غير خاضع للخصم';
+        pctField.classList.toggle('text-success', sum.eligible);
+        pctField.classList.toggle('text-muted', !sum.eligible);
+      }
+      return;
+    }
+
+    const lineId = row.dataset.dailyLineId;
+    const item = lineId ? byLineId[String(lineId)] : manualItems[manualIdx++];
     if (item) {
       const pct = item.item_discount_percent || 0;
       const amt = item.item_discount_amount || 0;
-      pctField.value =
-        pct > 0 && amt > 0 ? `${pct}% (${fmt(amt)})` : pct > 0 ? `${pct}%` : '0%';
+      pctField.value = formatInvoiceRowDiscountDisplay(pct, amt);
       pctField.title = item.is_discount_eligible ? 'خاضع للخصم' : 'غير خاضع للخصم';
       pctField.classList.toggle('text-success', item.is_discount_eligible);
       pctField.classList.toggle('text-muted', !item.is_discount_eligible);
     } else {
       pctField.value = '0%';
       pctField.title = '';
+      pctField.classList.remove('text-success', 'text-muted');
     }
   });
 }
@@ -4762,13 +4828,36 @@ async function loadFinancialTreatments(selected = {}) {
 
 const PAYMENT_META_FIELDS = {
   cash: [],
-  bank_transfer: [{ key: 'transfer_ref', label: 'رقم التحويل', placeholder: 'رقم العملية أو الإيصال' }],
-  check: [
-    { key: 'cheque_number', label: 'رقم الشيك', placeholder: 'رقم الشيك' },
-    { key: 'cheque_date', label: 'تاريخ الشيك', placeholder: '', type: 'date' },
-    { key: 'cheque_drawer', label: 'الساحب', placeholder: 'اسم ساحب الشيك' },
-  ],
+  bank_transfer: [],
+  check: [{ key: 'cheque_drawer', label: 'ساحب الشيك', placeholder: 'اسم ساحب الشيك' }],
 };
+
+function paymentReceiptNumberMetaKey(code) {
+  if (code === 'check') return 'cheque_number';
+  return 'transfer_ref';
+}
+
+function paymentReceiptDateMetaKey(code) {
+  if (code === 'check') return 'cheque_date';
+  return 'receipt_date';
+}
+
+function buildPaymentReceiptCellsHtml(method, metadata = {}, lineIndex = 0) {
+  const code = method.code;
+  const isPatientCredit = code === 'patient_credit';
+  if (isPatientCredit) {
+    return '<td class="text-muted text-center">—</td><td class="text-muted text-center">—</td>';
+  }
+  const numKey = paymentReceiptNumberMetaKey(code);
+  const dateKey = paymentReceiptDateMetaKey(code);
+  const numVal = String(metadata[numKey] || '').trim();
+  const dateVal = String(metadata[dateKey] || '').trim();
+  const numPh =
+    code === 'check' ? 'رقم الشيك' : code === 'bank_transfer' ? 'رقم التحويل' : 'رقم الإيصال';
+  const inputClass = 'form-control form-control-sm payment-meta-input calc-trigger';
+  return `<td><input type="text" class="${inputClass}" data-meta-key="${numKey}" data-method-code="${code}" data-line-index="${lineIndex}" placeholder="${escapeAttr(numPh)}" value="${escapeAttr(numVal)}" autocomplete="off"></td>
+    <td><input type="date" class="${inputClass}" data-meta-key="${dateKey}" data-method-code="${code}" data-line-index="${lineIndex}" value="${escapeAttr(dateVal)}"></td>`;
+}
 
 function buildPaymentMetaFieldsHtml(code, meta = {}, lineIndex = 0) {
   const fields = PAYMENT_META_FIELDS[code];
@@ -4822,14 +4911,18 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
       <td><input type="text" inputmode="decimal" class="form-control form-control-sm payment-method-input comma-amount${extraClass}"
         data-method-id="${method.id}" data-method-code="${method.code}" data-method-name="${escapeAttr(method.name)}" data-line-index="${lineIndex}"
         value="${displayVal}" placeholder="0" ${readonlyAttr}></td>
+      ${buildPaymentReceiptCellsHtml(method, metadata, lineIndex)}
       <td><input type="text" class="form-control form-control-sm payment-depositor-input calc-trigger${depositorExtraClass}"
         data-method-code="${method.code}" data-line-index="${lineIndex}" value="${escapeAttr(depositorVal)}"
         placeholder="اسم المودع" autocomplete="off" ${depositorReadonly}></td>
       <td class="text-center payment-method-actions">${actions.join(' ')}</td>
     </tr>`;
-  const metaRow = `<tr class="payment-meta-row" data-method-code="${method.code}" data-line-index="${lineIndex}" style="display:none"><td colspan="4" class="py-2 bg-light">
-      <div class="payment-meta-fields row g-2">${buildPaymentMetaFieldsHtml(method.code, metadata, lineIndex)}</div>
-    </td></tr>`;
+  const extraMeta = buildPaymentMetaFieldsHtml(method.code, metadata, lineIndex);
+  const metaRow = extraMeta
+    ? `<tr class="payment-meta-row" data-method-code="${method.code}" data-line-index="${lineIndex}" style="display:none"><td colspan="6" class="py-2 bg-light">
+      <div class="payment-meta-fields row g-2">${extraMeta}</div>
+    </td></tr>`
+    : '';
   return `${lineRow}${metaRow}`;
 }
 
@@ -4850,7 +4943,7 @@ function reindexPaymentMethodLines(code) {
     row.classList.toggle('payment-method-line-extra', index > 0);
     const input = row.querySelector('.payment-method-input');
     if (input) input.dataset.lineIndex = String(index);
-    row.querySelectorAll('.payment-depositor-input').forEach((el) => {
+    row.querySelectorAll('.payment-depositor-input, .payment-meta-input').forEach((el) => {
       el.dataset.lineIndex = String(index);
     });
     if (index > 0) {
@@ -4931,13 +5024,17 @@ function togglePaymentMetaRows() {
     const code = row.dataset.methodCode;
     const lineIndex = row.dataset.lineIndex || '0';
     const hasFields = Boolean(PAYMENT_META_FIELDS[code]?.length);
+    if (!hasFields) {
+      row.style.display = 'none';
+      return;
+    }
     const input = document.querySelector(
       `.payment-method-input[data-method-code="${code}"][data-line-index="${lineIndex}"]`
     );
     const amount = input ? parseDisplayAmount(input.value) : 0;
     const meta = collectPaymentMetadata(code, lineIndex);
-    const hasMeta = Object.keys(meta).length > 0;
-    row.style.display = hasFields && (amount > 0 || hasMeta) ? '' : 'none';
+    const drawer = String(meta.cheque_drawer || '').trim();
+    row.style.display = amount > 0 || drawer ? '' : 'none';
   });
 }
 
@@ -4982,7 +5079,7 @@ function collectMethodPaymentReceiptRows() {
       amount,
       depositor_name: String(meta.depositor_name || '').trim(),
       receipt_number: String(meta.transfer_ref || meta.cheque_number || '').trim(),
-      receipt_date: String(meta.cheque_date || '').trim(),
+      receipt_date: String(meta.cheque_date || meta.receipt_date || '').trim(),
     });
   });
   return receipts;
@@ -5089,18 +5186,18 @@ async function loadPaymentMethodsForm(methodLinesByCode = {}) {
             buildPaymentMethodLineHtml(m, lineIndex, line, { methodIndex: i + 1, isFirstLine: lineIndex === 0 })
           )
           .join('');
-        const hintRow = `<tr class="payment-method-hint-row" data-method-code="${m.code}" style="display:none"><td colspan="4" class="remaining-hint-text py-1 text-muted small"></td></tr>`;
+        const hintRow = `<tr class="payment-method-hint-row" data-method-code="${m.code}" style="display:none"><td colspan="6" class="remaining-hint-text py-1 text-muted small"></td></tr>`;
         return `${lineHtml}${hintRow}`;
       })
       .join('');
 
     if (infoMethods.length) {
       html += infoMethods
-        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="4">ℹ️ ${m.name}</td></tr>`)
+        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="6">ℹ️ ${m.name}</td></tr>`)
         .join('');
     }
 
-    tbody.innerHTML = html || '<tr><td colspan="4" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
+    tbody.innerHTML = html || '<tr><td colspan="6" class="text-muted text-center">لا توجد طرق دفع — أضفها من الإعدادات</td></tr>';
     tbody.dataset.paymentHelpersBound = '0';
     bindCalcTriggers();
     bindPaymentMethodHelpers();

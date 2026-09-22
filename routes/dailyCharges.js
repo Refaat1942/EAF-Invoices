@@ -444,6 +444,19 @@ router.post('/open-stay', requirePermission('daily_charges.manage'), async (req,
   }
 });
 
+router.post('/sync-room-insurance', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const file_number = req.body.file_number?.trim();
+    if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
+    const { syncAdmissionDayRoomInsurance } = require('../services/stayBatchPostingService');
+    const sync = await syncAdmissionDayRoomInsurance(file_number, req.session?.user || null);
+    const stay = await getOpenPatientStay(file_number);
+    res.json({ ...stay, room_insurance_sync: sync });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/convert-to-internal', requirePermission('daily_charges.manage'), async (req, res) => {
   try {
     const file_number = req.body.file_number?.trim();

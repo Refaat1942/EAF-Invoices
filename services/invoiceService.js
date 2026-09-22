@@ -2146,11 +2146,27 @@ async function openPatientStay(data, user = null) {
       actor: user,
     })) || (await getInvoiceById(invoiceId));
 
-  const patient = await getPatientByFileNumber(fileNumber);
+  let patient = await getPatientByFileNumber(fileNumber);
+  if (patientType === 'internal') {
+    const {
+      ensureAdmissionDayStayPosted,
+      syncAdmissionDayRoomInsurance,
+    } = require('./stayBatchPostingService');
+    await ensureAdmissionDayStayPosted(fileNumber, user);
+    await syncAdmissionDayRoomInsurance(fileNumber, user);
+    patient = await getPatientByFileNumber(fileNumber);
+  }
+
+  const syncedInvoice =
+    (await syncInvoiceAfterDailyChange(invoiceId, fileNumber, {
+      preserve_status: true,
+      actor: user,
+    })) || updated;
+
   const dailySummary = await getDailySummaryForStay(
     fileNumber,
-    updated.admission_date,
-    updated.discharge_date
+    syncedInvoice.admission_date,
+    syncedInvoice.discharge_date
   );
 
   let room_assignment = null;
@@ -2161,7 +2177,7 @@ async function openPatientStay(data, user = null) {
 
   return {
     patient,
-    invoice: updated,
+    invoice: syncedInvoice,
     created,
     daily_summary: dailySummary,
     room_assignment,

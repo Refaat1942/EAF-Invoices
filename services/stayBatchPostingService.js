@@ -4,11 +4,14 @@ const { getPatientByFileNumber } = require('./patientService');
 const { getOpenPatientStay } = require('./invoiceService');
 const {
   saveEntriesBatch,
+  saveEntry,
+  getEntryById,
   resolveAccommodationGradeForStayType,
   getCurrentBusinessDateString,
   normalizeCalendarDate,
   isStayDateExcluded,
 } = require('./dailyChargeService');
+const { syncPatientDailyChargesToInvoice } = require('./invoiceService');
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -236,8 +239,170 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
   };
 }
 
+function admissionCompanionWithInsurance(assignment, roomInsuranceAmount) {
+  const base = round2(assignment?.companion_amount);
+  const ins = round2(roomInsuranceAmount);
+  if (ins <= 0) return base;
+  return round2(base + ins);
+}
+
+/**
+ * يوم الدخول: إنشاء حركة إقامة (إقامة + مرافق + …) إن لم تكن موجودة — يظهر أول سطر في تبويب الإقامة.
+ */
+async function ensureAdmissionDayStayPosted(fileNumber, user = null) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return { posted: false, reason: 'missing_file_number' };
+
+  const stay = await getOpenPatientStay(fn);
+  const patient = stay?.patient || (await getPatientByFileNumber(fn));
+  if (!patient?.id || !stay?.invoice?.admission_date) {
+    return { posted: false, reason: 'no_open_stay' };
+  }
+  if (String(patient.patient_type || '').toLowerCase() === 'external') {
+    return { posted: false, reason: 'external_patient' };
+  }
+
+  const admission = parseDateOnly(stay.invoice.admission_date);
+  if (!admission) return { posted: false, reason: 'no_admission_date' };
+
+  const assignment = await getAssignmentForDate(patient.id, admission);
+  if (!assignment?.stay_type_id) {
+    return { posted: false, reason: 'no_room_assignment' };
+  }
+
+  const hasAccommodation = await hasStaySectionLine(patient.id, admission, 'accommodation');
+  if (hasAccommodation) {
+    return { posted: false, reason: 'already_posted', entry_date: admission };
+  }
+
+  const result = await batchPostStayCharges(
+    fn,
+    {
+      from_date: admission,
+      to_date: admission,
+      skip_existing: true,
+      include_today: true,
+    },
+    user
+  );
+  return { posted: (result.posted || 0) > 0, entry_date: admission, ...result };
+}
+
+/**
+ * تأمين الغرفة يُحمَّل على بند المرافق في يوم الدخول (يظهر في إجمالي الفاتورة).
+ */
+async function syncAdmissionDayRoomInsurance(fileNumber, user = null) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return { updated: false, reason: 'missing_file_number' };
+
+  const stay = await getOpenPatientStay(fn);
+  const patient = stay?.patient || (await getPatientByFileNumber(fn));
+  if (!patient?.id || !stay?.invoice?.admission_date) {
+    return { updated: false, reason: 'no_open_stay' };
+  }
+
+  const admission = parseDateOnly(stay.invoice.admission_date);
+  const roomIns = round2(patient.room_insurance_amount);
+  if (!admission) return { updated: false, reason: 'no_admission_date' };
+
+  const assignment = await getAssignmentForDate(patient.id, admission);
+  const targetCompanion = admissionCompanionWithInsurance(assignment, roomIns);
+
+  const { rows } = await query(
+    `SELECT id FROM patient_daily_entries
+     WHERE patient_id = $1 AND entry_date = $2::date
+     ORDER BY id DESC LIMIT 1`,
+    [patient.id, admission]
+  );
+  let entryId = Number(rows[0]?.id) || 0;
+
+  if (!entryId) {
+    const stayPost = await ensureAdmissionDayStayPosted(fn, user);
+    const { rows: afterRows } = await query(
+      `SELECT id FROM patient_daily_entries
+       WHERE patient_id = $1 AND entry_date = $2::date
+       ORDER BY id DESC LIMIT 1`,
+      [patient.id, admission]
+    );
+    entryId = Number(afterRows[0]?.id) || 0;
+    if (!entryId) {
+      return { updated: false, reason: 'no_admission_entry', stay_post: stayPost };
+    }
+    await syncPatientDailyChargesToInvoice(fn, patient.name);
+    return {
+      updated: Boolean(stayPost.posted),
+      posted: Boolean(stayPost.posted),
+      reason: 'admission_stay_created',
+      entry_date: admission,
+    };
+  }
+
+  const entry = await getEntryById(entryId);
+  if (!entry) return { updated: false, reason: 'entry_not_found' };
+
+  const lines = (entry.lines || []).map((line) => ({ ...line }));
+  const companionIdx = lines.findIndex((line) => line.section_code === 'companion');
+  const currentCompanion =
+    companionIdx >= 0 ? round2(lines[companionIdx].amount ?? lines[companionIdx].unit_price) : 0;
+
+  if (Math.abs(currentCompanion - targetCompanion) < 0.005) {
+    return { updated: false, reason: 'already_synced', companion: targetCompanion };
+  }
+
+  if (targetCompanion > 0) {
+    if (companionIdx >= 0) {
+      lines[companionIdx] = {
+        ...lines[companionIdx],
+        amount: targetCompanion,
+        unit_price: targetCompanion,
+        quantity: 1,
+      };
+    } else {
+      lines.push({
+        section_code: 'companion',
+        amount: targetCompanion,
+        unit_price: targetCompanion,
+        quantity: 1,
+      });
+    }
+  } else if (companionIdx >= 0 && roomIns <= 0) {
+    const baseOnly = round2(assignment?.companion_amount);
+    if (baseOnly > 0) {
+      lines[companionIdx] = {
+        ...lines[companionIdx],
+        amount: baseOnly,
+        unit_price: baseOnly,
+        quantity: 1,
+      };
+    } else {
+      lines.splice(companionIdx, 1);
+    }
+  }
+
+  await saveEntry(
+    {
+      entry_id: entryId,
+      file_number: fn,
+      patient_name: patient.name,
+      entry_date: admission,
+      stay_type_id: entry.stay_type_id,
+      notes: entry.notes || '',
+      doctor_id: entry.doctor_id,
+      doctor_specialty: entry.doctor_specialty || '',
+      lines,
+      allow_backfill: true,
+    },
+    user
+  );
+  await syncPatientDailyChargesToInvoice(fn, patient.name);
+  return { updated: true, companion: targetCompanion };
+}
+
 module.exports = {
   batchPostStayCharges,
+  ensureAdmissionDayStayPosted,
+  syncAdmissionDayRoomInsurance,
+  admissionCompanionWithInsurance,
   resolveAccommodationRateForStayType,
   hasStaySectionLine,
   listInclusiveDates,
