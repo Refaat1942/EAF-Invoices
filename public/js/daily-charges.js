@@ -509,15 +509,8 @@ function bindDailyDoctorSuggestWrap(tr) {
     wrap._pickedDoctorLabel = '';
     wrap._pickedDoctorId = '';
   };
-  const applyDoctorExamPrice = (doctorPrice) => {
-    const price = Number(doctorPrice) || 0;
-    if (price <= 0 || !tr.classList.contains('daily-exam-row')) return;
-    const unitEl = tr.querySelector('.daily-exam-unit-price');
-    if (!unitEl) return;
-    unitEl.value = formatAmountFieldValue(price);
-    updateRowTotal(tr);
-    updateDailyGrandTotal();
-    updateSectionTabTotal();
+  const applyDoctorExamPrice = (_doctorPrice) => {
+    /* سعر الكشف يأتي من حالة الكشف/اللائحة — لا نستبدله بسعر استشارة الطبيب */
   };
 
   const pickDoctor = (id, name, doctorPrice = 0) => {
@@ -714,7 +707,8 @@ function applyDailyTabColumnVisibility() {
     hint.textContent =
       'عمليات — تاريخ، العملية، الأوقات، المرافق، نقطة تمريض، مساعد تمريض، والإجمالي يُحسب تلقائياً. مرّر الجدول لليمين/اليسار لرؤية كل الأعمدة.';
   } else if (hint && activeDailyTab === 'stay') {
-    hint.textContent = '';
+    hint.textContent =
+      'إقامة — صف لكل يوم في فترة الدخول/الخروج. «+ صف إقامة» يضيف اليوم التالي غير المسجّل. يمكن تغيير التاريخ في الصف قبل الحفظ.';
   } else if (hint && codes) {
     const label = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab)?.label || '';
     hint.textContent = `قسم «${label}» — ابحث واختر البند، السعر من اللائحة تلقائياً. احفظ لتُضاف على الفاتورة الكبيرة.`;
@@ -1192,9 +1186,54 @@ function focusDailyEntryRow(tr) {
 }
 
 function findBlankDailyEntryRow() {
-  for (const row of document.querySelectorAll('#daily-sections-body .daily-entry-row')) {
+  const selector =
+    activeDailyTab === 'stay'
+      ? '#daily-sections-body .daily-stay-row'
+      : '#daily-sections-body .daily-entry-row';
+  for (const row of document.querySelectorAll(selector)) {
     if (row.dataset.entryId) continue;
+    if (activeDailyTab === 'stay') {
+      if (!stayRowGroupHasChargeData(row)) return row;
+      continue;
+    }
     if (!rowHasChargeData(row)) return row;
+  }
+  return null;
+}
+
+function addIsoDateDays(iso, days) {
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function collectStayDatesInDom() {
+  const dates = new Set();
+  document.querySelectorAll('#daily-sections-body .daily-stay-row').forEach((tr) => {
+    const d = fmtStayDate(tr.querySelector('.daily-row-date')?.value);
+    if (d) dates.add(d);
+  });
+  return dates;
+}
+
+/** Next calendar day in the invoice stay period without a row yet (not suppressed). */
+function suggestNextStayEntryDate() {
+  const used = collectStayDatesInDom();
+  const { from, to } = getDailyInvoicePeriodBounds();
+  const end = to || getLocalDateString();
+  const start = from || end;
+  if (start > end) {
+    const today = getLocalDateString();
+    if (!used.has(today) && !isDailyStayDateSuppressed(today)) return today;
+    return null;
+  }
+  for (let cursor = start; ; cursor = addIsoDateDays(cursor, 1)) {
+    if (cursor > end) break;
+    if (!used.has(cursor) && !isDailyStayDateSuppressed(cursor)) return cursor;
   }
   return null;
 }
@@ -3625,12 +3664,43 @@ function resolveExamCaseServiceIdFromLine(line = {}) {
   const serviceId = Number(line.service_id);
   if (serviceId && getExamCaseServiceRow(serviceId)) return String(serviceId);
   if (line.section_code) {
-    const match = dailyExamServicesCache.find(
+    const matches = dailyExamServicesCache.filter(
       (svc) => examSectionCodeForServiceRow(svc) === line.section_code
     );
-    if (match) return String(match.id);
+    if (!matches.length) return '';
+    const savedAmount = dailyAmountForSave(dailyParseAmount(line.amount));
+    if (savedAmount > 0) {
+      const byPrice = matches.find(
+        (svc) => dailyAmountForSave(priceFromExamServiceRow(svc)) === savedAmount
+      );
+      if (byPrice) return String(byPrice.id);
+    }
+    if (matches.length === 1) return String(matches[0].id);
+    const nameHint = String(line.description || line.extra_text || '').trim();
+    if (nameHint) {
+      const byName = matches.find((svc) => String(svc.name || '').trim() === nameHint);
+      if (byName) return String(byName.id);
+    }
+    return String(matches[0].id);
   }
   return '';
+}
+
+function syncExamRowUnitPriceFromSelections(tr) {
+  if (!tr?.classList.contains('daily-exam-row')) return;
+  const caseSel = tr.querySelector('.daily-exam-case');
+  const caseOpt = caseSel?.selectedOptions[0];
+  const casePrice = Number(caseOpt?.dataset.price) || 0;
+  const specialtySel = tr.querySelector('.daily-exam-specialty');
+  const specialtyOpt = specialtySel?.selectedOptions[0];
+  const specialtyCode = specialtySel?.value || tr.dataset.examSpecialtyCode || '';
+  const specialty = getExamSpecialtyByCode(specialtyCode);
+  const specialtyPrice =
+    Number(specialtyOpt?.dataset.price ?? specialty?.price) || 0;
+  const price = specialtyPrice > 0 ? specialtyPrice : casePrice;
+  const unitEl = tr.querySelector('.daily-exam-unit-price');
+  if (!unitEl || price <= 0) return;
+  unitEl.value = formatAmountFieldValue(dailyAmountForDisplay(price));
 }
 
 function getExamSpecialtyByCode(code) {
@@ -3740,12 +3810,6 @@ function buildCompanionKindOptions(selectedValue = '') {
   return parts.join('');
 }
 
-function examSpecialtySectionTag(sectionCode) {
-  if (sectionCode === 'consultant_exam') return 'استشاري';
-  if (sectionCode === 'specialist_exam') return 'أخصائي';
-  return '';
-}
-
 function buildExamCaseOptions(selectedServiceId = '') {
   if (!dailyExamServicesCache.length) {
     return '<option value="">— حالة الكشف (ارفع الكشوفات أو اللائحة) —</option>';
@@ -3766,7 +3830,6 @@ function buildExamCaseOptions(selectedServiceId = '') {
 function buildExamSpecialtyOptions(sectionCode = '', selectedSpecialtyCode = '') {
   const allItems = (dailyExamSpecialtiesCache || []).filter((s) => s.is_active !== false);
   let items = sectionCode ? allItems.filter((s) => s.section_code === sectionCode) : allItems;
-  const strictMatch = Boolean(sectionCode && items.length);
   if (!items.length && allItems.length) items = allItems;
   if (!items.length) {
     return '<option value="">— التخصص (أضفه من الإعدادات → تخصصات الكشوفات) —</option>';
@@ -3777,8 +3840,7 @@ function buildExamSpecialtyOptions(sectionCode = '', selectedSpecialtyCode = '')
       .map((s) => {
         const selected = selectedSpecialtyCode === s.code ? ' selected' : '';
         const price = Number(s.price) || 0;
-        const tag = !strictMatch ? ` (${examSpecialtySectionTag(s.section_code)})` : '';
-        return `<option value="${dailyEscapeAttr(s.code)}" data-section="${dailyEscapeAttr(s.section_code)}" data-price="${price}"${selected}>${dailyEscapeHtml(s.name + tag)}</option>`;
+        return `<option value="${dailyEscapeAttr(s.code)}" data-section="${dailyEscapeAttr(s.section_code)}" data-price="${price}"${selected}>${dailyEscapeHtml(s.name)}</option>`;
       })
       .join('')
   );
@@ -3884,12 +3946,7 @@ function onExamCaseChange(selectEl) {
       tr.dataset.examSpecialtyCode = '';
     }
   }
-  const casePrice = Number(opt?.dataset.price) || 0;
-  const specialtyOpt = specialtySel?.selectedOptions[0];
-  const specialtyPrice = Number(specialtyOpt?.dataset.price) || 0;
-  const price = specialtyPrice > 0 ? specialtyPrice : casePrice;
-  const unitEl = tr.querySelector('.daily-exam-unit-price');
-  if (unitEl) unitEl.value = price > 0 ? formatAmountFieldValue(dailyAmountForDisplay(price)) : '';
+  syncExamRowUnitPriceFromSelections(tr);
   updateRowTotal(tr);
   updateDailyGrandTotal();
   updateSectionTabTotal();
@@ -3912,12 +3969,7 @@ function onExamSpecialtyChange(selectEl) {
       tr.dataset.examCaseServiceId = String(match.id);
     }
   }
-  const caseOpt = caseSel?.selectedOptions[0];
-  const casePrice = Number(caseOpt?.dataset.price) || 0;
-  const specialtyPrice = Number(opt?.dataset.price ?? specialty?.price) || 0;
-  const price = specialtyPrice > 0 ? specialtyPrice : casePrice;
-  const unitEl = tr.querySelector('.daily-exam-unit-price');
-  if (unitEl) unitEl.value = price > 0 ? formatAmountFieldValue(dailyAmountForDisplay(price)) : '';
+  syncExamRowUnitPriceFromSelections(tr);
   updateRowTotal(tr);
   updateDailyGrandTotal();
   updateSectionTabTotal();
@@ -3980,6 +4032,15 @@ function bindStayRowEvents(tr) {
   if (staySel) staySel.addEventListener('change', () => onStayTypeChangeForRow(staySel));
   const companionSel = tr.querySelector('.daily-companion-kind');
   if (companionSel) companionSel.addEventListener('change', () => onCompanionKindChange(companionSel));
+  const dateInput = tr.querySelector('.daily-row-date');
+  if (dateInput && dateInput.dataset.stayDateBound !== '1') {
+    dateInput.dataset.stayDateBound = '1';
+    dateInput.addEventListener('change', () => {
+      pruneDuplicateStayDomRows();
+      updateDailyGrandTotal();
+      updateSectionTabTotal();
+    });
+  }
   bindDailyAmountRecalc(tr);
 }
 
@@ -4092,7 +4153,7 @@ function createStayDailyEntryRow(entry = {}) {
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry))}
-    <td class="daily-col-date"><input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1"></td>
+    <td class="daily-col-date"><input type="date" class="form-control form-control-sm daily-row-date fw-bold" value="${dateVal}" title="يوم الإقامة"></td>
     <td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeId)}</select></td>
     <td class="daily-col-amount">
       <input type="text" class="form-control form-control-sm daily-stay-acc-unit-price bg-light" readonly tabindex="-1">
@@ -4181,16 +4242,16 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
       (l) => ['consultant_exam', 'specialist_exam'].includes(l.section_code) && lineHasChargeData(l)
     ) ||
     {};
-  const showStamp = options.showStamp !== false;
-  const stampLine = showStamp ? getLineForSection(entry, 'consultation_stamp') : {};
+  const loadStampValue = options.loadStampValue === true;
+  const stampLine = loadStampValue ? getLineForSection(entry, 'consultation_stamp') : {};
   const tr = document.createElement('tr');
   tr.className = 'daily-entry-row daily-exam-row';
   if (entry.id) tr.dataset.entryId = entry.id;
   if (entry.notes) tr.dataset.entryNotes = entry.notes;
-  if (examLine && entry.doctor_id) tr.dataset.doctorId = String(entry.doctor_id);
+  if (entry.doctor_id) tr.dataset.doctorId = String(entry.doctor_id);
   if (line.section_code) tr.dataset.examSectionCode = line.section_code;
   if (line.id) tr.dataset.examLineId = String(line.id);
-  if (showStamp && stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
+  if (loadStampValue && stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
   tr._entryLinesSnapshot = (entry.lines || [])
     .filter((l) => {
       if (line.id && l.id === line.id) return false;
@@ -4214,7 +4275,9 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
   const patientName = getDailyPatientDisplayName();
   const priceVal = line.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(line.amount)) : '';
   const stampVal =
-    showStamp && stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
+    loadStampValue && stampLine.amount > 0
+      ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount))
+      : '';
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
@@ -4224,13 +4287,16 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-unit-price comma-amount" value="${dailyEscapeAttr(priceVal)}" autocomplete="off" title="يمكن تعديل السعر قبل الحفظ"></td>
     <td><input type="date" class="form-control form-control-sm daily-exam-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-exam-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
-    <td data-stamp-cell="${showStamp ? '1' : '0'}"><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" autocomplete="off"${showStamp ? '' : ' disabled'}></td>
+    <td data-stamp-cell="1"><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" autocomplete="off" title="دمغة الكشف"></td>
     <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف">×</button></td>`;
 
   bindExamRowEvents(tr);
   tr.querySelector('.daily-row-delete')?.addEventListener('click', () => deleteDailyEntryRow(tr));
   if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(tr);
-  void hydrateDailyDoctorSuggest(tr, examLine && entry.doctor_id ? entry.doctor_id : null);
+  void hydrateDailyDoctorSuggest(tr, entry.doctor_id || null);
+  const caseSel = tr.querySelector('.daily-exam-case');
+  if (caseSel && caseServiceId) caseSel.value = caseServiceId;
+  if (!priceVal) syncExamRowUnitPriceFromSelections(tr);
   if (priceVal) updateRowTotal(tr);
   return tr;
 }
@@ -6174,18 +6240,30 @@ function addDailyEntryRow(preset = {}) {
       return;
     }
   }
-  const entryDate = getLocalDateString();
-  if (activeDailyTab === 'stay' && isDailyEntryPresetEmpty(preset)) {
-    const existingStay = [...document.querySelectorAll('#daily-sections-body .daily-stay-row')].find(
-      (tr) =>
-        fmtStayDate(tr.querySelector('.daily-row-date')?.value) === entryDate &&
-        stayRowGroupHasChargeData(tr)
-    );
-    if (existingStay) {
-      focusDailyEntryRow(existingStay);
-      showToast('يوجد صف إقامة لهذا اليوم بالفعل', 'info');
+  let entryDate = fmtStayDate(preset.entry_date) || '';
+  if (activeDailyTab === 'stay') {
+    if (!entryDate) entryDate = suggestNextStayEntryDate() || '';
+    if (!entryDate) {
+      showToast(
+        'لا يوجد يوم متاح في فترة الإقامة — عدّل تاريخ الخروج أو احذف يوماً مسجّلاً',
+        'warning'
+      );
       return;
     }
+    if (isDailyEntryPresetEmpty(preset)) {
+      const existingStay = [...document.querySelectorAll('#daily-sections-body .daily-stay-row')].find(
+        (tr) =>
+          fmtStayDate(tr.querySelector('.daily-row-date')?.value) === entryDate &&
+          stayRowGroupHasChargeData(tr)
+      );
+      if (existingStay) {
+        focusDailyEntryRow(existingStay);
+        showToast(`يوجد صف إقامة لتاريخ ${entryDate} بالفعل`, 'info');
+        return;
+      }
+    }
+  } else {
+    entryDate = getLocalDateString();
   }
   if (activeDailyTab === 'stay' && !preset.stay_type_id) {
     preset.stay_type_id = getDefaultStayTypeIdForRow() || preset.stay_type_id;
@@ -6407,12 +6485,12 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     const seenEntryIds = new Set();
     if (activeDailyTab === 'exams') {
       const examRows = dedupeTodayExamRows(todayEntries);
-      const stampShown = new Set();
+      const stampLoadedForEntry = new Set();
       for (const { entry, line } of examRows) {
         const stampKey = entry.id ? String(entry.id) : dailyLineMergeKey(line);
-        const showStamp = !stampShown.has(stampKey);
-        if (showStamp) stampShown.add(stampKey);
-        body.appendChild(createExamDailyEntryRow(entry, line, { showStamp }));
+        const loadStampValue = !stampLoadedForEntry.has(stampKey);
+        if (loadStampValue) stampLoadedForEntry.add(stampKey);
+        body.appendChild(createExamDailyEntryRow(entry, line, { loadStampValue }));
       }
       pruneDuplicateSheetDomRows('exams');
       addDailyEntryRow();
@@ -7086,6 +7164,10 @@ function applySavedEntriesToDomRows(savedEntries = []) {
         'specialist_exam',
         'consultation_stamp',
       ]);
+      if (entry.doctor_id) {
+        tr.dataset.doctorId = String(entry.doctor_id);
+        void hydrateDailyDoctorSuggest(tr, entry.doctor_id);
+      }
     } else if (tr.classList.contains('daily-session-row')) {
       const lineId = Number(tr.dataset.lineId) || 0;
       const sessionLine =
@@ -7130,13 +7212,18 @@ function collectDailyRowsForSave() {
       lines: collectDailyLinesFromRow(tr),
     });
   });
+  const merged = mergeDailySaveEntries(rows);
   if (activeDailyTab === 'stay') {
-    return mergeStaySaveRows(mergeDailySaveEntries(rows));
+    return mergeStaySaveRows(merged);
+  }
+  // كل صف كشف = حركة مستقلة (طبيب + بند) — لا تدمج في entry واحد لأن doctor_id يُفقد
+  if (activeDailyTab === 'exams') {
+    return merged;
   }
   if (DAILY_TODAY_MERGE_TABS.includes(activeDailyTab)) {
-    return mergeTodayTabSaveRows(mergeDailySaveEntries(rows));
+    return mergeTodayTabSaveRows(merged);
   }
-  return mergeDailySaveEntries(rows);
+  return merged;
 }
 
 function examRowDoctorEntryConflict(tr, doctorId) {

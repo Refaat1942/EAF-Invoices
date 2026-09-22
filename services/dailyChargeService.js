@@ -2082,6 +2082,17 @@ async function saveEntriesBatch(data, user = null) {
         if (!prev || Number(saved.id) >= Number(prev)) keepByDate.set(dateKey, Number(saved.id));
       }
       for (const [dateKey, keepId] of keepByDate) {
+        const sameDay = results.filter(
+          (saved) => normalizeCalendarDate(saved.entry_date) === dateKey
+        );
+        const examEntryCount = sameDay.filter((saved) =>
+          (saved.lines || []).some((line) =>
+            ['consultant_exam', 'specialist_exam'].includes(line.section_code)
+          )
+        ).length;
+        // أكثر من كشف في نفس اليوم = حركات منفصلة (طبيب لكل حركة) — لا دمج
+        if (examEntryCount > 1) continue;
+
         const finalId = await consolidateDailyEntriesForDate(client, patient.id, dateKey, keepId);
         const idx = results.findIndex(
           (saved) => normalizeCalendarDate(saved.entry_date) === dateKey
