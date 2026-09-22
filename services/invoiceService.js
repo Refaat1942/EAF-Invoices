@@ -436,8 +436,10 @@ async function resolveInvoiceForPrint(invoice) {
   const prepared = await prepareCalculationData(calcData);
   // Display-only: the daily stay lines are already in prepared.items, so feeding the
   // derived stay into the totals would bill accommodation twice.
-  const derivedStay = deriveStayEntriesFromDailyItems(prepared.items || []);
   const totals = calculateInvoiceTotals(prepared);
+  const derivedStay = deriveStayEntriesFromDailyItems(
+    (totals.items || []).filter((item) => !item.is_stay_entry)
+  );
   const manualItems = (totals.items || []).filter((item) => !item.is_stay_entry);
   const billedStay = totals.stay_entries && totals.stay_entries.length ? totals.stay_entries : null;
   const stay_entries = billedStay || derivedStay || invoice.stay_entries || [];
@@ -445,6 +447,7 @@ async function resolveInvoiceForPrint(invoice) {
   return {
     ...invoice,
     ...totals,
+    patient_nationality: prepared.patient_nationality ?? invoice.patient_nationality ?? '',
     items: manualItems,
     stay_entries,
     _stay_entries_display_only: !billedStay && derivedStay.length > 0,
@@ -1319,7 +1322,9 @@ function fmtDateOnly(value) {
     return `${y}-${m}-${d}`;
   }
   const text = String(value).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text) && !/^\d{4}-\d{2}-\d{2}T/.test(text)) return text.slice(0, 10);
+  const dmy = text.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
   const parsed = new Date(text);
   if (!Number.isNaN(parsed.getTime())) {
     const y = parsed.getFullYear();
