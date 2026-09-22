@@ -4349,7 +4349,9 @@ function syncExamRowUnitPriceFromSelections(tr) {
   const specialty = getExamSpecialtyByCode(specialtyCode);
   const specialtyPrice =
     Number(specialtyOpt?.dataset.price ?? specialty?.price) || 0;
-  const price = specialtyPrice > 0 ? specialtyPrice : casePrice;
+  // The server bills a selected exam case at its price-list price; the specialty price
+  // only applies when no case is chosen.
+  const price = casePrice > 0 ? casePrice : specialtyPrice;
   const unitEl = tr.querySelector('.daily-exam-unit-price');
   if (!unitEl || price <= 0) return;
   unitEl.value = formatAmountFieldValue(dailyAmountForDisplay(price));

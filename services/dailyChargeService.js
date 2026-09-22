@@ -290,7 +290,7 @@ function formatDailyEntryDateLabel(value) {
 
 function buildDailyItemDescription(entryDate, name, extraText = '') {
   const dateLabel = formatDailyEntryDateLabel(entryDate);
-  let desc = String(name || '').trim();
+  let desc = String(name || '').trim().replace(/^(\[\d{2}-\d{2}-\d{4}\]\s*)+/, '');
   if (/GMT|Coordinated Universal Time/i.test(desc)) desc = '';
   if (extraText) desc = desc ? `${desc} (${extraText})` : String(extraText);
   return dateLabel ? `[${dateLabel}] ${desc}`.trim() : desc;
@@ -3020,12 +3020,21 @@ async function resolveStayTypeIdForDailyEntry(entry, patient = null) {
 }
 
 async function ensureStayAccommodationOnEntries(entries = [], sections = [], patient = null) {
+  const hasAccommodation = (entry) =>
+    (entry.lines || []).some((l) => l.section_code === 'accommodation' && round2(l.amount) > 0);
+  const stayDates = new Set(
+    entries.filter(hasAccommodation).map((e) => normalizeCalendarDate(e.entry_date))
+  );
   for (const entry of entries) {
+    const date = normalizeCalendarDate(entry.entry_date);
+    const alreadyBilled = !hasAccommodation(entry) && stayDates.has(date);
+    if (alreadyBilled) continue;
     const stayTypeId = await resolveStayTypeIdForDailyEntry(entry, patient);
     if (!stayTypeId) continue;
     if (!entry.stay_type_id) entry.stay_type_id = stayTypeId;
     const lines = [...(entry.lines || [])];
     entry.lines = await enrichStayLinesFromStayType(lines, stayTypeId, sections);
+    if (hasAccommodation(entry)) stayDates.add(date);
   }
 }
 
