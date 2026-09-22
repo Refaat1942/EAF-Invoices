@@ -1831,6 +1831,51 @@ function captureDailySheetBaseline() {
   }
 }
 
+function resolvePickerSectionForRow(tr) {
+  const picker = tr?.querySelector('.daily-picker[data-section]');
+  if (!picker) return null;
+  const code = picker.dataset.section;
+  return dailySectionsCache.find((s) => s.code === code) || null;
+}
+
+function resolveSavedLineForPickerRow(tr, section) {
+  const code = section?.code;
+  if (!code) return {};
+  const entryId = Number(tr.dataset.entryId);
+  const entry = entryId
+    ? (dailySheetEntriesCache || []).find((e) => Number(e.id) === entryId)
+    : null;
+  const lines = entry?.lines || tr._entryLinesSnapshot || [];
+  const lineId =
+    Number(tr.dataset.lineId) || Number(tr.dataset.examLineId) || Number(tr.dataset.catalogCode) || 0;
+  if (lineId) {
+    const byId = lines.find((l) => Number(l.id) === lineId);
+    if (byId) return byId;
+  }
+  if (code === 'sessions') {
+    return lines.find((l) => l.section_code === 'sessions') || {};
+  }
+  return getLineForSection({ lines }, code) || {};
+}
+
+async function awaitDailySheetPickerHydration() {
+  const pickerApi = window.DailyEntryPicker;
+  if (!pickerApi?.hydratePicker) return;
+  const tasks = [];
+  document.querySelectorAll('#daily-sections-body .daily-entry-row').forEach((tr) => {
+    const section = resolvePickerSectionForRow(tr);
+    if (!section) return;
+    tasks.push(pickerApi.hydratePicker(tr, section, resolveSavedLineForPickerRow(tr, section)));
+  });
+  if (tasks.length) await Promise.allSettled(tasks);
+  if (activeDailyTab === 'sessions') {
+    document.querySelectorAll('.daily-session-row').forEach((tr) => {
+      const picker = tr.querySelector('.daily-picker[data-section="sessions"]');
+      syncSessionsRowDisplay(tr, picker?._selectedItem);
+    });
+  }
+}
+
 function dailyTabHasUnsavedChanges() {
   if (!dailyStayContext?.invoice?.id) return false;
   if (!dailyCan('daily_charges.manage')) return false;
@@ -6532,7 +6577,19 @@ function addDailyEntryRow(preset = {}) {
   if (isDailyEntryPresetEmpty(preset)) focusDailyEntryRow(row);
 }
 
+function sessionRowHasChargeData(tr) {
+  if (dailyParseAmount(tr.querySelector('.daily-session-total')?.value) > 0) return true;
+  const pickerVal = tr.querySelector('.daily-picker[data-section="sessions"] .daily-picker-value')?.value;
+  if (String(pickerVal || '').trim()) return true;
+  const hidden = tr.querySelector('.daily-field.daily-amount[data-section="sessions"]');
+  if (dailyParseAmount(hidden?.value) > 0) return true;
+  return false;
+}
+
 function rowHasChargeData(tr) {
+  if (tr.classList.contains('daily-session-row')) {
+    return sessionRowHasChargeData(tr);
+  }
   if (tr._entryLinesSnapshot?.some((line) => lineHasChargeData(line))) return true;
   if (dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value) > 0) return true;
   if (tr.querySelector('.daily-exam-case')?.value) return true;
@@ -6552,10 +6609,6 @@ function rowHasChargeData(tr) {
   if (dailyParseAmount(tr.querySelector('.daily-misc-total')?.value) > 0) return true;
   const miscSection = tr.dataset.sectionCode || 'other';
   if (tr.querySelector(`.daily-picker[data-section="${miscSection}"] .daily-picker-value`)?.value) return true;
-  if (dailyParseAmount(tr.querySelector('.daily-session-total')?.value) > 0) return true;
-  if (tr.querySelector('.daily-picker[data-section="sessions"] .daily-picker-value')?.value) return true;
-  if (dailyParseAmount(tr.querySelector('.daily-session-morning')?.value) > 0) return true;
-  if (dailyParseAmount(tr.querySelector('.daily-session-evening')?.value) > 0) return true;
   if (tr.classList.contains('daily-stay-row') && getStayAccommodationAmount(tr) > 0) return true;
   let hasValue = false;
   tr.querySelectorAll('.daily-amount').forEach((input) => {
@@ -6832,6 +6885,7 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     if (activeDailyTab === 'stay' && !skipAutoRoom) {
       await applyAutoRoomToTodayRows();
     }
+    await awaitDailySheetPickerHydration();
     captureDailySheetBaseline();
   } catch (err) {
     if (loadId !== dailyEntriesLoadSeq) return;
@@ -7761,7 +7815,9 @@ async function saveDailyEntryNow(options = {}) {
     if (shouldReloadSheet) {
       await loadDailyEntriesIntoSheet();
       await loadDailyPatientHistory();
-      if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+      if (prevTab && activeDailyTab !== prevTab) {
+        showDailySection(prevTab, { skipUnsavedPrompt: true });
+      }
       updateSectionTabTotal();
     }
     if (silent && !previewFlush) {
