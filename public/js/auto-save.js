@@ -2,6 +2,8 @@
  * Debounced auto-save with a small status indicator (silent draft saves).
  */
 (function initAutoSave(global) {
+  /** Set false to re-enable debounced auto-save for invoice + daily scopes. */
+  const AUTO_SAVE_ENABLED = false;
   const scopes = new Map();
 
   function formatTime(date = new Date()) {
@@ -56,7 +58,7 @@
       timer: null,
       lastFingerprint: null,
       status: 'idle',
-      disabled: false,
+      disabled: !AUTO_SAVE_ENABLED,
     });
   }
 
@@ -68,6 +70,7 @@
   }
 
   function schedule(scope) {
+    if (!AUTO_SAVE_ENABLED) return;
     const cfg = scopes.get(scope);
     if (!cfg || cfg.disabled) return;
     clearTimeout(cfg.timer);
@@ -78,6 +81,7 @@
   }
 
   async function run(scope) {
+    if (!AUTO_SAVE_ENABLED) return false;
     const cfg = scopes.get(scope);
     if (!cfg) return false;
     if (typeof cfg.canSave === 'function' && !cfg.canSave()) {
@@ -116,7 +120,7 @@
   }
 
   function installChangeListeners(root, scope) {
-    if (!root) return;
+    if (!AUTO_SAVE_ENABLED || !root) return;
     const handler = () => schedule(scope);
     root.addEventListener('input', handler, true);
     root.addEventListener('change', handler, true);
