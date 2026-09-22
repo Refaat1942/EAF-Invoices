@@ -7143,8 +7143,10 @@ function resetUnsavedExamDraftRow(tr) {
   if (caseSel) caseSel.value = '';
   const specialtySel = tr.querySelector('.daily-exam-specialty');
   if (specialtySel) specialtySel.value = '';
-  tr.querySelector('.daily-exam-unit-price')?.value = '';
-  tr.querySelector('.daily-exam-stamp')?.value = '';
+  const unitEl = tr.querySelector('.daily-exam-unit-price');
+  if (unitEl) unitEl.value = '';
+  const stampEl = tr.querySelector('.daily-exam-stamp');
+  if (stampEl) stampEl.value = '';
   tr.dataset.examCaseServiceId = '';
   tr.dataset.examSectionCode = '';
   tr.dataset.examSpecialtyCode = '';
