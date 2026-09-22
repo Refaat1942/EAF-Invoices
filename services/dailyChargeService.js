@@ -1349,18 +1349,24 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
 
   let unitPrice = round2(selection.unitPrice);
   const isSuppliesItem = catalogItem.category === 'Supplies' || fullSection.catalog_category === 'Supplies';
-  const costPrice = round2(catalogItem.cost_price);
+  let costPrice = round2(catalogItem.cost_price);
   let markupPercent = round2(catalogItem.markup_percent);
 
-  if (isSuppliesItem && costPrice > 0) {
+  if (isSuppliesItem) {
     const { getDefaultSuppliesMarkupPercent } = require('./priceListService');
     const { computeSellingPrice } = require('./dailyEntryCatalogService');
     markupPercent = await getDefaultSuppliesMarkupPercent();
-    const minorQty = round2(selection.minorQuantityPerMajor) || 1;
-    unitPrice =
-      selection.level === 'minor' && minorQty > 1
-        ? round2(computeSellingPrice(costPrice, markupPercent) / minorQty)
-        : computeSellingPrice(costPrice, markupPercent);
+    if (costPrice > 0) {
+      const minorQty = round2(selection.minorQuantityPerMajor) || 1;
+      unitPrice =
+        selection.level === 'minor' && minorQty > 1
+          ? round2(computeSellingPrice(costPrice, markupPercent) / minorQty)
+          : computeSellingPrice(costPrice, markupPercent);
+    } else if (unitPrice > 0) {
+      // No cost price in the catalog: the margin is added on top of the catalog sale price.
+      costPrice = unitPrice;
+      unitPrice = computeSellingPrice(unitPrice, markupPercent);
+    }
   }
 
   if (unitPrice <= 0) {
