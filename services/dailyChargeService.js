@@ -148,6 +148,20 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function parseOptionalStayTypeId(value) {
+  if (value == null || value === '') return null;
+  const direct = Number(value);
+  if (Number.isInteger(direct) && direct > 0) return direct;
+  const raw = String(value).trim();
+  const typePrefixed = /^t:(\d+)/i.exec(raw);
+  if (typePrefixed) {
+    const id = Number(typePrefixed[1]);
+    return Number.isInteger(id) && id > 0 ? id : null;
+  }
+  if (/^[cs]:\d+/i.test(raw)) return null;
+  return null;
+}
+
 /** إقامة / مرافق / نقطة تمريض — المبلغ يدوي فقط (لا سعر تلقائي من اللائحة). */
 const MANUAL_AMOUNT_SECTION_CODES = Object.freeze([
   'accommodation',
@@ -1510,7 +1524,7 @@ async function prepareEntrySaveContext(data) {
     throw new Error('المريض الخارجي لا يُسجَّل عليه إقامة — احذف بنود الإقامة أو غيّر نوع المريض');
   }
 
-  const stayTypeId = Number(data.stay_type_id) || 0;
+  const stayTypeId = parseOptionalStayTypeId(data.stay_type_id) || 0;
   if (stayTypeId && patientType !== 'external') {
     await enrichStayLinesFromStayType(lines, stayTypeId, sections);
   }
@@ -1827,6 +1841,7 @@ async function findDuplicateEntryForLines(client, patientId, entryDate, lines, e
 }
 
 async function persistEntryInTransaction(client, data, user, context = null) {
+  data.stay_type_id = parseOptionalStayTypeId(data.stay_type_id);
   const ctx = context || await prepareEntrySaveContext(data);
   const { patient, entryDate, lines, dailyTotal } = ctx;
   const userId = user?.id || null;
