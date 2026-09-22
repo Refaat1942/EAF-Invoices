@@ -6290,7 +6290,15 @@ function sheetRowDedupeKey(tr, tab = activeDailyTab) {
     const doctorId =
       tr.querySelector('.daily-exam-doctor')?.value || tr.dataset.doctorId || '';
     const entryId = tr.dataset.entryId || '';
-    return `exam:${entryId}:${doctorId}:${buildClientLinesFingerprint(collectDailyLinesFromRow(tr))}`;
+    const linesFp = buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
+    // A genuinely blank row (no saved entry, no doctor, no line content — the
+    // fresh template row addDailyEntryRow appends) must never enter the dedupe
+    // map: it has nothing distinguishing it from any other blank row, so it
+    // could collide with (and remove) another blank row or, worse, itself be
+    // picked as the "winner" over a real saved row that briefly shares an
+    // empty fingerprint while mid-edit.
+    if (!entryId && !doctorId && !linesFp) return null;
+    return `exam:${entryId}:${doctorId}:${linesFp}`;
   }
   if (tab === 'lab') return serviceRowDedupeKey(tr, 'analyses');
   if (tab === 'radiology') return serviceRowDedupeKey(tr, 'xray_total');
@@ -7942,13 +7950,12 @@ function collectDailyRowsForSave() {
     if (activeDailyTab === 'stay' && isDailyStayDateSuppressed(rowDate)) return;
     const examDoctorId =
       tr.querySelector('.daily-exam-doctor')?.value || tr.dataset.doctorId || null;
-    const examEntryDate =
-      activeDailyTab === 'exams'
-        ? fmtStayDate(tr.querySelector('.daily-exam-date')?.value) || today
-        : today;
+    // entry_date must always be business-today (the server rejects anything else —
+    // resolveAllowedDailyEntryDate); the clinical exam date the user can edit is
+    // preserved separately on the line's extra_date by collectExamLinesFromRow.
     rows.push({
       entry_id: entryId,
-      entry_date: activeDailyTab === 'stay' ? rowDate : examEntryDate,
+      entry_date: activeDailyTab === 'stay' ? rowDate : today,
       stay_type_id: resolveStayTypeIdForSave(null, tr),
       doctor_specialty:
         tr.querySelector('.daily-row-specialty')?.value || tr.dataset.doctorSpecialty || '',
