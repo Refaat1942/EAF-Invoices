@@ -522,6 +522,7 @@ function bindDailyDoctorSuggestWrap(tr) {
 
   const pickDoctor = (id, name, doctorPrice = 0) => {
     const label = String(name || '').trim();
+    tr._doctorHydrateSeq = (Number(tr._doctorHydrateSeq) || 0) + 1;
     hidden.value = id ? String(id) : '';
     input.value = label;
     tr.dataset.doctorId = hidden.value;
@@ -588,12 +589,16 @@ function bindDailyDoctorSuggestWrap(tr) {
 
 async function hydrateDailyDoctorSuggest(tr, doctorId) {
   if (!doctorId) return;
+  const wrap = tr.querySelector('.daily-doctor-suggest-wrap');
+  const input = tr.querySelector('.daily-exam-doctor-search');
+  const hidden = tr.querySelector('.daily-exam-doctor');
+  if (input?.value?.trim()) return;
+  const seq = (tr._doctorHydrateSeq = (Number(tr._doctorHydrateSeq) || 0) + 1);
   try {
     const doctors = await fetchDailyDoctorSuggestions('', doctorId, 1);
+    if (seq !== tr._doctorHydrateSeq) return;
     if (!doctors[0]) return;
-    const wrap = tr.querySelector('.daily-doctor-suggest-wrap');
-    const input = tr.querySelector('.daily-exam-doctor-search');
-    const hidden = tr.querySelector('.daily-exam-doctor');
+    if (input?.value?.trim()) return;
     if (hidden) hidden.value = String(doctors[0].id);
     if (input) input.value = doctors[0].name;
     tr.dataset.doctorId = String(doctors[0].id);
@@ -3847,7 +3852,9 @@ function buildDailyStayTypeOptions(selectedId = '') {
         const id = g.stay_type_id;
         const rate = Number(g.daily_rate) || 0;
         const rateLabel = rate > 0 ? ` — ${dailyFmt(dailyAmountForDisplay(rate))} / يوم` : '';
-        return `<option value="${id}" data-rate="${rate}"${String(selectedId) === String(id) ? ' selected' : ''}>${dailyEscapeHtml(g.name)}${rateLabel}</option>`;
+        const catalogId = g.catalog_item_id ? ` data-catalog-item-id="${g.catalog_item_id}"` : '';
+        const serviceId = g.service_id ? ` data-service-id="${g.service_id}"` : '';
+        return `<option value="${id}" data-rate="${rate}"${catalogId}${serviceId}${String(selectedId) === String(id) ? ' selected' : ''}>${dailyEscapeHtml(g.name)}${rateLabel}</option>`;
       })
       .join('')
   );
@@ -4193,11 +4200,13 @@ function onCompanionKindChange(selectEl) {
 }
 
 async function onStayTypeChangeForRow(selectEl) {
-  const tr = selectEl.closest('.daily-stay-row');
+  const tr = selectEl.closest('.daily-stay-row, .daily-stay-addon-row');
   if (!tr) return;
   await applyStayTypeRateToRow(tr, { force: true });
   updateStayAccUnitPriceDisplay(tr);
   updateRowTotal(tr);
+  const primary = findStayPrimaryRow(tr) || tr;
+  if (primary.classList.contains('daily-stay-row')) updateStayRowGroupTotal(primary);
   updateDailyGrandTotal();
   updateSectionTabTotal();
 }
@@ -4328,22 +4337,39 @@ function bindExamRowEvents(tr) {
   tr.querySelector('.daily-exam-stamp')?.addEventListener('input', refreshServiceRowTotals);
 }
 
-function collectAccommodationLineFromRow(primaryTr) {
-  updateStayAccUnitPriceDisplay(primaryTr);
-  const accHidden = primaryTr?.querySelector('.daily-amount[data-section="accommodation"]');
-  const amount = dailyAmountForSave(getStayAccommodationAmount(primaryTr));
+function resolveStayTypeIdFromAccommodationLine(line = {}) {
+  const fromExtra = String(line.extra_text || '').match(/^stay_type:(\d+)$/);
+  if (fromExtra) return fromExtra[1];
+  const catId = Number(line.catalog_item_id) || 0;
+  if (catId && dailyStayGradesCache.length) {
+    const grade = dailyStayGradesCache.find((g) => Number(g.catalog_item_id) === catId);
+    if (grade?.stay_type_id) return String(grade.stay_type_id);
+  }
+  return '';
+}
+
+function collectAccommodationLineFromRow(rowTr) {
+  if (!rowTr) return null;
+  updateStayAccUnitPriceDisplay(rowTr);
+  const accHidden = rowTr.querySelector('.daily-amount[data-section="accommodation"]');
+  const amount = dailyAmountForSave(getStayAccommodationAmount(rowTr));
   if (amount <= 0) return null;
+  const stayTypeId = rowTr.querySelector('.daily-row-stay-type')?.value || rowTr.dataset.stayTypeId || '';
   const line = {
     section_code: 'accommodation',
     amount,
     quantity: 1,
     unit_price: amount,
   };
+  if (stayTypeId) line.extra_text = `stay_type:${stayTypeId}`;
   const serviceId = accHidden?.dataset.serviceId;
   if (serviceId) line.service_id = Number(serviceId);
   const catalogItemId = accHidden?.dataset.catalogItemId;
   if (catalogItemId) line.catalog_item_id = Number(catalogItemId);
   if (accHidden?.dataset.lineId) line.id = Number(accHidden.dataset.lineId);
+  else if (rowTr.dataset.lineId && rowTr.dataset.addonSection === 'accommodation') {
+    line.id = Number(rowTr.dataset.lineId);
+  }
   return line;
 }
 
@@ -4352,9 +4378,9 @@ function collectStayLinesFromRow(tr) {
   if (!primaryTr) return [];
   const viewCodes = new Set(['accommodation', 'companion', 'nursing_point', 'patient_assistant']);
   const lines = [];
-  const accLine = collectAccommodationLineFromRow(primaryTr);
-  if (accLine && lineHasChargeData(accLine)) lines.push(accLine);
   getStayDayGroupRows(primaryTr).forEach((rowTr) => {
+    const accLine = collectAccommodationLineFromRow(rowTr);
+    if (accLine && lineHasChargeData(accLine)) lines.push(accLine);
     if (rowTr.querySelector('.daily-companion-kind')) collectCompanionLineFromRow(rowTr, lines);
     collectAmountLineFromRow(rowTr, 'patient_assistant', lines);
     collectAmountLineFromRow(rowTr, 'nursing_point', lines);
@@ -4412,7 +4438,8 @@ function createStayDailyEntryRow(entry = {}) {
 
   const dateVal = fmtStayDate(entry.entry_date) || getLocalDateString();
   const stayTypeId = entry.stay_type_id || getDefaultStayTypeIdForRow();
-  const accLine = getLineForSection(entry, 'accommodation');
+  const accLines = getLinesForSection(entry, 'accommodation');
+  const accLine = accLines[0] || {};
   const companionLines = getLinesForSection(entry, 'companion');
   const companionLine = companionLines[0] || {};
   const assistantLines = getLinesForSection(entry, 'patient_assistant');
@@ -4430,7 +4457,10 @@ function createStayDailyEntryRow(entry = {}) {
     <td class="daily-col-date"><input type="date" class="form-control form-control-sm daily-row-date fw-bold" value="${dateVal}" title="يوم الإقامة"></td>
     <td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeId)}</select></td>
     <td class="daily-col-amount">
-      <input type="text" class="form-control form-control-sm daily-stay-acc-unit-price bg-light" readonly tabindex="-1">
+      <div class="input-group input-group-sm">
+        <input type="text" class="form-control form-control-sm daily-stay-acc-unit-price bg-light" readonly tabindex="-1">
+        <button type="button" class="btn btn-outline-secondary daily-stay-addon-add px-1" data-section="accommodation" title="إقامة إضافية لنفس اليوم">+</button>
+      </div>
       ${accPickerHtml}
       <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">
     </td>
@@ -4487,6 +4517,7 @@ function createStayDailyEntryRow(entry = {}) {
   }
 
   tr._pendingStayAddons = {
+    accommodation: accLines.slice(1),
     companion: companionLines.slice(1),
     patient_assistant: assistantLines.slice(1),
     nursing_point: nursingLines.slice(1),
@@ -4557,7 +4588,7 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><select class="form-select form-select-sm daily-exam-case">${buildExamCaseOptions(caseServiceId)}</select></td>
     <td><select class="form-select form-select-sm daily-exam-specialty">${buildExamSpecialtyOptions(sectionCode, specialtyCode)}</select></td>
-    <td class="daily-exam-doctor-cell">${buildDailyDoctorSuggestHtml('', examLine && entry.doctor_id ? entry.doctor_id : '')}</td>
+    <td class="daily-exam-doctor-cell">${buildDailyDoctorSuggestHtml('', entry.doctor_id || '')}</td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-unit-price comma-amount" value="${dailyEscapeAttr(priceVal)}" autocomplete="off" title="يمكن تعديل السعر قبل الحفظ"></td>
     <td><input type="date" class="form-control form-control-sm daily-exam-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-exam-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
@@ -5607,6 +5638,9 @@ function bindStayAddonButtons(primaryTr) {
 function mountStayAddonRows(primaryTr) {
   const pending = primaryTr._pendingStayAddons;
   if (!pending) return;
+  for (const line of pending.accommodation || []) {
+    insertStayAddonRow(primaryTr, createStayAddonRow(primaryTr, 'accommodation', line));
+  }
   for (const line of pending.companion || []) {
     insertStayAddonRow(primaryTr, createStayAddonRow(primaryTr, 'companion', line));
   }
@@ -5636,7 +5670,17 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
   let assistantAmt = stayAddonSpacerCell('daily-col-amount');
   let nursingAmt = stayAddonSpacerCell('daily-col-amount');
 
-  if (sectionCode === 'companion') {
+  let stayTypeCol = stayAddonSpacerCell('daily-col-stay-type');
+  let accAmtCol = stayAddonSpacerCell('daily-col-amount');
+
+  if (sectionCode === 'accommodation') {
+    const stayTypeId = resolveStayTypeIdFromAccommodationLine(line) || getDefaultStayTypeIdForRow();
+    stayTypeCol = `<td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeId)}</select></td>`;
+    accAmtCol = `<td class="daily-col-amount">
+      <input type="text" class="form-control form-control-sm daily-stay-acc-unit-price bg-light" readonly tabindex="-1">
+      <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">
+    </td>`;
+  } else if (sectionCode === 'companion') {
     const serviceId = companionServiceIdFromLine(line);
     companionKind = `<td class="daily-col-companion-kind"><select class="form-select form-select-sm daily-companion-kind">${buildCompanionKindOptions(serviceId)}</select></td>`;
     companionAmt = `<td class="daily-col-amount"><input type="text" inputmode="decimal" class="form-control form-control-sm daily-amount comma-amount" data-section="companion" data-type="amount" autocomplete="off"></td>`;
@@ -5648,8 +5692,8 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
 
   tr.innerHTML =
     stayAddonSpacerCell('daily-col-date') +
-    stayAddonSpacerCell('daily-col-stay-type') +
-    stayAddonSpacerCell('daily-col-amount') +
+    stayTypeCol +
+    accAmtCol +
     companionKind +
     companionAmt +
     assistantAmt +
@@ -5657,7 +5701,26 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
     '<td class="daily-col-total"></td>' +
     '<td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-secondary daily-stay-addon-remove" title="إزالة">×</button></td>';
 
-  if (sectionCode === 'companion' && line.amount > 0) {
+  if (sectionCode === 'accommodation') {
+    const accHidden = tr.querySelector('.daily-amount[data-section="accommodation"]');
+    if (accHidden && line.amount > 0) {
+      const displayAmount = dailyAmountForDisplay(line.amount);
+      accHidden.value = String(displayAmount);
+      accHidden.dataset.unitPrice = String(displayAmount);
+      if (line.id) {
+        accHidden.dataset.lineId = String(line.id);
+        tr.dataset.lineId = String(line.id);
+      }
+      if (line.service_id) accHidden.dataset.serviceId = String(line.service_id);
+      if (line.catalog_item_id) accHidden.dataset.catalogItemId = String(line.catalog_item_id);
+    }
+    const staySel = tr.querySelector('.daily-row-stay-type');
+    if (staySel) {
+      staySel.addEventListener('change', () => onStayTypeChangeForRow(staySel));
+      if (!line.amount) void onStayTypeChangeForRow(staySel);
+      else updateStayAccUnitPriceDisplay(tr);
+    }
+  } else if (sectionCode === 'companion' && line.amount > 0) {
     const companionInput = tr.querySelector('.daily-amount[data-section="companion"]');
     if (companionInput) {
       if (typeof setCommaAmountValue === 'function') setCommaAmountValue(companionInput, line.amount);
@@ -5701,9 +5764,7 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
 function updateStayRowGroupTotal(primaryTr) {
   let total = 0;
   getStayDayGroupRows(primaryTr).forEach((rowTr) => {
-    if (rowTr.classList.contains('daily-stay-row')) {
-      total += getStayAccommodationAmount(rowTr);
-    }
+    total += getStayAccommodationAmount(rowTr);
     for (const code of STAY_CHARGE_SECTIONS) {
       if (code === 'accommodation') continue;
       const input = rowTr.querySelector(`.daily-amount[data-section="${code}"]`);
@@ -5718,8 +5779,9 @@ function updateStayRowGroupTotal(primaryTr) {
 }
 
 function stayRowGroupHasChargeData(primaryTr) {
-  if (getStayAccommodationAmount(primaryTr) > 0) return true;
-  return getStayDayGroupRows(primaryTr).some((tr) => rowHasChargeData(tr));
+  const group = getStayDayGroupRows(primaryTr);
+  if (group.some((tr) => getStayAccommodationAmount(tr) > 0)) return true;
+  return group.some((tr) => rowHasChargeData(tr));
 }
 
 function collectCompanionLineFromRow(rowTr, lines) {
@@ -5931,7 +5993,10 @@ function sheetRowDedupeKey(tr, tab = activeDailyTab) {
   if (tab === 'exams') {
     const examLineId = Number(tr.dataset.examLineId) || 0;
     if (examLineId > 0) return `line:${examLineId}`;
-    return buildClientLinesFingerprint(collectDailyLinesFromRow(tr));
+    const doctorId =
+      tr.querySelector('.daily-exam-doctor')?.value || tr.dataset.doctorId || '';
+    const entryId = tr.dataset.entryId || '';
+    return `exam:${entryId}:${doctorId}:${buildClientLinesFingerprint(collectDailyLinesFromRow(tr))}`;
   }
   if (tab === 'lab') return serviceRowDedupeKey(tr, 'analyses');
   if (tab === 'radiology') return serviceRowDedupeKey(tr, 'xray_total');
@@ -6023,6 +6088,11 @@ function dedupeTodaySessionRows(entries = []) {
   return rows;
 }
 
+function buildDailySaveRowFingerprint(row = {}) {
+  const doctor = row.doctor_id ? String(row.doctor_id) : '';
+  return `${doctor}|${buildClientLinesFingerprint(row.lines || [])}`;
+}
+
 function mergeFreshDailySaveRows(rows = []) {
   const withEntryId = [];
   const freshByFingerprint = new Map();
@@ -6032,7 +6102,7 @@ function mergeFreshDailySaveRows(rows = []) {
       withEntryId.push(row);
       continue;
     }
-    const fingerprint = buildClientLinesFingerprint(row.lines || []);
+    const fingerprint = buildDailySaveRowFingerprint(row);
     if (!fingerprint) {
       withEntryId.push(row);
       continue;
@@ -6480,6 +6550,10 @@ async function applyStayTypeRateToRow(tr, options = {}) {
   const hasAmount = dailyParseAmount(accInput.value) > 0;
 
   if (gradeRate > 0 && (force || !hasAmount)) {
+    if (grade?.catalog_item_id) accInput.dataset.catalogItemId = String(grade.catalog_item_id);
+    else delete accInput.dataset.catalogItemId;
+    if (grade?.service_id) accInput.dataset.serviceId = String(grade.service_id);
+    else delete accInput.dataset.serviceId;
     setStayAccommodationUnitPrice(tr, gradeRate);
     return;
   }
@@ -6599,7 +6673,10 @@ function addDailyEntryRow(preset = {}) {
       );
       if (existingStay) {
         focusDailyEntryRow(existingStay);
-        showToast(`يوجد صف إقامة لتاريخ ${entryDate} بالفعل`, 'info');
+        showToast(
+          `يوجد صف إقامة لتاريخ ${entryDate} — استخدم زر + بجانب سعر الإقامة لإضافة إقامة ثانية لنفس اليوم`,
+          'info'
+        );
         return;
       }
     }
@@ -7077,14 +7154,21 @@ function dedupeStayEntriesByDate(entries = []) {
     if (!dateKey) continue;
     const existing = byDate.get(dateKey);
     if (!existing) {
-      byDate.set(dateKey, entry);
+      byDate.set(dateKey, { ...entry, lines: [...(entry.lines || [])] });
       continue;
     }
-    const existingScore = (existing.lines || []).length + (existing.id ? 1 : 0);
-    const entryScore = (entry.lines || []).length + (entry.id ? 1 : 0);
-    if (entryScore > existingScore || (entryScore === existingScore && Number(entry.id) > Number(existing.id))) {
-      byDate.set(dateKey, entry);
+    const lineMap = new Map();
+    for (const line of [...(existing.lines || []), ...(entry.lines || [])]) {
+      lineMap.set(dailyLineMergeKey(line), line);
     }
+    const keepId =
+      Number(existing.id) > Number(entry.id) ? Number(existing.id) : Number(entry.id) || Number(existing.id);
+    byDate.set(dateKey, {
+      ...existing,
+      id: keepId || existing.id || entry.id,
+      stay_type_id: existing.stay_type_id || entry.stay_type_id,
+      lines: [...lineMap.values()],
+    });
   }
   return [...byDate.values()].sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)));
 }
@@ -7137,33 +7221,6 @@ function pruneDuplicateStayDomRows() {
   }
   renumberSheetRowSerials();
   updateDailyGrandTotal();
-}
-
-function dailyPreviewKindForActiveTab() {
-  if (!activeDailyTab || activeDailyTab === 'free-items') return '';
-  return activeDailyTab;
-}
-
-async function openDailyInvoicePreview() {
-  const invId = dailyStayContext?.invoice?.id;
-  if (!invId) {
-    showToast('لا توجد فاتورة مفتوحة', 'warning');
-    return;
-  }
-  if (typeof window.openInvoicePrintPreview !== 'function') return;
-
-  const pendingRows = collectDailyRowsForSave();
-  if (pendingRows.length > 0) {
-    const saved = await saveDailyEntryNow({ silent: true, previewFlush: true });
-    if (!saved) {
-      showToast('تعذّر الحفظ — عاين الفاتورة بعد الضغط على «حفظ»', 'warning');
-      return;
-    }
-    await refreshDailyStaySummary(getStayFileNumber());
-  }
-
-  // معاينة الفاتورة الكبيرة كاملة (كل البنود المزامنة)، وليس تبويباً واحداً فقط
-  window.openInvoicePrintPreview({ invoiceId: invId, forceSaved: true });
 }
 
 async function deleteDailyEntryById(entryId, options = {}) {
@@ -8261,9 +8318,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
   document.getElementById('daily-invoice-pdf-btn')?.addEventListener('click', openDailyInvoicePdf);
-  document.getElementById('daily-invoice-preview-btn')?.addEventListener('click', () => {
-    void openDailyInvoicePreview();
-  });
   document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
     const q = document.getElementById('daily-patient-search')?.value || '';
     void loadDailyPatientGrid(q);

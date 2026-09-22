@@ -721,7 +721,8 @@ function lockDailyInvoiceRows() {
     if (isAggregate) {
       row.style.display = '';
     } else if (invoiceFollowUpMode) {
-      row.style.display = hasBillable ? '' : 'none';
+      const isMethodPaymentRow = row.dataset.methodPaymentSync === '1';
+      row.style.display = hasBillable || hasPayment || isMethodPaymentRow ? '' : 'none';
     } else if (isInvoiceFollowUpLocked()) {
       row.style.display = hasBillable || hasPayment ? '' : 'none';
     } else {
@@ -759,7 +760,6 @@ function lockDailyInvoiceRows() {
   });
   if (invoiceFollowUpMode) {
     document.querySelectorAll('.remove-invoice-item-btn').forEach((btn) => btn.remove());
-    document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
   }
 }
 
@@ -1090,19 +1090,12 @@ function resolveActiveInvoiceId() {
 
 function updateGlobalInvoicePrintButton() {
   const btn = document.getElementById('nav-invoice-print-btn');
-  const regBtn = document.getElementById('patient-reg-invoice-print-btn');
   const invoiceId = resolveActiveInvoiceId();
   const show = Boolean(invoiceId && canViewInvoicePrint());
   if (btn) {
     btn.style.display = show ? '' : 'none';
     if (show) btn.dataset.invoiceId = String(invoiceId);
     else delete btn.dataset.invoiceId;
-  }
-  if (regBtn) {
-    const onRegister =
-      document.getElementById('view-patient-register')?.style.display !== 'none' &&
-      !document.getElementById('patient-register-form-panel')?.classList.contains('d-none');
-    regBtn.classList.toggle('d-none', !(show && onRegister));
   }
 }
 
@@ -1511,10 +1504,6 @@ function bindEvents() {
   document.getElementById('nav-invoice-print-btn')?.addEventListener('click', () => {
     openInvoicePrintPreview();
   });
-  document.getElementById('patient-reg-invoice-print-btn')?.addEventListener('click', () => {
-    openInvoicePrintPreview();
-  });
-
   const returnModalEl = document.getElementById('invoice-return-modal');
   if (returnModalEl) invoiceReturnModal = new bootstrap.Modal(returnModalEl);
   document.getElementById('record-return-btn')?.addEventListener('click', openInvoiceReturnModal);
@@ -1769,7 +1758,7 @@ function bindPaymentMethodHelpers() {
       updatePaymentRowHints();
       togglePaymentMetaRows();
       if (input.dataset.methodCode !== 'patient_credit') {
-        if (!invoiceFollowUpMode) syncInvoicePaymentColumnsFromMethodPayments();
+        syncInvoicePaymentColumnsFromMethodPayments();
         recalculate({ skipAutoCredit: true, skipAutoPayments: true });
       }
     });
@@ -1780,7 +1769,7 @@ function bindPaymentMethodHelpers() {
     input.dataset.helperBound = '1';
     input.addEventListener('input', () => {
       togglePaymentMetaRows();
-      if (!invoiceFollowUpMode) syncInvoicePaymentColumnsFromMethodPayments();
+      syncInvoicePaymentColumnsFromMethodPayments();
     });
   });
 
@@ -1788,7 +1777,7 @@ function bindPaymentMethodHelpers() {
     if (input.dataset.paymentMetaSyncBound === '1') return;
     input.dataset.paymentMetaSyncBound = '1';
     const onMeta = () => {
-      if (!invoiceFollowUpMode) syncInvoicePaymentColumnsFromMethodPayments();
+      syncInvoicePaymentColumnsFromMethodPayments();
     };
     input.addEventListener('input', onMeta);
     input.addEventListener('change', onMeta);
@@ -5050,12 +5039,6 @@ function syncInvoicePaymentColumnsFromMethodPayments() {
   const tbody = document.getElementById('items-tbody');
   if (!tbody) return;
 
-  if (invoiceFollowUpMode) {
-    document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
-    lockDailyInvoiceRows();
-    return;
-  }
-
   const receipts = collectMethodPaymentReceiptRows();
 
   document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
@@ -5083,6 +5066,7 @@ function syncInvoicePaymentColumnsFromMethodPayments() {
     fillInvoicePaymentFields(row, pay);
   });
   bindCalcTriggers();
+  if (invoiceFollowUpMode || isInvoiceFollowUpLocked()) lockDailyInvoiceRows();
 }
 
 async function loadPaymentMethodsForm(methodLinesByCode = {}) {

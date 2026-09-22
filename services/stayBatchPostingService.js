@@ -4,7 +4,7 @@ const { getPatientByFileNumber } = require('./patientService');
 const { getOpenPatientStay } = require('./invoiceService');
 const {
   saveEntriesBatch,
-  listAccommodationStayGrades,
+  resolveAccommodationGradeForStayType,
   getCurrentBusinessDateString,
   normalizeCalendarDate,
   isStayDateExcluded,
@@ -38,10 +38,7 @@ function listInclusiveDates(fromStr, toStr) {
 }
 
 async function resolveAccommodationRateForStayType(stayTypeId) {
-  const id = Number(stayTypeId);
-  if (!id) return 0;
-  const grades = await listAccommodationStayGrades();
-  const grade = grades.find((g) => Number(g.stay_type_id) === id);
+  const grade = await resolveAccommodationGradeForStayType(stayTypeId);
   return round2(grade?.daily_rate) || 0;
 }
 

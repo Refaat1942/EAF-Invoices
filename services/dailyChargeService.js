@@ -1500,18 +1500,44 @@ async function prepareEntrySaveContext(data) {
   };
 }
 
+async function resolveAccommodationGradeForStayType(stayTypeId) {
+  const stayId = Number(stayTypeId);
+  if (!stayId) return null;
+  const grades = await listAccommodationStayGrades();
+  return grades.find((g) => Number(g.stay_type_id) === stayId) || null;
+}
+
+function applyAccommodationGradeToLine(accLine, grade, accSection, stayTypeName = '') {
+  if (!accLine || !grade) return accLine;
+  const label = String(grade.name || stayTypeName || accSection?.name || 'إقامة').trim();
+  if (label) accLine.description = label;
+  if (grade.catalog_item_id) accLine.catalog_item_id = grade.catalog_item_id;
+  if (grade.service_id) accLine.service_id = grade.service_id;
+  return accLine;
+}
+
 async function enrichStayLinesFromStayType(lines, stayTypeId, sections) {
   const stayId = Number(stayTypeId);
   if (!stayId) return lines;
   const accSection = sections.find((s) => s.code === 'accommodation');
   if (!accSection) return lines;
 
-  let accLine = lines.find((l) => l.section_code === 'accommodation');
-  if (accLine && round2(accLine.amount) > 0) return lines;
-
   const grades = await listAccommodationStayGrades();
   const grade = grades.find((g) => Number(g.stay_type_id) === stayId);
-  const rate = round2(grade?.daily_rate) || 0;
+  const { getStayTypeById } = require('./stayTypeService');
+  const stayType = await getStayTypeById(stayId);
+  const stayTypeName = stayType?.name || '';
+  const rate =
+    round2(grade?.daily_rate) ||
+    round2(stayType?.daily_rate) ||
+    0;
+
+  let accLine = lines.find((l) => l.section_code === 'accommodation');
+  if (accLine && round2(accLine.amount) > 0) {
+    applyAccommodationGradeToLine(accLine, grade, accSection, stayTypeName);
+    return lines;
+  }
+
   if (rate <= 0) return lines;
 
   if (!accLine) {
@@ -1528,7 +1554,7 @@ async function enrichStayLinesFromStayType(lines, stayTypeId, sections) {
     accLine.unit_price = rate;
     accLine.quantity = 1;
   }
-  if (grade?.service_id) accLine.service_id = grade.service_id;
+  applyAccommodationGradeToLine(accLine, grade, accSection, stayTypeName);
   return lines;
 }
 
@@ -2885,22 +2911,35 @@ async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = nu
   return entries;
 }
 
-async function ensureStayAccommodationOnEntries(entries = [], sections = []) {
+async function resolveStayTypeIdForDailyEntry(entry, patient = null) {
+  const fromEntry = Number(entry?.stay_type_id) || 0;
+  if (fromEntry) return fromEntry;
+  if (!patient?.id) return 0;
+  const entryDate = formatDailyEntryDateLabel(entry.entry_date);
+  if (entryDate) {
+    const { getAssignmentForDate } = require('./patientRoomService');
+    const assignment = await getAssignmentForDate(patient.id, entryDate);
+    const fromRoom = Number(assignment?.stay_type_id) || 0;
+    if (fromRoom) return fromRoom;
+  }
+  return Number(patient.stay_grade_id) || 0;
+}
+
+async function ensureStayAccommodationOnEntries(entries = [], sections = [], patient = null) {
   for (const entry of entries) {
-    const stayTypeId = Number(entry.stay_type_id) || 0;
+    const stayTypeId = await resolveStayTypeIdForDailyEntry(entry, patient);
     if (!stayTypeId) continue;
+    if (!entry.stay_type_id) entry.stay_type_id = stayTypeId;
     const lines = [...(entry.lines || [])];
-    const accLine = lines.find((line) => line.section_code === 'accommodation');
-    const accAmount = round2(accLine?.amount || accLine?.unit_price || 0);
-    if (accAmount > 0) continue;
     entry.lines = await enrichStayLinesFromStayType(lines, stayTypeId, sections);
   }
 }
 
 async function getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, invoiceId = null) {
   const sections = await listSections();
+  const patient = await resolvePatient(fileNumber);
   const entries = await getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId);
-  await ensureStayAccommodationOnEntries(entries, sections);
+  await ensureStayAccommodationOnEntries(entries, sections, patient);
   const lineItems = entriesToInvoiceItems(entries, sections);
   const supplemental = await getSupplementalInvoiceItems(fileNumber, fromDate, toDate);
   const items = [...lineItems, ...supplemental];
@@ -3170,6 +3209,7 @@ module.exports = {
   listSections,
   getSectionsWithServices,
   listAccommodationStayGrades,
+  resolveAccommodationGradeForStayType,
   resolveDefaultServiceForSection,
   searchDailyPickerItems,
   listDailyPickerServicesByCategory,

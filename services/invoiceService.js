@@ -218,16 +218,15 @@ async function prepareCalculationData(data, client = null) {
   calcData.excluded_daily_line_ids = excludedLineIds;
   calcData.excluded_section_codes = excludedSectionCodes;
 
-  if (
-    calcData.file_number &&
-    calcData.admission_date &&
-    calcData.include_daily_charges !== false
-  ) {
+  if (calcData.file_number && calcData.include_daily_charges !== false) {
+    const { fromDate, toDate } = await resolveDailyChargePeriodForCalc(calcData);
+    if (fromDate && toDate) {
+      if (!calcData.admission_date) calcData.admission_date = fromDate;
+      if (!calcData.discharge_date && toDate > fromDate) calcData.discharge_date = toDate;
+
     calcData.stay_entries = [];
-    const fromDate = fmtDateOnly(calcData.admission_date);
-    let toDate = fmtDateOnly(calcData.discharge_date);
-    if (!toDate && fromDate) toDate = fromDate;
     const { getInvoiceItemsFromDailyCharges, dedupeDailyInvoiceItemsByLineId } = require('./dailyChargeService');
+    const { inferBundleKeyFromItem } = require('./dailySectionBundles');
     let dailyItems = dedupeDailyInvoiceItemsByLineId(
       await getInvoiceItemsFromDailyCharges(
         calcData.file_number,
@@ -236,7 +235,12 @@ async function prepareCalculationData(data, client = null) {
         calcData.invoice_id || calcData.id || null
       )
     );
-    dailyItems = filterDailyItemsByExclusions(dailyItems, excludedLineIds, excludedSectionCodes);
+    let sectionCodesForFilter = excludedSectionCodes;
+    if (sectionCodesForFilter.includes('stay') && dailyItems.some((item) => inferBundleKeyFromItem(item) === 'stay')) {
+      sectionCodesForFilter = sectionCodesForFilter.filter((code) => code !== 'stay');
+      calcData.excluded_section_codes = sectionCodesForFilter;
+    }
+    dailyItems = filterDailyItemsByExclusions(dailyItems, excludedLineIds, sectionCodesForFilter);
     const manualOnly = (Array.isArray(calcData.items) ? calcData.items : []).filter(
       (item) => !item.daily_entry_line_id && !item.daily_entry_id && !isStaleDailyInvoiceItem(item)
     );
@@ -247,6 +251,7 @@ async function prepareCalculationData(data, client = null) {
       calcData.items = sortDailyInvoiceItems(calcData.items);
     } else if (manualOnly.length !== (calcData.items || []).length) {
       calcData.items = manualOnly;
+    }
     }
   }
 
@@ -300,6 +305,62 @@ function filterDailyItemsByExclusions(items = [], excludedLineIds = [], excluded
     if (sectionSet.size && itemMatchesExcludedSection(item, sectionSet)) return false;
     return true;
   });
+}
+
+async function queryDailyEntryDateRangeForInvoice(fileNumber, invoiceId = null) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return { entryMin: null, entryMax: null };
+  const params = [fn];
+  let sql = `
+    SELECT MIN(e.entry_date) AS min_date, MAX(e.entry_date) AS max_date
+    FROM patient_daily_entries e
+    JOIN patients p ON p.id = e.patient_id
+    WHERE TRIM(p.file_number) = TRIM($1)`;
+  if (invoiceId) {
+    sql += ` AND (e.invoice_id IS NULL OR e.invoice_id = $2)`;
+    params.push(Number(invoiceId));
+  } else {
+    sql += ` AND e.invoice_id IS NULL`;
+  }
+  const { rows } = await query(sql, params);
+  return {
+    entryMin: fmtDateOnly(rows[0]?.min_date),
+    entryMax: fmtDateOnly(rows[0]?.max_date),
+  };
+}
+
+/** Align invoice daily merge window with daily-charges open-stay logic (through today when still admitted). */
+function resolveDailyChargePeriodFromDates(admissionDate, dischargeDate, entryMin, entryMax) {
+  let fromDate = fmtDateOnly(admissionDate) || entryMin;
+  if (!fromDate) return { fromDate: null, toDate: null };
+  if (entryMin && entryMin < fromDate) fromDate = entryMin;
+
+  const discharge = fmtDateOnly(dischargeDate);
+  const today = fmtDateOnly(new Date());
+  let toDate = discharge || entryMax || fromDate;
+
+  const openStay = !discharge || discharge === fromDate;
+  if (openStay) {
+    const through = today && today >= fromDate ? today : fromDate;
+    toDate = entryMax && entryMax > through ? entryMax : through;
+  } else if (entryMax && entryMax > toDate) {
+    toDate = entryMax;
+  }
+
+  return { fromDate, toDate };
+}
+
+async function resolveDailyChargePeriodForCalc(calcData = {}) {
+  const fileNumber = String(calcData.file_number || '').trim();
+  if (!fileNumber) return { fromDate: null, toDate: null };
+  const invoiceId = calcData.invoice_id || calcData.id || null;
+  const { entryMin, entryMax } = await queryDailyEntryDateRangeForInvoice(fileNumber, invoiceId);
+  return resolveDailyChargePeriodFromDates(
+    calcData.admission_date,
+    calcData.discharge_date,
+    entryMin,
+    entryMax
+  );
 }
 
 const DAILY_STAY_SECTION_CODES = new Set([
