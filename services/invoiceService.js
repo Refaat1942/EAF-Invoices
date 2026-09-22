@@ -973,7 +973,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
       await client.query('DELETE FROM invoice_stay_entries WHERE invoice_id = $1', [existingId]);
       await saveDiscountFields(client, existingId, calcData, totals);
     } else {
-      const issueDate = data.issue_date || new Date().toISOString().slice(0, 10);
+      const issueDate = data.issue_date || require('./dailyChargeService').getCurrentBusinessDateString();
       const filePassword = '';
 
       const inserted = await client.query(
@@ -1196,7 +1196,7 @@ async function approveInvoice(id, reviewer) {
       throw new Error('مجموع طرق الدفع لا يساوي إجمالي الفاتورة — راجع المدفوعات قبل الاعتماد');
     }
 
-    const issueDate = invoice.issue_date || new Date().toISOString().slice(0, 10);
+    const issueDate = invoice.issue_date || require('./dailyChargeService').getCurrentBusinessDateString();
     let patientScope = 'internal';
     if (invoice.file_number) {
       const linkedPatient = await getPatientByFileNumber(String(invoice.file_number).trim());
@@ -2051,7 +2051,7 @@ async function getOpenPatientStay(fileNumber) {
   if (patient?.id) {
     const { getAssignmentForDate } = require('./patientRoomService');
     const refDate =
-      fmtDateOnly(invoice?.admission_date) || new Date().toISOString().slice(0, 10);
+      fmtDateOnly(invoice?.admission_date) || require('./dailyChargeService').getCurrentBusinessDateString();
     room_assignment = await getAssignmentForDate(patient.id, refDate);
   }
 

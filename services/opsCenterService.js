@@ -93,8 +93,9 @@ async function getLiveActivity({ hours = 24, limit = 100 } = {}) {
     `SELECT
        (SELECT COUNT(*)::int FROM invoices WHERE status = 'draft') AS draft_total,
        (SELECT COUNT(*)::int FROM invoices WHERE status = 'pending_review') AS pending_total,
-       (SELECT COUNT(*)::int FROM patient_daily_entries WHERE entry_date = CURRENT_DATE) AS daily_entries_today,
-       (SELECT COUNT(DISTINCT file_number)::int FROM patient_daily_entries WHERE entry_date = CURRENT_DATE) AS patients_with_daily_today`
+       (SELECT COUNT(*)::int FROM patient_daily_entries WHERE entry_date = $1::date) AS daily_entries_today,
+       (SELECT COUNT(DISTINCT file_number)::int FROM patient_daily_entries WHERE entry_date = $1::date) AS patients_with_daily_today`,
+    [require('./dailyChargeService').getCurrentBusinessDateString()]
   );
 
   return {

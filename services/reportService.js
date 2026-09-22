@@ -974,7 +974,7 @@ async function getPatientStatusReport(filters = {}) {
   const dischargeDates = invoices.map((inv) => inv.discharge_date).filter(Boolean);
   const earliestAdmission = admissionDates.length ? [...admissionDates].sort()[0] : null;
   const latestDischarge = dischargeDates.length ? [...dischargeDates].sort().reverse()[0] : null;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = require('./dailyChargeService').getCurrentBusinessDateString();
   const endDate = latestDischarge || today;
   const durationDays = earliestAdmission ? daysBetween(earliestAdmission, endDate) : 0;
 

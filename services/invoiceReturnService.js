@@ -125,7 +125,7 @@ async function recordInvoiceReturns(invoiceId, payload = {}, user = null) {
       normalized.push({ item, returnQty });
     }
 
-    const returnDate = payload.return_date || new Date().toISOString().slice(0, 10);
+    const returnDate = payload.return_date || require('./dailyChargeService').getCurrentBusinessDateString();
     const notes = String(payload.notes || '').trim();
     const userId = user?.id || null;
     const userName = user?.full_name || user?.username || '';

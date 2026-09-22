@@ -66,6 +66,9 @@ app.use(
 );
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+// Mounted after the callback-based session/body parsers so the request's date context
+// isn't lost before the route handlers run.
+app.use(require('./middleware/clientDate').clientDateMiddleware);
 
 app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
 app.use(

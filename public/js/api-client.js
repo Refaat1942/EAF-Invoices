@@ -127,6 +127,25 @@ async function parseApiResponse(res) {
   return body;
 }
 
+/**
+ * The server treats the PC's calendar date as "today". The cookie covers requests that
+ * bypass apiFetch (window.open previews, downloads).
+ */
+function stampClientDate() {
+  if (typeof document === 'undefined') return '';
+  const now = new Date();
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate()
+  ).padStart(2, '0')}`;
+  document.cookie = `eaf_client_date=${date}; path=/; SameSite=Lax`;
+  return date;
+}
+
+if (typeof window !== 'undefined') {
+  stampClientDate();
+  setInterval(stampClientDate, 60 * 1000);
+}
+
 async function apiFetch(url, options = {}) {
   const fetchImpl = typeof fetch === 'function' ? fetch : null;
   if (!fetchImpl) {
@@ -136,8 +155,15 @@ async function apiFetch(url, options = {}) {
     });
   }
 
+  const clientDate = stampClientDate();
+  const headers =
+    typeof Headers !== 'undefined' && options.headers instanceof Headers
+      ? Object.fromEntries(options.headers.entries())
+      : { ...(options.headers || {}) };
+  if (clientDate) headers['X-Client-Date'] = clientDate;
+
   try {
-    return await fetchImpl(url, { credentials: 'include', ...options });
+    return await fetchImpl(url, { credentials: 'include', ...options, headers });
   } catch (err) {
     if (err instanceof ApiClientError) throw err;
     const isNetwork =

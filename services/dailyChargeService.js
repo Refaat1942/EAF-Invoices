@@ -201,6 +201,9 @@ function buildDailyLinesFingerprint(lines = []) {
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'Africa/Cairo';
 
 function getCurrentBusinessDateString() {
+  // Requests from the browser carry the PC's calendar date; background work falls back to BUSINESS_TIMEZONE.
+  const clientDate = require('../middleware/clientDate').getRequestClientDate();
+  if (clientDate) return clientDate;
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: BUSINESS_TIMEZONE,
     year: 'numeric',
