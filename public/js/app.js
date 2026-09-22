@@ -948,6 +948,9 @@ async function handleLogin(e) {
 
 async function handleLogout() {
   await apiFetch(`${AUTH_API}/logout`, { method: 'POST' });
+  if (typeof window.clearDailyChargesSession === 'function') {
+    window.clearDailyChargesSession();
+  }
   currentUser = null;
   showLogin();
 }

@@ -7746,12 +7746,16 @@ async function initDailyChargesView(options = {}) {
     if (typeof bindCommaAmountInputs === 'function') {
       bindCommaAmountInputs(document.getElementById('view-daily'));
     }
-    const openFile = String(
-      options.openFileNumber || sessionStorage.getItem('dailyStayFileNumber') || ''
-    ).trim();
+    const openFile = String(options.openFileNumber || '').trim();
     void reconcileAllRegisteredPatientsOnce();
     if (openFile) {
       await selectDailyPatient(openFile, { preserveTab: options.preserveTab !== false });
+    } else if (dailyStayContext?.patient?.file_number && dailyStayContext?.invoice?.id) {
+      applyDailyStayContext(dailyStayContext);
+      const workspaceOpen = !document.getElementById('daily-patient-workspace')?.classList.contains('d-none');
+      showDailyPatientWorkspace(dailyStayContext, { preserveTab: workspaceOpen });
+      const tab = activeDailyTab || sessionStorage.getItem('dailyActiveTab');
+      if (tab) await showDailySection(tab, { skipUnsavedPrompt: true });
     } else {
       showDailyPatientPicker();
     }
@@ -8051,7 +8055,16 @@ document.addEventListener('DOMContentLoaded', () => {
   initDailyAutosaveAndEnterRow();
 });
 
+function clearDailyChargesSession() {
+  dailyStayContext = null;
+  dailySavedSheetFingerprint = '';
+  activeDailyTab = '';
+  sessionStorage.removeItem('dailyStayFileNumber');
+  sessionStorage.removeItem('dailyActiveTab');
+}
+
 window.initDailyChargesView = initDailyChargesView;
+window.clearDailyChargesSession = clearDailyChargesSession;
 window.initPatientRegistration = initPatientRegistration;
 window.openNewPatientRegistration = openNewPatientRegistration;
 window.loadDailyDoctorSpecialties = loadDailyDoctorSpecialties;
