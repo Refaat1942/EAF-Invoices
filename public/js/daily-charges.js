@@ -340,8 +340,10 @@ function refreshDailyStayLiveTotals() {
   }
 }
 
+// Always the PC's current date: the server treats the PC date as "today" (X-Client-Date),
+// and a date cached at page load goes stale after midnight, showing yesterday's rows and
+// sending saves the server rejects.
 function getLocalDateString() {
-  if (dailyBusinessDate) return dailyBusinessDate;
   const d = new Date();
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
