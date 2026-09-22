@@ -710,21 +710,18 @@ function invoiceRowHasPaymentData(row) {
 function lockDailyInvoiceRows() {
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
     if (row.dataset.sectionHeader) return;
-    if (row.dataset.sectionAggregate) {
-      row.style.display = '';
-      return;
-    }
+    const isAggregate = row.dataset.sectionAggregate === '1';
     const isDaily = Boolean(row.dataset.dailyLineId || row.dataset.dailyEntryId || row.dataset.sectionCode);
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
     const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
     const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
     const hasBillable = Boolean(desc || amt || qty || isDaily);
     const hasPayment = invoiceRowHasPaymentData(row);
-    const isPaymentSlot =
-      row.dataset.methodPaymentSync === '1' || (hasPayment && !hasBillable);
 
-    if (invoiceFollowUpMode) {
-      row.style.display = hasBillable || isPaymentSlot ? '' : 'none';
+    if (isAggregate) {
+      row.style.display = '';
+    } else if (invoiceFollowUpMode) {
+      row.style.display = hasBillable ? '' : 'none';
     } else if (isInvoiceFollowUpLocked()) {
       row.style.display = hasBillable || hasPayment ? '' : 'none';
     } else {
@@ -732,7 +729,7 @@ function lockDailyInvoiceRows() {
     }
 
     row.classList.toggle('daily-invoice-row', isDaily);
-    const lockLineFields = invoiceFollowUpMode && (hasBillable || isDaily);
+    const lockLineFields = invoiceFollowUpMode && (hasBillable || isDaily || isAggregate);
     row.querySelectorAll('[data-field="description"], [data-field="quantity"], [data-field="amount"]').forEach((el) => {
       if (lockLineFields || (isInvoiceFollowUpLocked() && (isDaily || hasBillable))) {
         el.setAttribute('readonly', 'readonly');
@@ -750,17 +747,19 @@ function lockDailyInvoiceRows() {
       }
     });
 
-    if (invoiceFollowUpMode && isPaymentSlot && currentInvoiceStatus !== 'approved') {
+    if (invoiceFollowUpMode && currentInvoiceStatus !== 'approved') {
       row.querySelectorAll(
         '[data-field="pay_amount"], [data-field="receipt_number"], [data-field="receipt_date"], [data-field="depositor_name"]'
       ).forEach((el) => {
         el.removeAttribute('readonly');
+        el.disabled = false;
         el.classList.remove('bg-light');
       });
     }
   });
   if (invoiceFollowUpMode) {
     document.querySelectorAll('.remove-invoice-item-btn').forEach((btn) => btn.remove());
+    document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
   }
 }
 
@@ -1187,7 +1186,7 @@ function createRow(index) {
       <div class="service-suggest d-none"></div>
     </td>
     <td><input type="text" inputmode="decimal" class="pay-amt calc-trigger comma-amount" data-field="pay_amount" value=""></td>
-    <td><input type="text" class="pay-num calc-trigger" data-field="receipt_number"></td>
+    <td><input type="text" class="pay-num pay-receipt-text calc-trigger" data-field="receipt_number" autocomplete="off" inputmode="text"></td>
     <td><input type="date" class="pay-date calc-trigger" data-field="receipt_date"></td>
     <td><input type="text" class="pay-depositor calc-trigger" data-field="depositor_name" autocomplete="off" placeholder="اسم المودع"></td>
   `;
@@ -1429,7 +1428,7 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
     if (part.type === 'aggregate') {
       const tr = createRow(rowIndex++);
       tbody.appendChild(tr);
-      fillInvoiceAggregateRow(tr, part, {});
+      fillInvoiceAggregateRow(tr, part, payments[paymentIndex++] || {});
       continue;
     }
     if (part.type === 'item') {
@@ -1767,7 +1766,7 @@ function bindPaymentMethodHelpers() {
       updatePaymentRowHints();
       togglePaymentMetaRows();
       if (input.dataset.methodCode !== 'patient_credit') {
-        syncInvoicePaymentColumnsFromMethodPayments();
+        if (!invoiceFollowUpMode) syncInvoicePaymentColumnsFromMethodPayments();
         recalculate({ skipAutoCredit: true, skipAutoPayments: true });
       }
     });
@@ -1778,15 +1777,18 @@ function bindPaymentMethodHelpers() {
     input.dataset.helperBound = '1';
     input.addEventListener('input', () => {
       togglePaymentMetaRows();
-      syncInvoicePaymentColumnsFromMethodPayments();
+      if (!invoiceFollowUpMode) syncInvoicePaymentColumnsFromMethodPayments();
     });
   });
 
   document.querySelectorAll('.payment-meta-input').forEach((input) => {
     if (input.dataset.paymentMetaSyncBound === '1') return;
     input.dataset.paymentMetaSyncBound = '1';
-    input.addEventListener('input', syncInvoicePaymentColumnsFromMethodPayments);
-    input.addEventListener('change', syncInvoicePaymentColumnsFromMethodPayments);
+    const onMeta = () => {
+      if (!invoiceFollowUpMode) syncInvoicePaymentColumnsFromMethodPayments();
+    };
+    input.addEventListener('input', onMeta);
+    input.addEventListener('change', onMeta);
   });
 }
 
@@ -2807,22 +2809,34 @@ function collectFormData() {
   const payments = [];
 
   rows.forEach((row) => {
-    if (row.dataset.staySync || row.dataset.sectionHeader || row.dataset.sectionAggregate) return;
-    const descEl = row.querySelector('[data-field="description"]');
-    const qtyEl = row.querySelector('[data-field="quantity"]');
-    const amtEl = row.querySelector('[data-field="amount"]');
+    if (row.dataset.staySync || row.dataset.sectionHeader) return;
+
     const payAmtEl = row.querySelector('[data-field="pay_amount"]');
     const receiptDateEl = row.querySelector('[data-field="receipt_date"]');
     const receiptNumEl = row.querySelector('[data-field="receipt_number"]');
+    const depositorName = row.querySelector('[data-field="depositor_name"]')?.value?.trim() || '';
+    const payAmt = parseDisplayAmount(payAmtEl?.value);
+    const receiptDate = receiptDateEl?.value || '';
+    const receiptNum = receiptNumEl?.value || '';
+
+    if (row.dataset.sectionAggregate) {
+      payments.push({
+        receipt_date: receiptDate,
+        receipt_number: receiptNum,
+        amount: payAmt,
+        depositor_name: depositorName,
+      });
+      return;
+    }
+
+    const descEl = row.querySelector('[data-field="description"]');
+    const qtyEl = row.querySelector('[data-field="quantity"]');
+    const amtEl = row.querySelector('[data-field="amount"]');
     if (!descEl || !qtyEl || !amtEl) return;
     const desc = descEl.value.trim();
     const qty = parseDisplayAmount(qtyEl.value);
     const amt = parseDisplayAmount(amtEl.value);
-    const payAmt = parseDisplayAmount(payAmtEl?.value);
     const creditAmt = parseDisplayAmount(row.querySelector('[data-field="patient_credit_applied"]')?.value);
-    const receiptDate = receiptDateEl?.value || '';
-    const receiptNum = receiptNumEl?.value || '';
-    const depositorName = row.querySelector('[data-field="depositor_name"]')?.value?.trim() || '';
 
     if (desc || qty || amt) {
       const serviceIdEl = row.querySelector('[data-field="service_id"]');
@@ -3042,17 +3056,14 @@ function initInvoiceAutosaveAndEnterRow() {
 }
 
 function collectPaymentsFromInvoiceRows() {
-  const payments = [];
-  document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.staySync || row.dataset.sectionHeader || row.dataset.sectionAggregate) return;
-    payments.push({
-      receipt_date: row.querySelector('[data-field="receipt_date"]')?.value || '',
-      receipt_number: row.querySelector('[data-field="receipt_number"]')?.value || '',
-      amount: parseDisplayAmount(row.querySelector('[data-field="pay_amount"]')?.value),
-      depositor_name: row.querySelector('[data-field="depositor_name"]')?.value?.trim() || '',
-    });
-  });
-  return payments;
+  const tbody = document.getElementById('items-tbody');
+  if (!tbody) return [];
+  return invoiceBillableItemRows(tbody).map((row) => ({
+    receipt_date: row.querySelector('[data-field="receipt_date"]')?.value || '',
+    receipt_number: row.querySelector('[data-field="receipt_number"]')?.value || '',
+    amount: parseDisplayAmount(row.querySelector('[data-field="pay_amount"]')?.value),
+    depositor_name: row.querySelector('[data-field="depositor_name"]')?.value?.trim() || '',
+  }));
 }
 
 function refreshInvoiceDisplayFromCalculatedItems(items = []) {
@@ -5024,10 +5035,25 @@ function markInvoicePaymentOnlyRow(row) {
   if (totalEl) totalEl.value = '';
 }
 
+function invoiceBillableItemRows(tbody) {
+  if (!tbody) return [];
+  return [...tbody.querySelectorAll('tr')].filter((row) => {
+    if (row.dataset.sectionHeader || row.dataset.staySync) return false;
+    return row.dataset.sectionAggregate === '1' || invoiceRowHasBillableItem(row);
+  });
+}
+
 function syncInvoicePaymentColumnsFromMethodPayments() {
-  const receipts = collectMethodPaymentReceiptRows();
   const tbody = document.getElementById('items-tbody');
   if (!tbody) return;
+
+  if (invoiceFollowUpMode) {
+    document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
+    lockDailyInvoiceRows();
+    return;
+  }
+
+  const receipts = collectMethodPaymentReceiptRows();
 
   document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
 
