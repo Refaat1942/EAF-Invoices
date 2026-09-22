@@ -159,6 +159,8 @@ const MANUAL_AMOUNT_SECTION_CODES = Object.freeze([
   'xray_stamp',
 ]);
 
+const DAILY_EXAM_SECTION_CODES = Object.freeze(['consultant_exam', 'specialist_exam']);
+
 function isManualAmountSection(sectionOrCode) {
   const code = typeof sectionOrCode === 'string' ? sectionOrCode : sectionOrCode?.code;
   return MANUAL_AMOUNT_SECTION_CODES.includes(String(code || '').trim());
@@ -1231,6 +1233,23 @@ async function normalizeManualAmountLine(section, rawLine = {}, sectionsWithServ
   return normalized;
 }
 
+async function normalizeDailyExamAmountLine(section, rawLine = {}) {
+  const normalized = normalizeLine(section, rawLine);
+  if (section.input_type !== 'amount') return normalized;
+  const amount = round2(normalized.amount);
+  if (amount <= 0) return normalized;
+  if (normalized.service_id) return null;
+  normalized.unit_price = amount;
+  normalized.quantity = 1;
+  normalized.amount = amount;
+  const specialtyHint = String(normalized.extra_text || '').trim();
+  if (!normalized.description && specialtyHint && !specialtyHint.startsWith('stamp_for:')) {
+    normalized.description = specialtyHint;
+  }
+  if (!normalized.description) normalized.description = section.name;
+  return normalized;
+}
+
 async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices = null) {
   const normalized = normalizeLine(section, rawLine);
   if (section.input_type !== 'amount') return normalized;
@@ -1355,6 +1374,11 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
     return await normalizeManualAmountLine(section, rawLine, sectionsWithServices);
   }
 
+  if (DAILY_EXAM_SECTION_CODES.includes(String(section.code || '').trim())) {
+    const examManual = await normalizeDailyExamAmountLine(section, rawLine);
+    if (examManual && !rawLine.service_id) return examManual;
+  }
+
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
   const { catalogCategoryForSection } = require('./dailyCatalogCategories');
   let line = { ...rawLine };
@@ -1402,6 +1426,10 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
 
   if (!hasService) {
     if (hasAmountInput) {
+      if (DAILY_EXAM_SECTION_CODES.includes(String(section.code || '').trim())) {
+        const examManual = await normalizeDailyExamAmountLine(section, normalized);
+        if (examManual) return examManual;
+      }
       throw new Error(`قسم «${section.name}»: يجب اختيار بند من اللائحة — السعر يُؤخذ من الشيت المرفوع فقط`);
     }
     return normalized;
@@ -3097,43 +3125,88 @@ function normalizeStayGradeName(name) {
     .toLowerCase();
 }
 
+function buildStayTypesByNormalizedName(stayTypes = []) {
+  const stayByName = new Map();
+  for (const st of stayTypes) {
+    const key = normalizeStayGradeName(st.name);
+    if (key) stayByName.set(key, st);
+  }
+  return stayByName;
+}
+
+function matchStayTypeForServiceName(stayTypes, stayByName, serviceName) {
+  const key = normalizeStayGradeName(serviceName);
+  if (!key) return null;
+  const direct = stayByName.get(key);
+  if (direct?.id) return direct;
+  return (
+    stayTypes.find(
+      (t) =>
+        normalizeStayGradeName(t.name) === key ||
+        normalizeStayGradeName(t.name).includes(key) ||
+        key.includes(normalizeStayGradeName(t.name))
+    ) || null
+  );
+}
+
+function accommodationGradeDedupeKey(grade) {
+  if (grade.catalog_item_id) return `c:${grade.catalog_item_id}`;
+  if (grade.service_id) return `s:${grade.service_id}`;
+  const nameKey = normalizeStayGradeName(grade.name);
+  if (grade.stay_type_id) return `t:${grade.stay_type_id}:${nameKey}`;
+  return `n:${nameKey}`;
+}
+
+function pushAccommodationGrade(grades, seen, grade) {
+  const key = accommodationGradeDedupeKey(grade);
+  if (!key || seen.has(key)) return;
+  seen.add(key);
+  grades.push(grade);
+}
+
+function sortAccommodationGrades(grades, stayTypes) {
+  return grades.sort((a, b) => {
+    const ao = stayTypes.find((t) => t.id === a.stay_type_id)?.sort_order ?? 9999;
+    const bo = stayTypes.find((t) => t.id === b.stay_type_id)?.sort_order ?? 9999;
+    return ao - bo || String(a.name).localeCompare(String(b.name), 'ar');
+  });
+}
+
 async function listAccommodationStayGrades() {
   const { listStayTypes } = require('./stayTypeService');
   const stayTypes = await listStayTypes(true);
+  const stayByName = buildStayTypesByNormalizedName(stayTypes);
   const { listCatalogItems } = require('./dailyEntryCatalogService');
   const catalogRows = await listCatalogItems({ category: 'Accommodation', active_only: true });
   if (catalogRows.length) {
-    const stayByName = new Map();
-    for (const st of stayTypes) {
-      const key = normalizeStayGradeName(st.name);
-      if (key) stayByName.set(key, st);
-    }
     const grades = [];
     const seen = new Set();
     for (const item of catalogRows) {
-      const key = normalizeStayGradeName(item.name);
-      const st =
-        stayByName.get(key) ||
-        stayTypes.find(
-          (t) =>
-            normalizeStayGradeName(t.name) === key ||
-            normalizeStayGradeName(t.name).includes(key) ||
-            key.includes(normalizeStayGradeName(t.name))
-        );
-      if (!st?.id) continue;
-      if (seen.has(st.id)) continue;
-      seen.add(st.id);
-      const daily_rate = round2(item.major_unit_selling_price ?? item.price) || Number(st.daily_rate) || 0;
-      grades.push({
-        stay_type_id: st.id,
+      const st = matchStayTypeForServiceName(stayTypes, stayByName, item.name);
+      const daily_rate =
+        round2(item.major_unit_selling_price ?? item.price) || Number(st?.daily_rate) || 0;
+      pushAccommodationGrade(grades, seen, {
+        stay_type_id: st?.id || null,
         service_id: null,
         catalog_item_id: item.id,
-        name: item.name || st.name,
+        name: item.name || st?.name || '',
         daily_rate,
         price_list_name: 'شيت الإقامة',
       });
     }
-    if (grades.length) return grades;
+    const matchedStayTypeIds = new Set(grades.map((g) => g.stay_type_id).filter(Boolean));
+    for (const st of stayTypes) {
+      if (matchedStayTypeIds.has(st.id)) continue;
+      pushAccommodationGrade(grades, seen, {
+        stay_type_id: st.id,
+        service_id: null,
+        catalog_item_id: null,
+        name: st.name,
+        daily_rate: Number(st.daily_rate) || 0,
+        price_list_name: 'شيت الإقامة',
+      });
+    }
+    return sortAccommodationGrades(grades, stayTypes);
   }
 
   const priceList = await getDefaultPriceList();
@@ -3141,6 +3214,7 @@ async function listAccommodationStayGrades() {
     return stayTypes.map((st) => ({
       stay_type_id: st.id,
       service_id: null,
+      catalog_item_id: null,
       name: st.name,
       daily_rate: Number(st.daily_rate) || 0,
       price_list_name: null,
@@ -3156,53 +3230,35 @@ async function listAccommodationStayGrades() {
     [priceList.id]
   );
   const enriched = await enrichServicesWithResolvedPrices(rows);
-  const stayByName = new Map();
-  for (const st of stayTypes) {
-    const key = normalizeStayGradeName(st.name);
-    if (key) stayByName.set(key, st);
-  }
-
   const grades = [];
   const seen = new Set();
   for (const svc of enriched) {
-    const key = normalizeStayGradeName(svc.name);
-    const st =
-      stayByName.get(key) ||
-      stayTypes.find(
-        (t) =>
-          normalizeStayGradeName(t.name) === key ||
-          normalizeStayGradeName(t.name).includes(key) ||
-          key.includes(normalizeStayGradeName(t.name))
-      );
-    if (!st?.id) continue;
-    if (seen.has(st.id)) continue;
-    seen.add(st.id);
-    const daily_rate = round2(svc.list_price ?? svc.price) || Number(st.daily_rate) || 0;
-    grades.push({
-      stay_type_id: st.id,
+    const st = matchStayTypeForServiceName(stayTypes, stayByName, svc.name);
+    const daily_rate = round2(svc.list_price ?? svc.price) || Number(st?.daily_rate) || 0;
+    pushAccommodationGrade(grades, seen, {
+      stay_type_id: st?.id || null,
       service_id: svc.id,
-      name: svc.name || st.name,
+      catalog_item_id: null,
+      name: svc.name || st?.name || '',
       daily_rate,
       price_list_name: priceList.name,
     });
   }
 
+  const coveredStayTypeIds = new Set(grades.map((g) => g.stay_type_id).filter(Boolean));
   for (const st of stayTypes) {
-    if (seen.has(st.id)) continue;
-    grades.push({
+    if (coveredStayTypeIds.has(st.id)) continue;
+    pushAccommodationGrade(grades, seen, {
       stay_type_id: st.id,
       service_id: null,
+      catalog_item_id: null,
       name: st.name,
       daily_rate: Number(st.daily_rate) || 0,
       price_list_name: priceList.name,
     });
   }
 
-  return grades.sort((a, b) => {
-    const ao = stayTypes.find((t) => t.id === a.stay_type_id)?.sort_order || 0;
-    const bo = stayTypes.find((t) => t.id === b.stay_type_id)?.sort_order || 0;
-    return ao - bo || String(a.name).localeCompare(String(b.name), 'ar');
-  });
+  return sortAccommodationGrades(grades, stayTypes);
 }
 
 module.exports = {

@@ -1414,6 +1414,7 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
   if (!tbody) return;
   tbody.innerHTML = '';
   const plan = buildInvoiceItemsRenderPlan(items);
+  const groupedAggregateDisplay = plan.some((part) => part.type === 'aggregate');
   let rowIndex = 0;
   let paymentIndex = 0;
   for (const part of plan) {
@@ -1433,7 +1434,8 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
       fillInvoiceItemRow(tr, part.item, payments[paymentIndex++] || {});
     }
   }
-  const minRows = invoiceFollowUpMode ? rowIndex : Math.max(rowIndex, 12);
+  const minRows =
+    invoiceFollowUpMode || groupedAggregateDisplay ? rowIndex : Math.max(rowIndex, 12);
   while (rowIndex < minRows) {
     tbody.appendChild(createRow(rowIndex++));
   }
@@ -5058,9 +5060,7 @@ function syncInvoicePaymentColumnsFromMethodPayments() {
       row.dataset.methodPaymentSync = '1';
       row.classList.add('invoice-method-payment-row');
       markInvoicePaymentOnlyRow(row);
-      const anchor = tbody.querySelector('tr:not([data-section-header])');
-      if (anchor) tbody.insertBefore(row, anchor);
-      else tbody.appendChild(row);
+      tbody.appendChild(row);
       slotRows.push(row);
     }
     fillInvoicePaymentFields(row, pay);

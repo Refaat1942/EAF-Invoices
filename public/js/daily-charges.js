@@ -721,7 +721,7 @@ function applyDailyTabColumnVisibility() {
       'عمليات — تاريخ، العملية، الأوقات، المرافق، نقطة تمريض، مساعد تمريض، والإجمالي يُحسب تلقائياً. مرّر الجدول لليمين/اليسار لرؤية كل الأعمدة.';
   } else if (hint && activeDailyTab === 'stay') {
     hint.textContent =
-      'إقامة — صف لكل يوم في فترة الدخول/الخروج. «+ صف إقامة» يضيف اليوم التالي غير المسجّل. يمكن تغيير التاريخ في الصف قبل الحفظ.';
+      'إقامة — «+ صف إقامة» = يوم جديد. «+ إقامة لنفس اليوم» أو زر + بجانب سعر الإقامة = إقامة ثانية لنفس التاريخ (نوع/سعر مختلف). تُجمع محاسبياً تحت إقامة ورعاية في الفاتورة الكبيرة.';
   } else if (hint && codes) {
     const label = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab)?.label || '';
     hint.textContent = `قسم «${label}» — ابحث واختر البند، السعر من اللائحة تلقائياً. احفظ لتُضاف على الفاتورة الكبيرة.`;
@@ -1357,6 +1357,44 @@ function updateDailyAddRowButtons() {
     btn.classList.toggle('d-none', !showMainAdd);
     if (showMainAdd) btn.textContent = label;
   });
+  const extraAccBtn = document.getElementById('daily-stay-extra-acc-btn');
+  if (extraAccBtn) {
+    extraAccBtn.classList.toggle('d-none', activeDailyTab !== 'stay' || !canUseDailyStayCharges());
+  }
+}
+
+function resolveStayRowForAccommodationAddon() {
+  const active = document.activeElement?.closest?.('.daily-stay-row, .daily-stay-addon-row');
+  const primaryFromFocus = active ? findStayPrimaryRow(active) : null;
+  if (primaryFromFocus) return primaryFromFocus;
+  const rows = [...document.querySelectorAll('#daily-sections-body .daily-stay-row')];
+  if (!rows.length) return null;
+  return rows[rows.length - 1];
+}
+
+function addStayAccommodationAddonForDay() {
+  if (activeDailyTab !== 'stay' || !canUseDailyStayCharges()) {
+    showToast('المريض الخارجي لا يُسجَّل عليه إقامة', 'warning');
+    return;
+  }
+  let primaryTr = resolveStayRowForAccommodationAddon();
+  if (!primaryTr) {
+    addDailyEntryRow();
+    primaryTr = document.querySelector('#daily-sections-body .daily-stay-row:last-of-type');
+  }
+  if (!primaryTr) {
+    showToast('أضف صف إقامة أولاً', 'warning');
+    return;
+  }
+  const addon = createStayAddonRow(primaryTr, 'accommodation');
+  insertStayAddonRow(primaryTr, addon);
+  bindStayAddonButtons(primaryTr);
+  if (typeof bindCommaAmountInputs === 'function') bindCommaAmountInputs(addon);
+  updateStayRowGroupTotal(primaryTr);
+  updateDailyGrandTotal();
+  updateSectionTabTotal();
+  addon.querySelector('.daily-row-stay-type')?.focus();
+  showToast('أضف نوع الإقامة والسعر ثم احفظ — تُجمع مع إقامة اليوم في الفاتورة', 'info');
 }
 
 function focusDailyEntryRow(tr) {
@@ -2384,15 +2422,48 @@ function resolveInvoiceTypeFromFinancialTreatment(text) {
 }
 
 function getAccommodationGradeOptions() {
-  if (dailyStayGradesCache.length) {
-    return dailyStayGradesCache.filter((g) => g.stay_type_id);
-  }
+  if (dailyStayGradesCache.length) return dailyStayGradesCache;
   return dailyStayTypesCache.map((st) => ({
     stay_type_id: st.id,
     name: st.name,
     daily_rate: Number(st.daily_rate) || 0,
     price_list_name: null,
   }));
+}
+
+function getRoomAssignmentGradeOptions() {
+  const seen = new Set();
+  return getAccommodationGradeOptions().filter((g) => {
+    if (!g.stay_type_id) return false;
+    if (seen.has(g.stay_type_id)) return false;
+    seen.add(g.stay_type_id);
+    return true;
+  });
+}
+
+function stayGradeSelectValue(grade) {
+  if (!grade) return '';
+  if (grade.catalog_item_id) return `c:${grade.catalog_item_id}`;
+  if (grade.service_id) return `s:${grade.service_id}`;
+  if (grade.stay_type_id) return String(grade.stay_type_id);
+  return '';
+}
+
+function findStayGradeFromSelectValue(rawVal) {
+  if (!rawVal) return null;
+  const val = String(rawVal);
+  return (
+    dailyStayGradesCache.find((g) => stayGradeSelectValue(g) === val) ||
+    dailyStayGradesCache.find((g) => String(g.stay_type_id) === val) ||
+    null
+  );
+}
+
+function resolveStayGradeSelectValueFromEntry(entry = {}, accLine = {}) {
+  if (accLine.catalog_item_id) return `c:${accLine.catalog_item_id}`;
+  if (accLine.service_id) return `s:${accLine.service_id}`;
+  const st = entry.stay_type_id || resolveStayTypeIdFromAccommodationLine(accLine) || '';
+  return st ? String(st) : '';
 }
 
 function formatStayGradeOptionLabel(grade) {
@@ -2599,7 +2670,7 @@ async function loadPatientEntitySelects(selectedId = null) {
 }
 
 function populateStayTypeSelects(selectedId = '') {
-  const grades = getAccommodationGradeOptions();
+  const grades = getRoomAssignmentGradeOptions();
   const html =
     '<option value="">-- اختر من اللائحة --</option>' +
     grades
@@ -3837,25 +3908,23 @@ async function loadDailySections() {
 }
 
 function buildDailyStayTypeOptions(selectedId = '') {
-  const grades = dailyStayGradesCache.length
-    ? dailyStayGradesCache.filter((g) => g.stay_type_id)
-    : dailyStayTypesCache.map((st) => ({
-        stay_type_id: st.id,
-        name: st.name,
-        daily_rate: Number(st.daily_rate) || 0,
-      }));
+  const grades = getAccommodationGradeOptions();
   if (!grades.length) return '<option value="">—</option>';
+  const selectedVal = String(selectedId || '');
   return (
     '<option value="">— اختر نوع الإقامة —</option>' +
     grades
       .map((g) => {
-        const id = g.stay_type_id;
+        const id = stayGradeSelectValue(g);
+        if (!id) return '';
         const rate = Number(g.daily_rate) || 0;
         const rateLabel = rate > 0 ? ` — ${dailyFmt(dailyAmountForDisplay(rate))} / يوم` : '';
         const catalogId = g.catalog_item_id ? ` data-catalog-item-id="${g.catalog_item_id}"` : '';
         const serviceId = g.service_id ? ` data-service-id="${g.service_id}"` : '';
-        return `<option value="${id}" data-rate="${rate}"${catalogId}${serviceId}${String(selectedId) === String(id) ? ' selected' : ''}>${dailyEscapeHtml(g.name)}${rateLabel}</option>`;
+        const stayTypeAttr = g.stay_type_id ? ` data-stay-type-id="${g.stay_type_id}"` : '';
+        return `<option value="${dailyEscapeAttr(id)}" data-rate="${rate}"${catalogId}${serviceId}${stayTypeAttr}${selectedVal === id ? ' selected' : ''}>${dailyEscapeHtml(g.name)}${rateLabel}</option>`;
       })
+      .filter(Boolean)
       .join('')
   );
 }
@@ -3939,6 +4008,65 @@ function getExamCaseServiceRow(serviceId) {
 function examSectionCodeForServiceRow(svc) {
   if (!svc) return '';
   return svc.section_code || inferExamSectionCodeFromServiceName(svc.name);
+}
+
+function resolveExamServiceIdForSave(tr) {
+  if (!tr) return null;
+  const caseSel = tr.querySelector('.daily-exam-case');
+  let serviceId = Number(caseSel?.value) || Number(tr.dataset.examCaseServiceId) || 0;
+  if (serviceId > 0) return serviceId;
+  const sectionCode =
+    caseSel?.selectedOptions[0]?.dataset.section ||
+    tr.dataset.examSectionCode ||
+    examSectionCodeForSpecialty(tr.querySelector('.daily-exam-specialty')?.value || '');
+  if (!sectionCode) return null;
+  const matches = dailyExamServicesCache.filter((svc) => examSectionCodeForServiceRow(svc) === sectionCode);
+  if (!matches.length) return null;
+  const amount = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value));
+  if (amount > 0) {
+    const byPrice = matches.find(
+      (svc) => dailyAmountForSave(priceFromExamServiceRow(svc)) === amount
+    );
+    if (byPrice) return Number(byPrice.id);
+  }
+  const caseLabel = caseSel?.selectedOptions[0]?.textContent?.trim();
+  if (caseLabel) {
+    const byName = matches.find((svc) => String(svc.name || '').trim() === caseLabel);
+    if (byName) return Number(byName.id);
+  }
+  if (matches.length === 1) return Number(matches[0].id);
+  return null;
+}
+
+function examStampLinkRef(tr) {
+  const examLineId = Number(tr.dataset.examLineId) || 0;
+  if (examLineId > 0) return `stamp_for:${examLineId}`;
+  const caseId = tr.querySelector('.daily-exam-case')?.value || '';
+  const spec = tr.querySelector('.daily-exam-specialty')?.value || '';
+  const doctor = tr.querySelector('.daily-exam-doctor')?.value || tr.dataset.doctorId || '';
+  const entryId = tr.dataset.entryId || '';
+  return `stamp_for:dom:${entryId}:${caseId}:${spec}:${doctor}`;
+}
+
+function resolveConsultationStampForExamEntry(entry, examLine, stampPoolState) {
+  const lines = entry?.lines || [];
+  const stamps = lines.filter((l) => l.section_code === 'consultation_stamp');
+  if (!stamps.length) return {};
+  const examId = Number(examLine?.id) || 0;
+  if (examId > 0) {
+    const linked = stamps.find((s) => String(s.extra_text || '').trim() === `stamp_for:${examId}`);
+    if (linked) return linked;
+  }
+  const entryKey = String(entry?.id || 'new');
+  if (!stampPoolState.has(entryKey)) {
+    const legacy = stamps.filter((s) => !String(s.extra_text || '').startsWith('stamp_for:'));
+    stampPoolState.set(entryKey, { pool: legacy, index: 0 });
+  }
+  const state = stampPoolState.get(entryKey);
+  if (state.index < state.pool.length) {
+    return state.pool[state.index++];
+  }
+  return {};
 }
 
 function resolveExamCaseServiceIdFromLine(line = {}) {
@@ -4245,11 +4373,14 @@ function onExamSpecialtyChange(selectEl) {
   const caseSel = tr.querySelector('.daily-exam-case');
   const sectionCode = opt?.dataset.section || specialty?.section_code || '';
   if (sectionCode) tr.dataset.examSectionCode = sectionCode;
-  if (sectionCode && caseSel && !caseSel.value) {
-    const match = dailyExamServicesCache.find((svc) => examSectionCodeForServiceRow(svc) === sectionCode);
-    if (match) {
-      caseSel.value = String(match.id);
-      tr.dataset.examCaseServiceId = String(match.id);
+  if (sectionCode && caseSel) {
+    const currentSection = caseSel.selectedOptions[0]?.dataset.section || '';
+    if (!caseSel.value || (currentSection && currentSection !== sectionCode)) {
+      const match = dailyExamServicesCache.find((svc) => examSectionCodeForServiceRow(svc) === sectionCode);
+      if (match) {
+        caseSel.value = String(match.id);
+        tr.dataset.examCaseServiceId = String(match.id);
+      }
     }
   }
   syncExamRowUnitPriceFromSelections(tr);
@@ -4354,7 +4485,10 @@ function collectAccommodationLineFromRow(rowTr) {
   const accHidden = rowTr.querySelector('.daily-amount[data-section="accommodation"]');
   const amount = dailyAmountForSave(getStayAccommodationAmount(rowTr));
   if (amount <= 0) return null;
-  const stayTypeId = rowTr.querySelector('.daily-row-stay-type')?.value || rowTr.dataset.stayTypeId || '';
+  const selectVal = rowTr.querySelector('.daily-row-stay-type')?.value || '';
+  const grade = findStayGradeFromSelectValue(selectVal);
+  const stayTypeId =
+    grade?.stay_type_id || rowTr.dataset.stayTypeId || (/^\d+$/.test(selectVal) ? selectVal : '');
   const line = {
     section_code: 'accommodation',
     amount,
@@ -4362,9 +4496,9 @@ function collectAccommodationLineFromRow(rowTr) {
     unit_price: amount,
   };
   if (stayTypeId) line.extra_text = `stay_type:${stayTypeId}`;
-  const serviceId = accHidden?.dataset.serviceId;
+  const serviceId = accHidden?.dataset.serviceId || grade?.service_id;
   if (serviceId) line.service_id = Number(serviceId);
-  const catalogItemId = accHidden?.dataset.catalogItemId;
+  const catalogItemId = accHidden?.dataset.catalogItemId || grade?.catalog_item_id;
   if (catalogItemId) line.catalog_item_id = Number(catalogItemId);
   if (accHidden?.dataset.lineId) line.id = Number(accHidden.dataset.lineId);
   else if (rowTr.dataset.lineId && rowTr.dataset.addonSection === 'accommodation') {
@@ -4395,8 +4529,13 @@ function collectExamLinesFromRow(tr) {
   const caseSel = tr.querySelector('.daily-exam-case');
   const caseOpt = caseSel?.selectedOptions[0];
   const specialtySel = tr.querySelector('.daily-exam-specialty');
-  const sectionCode = caseOpt?.dataset.section || tr.dataset.examSectionCode || '';
-  const caseServiceId = caseSel?.value ? Number(caseSel.value) : null;
+  const caseServiceId = resolveExamServiceIdForSave(tr);
+  const svcRow = caseServiceId ? getExamCaseServiceRow(caseServiceId) : null;
+  const sectionCode =
+    (svcRow ? examSectionCodeForServiceRow(svcRow) : '') ||
+    caseOpt?.dataset.section ||
+    tr.dataset.examSectionCode ||
+    '';
   const specialtyCode = specialtySel?.value || tr.dataset.examSpecialtyCode || '';
   const specialty = getExamSpecialtyByCode(specialtyCode);
   const amount = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value));
@@ -4418,7 +4557,12 @@ function collectExamLinesFromRow(tr) {
   const stampCell = tr.querySelector('[data-stamp-cell="1"]');
   const stamp = stampCell ? dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value)) : 0;
   if (stamp > 0) {
-    const stampLine = { section_code: 'consultation_stamp', amount: stamp, quantity: 1 };
+    const stampLine = {
+      section_code: 'consultation_stamp',
+      amount: stamp,
+      quantity: 1,
+      extra_text: examStampLinkRef(tr),
+    };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
     lines.push(stampLine);
   }
@@ -4437,9 +4581,10 @@ function createStayDailyEntryRow(entry = {}) {
   tr._entryLinesSnapshot = (entry.lines || []).map((line) => ({ ...line }));
 
   const dateVal = fmtStayDate(entry.entry_date) || getLocalDateString();
-  const stayTypeId = entry.stay_type_id || getDefaultStayTypeIdForRow();
   const accLines = getLinesForSection(entry, 'accommodation');
   const accLine = accLines[0] || {};
+  const stayTypeSelectVal =
+    resolveStayGradeSelectValueFromEntry(entry, accLine) || getDefaultStayTypeIdForRow();
   const companionLines = getLinesForSection(entry, 'companion');
   const companionLine = companionLines[0] || {};
   const assistantLines = getLinesForSection(entry, 'patient_assistant');
@@ -4455,11 +4600,11 @@ function createStayDailyEntryRow(entry = {}) {
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry))}
     <td class="daily-col-date"><input type="date" class="form-control form-control-sm daily-row-date fw-bold" value="${dateVal}" title="يوم الإقامة"></td>
-    <td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeId)}</select></td>
+    <td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeSelectVal)}</select></td>
     <td class="daily-col-amount">
       <div class="input-group input-group-sm">
         <input type="text" class="form-control form-control-sm daily-stay-acc-unit-price bg-light" readonly tabindex="-1">
-        <button type="button" class="btn btn-outline-secondary daily-stay-addon-add px-1" data-section="accommodation" title="إقامة إضافية لنفس اليوم">+</button>
+        <button type="button" class="btn btn-outline-primary daily-stay-addon-add px-2 fw-bold" data-section="accommodation" title="إقامة إضافية لنفس اليوم">+ إقامة</button>
       </div>
       ${accPickerHtml}
       <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">
@@ -4547,8 +4692,9 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
       (l) => ['consultant_exam', 'specialist_exam'].includes(l.section_code) && lineHasChargeData(l)
     ) ||
     {};
-  const loadStampValue = options.loadStampValue === true;
-  const stampLine = loadStampValue ? getLineForSection(entry, 'consultation_stamp') : {};
+  const stampLine =
+    options.stampLine ||
+    (options.loadStampValue === true ? getLineForSection(entry, 'consultation_stamp') : {});
   const tr = document.createElement('tr');
   tr.className = 'daily-entry-row daily-exam-row';
   if (entry.id) tr.dataset.entryId = entry.id;
@@ -4556,7 +4702,7 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
   if (entry.doctor_id) tr.dataset.doctorId = String(entry.doctor_id);
   if (line.section_code) tr.dataset.examSectionCode = line.section_code;
   if (line.id) tr.dataset.examLineId = String(line.id);
-  if (loadStampValue && stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
+  if (stampLine.id) tr.dataset.stampLineId = String(stampLine.id);
   tr._entryLinesSnapshot = (entry.lines || [])
     .filter((l) => {
       if (line.id && l.id === line.id) return false;
@@ -4580,9 +4726,7 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
   const patientName = getDailyPatientDisplayName();
   const priceVal = line.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(line.amount)) : '';
   const stampVal =
-    loadStampValue && stampLine.amount > 0
-      ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount))
-      : '';
+    stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
@@ -5674,8 +5818,9 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
   let accAmtCol = stayAddonSpacerCell('daily-col-amount');
 
   if (sectionCode === 'accommodation') {
-    const stayTypeId = resolveStayTypeIdFromAccommodationLine(line) || getDefaultStayTypeIdForRow();
-    stayTypeCol = `<td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeId)}</select></td>`;
+    const stayTypeSelectVal =
+      resolveStayGradeSelectValueFromEntry({}, line) || getDefaultStayTypeIdForRow();
+    stayTypeCol = `<td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeSelectVal)}</select></td>`;
     accAmtCol = `<td class="daily-col-amount">
       <input type="text" class="form-control form-control-sm daily-stay-acc-unit-price bg-light" readonly tabindex="-1">
       <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">
@@ -5840,9 +5985,12 @@ function dailyLineMergeKey(line) {
   const lineId = Number(line.id || line.line_id);
   if (lineId) return `id:${lineId}`;
   const code = String(line.section_code || '');
+  const text = String(line.extra_text || '').trim();
+  if (code === 'consultation_stamp' && text.startsWith('stamp_for:')) {
+    return `stamp:${text}:${line.amount || 0}`;
+  }
   const svc = line.service_id || '';
   const cat = line.catalog_item_id || '';
-  const text = String(line.extra_text || '').trim();
   // catalog_item_id was missing here — two different catalog-picked items in the same
   // section with the same amount and no notes collapsed onto the same key and one
   // silently overwrote the other before either reached the server.
@@ -6236,7 +6384,7 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
       '<th class="daily-meta-th daily-col-date">التاريخ</th>' +
       '<th class="daily-meta-th daily-col-stay-type">نوع الإقامة</th>' +
-      '<th class="daily-meta-th daily-col-amount">سعر الإقامة <span class="text-muted fw-normal small">(ج.م)</span></th>' +
+      '<th class="daily-meta-th daily-col-amount">سعر الإقامة <span class="text-muted fw-normal small">(ج.م — + إقامة)</span></th>' +
       '<th class="daily-meta-th daily-col-companion-kind">مرافق (غرفة/جناح)</th>' +
       '<th class="daily-meta-th daily-col-amount">سعر المرافق <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-amount">مساعد تمريض <span class="text-muted fw-normal small">(ج.م)</span></th>' +
@@ -6533,15 +6681,18 @@ async function applyStayTypeRateToRow(tr, options = {}) {
   const force = options.force === true;
   if (!canUseDailyStayCharges()) return;
   const select = tr.querySelector('.daily-row-stay-type');
-  const stayTypeId = select?.value;
-  if (!stayTypeId) return;
-  tr.dataset.stayTypeId = String(stayTypeId);
-  const stayType = dailyStayTypesCache.find((t) => String(t.id) === String(stayTypeId));
+  const selectVal = select?.value;
+  if (!selectVal) return;
+  const grade = findStayGradeFromSelectValue(selectVal);
+  const stayTypeId = grade?.stay_type_id || (/^\d+$/.test(selectVal) ? selectVal : '');
+  if (stayTypeId) tr.dataset.stayTypeId = String(stayTypeId);
+  else delete tr.dataset.stayTypeId;
+  const stayType = stayTypeId
+    ? dailyStayTypesCache.find((t) => String(t.id) === String(stayTypeId))
+    : null;
   const accInput = tr.querySelector('.daily-amount[data-section="accommodation"]');
   const accPicker = tr.querySelector('.daily-picker[data-section="accommodation"]');
   if (!accInput) return;
-
-  const grade = dailyStayGradesCache.find((g) => String(g.stay_type_id) === String(stayTypeId));
   const gradeRate =
     Number(grade?.daily_rate) ||
     Number(stayType?.daily_rate) ||
@@ -6914,12 +7065,10 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     const seenEntryIds = new Set();
     if (activeDailyTab === 'exams') {
       const examRows = dedupeTodayExamRows(sheetEntries);
-      const stampLoadedForEntry = new Set();
+      const stampPoolState = new Map();
       for (const { entry, line } of examRows) {
-        const stampKey = entry.id ? String(entry.id) : dailyLineMergeKey(line);
-        const loadStampValue = !stampLoadedForEntry.has(stampKey);
-        if (loadStampValue) stampLoadedForEntry.add(stampKey);
-        body.appendChild(createExamDailyEntryRow(entry, line, { loadStampValue }));
+        const stampLine = resolveConsultationStampForExamEntry(entry, line, stampPoolState);
+        body.appendChild(createExamDailyEntryRow(entry, line, { stampLine }));
       }
       pruneDuplicateSheetDomRows('exams');
       addDailyEntryRow();
@@ -7445,7 +7594,15 @@ function applySavedLineIdsToRow(tr, entry) {
     const exam =
       (examLineId && lines.find((line) => Number(line.id) === examLineId)) ||
       lines.find((line) => ['consultant_exam', 'specialist_exam'].includes(line.section_code));
-    const stamp = lines.find((line) => line.section_code === 'consultation_stamp');
+    const examId = exam?.id ? Number(exam.id) : 0;
+    const stamp =
+      (examId &&
+        lines.find(
+          (line) =>
+            line.section_code === 'consultation_stamp' &&
+            String(line.extra_text || '').trim() === `stamp_for:${examId}`
+        )) ||
+      lines.find((line) => line.section_code === 'consultation_stamp');
     if (exam?.id) tr.dataset.examLineId = String(exam.id);
     if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
     return;
@@ -8396,6 +8553,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('daily-add-row-btn')?.addEventListener('click', handleDailySheetAddRow);
   document.getElementById('daily-sheet-add-row-btn')?.addEventListener('click', handleDailySheetAddRow);
+  document.getElementById('daily-stay-extra-acc-btn')?.addEventListener('click', addStayAccommodationAddonForDay);
   document.getElementById('daily-sheet-scope')?.addEventListener('change', (e) => {
     dailySheetDateScope = e.target.value === 'period' ? 'period' : 'today';
     void loadDailyEntriesIntoSheet();
