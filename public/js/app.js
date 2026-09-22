@@ -698,33 +698,66 @@ function applyInvoiceFollowUpMode(enabled) {
   if (staySection) staySection.classList.remove('d-none');
 }
 
+function invoiceRowHasPaymentData(row) {
+  if (!row) return false;
+  const payAmt = parseDisplayAmount(row.querySelector('[data-field="pay_amount"]')?.value);
+  const receiptDate = row.querySelector('[data-field="receipt_date"]')?.value || '';
+  const receiptNum = row.querySelector('[data-field="receipt_number"]')?.value || '';
+  const depositor = row.querySelector('[data-field="depositor_name"]')?.value?.trim() || '';
+  return payAmt > 0 || Boolean(receiptDate || receiptNum || depositor);
+}
+
 function lockDailyInvoiceRows() {
   document.querySelectorAll('#items-tbody tr').forEach((row) => {
-    if (row.dataset.sectionHeader || row.dataset.sectionAggregate) {
+    if (row.dataset.sectionHeader) return;
+    if (row.dataset.sectionAggregate) {
       row.style.display = '';
       return;
     }
-    const isDaily = Boolean(row.dataset.dailyLineId);
+    const isDaily = Boolean(row.dataset.dailyLineId || row.dataset.dailyEntryId || row.dataset.sectionCode);
     const desc = row.querySelector('[data-field="description"]')?.value?.trim();
     const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
-    const hasContent = Boolean(desc || amt || isDaily);
+    const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
+    const hasBillable = Boolean(desc || amt || qty || isDaily);
+    const hasPayment = invoiceRowHasPaymentData(row);
+    const isPaymentSlot =
+      row.dataset.methodPaymentSync === '1' || (hasPayment && !hasBillable);
 
-    if (isInvoiceFollowUpLocked()) {
-      row.style.display = hasContent ? '' : 'none';
+    if (invoiceFollowUpMode) {
+      row.style.display = hasBillable || isPaymentSlot ? '' : 'none';
+    } else if (isInvoiceFollowUpLocked()) {
+      row.style.display = hasBillable || hasPayment ? '' : 'none';
     } else {
       row.style.display = '';
     }
 
     row.classList.toggle('daily-invoice-row', isDaily);
+    const lockLineFields = invoiceFollowUpMode && (hasBillable || isDaily);
     row.querySelectorAll('[data-field="description"], [data-field="quantity"], [data-field="amount"]').forEach((el) => {
-      if (isInvoiceFollowUpLocked() && (isDaily || hasContent)) {
+      if (lockLineFields || (isInvoiceFollowUpLocked() && (isDaily || hasBillable))) {
         el.setAttribute('readonly', 'readonly');
         el.classList.add('bg-light');
-      } else if (currentInvoiceStatus !== 'approved') {
+        if (el.dataset.field === 'description') {
+          el.classList.remove('service-search');
+          el.removeAttribute('placeholder');
+        }
+      } else if (currentInvoiceStatus !== 'approved' && !invoiceFollowUpMode) {
         el.removeAttribute('readonly');
         el.classList.remove('bg-light');
+        if (el.dataset.field === 'description' && !el.classList.contains('service-search')) {
+          el.classList.add('service-search');
+        }
       }
     });
+
+    if (invoiceFollowUpMode && isPaymentSlot && currentInvoiceStatus !== 'approved') {
+      row.querySelectorAll(
+        '[data-field="pay_amount"], [data-field="receipt_number"], [data-field="receipt_date"], [data-field="depositor_name"]'
+      ).forEach((el) => {
+        el.removeAttribute('readonly');
+        el.classList.remove('bg-light');
+      });
+    }
   });
 }
 
@@ -804,6 +837,11 @@ function setInvoiceItemsReadonly(readonly) {
 }
 
 function applyInvoiceEditMode() {
+  if (invoiceFollowUpMode) {
+    applyInvoiceFollowUpPaymentsOnly();
+    lockDailyInvoiceRows();
+    return;
+  }
   if (isInvoiceFollowUpLocked()) {
     applyInvoiceFollowUpPaymentsOnly();
     return;
@@ -1397,7 +1435,7 @@ function populateInvoiceItemsGrouped(items = [], payments = []) {
       fillInvoiceItemRow(tr, part.item, payments[paymentIndex++] || {});
     }
   }
-  const minRows = isInvoiceFollowUpLocked() ? rowIndex : Math.max(rowIndex, 12);
+  const minRows = invoiceFollowUpMode ? rowIndex : Math.max(rowIndex, 12);
   while (rowIndex < minRows) {
     tbody.appendChild(createRow(rowIndex++));
   }
@@ -1864,6 +1902,7 @@ function fillRemainingPayment(code, inputEl = null) {
 
 function bindServiceSearch() {
   document.querySelectorAll('.service-search').forEach((input) => {
+    if (input.readOnly || input.hasAttribute('readonly')) return;
     if (input.dataset.bound === '1') return;
     input.dataset.bound = '1';
     const cell = input.closest('.service-cell');
@@ -2906,12 +2945,7 @@ async function recalculate(options = {}) {
       throw new Error(totals.error || 'فشل حساب الفاتورة');
     }
     lastCalculationTotals = totals;
-    if (invoiceFollowUpMode) {
-      syncInvoiceRowsFromCalculatedItems(totals.items || []);
-      if (isInvoiceFollowUpLocked()) lockDailyInvoiceRows();
-    } else {
-      refreshInvoiceDisplayFromCalculatedItems(totals.items || []);
-    }
+    refreshInvoiceDisplayFromCalculatedItems(totals.items || []);
     syncInvoicePaymentColumnsFromMethodPayments();
     updateSummaryDisplay(totals);
     updateSummaryTable(totals);
@@ -2925,7 +2959,7 @@ async function recalculate(options = {}) {
     if (typeof syncDailyChargeRowsFromTotals === 'function' && !invoiceFollowUpMode) {
       syncDailyChargeRowsFromTotals(totals.items || []);
     }
-    if (isInvoiceFollowUpLocked()) lockDailyInvoiceRows();
+    if (invoiceFollowUpMode) lockDailyInvoiceRows();
 
     if (hasPatientFileNumber()) {
       const creditChanged = syncPatientCreditPaymentOnly(totals);
@@ -2936,7 +2970,7 @@ async function recalculate(options = {}) {
       }
     }
 
-    if (window.AutoSave) AutoSave.schedule('invoice');
+    if (window.AutoSave?.isEnabled?.()) AutoSave.schedule('invoice');
     return totals;
   } catch (err) {
     console.error(err);
@@ -2973,7 +3007,7 @@ function initInvoiceAutosaveAndEnterRow() {
       save: async () => saveInvoiceWithMode('draft', { silent: true, auto: true }),
     });
     const form = document.getElementById('invoice-form');
-    if (form) AutoSave.installChangeListeners(form, 'invoice');
+    if (form && AutoSave.isEnabled?.()) AutoSave.installChangeListeners(form, 'invoice');
   }
 
   if (window.EnterAddRow && !window.__invoiceEnterRowReady) {
@@ -3022,7 +3056,8 @@ function refreshInvoiceDisplayFromCalculatedItems(items = []) {
   const isDailyInvoice = displayItems.some(
     (item) => item.daily_entry_line_id || item.daily_entry_id || item.section_code
   );
-  const payments = isDailyInvoice ? [] : collectPaymentsFromInvoiceRows();
+  const payments =
+    invoiceFollowUpMode || !isDailyInvoice ? collectPaymentsFromInvoiceRows() : [];
   populateInvoiceItemsGrouped(displayItems, payments);
   lockDailyInvoiceRows();
 }
@@ -3984,9 +4019,7 @@ async function loadInvoiceForEdit(id, options = {}) {
 
     bindCalcTriggers();
     await recalculate();
-    if (isInvoiceFollowUpLocked()) {
-      lockDailyInvoiceRows();
-    }
+    if (invoiceFollowUpMode) lockDailyInvoiceRows();
     if (inv.status === 'approved') loadQR(inv.id);
     updateInvoiceActionButtons();
   } catch (err) {
@@ -4978,6 +5011,10 @@ function markInvoicePaymentOnlyRow(row) {
     el.value = '';
     el.setAttribute('readonly', 'readonly');
     el.classList.add('bg-light');
+    if (el.dataset.field === 'description') {
+      el.classList.remove('service-search');
+      el.removeAttribute('placeholder');
+    }
   });
   const totalEl = row.querySelector('[data-field="total"]');
   if (totalEl) totalEl.value = '';

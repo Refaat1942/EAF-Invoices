@@ -149,6 +149,7 @@
     installChangeListeners,
     cancel,
     setDisabled,
+    isEnabled: () => AUTO_SAVE_ENABLED,
   };
 
   global.AutoSave = AutoSave;

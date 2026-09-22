@@ -6789,15 +6789,26 @@ function dailyPreviewKindForActiveTab() {
   return activeDailyTab;
 }
 
-function openDailyInvoicePreview() {
+async function openDailyInvoicePreview() {
   const invId = dailyStayContext?.invoice?.id;
   if (!invId) {
     showToast('لا توجد فاتورة مفتوحة', 'warning');
     return;
   }
   if (typeof window.openInvoicePrintPreview !== 'function') return;
-  const dailyKind = dailyPreviewKindForActiveTab();
-  window.openInvoicePrintPreview({ invoiceId: invId, forceSaved: true, dailyKind });
+
+  const pendingRows = collectDailyRowsForSave();
+  if (pendingRows.length > 0) {
+    const saved = await saveDailyEntryNow({ silent: true, previewFlush: true });
+    if (!saved) {
+      showToast('تعذّر الحفظ — عاين الفاتورة بعد الضغط على «حفظ»', 'warning');
+      return;
+    }
+    await refreshDailyStaySummary(getStayFileNumber());
+  }
+
+  // معاينة الفاتورة الكبيرة كاملة (كل البنود المزامنة)، وليس تبويباً واحداً فقط
+  window.openInvoicePrintPreview({ invoiceId: invId, forceSaved: true });
 }
 
 async function deleteDailyEntryById(entryId, options = {}) {
@@ -7412,7 +7423,7 @@ async function saveDailyEntry(options = {}) {
 }
 
 async function saveDailyEntryNow(options = {}) {
-  const { silent = false } = options;
+  const { silent = false, previewFlush = false } = options;
   const file_number = getStayFileNumber();
   const entries = collectDailyRowsForSave();
   if (!file_number || !entries.length) {
@@ -7451,20 +7462,23 @@ async function saveDailyEntryNow(options = {}) {
     applySavedEntriesToDomRows(data.saved || []);
     if (activeDailyTab === 'stay') pruneDuplicateStayDomRows();
     if (DAILY_SHEET_ROW_CLASS_BY_TAB[activeDailyTab]) pruneDuplicateSheetDomRows(activeDailyTab);
-    if (silent) {
-      if (window.AutoSave) {
-        AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
-      }
-    } else {
+    const shouldReloadSheet = !silent || previewFlush;
+    if (shouldReloadSheet) {
       await loadDailyEntriesIntoSheet();
       await loadDailyPatientHistory();
       if (prevTab && activeDailyTab !== prevTab) showDailySection(prevTab);
+      updateSectionTabTotal();
+    }
+    if (silent && !previewFlush) {
+      if (window.AutoSave?.isEnabled?.()) {
+        AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
+      }
     }
 
     const statusEl = document.getElementById('daily-entry-status');
-    if (!silent) {
+    if (!silent || previewFlush) {
       if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
-      showToast(toastMsg, 'success');
+      if (!silent) showToast(toastMsg, 'success');
     }
     return true;
   } catch (err) {
@@ -7526,7 +7540,12 @@ function initDailyAutosaveAndEnterRow() {
       save: autoSaveDailyCharges,
     });
     const panel = document.getElementById('view-daily');
-    if (panel) AutoSave.installChangeListeners(panel, 'daily');
+    if (panel && AutoSave.isEnabled?.()) {
+      AutoSave.installChangeListeners(panel, 'daily');
+    } else {
+      const statusEl = document.getElementById('daily-entry-status');
+      if (statusEl) statusEl.textContent = 'حفظ يدوي — اضغط حفظ أو حفظ الكل';
+    }
   }
 
   if (window.EnterAddRow && !window.__dailyEnterRowReady) {
@@ -7841,7 +7860,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
   document.getElementById('daily-invoice-pdf-btn')?.addEventListener('click', openDailyInvoicePdf);
   document.getElementById('daily-invoice-preview-btn')?.addEventListener('click', () => {
-    openDailyInvoicePreview();
+    void openDailyInvoicePreview();
   });
   document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
     const q = document.getElementById('daily-patient-search')?.value || '';
