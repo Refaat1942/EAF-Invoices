@@ -83,6 +83,11 @@ router.get('/sections', requirePermission('daily_charges.view'), async (req, res
   }
 });
 
+router.get('/business-date', requirePermission('daily_charges.view'), (req, res) => {
+  const { getCurrentBusinessDateString } = require('../services/dailyChargeService');
+  res.json({ business_date: getCurrentBusinessDateString() });
+});
+
 router.get('/stay-grades', requirePermission('daily_charges.view'), async (req, res) => {
   try {
     res.json(await listAccommodationStayGrades());
