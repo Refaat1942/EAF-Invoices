@@ -4102,7 +4102,8 @@ async function loadDailySections() {
       dailySectionsCache = payload.sections || [];
       dailyBusinessDate = payload.business_date || null;
       if (payload.default_supplies_markup_percent != null) {
-        dailySuppliesMarkupPercent = Number(payload.default_supplies_markup_percent) || 20;
+        const markup = Number(payload.default_supplies_markup_percent);
+        dailySuppliesMarkupPercent = Number.isFinite(markup) && markup >= 0 ? markup : 20;
       }
     }
   } catch (err) {
