@@ -664,7 +664,14 @@ async function buildInvoicePatientContext(invoice) {
 
 async function getInvoiceById(id, client = null) {
   const run = client ? client.query.bind(client) : query;
-  const { rows } = await run('SELECT * FROM invoices WHERE id = $1', [id]);
+  const { rows } = await run(
+    `SELECT i.*,
+            (SELECT p.nationality FROM patients p
+              WHERE TRIM(p.file_number) = TRIM(i.file_number)
+              ORDER BY p.id LIMIT 1) AS patient_nationality
+     FROM invoices i WHERE i.id = $1`,
+    [id]
+  );
   if (!rows.length) return null;
   const invoice = rows[0];
 
@@ -1198,7 +1205,7 @@ async function approveInvoice(id, reviewer) {
     const calcData = await getInvoiceById(id, client);
     const totals = calculateInvoiceTotals({
       ...calcData,
-      items: itemsToListPrices(calcData.items, calcData.patient_nationality),
+      items: itemsToListPrices(calcData.items, calcData.patient_nationality, { dailyLinesAtList: true }),
     });
     const paymentValidation = validatePaymentBalance(totals);
     if (paymentValidation.has_payments && !paymentValidation.is_balanced) {
@@ -1431,7 +1438,7 @@ function buildCalcDataFromInvoice(invoice) {
       amount: m.amount,
       metadata: m.metadata && typeof m.metadata === 'object' ? m.metadata : {},
     })),
-    items: itemsToListPrices(items, invoice.patient_nationality),
+    items: itemsToListPrices(items, invoice.patient_nationality, { dailyLinesAtList: true }),
     include_daily_charges: Boolean(fileNumber && admissionDate),
     excluded_daily_line_ids: normalizeExcludedLineIds(invoice),
     excluded_section_codes: normalizeExcludedSectionCodes(invoice),
@@ -1519,11 +1526,13 @@ async function recalculateAndPersistInvoiceTotals(invoiceId, client = null) {
  * but calculateInvoiceTotals multiplies its input. Feeding stored amounts back unconverted
  * doubles foreign lines on every save, sync, approve and print.
  */
-function itemsToListPrices(items = [], nationality) {
+function itemsToListPrices(items = [], nationality, { dailyLinesAtList = false } = {}) {
   const mult = getNationalityPriceMultiplier(nationality);
   if (!(mult > 1)) return items;
   return (items || []).map((item) => {
     if (item?.amount === undefined || item.amount === null || item.amount === '') return item;
+    // getInvoiceById re-reads daily-linked lines from the daily entry, already at list price.
+    if (dailyLinesAtList && item.daily_entry_line_id) return item;
     return { ...item, amount: round2((Number(item.amount) || 0) / mult) };
   });
 }
@@ -1614,9 +1623,9 @@ async function verifyInvoiceDailyLineSync(invoiceId, fileNumber, fromDate, toDat
     }
     const invQty = round2(invItem.quantity);
     const expQty = round2(exp.quantity);
+    // getInvoiceById returns daily-linked lines at the daily entry's list price.
     const invAmt = round2(invItem.amount);
-    // Daily lines hold list prices; saved invoice items hold the nationality-billable price.
-    const expAmt = applyNationalityUnitPrice(exp.amount, invoice.patient_nationality);
+    const expAmt = round2(exp.amount);
     if (invQty !== expQty || invAmt !== expAmt) {
       throw new Error(`بند الفاتورة للحركة #${lineId} لا يطابق الكمية أو السعر المتوقع`);
     }
