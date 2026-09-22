@@ -2661,9 +2661,10 @@ function normalizeNationalitySelectValue(nationality) {
     .replace(/[أإآ]/g, 'ا')
     .replace(/ى/g, 'ي');
   if (!n) return 'مصري';
-  const egyptianHints = ['مصر', 'مصري', 'egypt', 'egyptian', 'eg'];
-  if (egyptianHints.some((hint) => n.includes(hint))) return 'مصري';
-  return 'أجنبي';
+  if (window.NationalityPricing?.isEgyptianNationality) {
+    return window.NationalityPricing.isEgyptianNationality(n) ? 'مصري' : 'أجنبي';
+  }
+  return n.includes('مصر') || /\begypt/.test(n) || n === 'eg' ? 'مصري' : 'أجنبي';
 }
 
 function setNationalityFieldValue(el, nationality) {

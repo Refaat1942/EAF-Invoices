@@ -18,8 +18,7 @@
     if (!n) return true;
     const foreignHints = ['اجنبي', 'أجنبي', 'foreign', 'foreigner'];
     if (foreignHints.some((hint) => n.includes(hint))) return false;
-    const egyptianHints = ['مصر', 'مصري', 'مصرى', 'egypt', 'egyptian', 'eg', 'جمهورية مصر'];
-    return egyptianHints.some((hint) => n.includes(hint));
+    return n.includes('مصر') || /\begypt/.test(n) || n === 'eg';
   }
 
   function getNationalityPriceMultiplier(nationality) {
