@@ -3062,11 +3062,7 @@ function collectPaymentsFromInvoiceRows() {
 
 function refreshInvoiceDisplayFromCalculatedItems(items = []) {
   const displayItems = normalizeInvoiceDisplayItems(items || []);
-  const isDailyInvoice = displayItems.some(
-    (item) => item.daily_entry_line_id || item.daily_entry_id || item.section_code
-  );
-  const payments =
-    invoiceFollowUpMode || !isDailyInvoice ? collectPaymentsFromInvoiceRows() : [];
+  const payments = collectPaymentsFromInvoiceRows();
   populateInvoiceItemsGrouped(displayItems, payments);
   lockDailyInvoiceRows();
 }
@@ -3686,13 +3682,74 @@ function formatInvoiceRowDiscountDisplay(pct, amt) {
   return '0%';
 }
 
+function resolveBillableItemForInvoiceRow(row, billable, byLineId, byItemId, usedKeys) {
+  const lineId = row.dataset.dailyLineId;
+  if (lineId && byLineId[String(lineId)]) {
+    const key = `line:${lineId}`;
+    if (!usedKeys.has(key)) {
+      usedKeys.add(key);
+      return byLineId[String(lineId)];
+    }
+  }
+  const itemId = row.querySelector('[data-field="invoice_item_id"]')?.value;
+  if (itemId && byItemId[String(itemId)]) {
+    const key = `id:${itemId}`;
+    if (!usedKeys.has(key)) {
+      usedKeys.add(key);
+      return byItemId[String(itemId)];
+    }
+  }
+  const desc = row.querySelector('[data-field="description"]')?.value?.trim() || '';
+  const qty = parseDisplayAmount(row.querySelector('[data-field="quantity"]')?.value);
+  const amt = parseDisplayAmount(row.querySelector('[data-field="amount"]')?.value);
+  if (desc) {
+    const match = billable.find((item) => {
+      const key = item.daily_entry_line_id
+        ? `line:${item.daily_entry_line_id}`
+        : item.id
+          ? `id:${item.id}`
+          : `desc:${String(item.description || '').trim()}|${item.quantity}|${item.amount}`;
+      if (usedKeys.has(key)) return false;
+      if (String(item.description || '').trim() !== desc) return false;
+      const itemQty = Number(item.quantity) || 0;
+      const itemAmt = Number(item.amount) || Number(item.unit_price_snapshot) || 0;
+      if (qty > 0 && Math.abs(itemQty - qty) > 0.001) return false;
+      if (amt > 0 && Math.abs(itemAmt - amt) > 0.02) return false;
+      return true;
+    });
+    if (match) {
+      const key = match.daily_entry_line_id
+        ? `line:${match.daily_entry_line_id}`
+        : match.id
+          ? `id:${match.id}`
+          : `desc:${desc}|${match.quantity}|${match.amount}`;
+      usedKeys.add(key);
+      return match;
+    }
+  }
+  const fallback = billable.find((item) => {
+    if (item.daily_entry_line_id || item.id) return false;
+    const key = `manual:${String(item.description || '').trim()}|${item.quantity}|${item.amount}`;
+    return !usedKeys.has(key);
+  });
+  if (fallback) {
+    usedKeys.add(
+      `manual:${String(fallback.description || '').trim()}|${fallback.quantity}|${fallback.amount}`
+    );
+    return fallback;
+  }
+  return null;
+}
+
 function applyItemDiscountPercents(items) {
   const billable = (items || []).filter((item) => !item.is_stay_entry);
   const byLineId = Object.fromEntries(
     billable.filter((item) => item.daily_entry_line_id).map((item) => [String(item.daily_entry_line_id), item])
   );
-  const manualItems = billable.filter((item) => !item.daily_entry_line_id);
-  let manualIdx = 0;
+  const byItemId = Object.fromEntries(
+    billable.filter((item) => item.id).map((item) => [String(item.id), item])
+  );
+  const usedKeys = new Set();
   const rows = document.querySelectorAll('#items-tbody tr');
   rows.forEach((row) => {
     if (row.dataset.staySync || row.dataset.sectionHeader) return;
@@ -3719,8 +3776,7 @@ function applyItemDiscountPercents(items) {
       return;
     }
 
-    const lineId = row.dataset.dailyLineId;
-    const item = lineId ? byLineId[String(lineId)] : manualItems[manualIdx++];
+    const item = resolveBillableItemForInvoiceRow(row, billable, byLineId, byItemId, usedKeys);
     if (item) {
       const pct = item.item_discount_percent || 0;
       const amt = item.item_discount_amount || 0;
@@ -5142,16 +5198,23 @@ function syncInvoicePaymentColumnsFromMethodPayments() {
 
   document.querySelectorAll('#items-tbody tr[data-method-payment-sync="1"]').forEach((row) => row.remove());
 
+  const targetRows = invoiceBillableItemRows(tbody);
   const slotRows = invoicePaymentSlotRows(tbody);
-  slotRows.forEach((row) => fillInvoicePaymentFields(row, {}));
 
   if (!receipts.length) {
     bindCalcTriggers();
     return;
   }
 
+  targetRows.forEach((row, index) => {
+    fillInvoicePaymentFields(row, receipts[index] || {});
+  });
+
+  const overflowStart = targetRows.length;
   receipts.forEach((pay, index) => {
-    let row = slotRows[index];
+    if (index < overflowStart) return;
+    const slotIndex = index - overflowStart;
+    let row = slotRows[slotIndex];
     if (!row) {
       row = createRow(rowCount++);
       row.dataset.methodPaymentSync = '1';
@@ -5162,6 +5225,11 @@ function syncInvoicePaymentColumnsFromMethodPayments() {
     }
     fillInvoicePaymentFields(row, pay);
   });
+
+  for (let i = receipts.length - overflowStart; i < slotRows.length; i++) {
+    fillInvoicePaymentFields(slotRows[i], {});
+  }
+
   bindCalcTriggers();
   if (invoiceFollowUpMode || isInvoiceFollowUpLocked()) lockDailyInvoiceRows();
 }

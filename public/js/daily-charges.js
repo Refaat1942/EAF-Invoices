@@ -8164,16 +8164,30 @@ async function saveDailyEntry(options = {}) {
   }
 }
 
+function validateExamSaveEntries(entries = []) {
+  for (const row of entries) {
+    const hasExamLine = (row.lines || []).some((line) =>
+      DAILY_EXAM_CODES.includes(line.section_code)
+    );
+    if (!hasExamLine) continue;
+    const doctorId = Number(row.doctor_id) || 0;
+    if (!doctorId) {
+      throw new Error('اختر الطبيب من القائمة لكل كشف (انقر على الاسم) ثم احفظ');
+    }
+  }
+}
+
 async function saveDailyEntryNow(options = {}) {
   const { silent = false, previewFlush = false } = options;
   const file_number = getStayFileNumber();
-  const entries = enrichSaveEntriesWithPreservedLines(collectDailyRowsForSave());
+  const entries = enrichSaveEntriesWithPreservedLines(colollectDailyRowsForSave());
   if (!file_number || !entries.length) {
     if (!silent) showToast('أضف صفًا واحدًا على الأقل مع بيانات', 'warning');
     return false;
   }
 
   try {
+    if (activeDailyTab === 'exams') validateExamSaveEntries(entries);
     const data = await apiJson(`${DAILY_API}/entries/batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

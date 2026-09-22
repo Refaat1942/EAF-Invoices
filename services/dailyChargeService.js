@@ -1812,6 +1812,20 @@ async function consolidateDailyEntriesForDate(client, patientId, entryDate, pref
   return keepId;
 }
 
+async function patientDayHasExamLines(client, patientId, entryDate) {
+  const { rows } = await client.query(
+    `SELECT 1
+     FROM patient_daily_entry_lines l
+     INNER JOIN patient_daily_entries e ON e.id = l.entry_id
+     WHERE e.patient_id = $1
+       AND e.entry_date = $2::date
+       AND l.section_code IN ('consultant_exam', 'specialist_exam')
+     LIMIT 1`,
+    [patientId, entryDate]
+  );
+  return rows.length > 0;
+}
+
 async function findDailyEntryForDate(client, patientId, entryDate, excludeId = null) {
   const params = [patientId, entryDate];
   let sql = `SELECT id FROM patient_daily_entries WHERE patient_id = $1 AND entry_date = $2::date`;
@@ -1864,7 +1878,10 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     if (!existing) throw new Error(`الحركة #${entryIdInput} غير موجودة`);
     if (!data.allow_backfill) assertExistingEntryDateIsToday(existing.entry_date);
   } else if (!entryIdInput && lines.length) {
-    const duplicate = await findDuplicateEntryForLines(client, patient.id, entryDate, lines);
+    // كل كشف = حركة مستقلة (طبيب) — لا تُلحق بحركة بنفس بند اللائحة
+    const duplicate = linesIncludeExam(lines)
+      ? null
+      : await findDuplicateEntryForLines(client, patient.id, entryDate, lines);
     if (duplicate) {
       existing = duplicate;
     } else if (linesIncludeStay(lines)) {
@@ -2165,8 +2182,9 @@ async function saveEntriesBatch(data, user = null) {
             ['consultant_exam', 'specialist_exam'].includes(line.section_code)
           )
         ).length;
-        // أكثر من كشف في نفس اليوم = حركات منفصلة (طبيب لكل حركة) — لا دمج
+        // الكشوفات: حركة لكل طبيب/كشف — لا دمج يوم فيه كشوف (يُسقط بنود أو doctor_id)
         if (examEntryCount > 1) continue;
+        if (await patientDayHasExamLines(client, patient.id, dateKey)) continue;
 
         const finalId = await consolidateDailyEntriesForDate(client, patient.id, dateKey, keepId);
         const idx = results.findIndex(
