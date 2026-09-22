@@ -2550,8 +2550,10 @@ function getDischargeRefundableAmount(totals = lastCalculationTotals) {
   return Math.max(0, balance);
 }
 
+// Room insurance is held until discharge (then refunded) and approval deducts
+// credit from account_balance only, so it must not be offered as spendable credit.
 function computeInvoicePatientCredit(finalTotal, otherPaid = null) {
-  const balance = getPatientPrepaidBalanceLocal();
+  const balance = getPatientAccountBalance();
   if (balance <= 0) return 0;
   const total = Number(finalTotal) || 0;
   if (total <= 0) return 0;

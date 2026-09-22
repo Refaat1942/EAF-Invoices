@@ -1054,18 +1054,29 @@ function normalizeLine(section, rawLine = {}) {
 
 const DAILY_STAMP_LINE_CODES = ['consultation_stamp', 'analyses_stamp', 'xray_stamp'];
 
-async function computeDailyStampLinesTotal(fileNumber) {
+async function computeDailyStampLinesTotal(fileNumber, { invoiceId = null, fromDate = null, toDate = null } = {}) {
   const fn = String(fileNumber || '').trim();
   if (!fn) return { raw: 0, rounded: 0 };
-  const { rows } = await query(
-    `SELECT COALESCE(SUM(l.amount), 0) AS total
+  const params = [fn, DAILY_STAMP_LINE_CODES];
+  let sql = `SELECT COALESCE(SUM(l.amount), 0) AS total
      FROM patient_daily_entry_lines l
      JOIN patient_daily_entries e ON e.id = l.entry_id
      JOIN patients p ON p.id = e.patient_id
      WHERE TRIM(p.file_number) = TRIM($1)
-       AND l.section_code = ANY($2::text[])`,
-    [fn, DAILY_STAMP_LINE_CODES]
-  );
+       AND l.section_code = ANY($2::text[])`;
+  if (invoiceId) {
+    params.push(Number(invoiceId));
+    sql += ` AND (e.invoice_id IS NULL OR e.invoice_id = $${params.length})`;
+  }
+  if (fromDate) {
+    params.push(fromDate);
+    sql += ` AND e.entry_date >= $${params.length}::date`;
+  }
+  if (toDate) {
+    params.push(toDate);
+    sql += ` AND e.entry_date <= $${params.length}::date`;
+  }
+  const { rows } = await query(sql, params);
   const raw = round2(rows[0]?.total);
   return { raw, rounded: round2(raw) };
 }

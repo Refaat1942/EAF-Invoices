@@ -1685,7 +1685,16 @@ async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) 
   };
   const { computeDailyStampLinesTotal, getInvoiceItemsFromDailyCharges } = require('./dailyChargeService');
   const { inferBundleKeyFromItem } = require('./dailySectionBundles');
-  const stampTotals = await computeDailyStampLinesTotal(fileNumber);
+  const stampPeriod = await resolveInvoiceDailySyncPeriod(
+    { admission_date: admission, discharge_date: discharge },
+    fileNumber,
+    invoiceId
+  );
+  const stampTotals = await computeDailyStampLinesTotal(fileNumber, {
+    invoiceId,
+    fromDate: stampPeriod.fromDate,
+    toDate: stampPeriod.toDate,
+  });
   if (stampTotals.rounded > 0) {
     dateOverrides.stamp_duty = stampTotals.rounded;
   } else if (!Number(invoice.stamp_duty) && !Number(invoice.stamp_duty_raw)) {
