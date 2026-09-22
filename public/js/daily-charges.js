@@ -6178,18 +6178,11 @@ function collectCompanionLineFromRow(rowTr, lines) {
   const opt = kindSel.selectedOptions[0];
   const kind = opt?.dataset.kind || '';
   if (kind === 'nursing_point') return;
-  if (!kind || kind === 'none') {
-    if (amount <= 0) return;
-    const manualLine = {
-      section_code: 'companion',
-      amount,
-      quantity: 1,
-      extra_text: 'مرافق',
-    };
-    if (companionInput?.dataset.lineId) manualLine.id = Number(companionInput.dataset.lineId);
-    lines.push(manualLine);
-    return;
-  }
+  // بدون (no companion) always means no charge, even if the price field still
+  // holds a leftover number — a stale amount whose kind no longer resolves back
+  // to a real option (see companionServiceIdFromLine) would otherwise re-save
+  // itself as a generic "manual" line forever, permanently stuck on screen.
+  if (!kind || kind === 'none') return;
   const catalogItemId = kind === 'service' && kindSel?.value ? Number(kindSel.value) : null;
   if (!catalogItemId && amount <= 0) return;
   const line = {
