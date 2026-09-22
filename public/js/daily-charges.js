@@ -4689,6 +4689,12 @@ function formatSessionsDetail(morning, evening) {
   });
 }
 
+function parseSessionsShiftForRow(line = {}, detailLine = {}) {
+  const fromLine = parseSessionsDetail(line.extra_text);
+  if (fromLine.morning > 0 || fromLine.evening > 0) return fromLine;
+  return parseSessionsDetail(detailLine.extra_text);
+}
+
 function syncSessionsRowDisplay(tr, item, unitPrice, opts = {}) {
   if (!tr) return;
   const qtyEl = tr.querySelector('.daily-session-qty');
@@ -4750,9 +4756,13 @@ function createSessionsRow(entry = {}, sessionsLine = null) {
   if (line.id) tr.dataset.lineId = String(line.id);
   if (dateLine.id) tr.dataset.dateLineId = String(dateLine.id);
   if (detailLine.id) tr.dataset.detailLineId = String(detailLine.id);
-  tr._entryLinesSnapshot = (entry.lines || []).map((l) => ({ ...l }));
+  tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, line, [
+    'sessions',
+    'sessions_date',
+    'sessions_detail',
+  ]);
 
-  const { morning, evening } = parseSessionsDetail(detailLine.extra_text);
+  const { morning, evening } = parseSessionsShiftForRow(line, detailLine);
   const morningVal = morning > 0 ? formatAmountFieldValue(morning, 0) : '';
   const eveningVal = evening > 0 ? formatAmountFieldValue(evening, 0) : '';
   const qtyVal =
@@ -4821,19 +4831,13 @@ function collectSessionsLinesFromRow(tr) {
 
   const morning = dailyParseAmount(tr.querySelector('.daily-session-morning')?.value);
   const evening = dailyParseAmount(tr.querySelector('.daily-session-evening')?.value);
-  if (morning > 0 || evening > 0) {
-    const detailLineOut = {
-      section_code: 'sessions_detail',
-      extra_text: formatSessionsDetail(morning, evening),
-    };
-    if (tr.dataset.detailLineId) detailLineOut.id = Number(tr.dataset.detailLineId);
-    lines.push(detailLineOut);
-  }
 
   const section = dailySectionsCache.find((s) => s.code === 'sessions');
   if (section) {
     const pickerFields = window.DailyEntryPicker ? DailyEntryPicker.readPickerFields(tr, section) : {};
-    const qty = dailyParseAmount(tr.querySelector('.daily-session-qty')?.value) || 1;
+    let qty = dailyParseAmount(tr.querySelector('.daily-session-qty')?.value);
+    if (!(qty > 0)) qty = morning + evening;
+    if (!(qty > 0)) qty = 1;
     const amount = dailyParseAmount(tr.querySelector('.daily-session-total')?.value);
     const unit = dailyParseAmount(tr.querySelector('.daily-session-unit')?.value);
     const chargeLine = {
@@ -4843,6 +4847,9 @@ function collectSessionsLinesFromRow(tr) {
       amount,
       quantity: qty,
     };
+    if (morning > 0 || evening > 0) {
+      chargeLine.extra_text = formatSessionsDetail(morning, evening);
+    }
     if (tr.dataset.lineId) chargeLine.id = Number(tr.dataset.lineId);
     if (unit > 0) chargeLine.unit_price = unit;
     if (lineHasChargeData(chargeLine)) lines.push(chargeLine);
@@ -5821,6 +5828,42 @@ function resolveTodayDailyEntryId() {
   return 0;
 }
 
+function sectionCodesOwnedByTab(tabId) {
+  const codes = new Set();
+  const group = DAILY_TAB_GROUPS.find((g) => g.id === tabId);
+  (group?.codes || []).forEach((c) => codes.add(c));
+  return codes;
+}
+
+function preservedLinesFromEntryForOtherTabs(entryDate) {
+  if (!activeDailyTab || activeDailyTab === 'operations' || activeDailyTab === 'free-items') {
+    return [];
+  }
+  const owned = sectionCodesOwnedByTab(activeDailyTab);
+  const dateKey = fmtStayDate(entryDate);
+  if (!dateKey) return [];
+  const entry = (dailySheetEntriesCache || []).find(
+    (e) => fmtStayDate(e.entry_date) === dateKey && Number(e.id) > 0
+  );
+  if (!entry?.lines?.length) return [];
+  return entry.lines.filter((line) => lineHasChargeData(line) && !owned.has(line.section_code));
+}
+
+function mergePreservedLinesIntoSaveRow(row) {
+  const preserved = preservedLinesFromEntryForOtherTabs(row.entry_date);
+  if (!preserved.length) return row;
+  const lineMap = new Map((row.lines || []).map((line) => [dailyLineMergeKey(line), line]));
+  for (const line of preserved) {
+    lineMap.set(dailyLineMergeKey(line), { ...line });
+  }
+  return { ...row, lines: [...lineMap.values()] };
+}
+
+function enrichSaveEntriesWithPreservedLines(entries = []) {
+  if (!entries.length) return entries;
+  return entries.map((row) => mergePreservedLinesIntoSaveRow(row));
+}
+
 function mergeTodayTabSaveRows(rows = []) {
   if (!rows.length) return rows;
   const today = getLocalDateString();
@@ -5848,7 +5891,8 @@ function mergeTodayTabSaveRows(rows = []) {
   };
   if (entryId > 0) merged.entry_id = entryId;
   if (stayTypeId) merged.stay_type_id = stayTypeId;
-  return merged.lines.length ? [merged] : [];
+  if (!merged.lines.length) return [];
+  return [mergePreservedLinesIntoSaveRow(merged)];
 }
 
 function catalogRowDedupeKey(tr, sectionCode) {
@@ -7773,7 +7817,7 @@ async function saveDailyEntry(options = {}) {
 async function saveDailyEntryNow(options = {}) {
   const { silent = false, previewFlush = false } = options;
   const file_number = getStayFileNumber();
-  const entries = collectDailyRowsForSave();
+  const entries = enrichSaveEntriesWithPreservedLines(collectDailyRowsForSave());
   if (!file_number || !entries.length) {
     if (!silent) showToast('أضف صفًا واحدًا على الأقل مع بيانات', 'warning');
     return false;
