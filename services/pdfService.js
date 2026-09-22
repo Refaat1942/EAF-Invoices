@@ -907,7 +907,11 @@ function buildStayDetailsTable(inv) {
       ${rows}
       <tr>
         <td colspan="5" style="text-align:right;font-weight:900">إجمالي تكاليف الإقامة</td>
-        <td class="num">${fmtDual(inv.stay_subtotal_raw, inv.stay_subtotal)}</td>
+        <td class="num">${
+          inv._stay_entries_display_only
+            ? fmtPlain(entries.reduce((sum, entry) => sum + (Number(entry.total) || 0), 0))
+            : fmtDual(inv.stay_subtotal_raw, inv.stay_subtotal)
+        }</td>
       </tr>
     </tbody>
   </table>`;
