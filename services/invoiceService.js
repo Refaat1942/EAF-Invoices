@@ -7,6 +7,7 @@ const {
   validatePaymentBalance,
   validateInvoiceCalculations,
   computeItemAdminFeeRaw,
+  applyNationalityUnitPrice,
   round2,
 } = require('./calculations');
 const { nextSerialNumber, formatFiscalYearLabel } = require('./serialService');
@@ -428,10 +429,9 @@ async function resolveInvoiceForPrint(invoice) {
   const calcData = buildCalcDataFromInvoice(invoice);
   calcData.include_daily_charges = true;
   const prepared = await prepareCalculationData(calcData);
+  // Display-only: the daily stay lines are already in prepared.items, so feeding the
+  // derived stay into the totals would bill accommodation twice.
   const derivedStay = deriveStayEntriesFromDailyItems(prepared.items || []);
-  if (derivedStay.length && !(prepared.stay_entries || []).length) {
-    prepared.stay_entries = derivedStay;
-  }
   const totals = calculateInvoiceTotals(prepared);
   const manualItems = (totals.items || []).filter((item) => !item.is_stay_entry);
   const stay_entries =
@@ -1590,7 +1590,8 @@ async function verifyInvoiceDailyLineSync(invoiceId, fileNumber, fromDate, toDat
     const invQty = round2(invItem.quantity);
     const expQty = round2(exp.quantity);
     const invAmt = round2(invItem.amount);
-    const expAmt = round2(exp.amount);
+    // Daily lines hold list prices; saved invoice items hold the nationality-billable price.
+    const expAmt = applyNationalityUnitPrice(exp.amount, invoice.patient_nationality);
     if (invQty !== expQty || invAmt !== expAmt) {
       throw new Error(`بند الفاتورة للحركة #${lineId} لا يطابق الكمية أو السعر المتوقع`);
     }

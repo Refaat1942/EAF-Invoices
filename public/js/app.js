@@ -1214,7 +1214,10 @@ function getInvoiceSectionLabel(item) {
 }
 
 function estimateInvoiceItemLineTotal(item) {
-  const qty = Number(item?.quantity) || 0;
+  const netQty = item?.net_quantity == null || item.net_quantity === '' ? NaN : Number(item.net_quantity);
+  const qty = Number.isFinite(netQty)
+    ? netQty
+    : Math.max(0, (Number(item?.quantity) || 0) - (Number(item?.returned_quantity) || 0));
   const amt = Number(item?.amount) || 0;
   if (item?.total != null && item.total !== '') return Number(item.total) || 0;
   return Math.round(qty * amt * 100) / 100;
@@ -3172,7 +3175,8 @@ function updateInvoiceReturnHint(row, item) {
   if (!hint) return;
   const returned = Number(item?.returned_quantity) || Number(row.dataset.returnedQty) || 0;
   const original = Number(item?.original_quantity ?? item?.quantity) || 0;
-  const net = Number(item?.net_quantity) ?? Math.max(0, original - returned);
+  const netQty = item?.net_quantity == null || item.net_quantity === '' ? NaN : Number(item.net_quantity);
+  const net = Number.isFinite(netQty) ? netQty : Math.max(0, original - returned);
   if (returned > 0) {
     hint.classList.remove('d-none');
     hint.textContent = `مرتجع: ${formatAmountInput(returned, 0)} | صافي: ${formatAmountInput(net, 0)}`;

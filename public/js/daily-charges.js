@@ -4059,6 +4059,19 @@ let dailySectionsLoadFailed = false;
 let dailyBusinessDate = null;
 let activeDailyTab = '';
 
+async function refreshDailyBusinessDate() {
+  try {
+    const payload = await apiJson(`${DAILY_API}/business-date`);
+    const next = payload?.business_date || null;
+    if (!next || next === dailyBusinessDate) return false;
+    dailyBusinessDate = next;
+    setDailyTodayDate();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function isManualDailyAmountSection(section) {
   return ['accommodation', 'companion', 'nursing_point', 'patient_assistant'].includes(String(section?.code || '').trim());
 }
@@ -7483,7 +7496,7 @@ function countDailyRowsForEntryId(entryId) {
   if (!entryId) return 0;
   const id = String(entryId);
   return document.querySelectorAll(
-    `#daily-sheet-body tr.daily-entry-row[data-entry-id="${CSS.escape(id)}"]`
+    `#daily-sections-body tr.daily-entry-row[data-entry-id="${CSS.escape(id)}"]`
   ).length;
 }
 
@@ -7515,11 +7528,19 @@ async function removeRowLinesFromEntry(tr, entryId) {
   }
   if (!confirm('حذف هذا السطر؟')) return false;
 
-  const snapshot = tr._entryLinesSnapshot || [];
   const removeIds = collectLineIdsForRowRemoval(tr);
+  // Row snapshots omit every line of the row's own section (e.g. all medicines), so
+  // removing by id must start from the full entry or the sibling rows' lines are lost.
+  const cachedEntry = (dailySheetEntriesCache || []).find(
+    (entry) => Number(entry.id) === Number(entryId)
+  );
+  const snapshot =
+    removeIds.size > 0 && cachedEntry?.lines?.length
+      ? cachedEntry.lines.map((line) => ({ ...line }))
+      : tr._entryLinesSnapshot || [];
   let remaining = snapshot;
   if (removeIds.size > 0) {
-    remaining = snapshot.filter((line) => !line.id || !removeIds.has(line.id));
+    remaining = snapshot.filter((line) => !line.id || !removeIds.has(Number(line.id)));
   } else {
     const rowKeys = new Set(collectDailyLinesFromRow(tr).map((line) => dailyLineMergeKey(line)));
     remaining = snapshot.filter((line) => !rowKeys.has(dailyLineMergeKey(line)));
@@ -8067,10 +8088,19 @@ function applySavedEntriesToDomRows(savedEntries = []) {
   }
 }
 
+let dailyLastSkippedPastRows = 0;
+
+function cachedEntryDateForRow(entryId) {
+  if (!entryId) return '';
+  const entry = (dailySheetEntriesCache || []).find((e) => Number(e.id) === Number(entryId));
+  return fmtStayDate(entry?.entry_date);
+}
+
 function collectDailyRowsForSave() {
   const notes = document.getElementById('daily-notes')?.value || '';
   const today = getLocalDateString();
   const rows = [];
+  dailyLastSkippedPastRows = 0;
   const rowSelector =
     activeDailyTab === 'stay'
       ? '#daily-sections-body .daily-stay-row'
@@ -8081,6 +8111,14 @@ function collectDailyRowsForSave() {
     const entryId = tr.dataset.entryId ? Number(tr.dataset.entryId) : null;
     const rowDate = tr.querySelector('.daily-row-date')?.value || today;
     if (activeDailyTab === 'stay' && isDailyStayDateSuppressed(rowDate)) return;
+    // The server only accepts business-today and rejects the whole batch for any
+    // prior-day row, so saved rows from earlier days stay read-only here.
+    const existingDate =
+      cachedEntryDateForRow(entryId) || (activeDailyTab === 'stay' ? fmtStayDate(rowDate) : '');
+    if (existingDate && existingDate !== today) {
+      dailyLastSkippedPastRows += 1;
+      return;
+    }
     const examDoctorId =
       tr.querySelector('.daily-exam-doctor')?.value || tr.dataset.doctorId || null;
     // entry_date must always be business-today (the server rejects anything else —
@@ -8337,14 +8375,30 @@ function validateExamSaveEntries(entries = []) {
 async function saveDailyEntryNow(options = {}) {
   const { silent = false, previewFlush = false } = options;
   const file_number = getStayFileNumber();
+  await refreshDailyBusinessDate();
   const entries = enrichSaveEntriesWithPreservedLines(collectDailyRowsForSave());
   if (!file_number || !entries.length) {
-    if (!silent) showToast('أضف صفًا واحدًا على الأقل مع بيانات', 'warning');
+    if (!silent) {
+      showToast(
+        dailyLastSkippedPastRows > 0
+          ? 'الصفوف المعروضة من أيام سابقة ولا يمكن تعديلها — أضف صفاً جديداً لتاريخ اليوم'
+          : 'أضف صفًا واحدًا على الأقل مع بيانات',
+        'warning'
+      );
+    }
     return false;
   }
 
+  if (activeDailyTab === 'exams') {
+    try {
+      validateExamSaveEntries(entries);
+    } catch (err) {
+      if (!silent) showToast(err.message, 'warning');
+      return false;
+    }
+  }
+
   try {
-    if (activeDailyTab === 'exams') validateExamSaveEntries(entries);
     const data = await apiJson(`${DAILY_API}/entries/batch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

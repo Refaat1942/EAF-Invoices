@@ -922,4 +922,5 @@ module.exports = {
   prorateByNetRatio,
   isItemAdminApplicable,
   computeItemAdminFeeRaw,
+  applyNationalityUnitPrice,
 };

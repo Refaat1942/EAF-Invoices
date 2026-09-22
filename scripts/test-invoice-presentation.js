@@ -160,7 +160,7 @@ function testMixedSectionsStaySeparated() {
   console.log('OK medicine + supply + lab + radiology bundles stay separated');
 }
 
-function testGrandTotalUnchanged() {
+async function testGrandTotalUnchanged() {
   const invoice = {
     items: [
       makeCatalogItem('medicines', 'الأدوية', 104, { description: 'Med A', quantity: 2, amount: 52 }),
@@ -183,7 +183,7 @@ function testGrandTotalUnchanged() {
     method_payments: [],
     stay_entries: [],
   };
-  const enriched = enrichInvoice(invoice);
+  const enriched = await enrichInvoice(invoice);
   const display = aggregateCustomerFacingLines(enriched.items);
   assertEq(sumLineTotals(display), sumLineTotals(enriched.items), 'display line totals sum');
   assert(enriched.final_total > 0, 'final total computed');
@@ -236,9 +236,9 @@ function testInvoiceItemsCountUnchanged() {
   console.log('OK invoice_items count unchanged (aggregation is display-only)');
 }
 
-function testPdfLabelsWithoutProductNames() {
+async function testPdfLabelsWithoutProductNames() {
   const { buildInvoiceHtml } = require('../services/pdfService');
-  const invoice = enrichInvoice({
+  const invoice = await enrichInvoice({
     patient_name: 'Presentation Test',
     file_number: 'PRES-001',
     serial_number: 'SN-001',
@@ -263,7 +263,7 @@ function testPdfLabelsWithoutProductNames() {
     method_payments: [],
     stay_entries: [],
   });
-  const html = buildInvoiceHtml(invoice, { showQr: false });
+  const html = await buildInvoiceHtml(invoice, { showQr: false });
   assert(html.includes(DEFAULT_SECTION_LABELS.medicines), 'PDF contains medicines label');
   assert(html.includes(DEFAULT_SECTION_LABELS.supplies), 'PDF contains supplies label');
   assert(!html.includes('SECRET MED NAME'), 'PDF hides medicine product name');
@@ -350,11 +350,11 @@ function testFreeManualItemsStayManualBundle() {
   console.log('OK free manual items stay detailed even with operation keywords');
 }
 
-function testPdfStayDetailAndCaptainName() {
+async function testPdfStayDetailAndCaptainName() {
   const { buildInvoiceHtml } = require('../services/pdfService');
   const { normalizeCaptainName } = require('../services/invoiceService');
   assertEq(normalizeCaptainName('نقيب / عمرو صالح محمد'), 'نقيب عمرو صالح', 'legacy captain normalized');
-  const invoice = enrichInvoice({
+  const invoice = await enrichInvoice({
     patient_name: 'ahmed adel',
     file_number: '06',
     captain_name: 'نقيب / عمرو صالح محمد',
@@ -379,7 +379,7 @@ function testPdfStayDetailAndCaptainName() {
     method_payments: [],
     stay_entries: [],
   });
-  const html = buildInvoiceHtml(invoice, { showQr: false });
+  const html = await buildInvoiceHtml(invoice, { showQr: false });
   assert(html.includes('إقامة ورعاية'), 'PDF contains stay aggregate row');
   assert(!html.includes('مساعد تمريض'), 'PDF does not repeat individual stay lines');
   assert(html.includes('رئيس حسابات المرضى'), 'PDF contains patient accounts manager role label');
@@ -391,7 +391,7 @@ function testPdfStayDetailAndCaptainName() {
   console.log('OK PDF stay aggregate and signature order');
 }
 
-function testPatientBalanceNegativeWhenOwing() {
+async function testPatientBalanceNegativeWhenOwing() {
   const { resolvePatientInvoiceBalanceDisplay } = require('../services/patientService');
   const draftOwing = resolvePatientInvoiceBalanceDisplay(
     {
@@ -453,7 +453,7 @@ function testPatientBalanceNegativeWhenOwing() {
   );
   assertEq(overpaid.balance, 1500, 'overpayment increases patient balance after invoice');
 
-  const enriched = enrichInvoice({
+  const enriched = await enrichInvoice({
     file_number: '123',
     status: 'draft',
     patient_context: { patient: { account_balance: 0 } },
@@ -468,21 +468,24 @@ function testPatientBalanceNegativeWhenOwing() {
   console.log('OK patient balance negative when owing');
 }
 
-function main() {
+async function main() {
   testThreeMedicinesAggregateToOneRow();
   testTwoSuppliesAggregateToOneRow();
   testIdenticalClinicalServicesGrouped();
   testMixedSectionsStaySeparated();
-  testGrandTotalUnchanged();
+  await testGrandTotalUnchanged();
   testPartialReturnAggregatedMedicinesTotal();
   testInvoiceItemsCountUnchanged();
   testStayBundleShowsDetailInPrint();
   testStampExcludedFromBundleTotals();
   testFreeManualItemsStayManualBundle();
-  testPdfStayDetailAndCaptainName();
-  testPdfLabelsWithoutProductNames();
-  testPatientBalanceNegativeWhenOwing();
+  await testPdfStayDetailAndCaptainName();
+  await testPdfLabelsWithoutProductNames();
+  await testPatientBalanceNegativeWhenOwing();
   console.log('ALL INVOICE PRESENTATION TESTS PASSED');
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
