@@ -247,11 +247,17 @@ function getDailyInvoicePeriodBounds() {
     fmtStayDate(inv?.admission_date) ||
     document.getElementById('daily-stay-admission')?.value?.trim() ||
     '';
-  let to =
-    fmtStayDate(inv?.discharge_date) ||
-    document.getElementById('daily-stay-discharge')?.value?.trim() ||
-    '';
-  if (!to && from) to = getLocalDateString();
+  const dischargeInput = document.getElementById('daily-stay-discharge')?.value?.trim() || '';
+  let to = dischargeInput || fmtStayDate(inv?.discharge_date) || '';
+  if (from) {
+    const today = getLocalDateString();
+    const openStay = !dischargeInput && (!to || to === from);
+    if (openStay) {
+      to = today >= from ? today : from;
+    } else if (!to) {
+      to = today;
+    }
+  }
   return { from, to };
 }
 
@@ -675,6 +681,7 @@ function applyDailyTabColumnVisibility() {
   if (saveAllBtn) saveAllBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
 
   updateDailyTabImportButton();
+  updateDailySheetScopeUi();
 
   if (activeDailyTab === 'operations') ensureOperationRows();
 
@@ -686,7 +693,7 @@ function applyDailyTabColumnVisibility() {
       'بنود حرة — اكتب الوصف والسعر ثم اضغط «حفظ» مرة واحدة. لا تكرّر الضغط حتى يظهر «تم الحفظ».';
   } else if (hint && activeDailyTab === 'exams') {
     hint.textContent =
-      'كشوفات — حالة الكشف من لائحة الأسعار (زر «رفع الكشوفات» أو الإعدادات → إدارة الأسعار). التخصص من الإعدادات → تخصصات الكشوفات. السعر يُملأ تلقائيًا ويمكن تعديله في الجدول قبل الحفظ.';
+      'كشوفات — حالة الكشف من لائحة الأسعار. السعر يُملأ تلقائيًا ويمكن تعديله قبل الحفظ. لرؤية كشوفات أيام الدخول السابقة: «عرض الحركة → كل أيام الإقامة» (الصفوف الصفراء = يوم سابق).';
   } else if (hint && activeDailyTab === 'medicines') {
     hint.textContent = 'أدوية — ابحث عن الصنف، السعر من اللائحة المرفوعة. الإجمالي في أسفل الجدول.';
   } else if (hint && activeDailyTab === 'supplies') {
@@ -694,7 +701,7 @@ function applyDailyTabColumnVisibility() {
       'مستلزمات — م، تاريخ، رقم الفاتورة، الصنف، العدد، سعر البيع والإجمالي، سعر/إجمالي التكلفة (هامش الربح من الإعدادات).';
   } else if (hint && activeDailyTab === 'sessions') {
     hint.textContent =
-      'جلسات — تاريخ الجلسة، اسم المريض، نوع الجلسة، صباحي/مسائي، العدد، السعر، والإجمالي.';
+      'جلسات — تاريخ الجلسة، اسم المريض، نوع الجلسة، صباحي/مسائي، العدد، السعر، والإجمالي. الصفوف المميزة باللون الأصفر = أيام سابقة (من «عرض الحركة: كل أيام الإقامة»).';
   } else if (hint && activeDailyTab === 'lab') {
     hint.textContent =
       'تحاليل — م، تاريخ التحليل، نوع التحليل، سعر التحليل، الإجمالي، والدمغة.';
@@ -723,67 +730,236 @@ function applyDailyTabColumnVisibility() {
   renderDailySectionTabs();
 }
 
-function computeSectionFooterTotal(tab) {
+const DAILY_FOOTER_SPLIT_TABS = new Set([
+  'medicines',
+  'supplies',
+  'lab',
+  'radiology',
+  'exams',
+  'sessions',
+  'other',
+]);
+
+let dailySheetDateScope = 'today';
+
+function dailySheetScopeSupported() {
+  return DAILY_FOOTER_SPLIT_TABS.has(activeDailyTab);
+}
+
+function getClinicalSheetEntries(allEntries = dailySheetEntriesCache) {
+  const list = allEntries || [];
   const today = getLocalDateString();
-  const otherEntries = (dailySheetEntriesCache || []).filter(
-    (entry) => fmtStayDate(entry.entry_date) !== today
-  );
-  let total = computeAllDaysTabTotal(otherEntries, tab);
+  if (!dailySheetScopeSupported() || dailySheetDateScope === 'today') {
+    return list.filter((entry) => fmtStayDate(entry.entry_date) === today);
+  }
+  const bounds = getDailyInvoicePeriodBounds();
+  return list
+    .filter((entry) => entryInInvoicePeriod(entry, bounds))
+    .sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)));
+}
+
+function markDailySheetRowsByEntryDate() {
+  const today = getLocalDateString();
+  document.querySelectorAll('#daily-sections-body .daily-entry-row').forEach((tr) => {
+    const entryId = Number(tr.dataset.entryId);
+    let entryDate = '';
+    if (entryId) {
+      const entry = (dailySheetEntriesCache || []).find((e) => Number(e.id) === entryId);
+      entryDate = fmtStayDate(entry?.entry_date);
+    }
+    if (!entryDate) {
+      entryDate =
+        fmtStayDate(tr.querySelector('.daily-exam-date')?.value) ||
+        fmtStayDate(tr.querySelector('.daily-session-date')?.value) ||
+        fmtStayDate(tr.querySelector('.daily-lab-date')?.value) ||
+        fmtStayDate(tr.querySelector('.daily-rad-date')?.value) ||
+        '';
+    }
+    tr.classList.toggle('daily-entry-row--prior-day', Boolean(entryDate && entryDate !== today));
+  });
+}
+
+function countPriorDaysWithTabData(tab) {
+  const dates = new Set();
+  for (const entry of cachedEntriesNotOnSheet()) {
+    if (computeAllDaysTabTotal([entry], tab) <= 0) continue;
+    const d = fmtStayDate(entry.entry_date);
+    if (d) dates.add(d);
+  }
+  return dates.size;
+}
+
+function updateDailySheetScopeUi() {
+  const wrap = document.getElementById('daily-sheet-scope-wrap');
+  const sel = document.getElementById('daily-sheet-scope');
+  const jump = document.getElementById('daily-sheet-scope-jump');
+  if (!wrap) return;
+  const show = dailySheetScopeSupported();
+  wrap.classList.toggle('d-none', !show);
+  if (!show) return;
+  if (sel && sel.value !== dailySheetDateScope) sel.value = dailySheetDateScope;
+  const prior = computePriorDaysTabTotal(activeDailyTab);
+  const priorDays = countPriorDaysWithTabData(activeDailyTab);
+  if (jump) {
+    if (dailySheetDateScope === 'today' && prior > 0) {
+      jump.classList.remove('d-none');
+      jump.textContent = `عرض ${priorDays} يوم سابق (${dailyFmt(prior)})`;
+    } else {
+      jump.classList.add('d-none');
+      jump.textContent = '';
+    }
+  }
+}
+
+function getDomLoadedDailyEntryIds() {
+  const ids = new Set();
+  document.querySelectorAll('#daily-sections-body tr[data-entry-id]').forEach((tr) => {
+    const id = Number(tr.dataset.entryId);
+    if (id) ids.add(id);
+  });
+  return ids;
+}
+
+/** Saved entries not shown in the current sheet (avoids double-count with today’s rows). */
+function cachedEntriesNotOnSheet() {
+  const loaded = getDomLoadedDailyEntryIds();
+  return (dailySheetEntriesCache || []).filter((entry) => entry.id && !loaded.has(entry.id));
+}
+
+function computePriorDaysTabTotal(tab) {
+  if (tab === 'stay') return 0;
+  return computeAllDaysTabTotal(cachedEntriesNotOnSheet(), tab);
+}
+
+function computeTodayDomTabTotal(tab) {
   if (tab === 'medicines') {
+    let total = 0;
     document.querySelectorAll('.daily-med-row').forEach((tr) => {
       total += dailyParseAmount(tr.querySelector('.daily-med-total')?.value);
     });
-  } else if (tab === 'supplies') {
+    return total;
+  }
+  if (tab === 'supplies') {
+    let total = 0;
     document.querySelectorAll('.daily-sup-row').forEach((tr) => {
       total += dailyParseAmount(tr.querySelector('.daily-sup-sell-total')?.value);
     });
-  } else if (tab === 'lab') {
+    return total;
+  }
+  if (tab === 'lab') {
+    let total = 0;
     document.querySelectorAll('.daily-lab-row').forEach((tr) => {
       total += getLabRowGrandTotal(tr);
     });
-  } else if (tab === 'radiology') {
+    return total;
+  }
+  if (tab === 'radiology') {
+    let total = 0;
     document.querySelectorAll('.daily-rad-row').forEach((tr) => {
       total += getRadRowGrandTotal(tr);
     });
-  } else if (tab === 'other') {
+    return total;
+  }
+  if (tab === 'other') {
+    let total = 0;
     document.querySelectorAll('.daily-misc-row').forEach((tr) => {
       total += dailyParseAmount(tr.querySelector('.daily-misc-total')?.value);
     });
-  } else if (tab === 'sessions') {
+    return total;
+  }
+  if (tab === 'sessions') {
+    let total = 0;
     document.querySelectorAll('.daily-session-row').forEach((tr) => {
       total += dailyParseAmount(tr.querySelector('.daily-session-total')?.value);
     });
-  } else if (tab === 'stay') {
-    if (dailySheetEntriesCache?.length) {
-      total = computeStayPeriodTotal();
-    } else {
-      document.querySelectorAll('.daily-stay-row').forEach((tr) => {
-        total += dailyParseAmount(tr.querySelector('.daily-row-total')?.textContent);
-      });
-    }
-  } else if (tab === 'exams') {
+    return total;
+  }
+  if (tab === 'exams') {
+    let total = 0;
     document.querySelectorAll('.daily-exam-row').forEach((tr) => {
+      if (!rowHasChargeData(tr)) return;
       total += getExamRowGrandTotal(tr);
     });
+    return total;
   }
-  return total;
+  return 0;
+}
+
+function computeSectionFooterTotal(tab) {
+  if (tab === 'stay') {
+    if (dailySheetEntriesCache?.length) {
+      return computeStayPeriodTotal();
+    }
+    let total = 0;
+    document.querySelectorAll('.daily-stay-row').forEach((tr) => {
+      total += dailyParseAmount(tr.querySelector('.daily-row-total')?.textContent);
+    });
+    return total;
+  }
+  return computePriorDaysTabTotal(tab) + computeTodayDomTabTotal(tab);
+}
+
+function updateDailyFooterLabel(priorTotal, todayTotal) {
+  const footLabel = document.getElementById('daily-total-foot-label');
+  if (!footLabel) return;
+  const base = footLabel.getAttribute('data-base-label') || footLabel.textContent || 'إجمالي';
+  if (dailySheetDateScope === 'period' && dailySheetScopeSupported()) {
+    footLabel.textContent = base.replace('(كل الأيام)', '(كل الأيام المعروضة)');
+    return;
+  }
+  const todayLabel = base.replace('(كل الأيام)', '(اليوم)');
+  if (priorTotal > 0) {
+    footLabel.textContent = `${todayLabel} — محفوظ في أيام أخرى: ${dailyFmt(priorTotal)} (اختر «كل أيام الإقامة» لعرضها)`;
+  } else {
+    footLabel.textContent = todayLabel;
+  }
 }
 
 function updateSectionTabTotal() {
   const display = document.getElementById('daily-total-display');
   if (!display) return;
+  display.removeAttribute('title');
   let total = 0;
   if (activeDailyTab === 'operations') {
     total = getOperationsAllDaysTotal();
-  } else if (activeDailyTab === 'free-items') {
+    display.textContent = total > 0 ? dailyFmt(total) : '';
+    return;
+  }
+  if (activeDailyTab === 'free-items') {
     document.querySelectorAll('#daily-free-items-tbody .daily-free-item-row').forEach((tr) => {
       const qty = dailyParseAmount(tr.querySelector('.daily-free-qty')?.value) || 1;
       const amt = dailyParseAmount(tr.querySelector('.daily-free-amount')?.value);
       total += qty * amt;
     });
-  } else if (activeDailyTab) {
-    total = computeSectionFooterTotal(activeDailyTab);
+    display.textContent = total > 0 ? dailyFmt(total) : '';
+    return;
   }
+  if (!activeDailyTab) {
+    display.textContent = '';
+    return;
+  }
+  if (activeDailyTab === 'stay') {
+    total = computeSectionFooterTotal('stay');
+    display.textContent = total > 0 ? dailyFmt(total) : '';
+    return;
+  }
+  if (DAILY_FOOTER_SPLIT_TABS.has(activeDailyTab)) {
+    const prior = computePriorDaysTabTotal(activeDailyTab);
+    const today = computeTodayDomTabTotal(activeDailyTab);
+    updateDailyFooterLabel(prior, today);
+    if (dailySheetDateScope === 'period') {
+      const allVisible = today;
+      display.textContent = allVisible > 0 ? dailyFmt(allVisible) : '';
+    } else {
+      display.textContent = today > 0 ? dailyFmt(today) : '';
+      if (prior > 0) {
+        display.title = `محفوظ في أيام أخرى: ${dailyFmt(prior)} — الإجمالي الكلي: ${dailyFmt(prior + today)}`;
+      }
+    }
+    updateDailySheetScopeUi();
+    return;
+  }
+  total = computeSectionFooterTotal(activeDailyTab);
   display.textContent = total > 0 ? dailyFmt(total) : '';
 }
 
@@ -4480,13 +4656,13 @@ function syncSessionsRowDisplay(tr, item, unitPrice, opts = {}) {
       if (qtyEl) qtyEl.value = formatAmountFieldValue(qty, 0);
     }
   }
-  if (!qty) qty = 1;
   const unit =
     Number(unitPrice) ||
     (item?.price != null ? Number(item.price) : 0) ||
     getCatalogRowUnitPrice(tr, 'sessions') ||
     0;
-  const total = Math.round(unit * qty * 100) / 100;
+  if (!qty && unit > 0) qty = 1;
+  const total = unit > 0 && qty > 0 ? Math.round(unit * qty * 100) / 100 : 0;
   const unitEl = tr.querySelector('.daily-session-unit');
   if (unitEl) unitEl.value = unit > 0 ? formatAmountFieldValue(unit) : '';
   const totalEl = tr.querySelector('.daily-session-total');
@@ -4539,7 +4715,7 @@ function createSessionsRow(entry = {}, sessionsLine = null) {
       ? formatAmountFieldValue(line.quantity, 0)
       : morning + evening > 0
         ? formatAmountFieldValue(morning + evening, 0)
-        : '1';
+        : '';
   const dateVal = dateLine.extra_date
     ? String(dateLine.extra_date).slice(0, 10)
     : entry.entry_date
@@ -5496,12 +5672,28 @@ function stayRowGroupHasChargeData(primaryTr) {
 
 function collectCompanionLineFromRow(rowTr, lines) {
   const kindSel = rowTr.querySelector('.daily-companion-kind');
-  if (!kindSel) return;
+  const companionInput = rowTr.querySelector('.daily-amount[data-section="companion"]');
+  const amount = dailyAmountForSave(dailyParseAmount(companionInput?.value));
+  if (!kindSel) {
+    if (amount > 0) collectAmountLineFromRow(rowTr, 'companion', lines);
+    return;
+  }
   const opt = kindSel.selectedOptions[0];
   const kind = opt?.dataset.kind || '';
-  if (!kind || kind === 'none' || kind === 'nursing_point') return;
+  if (kind === 'nursing_point') return;
+  if (!kind || kind === 'none') {
+    if (amount <= 0) return;
+    const manualLine = {
+      section_code: 'companion',
+      amount,
+      quantity: 1,
+      extra_text: 'مرافق',
+    };
+    if (companionInput?.dataset.lineId) manualLine.id = Number(companionInput.dataset.lineId);
+    lines.push(manualLine);
+    return;
+  }
   const catalogItemId = kind === 'service' && kindSel?.value ? Number(kindSel.value) : null;
-  const amount = dailyAmountForSave(dailyParseAmount(rowTr.querySelector('.daily-amount[data-section="companion"]')?.value));
   if (!catalogItemId && amount <= 0) return;
   const line = {
     section_code: 'companion',
@@ -5851,6 +6043,7 @@ function configureDailyTableFooter(colCount, labelText = 'إجمالي الكل'
   const footSpacer = document.getElementById('daily-total-foot-spacer');
   if (footLabel) {
     footLabel.colSpan = Math.max(colCount - 2, 1);
+    footLabel.setAttribute('data-base-label', labelText);
     footLabel.textContent = labelText;
     footLabel.className = 'fw-black text-end daily-total-foot-label';
   }
@@ -6297,10 +6490,16 @@ function addDailyEntryRow(preset = {}) {
   if (activeDailyTab === 'stay') {
     if (!entryDate) entryDate = suggestNextStayEntryDate() || '';
     if (!entryDate) {
-      showToast(
-        'لا يوجد يوم متاح في فترة الإقامة — عدّل تاريخ الخروج أو احذف يوماً مسجّلاً',
-        'warning'
-      );
+      const { from, to } = getDailyInvoicePeriodBounds();
+      const used = collectStayDatesInDom();
+      let msg =
+        'لا يوجد يوم متاح في فترة الإقامة — عدّل تاريخ الخروج أو احذف يوماً مسجّلاً';
+      if (from && to && from === to && used.has(from)) {
+        msg = `يوم ${from} مسجّل بالفعل — لتسجيل يوم جديد حدّد تاريخ خروج بعد الدخول أو انتظر اليوم التالي`;
+      } else if (from && to && from < to && used.size > 0) {
+        msg = `كل الأيام من ${from} إلى ${to} مسجّلة — وسّع تاريخ الخروج لإضافة أيام`;
+      }
+      showToast(msg, 'warning');
       return;
     }
     if (isDailyEntryPresetEmpty(preset)) {
@@ -6528,16 +6727,19 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     dailySheetSerialNext = 1;
     const today = getLocalDateString();
     const todayEntries = entries.filter((entry) => fmtStayDate(entry.entry_date) === today);
-    if (!todayEntries.length && activeDailyTab !== 'stay') {
+    const sheetEntries =
+      activeDailyTab === 'stay' ? todayEntries : getClinicalSheetEntries(entries);
+    if (!sheetEntries.length && activeDailyTab !== 'stay') {
       addDailyEntryRow();
       setDailyTodayDate();
       renumberSheetRowSerials();
+      markDailySheetRowsByEntryDate();
       updateSectionTabTotal();
       return;
     }
     const seenEntryIds = new Set();
     if (activeDailyTab === 'exams') {
-      const examRows = dedupeTodayExamRows(todayEntries);
+      const examRows = dedupeTodayExamRows(sheetEntries);
       const stampLoadedForEntry = new Set();
       for (const { entry, line } of examRows) {
         const stampKey = entry.id ? String(entry.id) : dailyLineMergeKey(line);
@@ -6548,37 +6750,37 @@ async function loadDailyEntriesIntoSheet(options = {}) {
       pruneDuplicateSheetDomRows('exams');
       addDailyEntryRow();
     } else if (activeDailyTab === 'lab') {
-      for (const { entry, line } of dedupeTodayServiceRows(todayEntries, 'analyses')) {
+      for (const { entry, line } of dedupeTodayServiceRows(sheetEntries, 'analyses')) {
         body.appendChild(createLabRow(entry, line));
       }
       pruneDuplicateSheetDomRows('lab');
       addDailyEntryRow();
     } else if (activeDailyTab === 'radiology') {
-      for (const { entry, line } of dedupeTodayServiceRows(todayEntries, 'xray_total')) {
+      for (const { entry, line } of dedupeTodayServiceRows(sheetEntries, 'xray_total')) {
         body.appendChild(createRadiologyRow(entry, line));
       }
       pruneDuplicateSheetDomRows('radiology');
       addDailyEntryRow();
     } else if (activeDailyTab === 'other') {
-      for (const { entry, line } of dedupeTodayCatalogRows(todayEntries, ['other', 'prosthetics'])) {
+      for (const { entry, line } of dedupeTodayCatalogRows(sheetEntries, ['other', 'prosthetics'])) {
         body.appendChild(createMiscServiceRow(entry, line, line.section_code));
       }
       pruneDuplicateSheetDomRows('other');
       addDailyEntryRow();
     } else if (activeDailyTab === 'medicines') {
-      for (const { entry, line } of dedupeTodayCatalogRows(todayEntries, 'medicines')) {
+      for (const { entry, line } of dedupeTodayCatalogRows(sheetEntries, 'medicines')) {
         body.appendChild(createMedicineCatalogRow(entry, line));
       }
       pruneDuplicateSheetDomRows('medicines');
       addDailyEntryRow();
     } else if (activeDailyTab === 'supplies') {
-      for (const { entry, line } of dedupeTodayCatalogRows(todayEntries, ['supplies', 'cosmetics'])) {
+      for (const { entry, line } of dedupeTodayCatalogRows(sheetEntries, ['supplies', 'cosmetics'])) {
         body.appendChild(createSupplyCatalogRow(entry, line, line.section_code));
       }
       pruneDuplicateSheetDomRows('supplies');
       addDailyEntryRow();
     } else if (activeDailyTab === 'sessions') {
-      for (const { entry, line } of dedupeTodaySessionRows(todayEntries)) {
+      for (const { entry, line } of dedupeTodaySessionRows(sheetEntries)) {
         body.appendChild(line ? createSessionsRow(entry, line) : createSessionsRow(entry));
       }
       pruneDuplicateSheetDomRows('sessions');
@@ -6624,6 +6826,7 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     setDailyTodayDate();
     if (activeDailyTab === 'stay') pruneDuplicateStayDomRows();
     renumberSheetRowSerials();
+    markDailySheetRowsByEntryDate();
     updateDailyGrandTotal();
     updateSectionTabTotal();
     if (activeDailyTab === 'stay' && !skipAutoRoom) {
@@ -8039,6 +8242,16 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('daily-add-row-btn')?.addEventListener('click', handleDailySheetAddRow);
   document.getElementById('daily-sheet-add-row-btn')?.addEventListener('click', handleDailySheetAddRow);
+  document.getElementById('daily-sheet-scope')?.addEventListener('change', (e) => {
+    dailySheetDateScope = e.target.value === 'period' ? 'period' : 'today';
+    void loadDailyEntriesIntoSheet();
+  });
+  document.getElementById('daily-sheet-scope-jump')?.addEventListener('click', () => {
+    dailySheetDateScope = 'period';
+    const sel = document.getElementById('daily-sheet-scope');
+    if (sel) sel.value = 'period';
+    void loadDailyEntriesIntoSheet();
+  });
   document.getElementById('daily-tab-import-btn')?.addEventListener('click', () => {
     document.getElementById('daily-tab-import-input')?.click();
   });
@@ -8059,6 +8272,7 @@ function clearDailyChargesSession() {
   dailyStayContext = null;
   dailySavedSheetFingerprint = '';
   activeDailyTab = '';
+  dailySheetDateScope = 'today';
   sessionStorage.removeItem('dailyStayFileNumber');
   sessionStorage.removeItem('dailyActiveTab');
 }

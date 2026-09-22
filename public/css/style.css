@@ -735,6 +735,14 @@ body {
   padding: 0.65rem 0.75rem;
 }
 
+.daily-sheet-table tr.daily-entry-row--prior-day > td {
+  background-color: #fffbeb;
+}
+
+.daily-sheet-table tr.daily-entry-row--prior-day > td:first-child {
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+
 .daily-sheet-table .daily-meta-th {
   white-space: nowrap;
   font-size: 0.82rem;
