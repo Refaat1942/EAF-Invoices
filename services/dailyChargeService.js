@@ -2184,11 +2184,13 @@ async function saveEntriesBatch(data, user = null) {
         if (await patientDayHasExamLines(client, patient.id, dateKey)) continue;
 
         const finalId = await consolidateDailyEntriesForDate(client, patient.id, dateKey, keepId);
-        const idx = results.findIndex(
-          (saved) => normalizeCalendarDate(saved.entry_date) === dateKey
-        );
-        if (idx >= 0 && finalId) {
-          results[idx] = await getEntryById(finalId, client);
+        if (finalId) {
+          const merged = await getEntryById(finalId, client);
+          for (let idx = 0; idx < results.length; idx++) {
+            if (normalizeCalendarDate(results[idx].entry_date) === dateKey) {
+              results[idx] = merged;
+            }
+          }
         }
       }
       for (const dateKey of keepStayByDate.keys()) {

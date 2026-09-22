@@ -134,6 +134,25 @@ async function countPatientEntries(patientId) {
   return rows[0]?.n || 0;
 }
 
+async function countPatientEntryLines(patientId) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS n
+     FROM patient_daily_entry_lines l
+     JOIN patient_daily_entries e ON e.id = l.entry_id
+     WHERE e.patient_id = $1`,
+    [patientId]
+  );
+  return rows[0]?.n || 0;
+}
+
+async function countInvoiceDailyItems(invoiceId) {
+  const { rows } = await query(
+    `SELECT COUNT(*)::int AS n FROM invoice_items WHERE invoice_id = $1 AND daily_entry_line_id IS NOT NULL`,
+    [invoiceId]
+  );
+  return rows[0]?.n || 0;
+}
+
 async function assertNoDuplicateInvoiceLines(invoiceId) {
   const { rows } = await query(
     `SELECT daily_entry_line_id, COUNT(*)::int AS n
@@ -160,7 +179,16 @@ async function testSuccessfulBatchPreservesAllRows(patient, today, meds) {
   });
   assert(save.invoice_sync?.synced, 'successful batch sync');
   assertEq(save.count, 2, 'successful batch count');
-  assertEq(await countPatientEntries(patient.id), 2, 'successful batch rows persisted');
+  // Same-day non-exam lines are intentionally consolidated onto one
+  // patient_daily_entries row (see consolidateDailyEntriesForDate) — assert
+  // both lines and both invoice items survived intact, not the row count.
+  assertEq(await countPatientEntryLines(patient.id), 2, 'successful batch lines persisted');
+  assertEq(
+    await countInvoiceDailyItems(save.invoice_sync.invoice_id),
+    2,
+    'successful batch invoice items persisted'
+  );
+  await assertNoDuplicateInvoiceLines(save.invoice_sync.invoice_id);
   console.log('OK successful batch preserves all rows');
 }
 
