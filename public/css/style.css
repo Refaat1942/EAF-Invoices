@@ -1588,6 +1588,12 @@ body {
   white-space: nowrap;
 }
 
+#view-daily tr.daily-row-just-saved {
+  outline: 2px solid #198754;
+  outline-offset: -2px;
+  background-color: #d1e7dd !important;
+}
+
 #view-daily .daily-operations-legend {
   background: #f8fafc;
   border: none;

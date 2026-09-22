@@ -785,6 +785,8 @@ function applyDailyTabColumnVisibility() {
   } else if (hint) {
     hint.textContent = 'اختر قسماً من التبويبات أعلاه.';
   }
+  updateDailySectionPreviewButton();
+
   if (hint) {
     hint.style.display = hint.textContent?.trim() ? '' : 'none';
   }
@@ -808,9 +810,38 @@ function dailySheetScopeSupported() {
   return DAILY_FOOTER_SPLIT_TABS.has(activeDailyTab);
 }
 
+function entryHasExamActivityOnDate(entry, dateKey) {
+  const key = fmtStayDate(dateKey);
+  if (!key || !entry) return false;
+  if (fmtStayDate(entry.entry_date) === key) return true;
+  return (entry.lines || []).some((line) => {
+    if (!['consultant_exam', 'specialist_exam', 'consultation_stamp'].includes(line.section_code)) {
+      return false;
+    }
+    if (!lineHasChargeData(line)) return false;
+    const lineDate = fmtStayDate(line.extra_date || entry.entry_date);
+    return lineDate === key;
+  });
+}
+
+function getExamSheetEntries(allEntries = dailySheetEntriesCache) {
+  const list = allEntries || [];
+  const today = getLocalDateString();
+  if (!dailySheetScopeSupported() || dailySheetDateScope === 'today') {
+    return list.filter((entry) => entryHasExamActivityOnDate(entry, today));
+  }
+  const bounds = getDailyInvoicePeriodBounds();
+  return list
+    .filter((entry) => entryInInvoicePeriod(entry, bounds))
+    .sort((a, b) => fmtStayDate(a.entry_date).localeCompare(fmtStayDate(b.entry_date)));
+}
+
 function getClinicalSheetEntries(allEntries = dailySheetEntriesCache) {
   const list = allEntries || [];
   const today = getLocalDateString();
+  if (activeDailyTab === 'exams') {
+    return getExamSheetEntries(list);
+  }
   if (!dailySheetScopeSupported() || dailySheetDateScope === 'today') {
     return list.filter((entry) => fmtStayDate(entry.entry_date) === today);
   }
@@ -2339,6 +2370,7 @@ function updateDailyInvoicePanel(ctx) {
     if (empty) empty.style.display = '';
     if (actionsWrap) actionsWrap.classList.add('d-none');
     if (reviewPanel) reviewPanel.classList.add('d-none');
+    updateDailySectionPreviewButton();
     return;
   }
   if (empty) empty.style.display = 'none';
@@ -2351,6 +2383,7 @@ function updateDailyInvoicePanel(ctx) {
     pdfBtn.classList.toggle('d-none', !showPdf);
   }
   if (typeof window.updateGlobalInvoicePrintButton === 'function') window.updateGlobalInvoicePrintButton();
+  updateDailySectionPreviewButton();
 }
 
 function applyDailyInvoiceSync(data) {
@@ -3794,6 +3827,56 @@ async function saveOpenPatientStay() {
   }
 }
 
+const DAILY_TAB_TO_INVOICE_PREVIEW_KIND = Object.freeze({
+  stay: 'stay',
+  sessions: 'sessions',
+  medicines: 'medicines',
+  supplies: 'supplies',
+  exams: 'exams',
+  lab: 'lab',
+  radiology: 'radiology',
+  other: 'other',
+  operations: 'operations',
+  'free-items': '__manual__',
+});
+
+function dailyTabToInvoicePreviewKind(tab = activeDailyTab) {
+  const id = String(tab || '').trim();
+  return DAILY_TAB_TO_INVOICE_PREVIEW_KIND[id] || '';
+}
+
+function getDailyPrintPreviewKind() {
+  const view = document.getElementById('view-daily');
+  if (!view || view.style.display === 'none') return '';
+  if (!dailyStayContext?.invoice?.id || !activeDailyTab) return '';
+  return dailyTabToInvoicePreviewKind(activeDailyTab);
+}
+
+function updateDailySectionPreviewButton() {
+  const btn = document.getElementById('daily-section-preview-btn');
+  if (!btn) return;
+  const canPrint =
+    typeof can === 'function' && (can('invoices.view') || can('invoices.edit') || can('invoices.create'));
+  const kind = getDailyPrintPreviewKind();
+  const show = Boolean(canPrint && kind);
+  btn.classList.toggle('d-none', !show);
+}
+
+function openDailySectionPrintPreview() {
+  const kind = getDailyPrintPreviewKind();
+  if (!kind) {
+    showToast('اختر مريضاً وفاتورة مفتوحة ثم قسماً من التبويبات', 'warning');
+    return;
+  }
+  if (typeof window.openInvoicePrintPreview === 'function') {
+    void window.openInvoicePrintPreview({ dailyKind: kind, forceSaved: true });
+    return;
+  }
+  showToast('معاينة الطباعة غير متاحة — حدّث الصفحة', 'danger');
+}
+
+window.getDailyPrintPreviewKind = getDailyPrintPreviewKind;
+
 async function openDailyItemsPrint(kind) {
   const file_number = getStayFileNumber();
   if (!file_number) {
@@ -4125,6 +4208,20 @@ function examSectionCodeForServiceRow(svc) {
   return svc.section_code || inferExamSectionCodeFromServiceName(svc.name);
 }
 
+const EXAM_CASE_SECTION_CODES = new Set(['consultant_exam', 'specialist_exam']);
+
+function isLikelyNonExamCatalogService(svc) {
+  const name = String(svc?.name || '');
+  return /سونار|أشعة|اشعة|دوبلكس|راديولوجي|ultrasound|xray/i.test(name);
+}
+
+function listExamCaseCatalogServices() {
+  return (dailyExamServicesCache || []).filter((svc) => {
+    if (isLikelyNonExamCatalogService(svc)) return false;
+    return EXAM_CASE_SECTION_CODES.has(examSectionCodeForServiceRow(svc));
+  });
+}
+
 function resolveExamServiceIdForSave(tr) {
   if (!tr) return null;
   const caseSel = tr.querySelector('.daily-exam-case');
@@ -4338,12 +4435,13 @@ function buildCompanionKindOptions(selectedValue = '') {
 }
 
 function buildExamCaseOptions(selectedServiceId = '') {
-  if (!dailyExamServicesCache.length) {
+  const cases = listExamCaseCatalogServices();
+  if (!cases.length) {
     return '<option value="">— حالة الكشف (ارفع الكشوفات أو اللائحة) —</option>';
   }
   return (
     '<option value="">— حالة الكشف —</option>' +
-    dailyExamServicesCache
+    cases
       .map((svc) => {
         const price = priceFromExamServiceRow(svc);
         const sectionCode = examSectionCodeForServiceRow(svc);
@@ -7028,15 +7126,55 @@ function sessionRowHasChargeData(tr) {
   return false;
 }
 
+function examRowHasSaveableData(tr) {
+  if (!tr?.classList.contains('daily-exam-row')) return false;
+  if (tr.dataset.entryId) return true;
+  const doctorId = tr.querySelector('.daily-exam-doctor')?.value || tr.dataset.doctorId || '';
+  if (doctorId) return true;
+  if (tr.querySelector('.daily-exam-case')?.value) return true;
+  if (dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value) > 0) return true;
+  if (dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value) > 0) return true;
+  return false;
+}
+
+function resetUnsavedExamDraftRow(tr) {
+  if (!tr?.classList.contains('daily-exam-row') || tr.dataset.entryId) return;
+  const caseSel = tr.querySelector('.daily-exam-case');
+  if (caseSel) caseSel.value = '';
+  const specialtySel = tr.querySelector('.daily-exam-specialty');
+  if (specialtySel) specialtySel.value = '';
+  tr.querySelector('.daily-exam-unit-price')?.value = '';
+  tr.querySelector('.daily-exam-stamp')?.value = '';
+  tr.dataset.examCaseServiceId = '';
+  tr.dataset.examSectionCode = '';
+  tr.dataset.examSpecialtyCode = '';
+  const search = tr.querySelector('.daily-exam-doctor-search');
+  const hidden = tr.querySelector('.daily-exam-doctor');
+  if (search) search.value = '';
+  if (hidden) hidden.value = '';
+  tr.dataset.doctorId = '';
+  const wrap = tr.querySelector('.daily-doctor-suggest-wrap');
+  if (wrap) {
+    wrap._pickedDoctorLabel = '';
+    wrap._pickedDoctorId = '';
+  }
+  updateRowTotal(tr);
+}
+
+function resetUnsavedExamDraftRows() {
+  document.querySelectorAll('#daily-sections-body .daily-exam-row').forEach((tr) => {
+    if (!tr.dataset.entryId && examRowHasSaveableData(tr)) resetUnsavedExamDraftRow(tr);
+  });
+}
+
 function rowHasChargeData(tr) {
   if (tr.classList.contains('daily-session-row')) {
     return sessionRowHasChargeData(tr);
   }
+  if (tr.classList.contains('daily-exam-row')) {
+    return examRowHasSaveableData(tr);
+  }
   if (tr._entryLinesSnapshot?.some((line) => lineHasChargeData(line))) return true;
-  if (dailyParseAmount(tr.querySelector('.daily-exam-unit-price')?.value) > 0) return true;
-  if (tr.querySelector('.daily-exam-case')?.value) return true;
-  if (tr.querySelector('.daily-exam-specialty')?.value) return true;
-  if (dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value) > 0) return true;
   if (dailyParseAmount(tr.querySelector('.daily-med-total')?.value) > 0) return true;
   if (tr.querySelector('.daily-picker[data-section="medicines"] .daily-picker-value')?.value) return true;
   if (dailyParseAmount(tr.querySelector('.daily-sup-sell-total')?.value) > 0) return true;
@@ -8251,6 +8389,19 @@ async function saveDailyEntryNow(options = {}) {
         showDailySection(prevTab, { skipUnsavedPrompt: true });
       }
       updateSectionTabTotal();
+      if (prevTab === 'exams' && !silent) {
+        const savedRows = [
+          ...document.querySelectorAll(
+            '#daily-sections-body .daily-exam-row[data-entry-id]:not([data-entry-id=""])'
+          ),
+        ];
+        const target = savedRows[savedRows.length - 1] || savedRows[0];
+        if (target) {
+          target.classList.add('daily-row-just-saved');
+          target.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          window.setTimeout(() => target.classList.remove('daily-row-just-saved'), 3000);
+        }
+      }
     }
     if (silent && !previewFlush) {
       if (window.AutoSave?.isEnabled?.()) {
@@ -8261,11 +8412,23 @@ async function saveDailyEntryNow(options = {}) {
     const statusEl = document.getElementById('daily-entry-status');
     if (!silent || previewFlush) {
       if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
-      if (!silent) showToast(toastMsg, 'success');
+      if (!silent) {
+        const examSavedHint =
+          prevTab === 'exams'
+            ? ' — الصف المحفوظ مُظلَّل؛ الصف الفارغ بالأسفل لكشف جديد'
+            : '';
+        showToast(toastMsg + examSavedHint, 'success');
+      }
     }
     captureDailySheetBaseline();
     return true;
   } catch (err) {
+    if (activeDailyTab === 'exams') {
+      resetUnsavedExamDraftRows();
+      if (!document.querySelector('#daily-sections-body .daily-exam-row:not([data-entry-id])')) {
+        addDailyEntryRow();
+      }
+    }
     if (!silent) {
       showToast(sanitizeApiErrorMessage(err.message), 'danger');
     } else if (window.AutoSave) {
@@ -8649,6 +8812,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-stay-open-btn')?.addEventListener('click', saveOpenPatientStay);
   document.getElementById('daily-stay-lookup-btn')?.addEventListener('click', () => loadOpenPatientStay());
   document.getElementById('daily-invoice-pdf-btn')?.addEventListener('click', openDailyInvoicePdf);
+  document.getElementById('daily-section-preview-btn')?.addEventListener('click', () => {
+    openDailySectionPrintPreview();
+  });
   document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
     const q = document.getElementById('daily-patient-search')?.value || '';
     void loadDailyPatientGrid(q);

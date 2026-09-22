@@ -1099,17 +1099,29 @@ function updateGlobalInvoicePrintButton() {
   }
 }
 
+function applyCalculatedTotalsToPreviewPayload(data, totals) {
+  if (!totals) return data;
+  const out = { ...data, ...totals };
+  out.items = (totals.items || []).filter((item) => !item.is_stay_entry);
+  out.stay_entries = totals.stay_entries || data.stay_entries || [];
+  out.payments = totals.payments || data.payments || [];
+  out.method_payments = totals.method_payments || data.method_payments || [];
+  return out;
+}
+
 async function openInvoicePreviewFromForm() {
   const data = collectFormData();
   if (!data.invoice_type) {
     showToast('يجب اختيار نوع الفاتورة أولاً', 'warning');
     return;
   }
-  if (!lastCalculationTotals) await recalculate();
+  const totals = await recalculate();
+  if (!totals) return;
+  const previewData = applyCalculatedTotalsToPreviewPayload(data, totals);
   const res = await apiFetch(`${API}/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(previewData),
   });
   const html = await res.text();
   if (!res.ok) throw new Error(html || 'فشل معاينة الفاتورة');
