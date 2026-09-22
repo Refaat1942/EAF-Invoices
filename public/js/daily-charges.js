@@ -143,6 +143,7 @@ async function handleDailyTabImport(file) {
 let dailySectionsCache = [];
 let dailyCurrentEntryId = null;
 let dailyStayContext = null;
+let dailySavedSheetFingerprint = '';
 
 function isExternalDailyPatient(ctx = dailyStayContext) {
   return String(ctx?.patient?.patient_type || '').toLowerCase() === 'external';
@@ -1371,11 +1372,13 @@ async function loadOperationsForPatient() {
       ensureOperationRows();
     }
     updateOperationsTotal();
+    captureDailySheetBaseline();
   } catch (err) {
     console.error(err);
     tbody.innerHTML = '';
     ensureOperationRows();
     updateOperationsTotal();
+    captureDailySheetBaseline();
   }
 }
 
@@ -1422,6 +1425,7 @@ async function saveOperationsPanel(options = {}) {
     } else if (window.AutoSave) {
       AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
     }
+    captureDailySheetBaseline();
     return true;
   } catch (err) {
     if (!silent) {
@@ -1557,10 +1561,12 @@ async function loadFreeItemsPanel() {
     if (items.length) items.forEach((item) => addFreeItemRow(item));
     else addFreeItemRow();
     updateFreeItemsTotal();
+    captureDailySheetBaseline();
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
     tbody.innerHTML = '';
     addFreeItemRow();
+    captureDailySheetBaseline();
   }
 }
 
@@ -1603,6 +1609,7 @@ async function saveFreeItems(options = {}) {
     } else if (window.AutoSave) {
       AutoSave.noteSaved('daily', getDailyAutosaveFingerprint());
     }
+    captureDailySheetBaseline();
     return true;
   } catch (err) {
     if (!silent) {
@@ -1640,7 +1647,51 @@ function renderDailySectionTiles() {
   renderDailySectionTabs();
 }
 
-function showDailySection(sectionId) {
+function captureDailySheetBaseline() {
+  try {
+    dailySavedSheetFingerprint = getDailyAutosaveFingerprint();
+  } catch {
+    dailySavedSheetFingerprint = '';
+  }
+}
+
+function dailyTabHasUnsavedChanges() {
+  if (!dailyStayContext?.invoice?.id) return false;
+  if (!dailyCan('daily_charges.manage')) return false;
+  try {
+    const current = getDailyAutosaveFingerprint();
+    if (!dailySavedSheetFingerprint) {
+      if (activeDailyTab === 'operations') return collectOperationsFromTable().length > 0;
+      if (activeDailyTab === 'free-items') {
+        return collectFreeItemsFromTable().some((item) => item.description || item.amount > 0);
+      }
+      return collectDailyRowsForSave().length > 0;
+    }
+    return current !== dailySavedSheetFingerprint;
+  } catch {
+    return false;
+  }
+}
+
+async function confirmUnsavedBeforeTabSwitch() {
+  if (!dailyTabHasUnsavedChanges()) return true;
+  const label = dailyTabLabel(activeDailyTab);
+  return confirm(
+    `يوجد بيانات غير محفوظة في «${label}».\n\nمواصلة الانتقال بدون حفظ؟\n(اختر «إلغاء» للرجوع والحفظ أولاً)`
+  );
+}
+
+function dailyTabLabel(tabId) {
+  const id = tabId || activeDailyTab;
+  return DAILY_TAB_GROUPS.find((g) => g.id === id)?.label || id || 'الشاشة';
+}
+
+async function showDailySection(sectionId, options = {}) {
+  const skipUnsavedPrompt = options.skipUnsavedPrompt === true;
+  if (sectionId && sectionId !== activeDailyTab && !skipUnsavedPrompt) {
+    const proceed = await confirmUnsavedBeforeTabSwitch();
+    if (!proceed) return false;
+  }
   if (sectionId) {
     activeDailyTab = sectionId;
     sessionStorage.setItem('dailyActiveTab', sectionId);
@@ -1664,6 +1715,7 @@ function showDailySection(sectionId) {
   ) {
     void loadDailyEntriesIntoSheet();
   }
+  return true;
 }
 
 function showDailyPatientPicker() {
@@ -1676,6 +1728,7 @@ function showDailyPatientPicker() {
   resetDailyPatientPickerList();
   sessionStorage.removeItem('dailyStayFileNumber');
   dailyStayContext = null;
+  dailySavedSheetFingerprint = '';
   activeDailyTab = '';
   dailySheetSerialNext = 1;
   dailySheetSerialMap.clear();
@@ -6576,6 +6629,7 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     if (activeDailyTab === 'stay' && !skipAutoRoom) {
       await applyAutoRoomToTodayRows();
     }
+    captureDailySheetBaseline();
   } catch (err) {
     if (loadId !== dailyEntriesLoadSeq) return;
     console.error(err);
@@ -7383,11 +7437,48 @@ async function loadDailyPatientHistory() {
 
 async function saveAllDailyCharges() {
   if (activeDailyTab === 'free-items') return saveFreeItems();
-  await saveDailyEntry();
+  if (!dailyStayContext?.invoice?.id) {
+    showToast('لا توجد فاتورة مفتوحة — افتح المريض أولًا', 'warning');
+    return;
+  }
+  if (!dailyCan('daily_charges.manage')) {
+    showToast('ليس لديك صلاحية تسجيل الحركة اليومية', 'warning');
+    return;
+  }
+
+  const homeTab = activeDailyTab;
+  const tabs = DAILY_TAB_GROUPS.map((g) => g.id).filter((id) => id !== 'free-items');
+  let savedTabs = 0;
+
+  for (const tab of tabs) {
+    if (tab === 'stay' && !canUseDailyStayCharges()) continue;
+    await showDailySection(tab, { skipUnsavedPrompt: true });
+    if (tab === 'operations') {
+      const ops = collectOperationsFromTable();
+      if (ops.length && (await saveOperationsPanel({ silent: true }))) savedTabs += 1;
+      continue;
+    }
+    const rows = collectDailyRowsForSave();
+    if (!rows.length) continue;
+    if (await saveDailyEntryNow({ silent: true })) savedTabs += 1;
+  }
+
+  if (homeTab && homeTab !== activeDailyTab) {
+    await showDailySection(homeTab, { skipUnsavedPrompt: true });
+  }
+
   const freeItems = collectFreeItemsFromTable();
   const hasFree = freeItems.some((item) => item.description || item.amount > 0);
-  if (!hasFree) return;
-  await saveFreeItems();
+  if (hasFree) await saveFreeItems();
+
+  if (savedTabs > 0) {
+    showToast(
+      `تم حفظ ${savedTabs} شاشة/تبويب — البيانات محفوظة في قاعدة البيانات`,
+      'success'
+    );
+  } else {
+    showToast('لا توجد بيانات جديدة للحفظ في الشاشات', 'info');
+  }
 }
 
 async function saveDailyEntry(options = {}) {
@@ -7456,7 +7547,8 @@ async function saveDailyEntryNow(options = {}) {
     dailyCurrentEntryId = data.saved?.[data.saved.length - 1]?.id || null;
 
     const prevTab = activeDailyTab;
-    const toastMsg = `تم الحفظ — أُضيف تلقائياً على الفاتورة الكبيرة (#${data.invoice_sync.invoice_id})`;
+    const tabLabel = dailyTabLabel(prevTab);
+    const toastMsg = `تم حفظ «${tabLabel}» على الفاتورة #${data.invoice_sync.invoice_id} — للشاشات الأخرى استخدم «حفظ الكل» أو احفظ كل تبويب قبل الانتقال`;
     await refreshInvoiceFormAfterDailySave(file_number, data.invoice_sync.invoice_id);
     await refreshDailyStaySummary(file_number);
     applySavedEntriesToDomRows(data.saved || []);
@@ -7480,6 +7572,7 @@ async function saveDailyEntryNow(options = {}) {
       if (statusEl) statusEl.textContent = `محفوظ — ${data.count} صف`;
       if (!silent) showToast(toastMsg, 'success');
     }
+    captureDailySheetBaseline();
     return true;
   } catch (err) {
     if (!silent) {
@@ -7653,10 +7746,12 @@ async function initDailyChargesView(options = {}) {
     if (typeof bindCommaAmountInputs === 'function') {
       bindCommaAmountInputs(document.getElementById('view-daily'));
     }
-    const openFile = String(options.openFileNumber || '').trim();
+    const openFile = String(
+      options.openFileNumber || sessionStorage.getItem('dailyStayFileNumber') || ''
+    ).trim();
     void reconcileAllRegisteredPatientsOnce();
     if (openFile) {
-      await selectDailyPatient(openFile, { preserveTab: options.preserveTab === true });
+      await selectDailyPatient(openFile, { preserveTab: options.preserveTab !== false });
     } else {
       showDailyPatientPicker();
     }
@@ -7888,7 +7983,9 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('لا توجد فاتورة مفتوحة لهذا المريض', 'warning');
       return;
     }
-    showDailySection(tab.dataset.dailyTab);
+    void showDailySection(tab.dataset.dailyTab).then((ok) => {
+      if (ok === false) renderDailySectionTabs();
+    });
   });
   document.getElementById('daily-change-patient-btn')?.addEventListener('click', () => {
     showDailyPatientPicker();
