@@ -253,30 +253,26 @@ const DAILY_SERVICE_REPORT_KINDS = {
   stay: {
     title: 'تقرير الإقامة — الحركة اليومية',
     section_codes: ['accommodation', 'companion', 'nursing_point', 'patient_assistant'],
-    category_codes: ['ACCOMMODATION', 'COMPANION', 'NURSING'],
   },
   sessions: {
     title: 'تقرير الجلسات — الحركة اليومية',
     section_codes: ['sessions'],
-    category_codes: ['PHYSIO'],
   },
   other: {
     title: 'تقرير الخدمات المتنوعة — الحركة اليومية',
     section_codes: ['other', 'prosthetics'],
-    category_codes: ['GENERAL', 'PROSTHETICS', 'SPINE_BUILDING', 'RF_INJECTION'],
   },
   radiology: {
     title: 'تقرير الأشعة — الحركة اليومية',
-    category_codes: ['RADIOLOGY'],
+    section_codes: ['xray_total', 'xray_stamp'],
   },
   laboratory: {
     title: 'تقرير التحاليل — الحركة اليومية',
-    category_codes: ['LAB'],
+    section_codes: ['analyses', 'analyses_stamp'],
   },
   exams: {
     title: 'تقرير الكشوفات — الحركة اليومية',
     section_codes: ['consultant_exam', 'specialist_exam', 'consultation_stamp'],
-    category_codes: ['MEDICAL_EXAMS', 'STAMPS'],
   },
   operations: {
     title: 'تقرير العمليات — الحركة اليومية',
@@ -287,6 +283,18 @@ const DAILY_SERVICE_REPORT_KINDS = {
     report_type: 'all',
   },
 };
+
+const DAILY_ALL_SECTIONS_CODES = [
+  ...DAILY_SERVICE_REPORT_KINDS.stay.section_codes,
+  ...DAILY_SERVICE_REPORT_KINDS.sessions.section_codes,
+  'medicines',
+  'supplies',
+  'cosmetics',
+  ...DAILY_SERVICE_REPORT_KINDS.exams.section_codes,
+  ...DAILY_SERVICE_REPORT_KINDS.laboratory.section_codes,
+  ...DAILY_SERVICE_REPORT_KINDS.radiology.section_codes,
+  ...DAILY_SERVICE_REPORT_KINDS.other.section_codes,
+];
 
 const DAILY_FREE_ITEMS_KINDS = {
   free_items: {
@@ -357,6 +365,11 @@ async function getDailyItemsReport(kind, filters = {}) {
       )`;
   const params = [fileNumber, config.categories, config.sections];
   let i = 4;
+
+  if (filters.invoice_id) {
+    sql += ` AND (e.invoice_id IS NULL OR e.invoice_id = $${i++})`;
+    params.push(filters.invoice_id);
+  }
 
   if (filters.from_date) {
     sql += ` AND e.entry_date >= $${i++}::date`;
@@ -451,21 +464,9 @@ async function getDailyServiceReport(kind, filters = {}) {
 
   const { getDefaultPriceList } = require('./priceListService');
   const sectionCodes = config.section_codes || [];
-  const categoryCodes = config.category_codes || [];
-  const matchParts = [];
-  const params = [fileNumber];
-  let i = 2;
-
-  if (sectionCodes.length) {
-    matchParts.push(`l.section_code = ANY($${i++}::text[])`);
-    params.push(sectionCodes);
-  }
-  if (categoryCodes.length) {
-    matchParts.push(`(dcs.category_code = ANY($${i}::text[]) OR sc.code = ANY($${i}::text[]))`);
-    params.push(categoryCodes);
-    i += 1;
-  }
-  if (!matchParts.length) throw new Error('نوع التقرير غير صالح');
+  if (!sectionCodes.length) throw new Error('نوع التقرير غير صالح');
+  const params = [fileNumber, sectionCodes];
+  let i = 3;
 
   let sql = `
     SELECT e.entry_date,
@@ -484,13 +485,17 @@ async function getDailyServiceReport(kind, filters = {}) {
     FROM patient_daily_entry_lines l
     JOIN patient_daily_entries e ON e.id = l.entry_id
     JOIN patients p ON p.id = e.patient_id
-    JOIN daily_charge_sections dcs ON dcs.code = l.section_code
+    LEFT JOIN daily_charge_sections dcs ON dcs.code = l.section_code
     LEFT JOIN services s ON s.id = l.service_id
     LEFT JOIN service_categories sc ON sc.id = s.category_id
     WHERE p.file_number = $1
       AND COALESCE(l.amount, 0) > 0
-      AND dcs.input_type = 'amount'
-      AND (${matchParts.join(' OR ')})`;
+      AND l.section_code = ANY($2::text[])`;
+
+  if (filters.invoice_id) {
+    sql += ` AND (e.invoice_id IS NULL OR e.invoice_id = $${i++})`;
+    params.push(filters.invoice_id);
+  }
 
   if (filters.from_date) {
     sql += ` AND e.entry_date >= $${i++}::date`;
@@ -558,9 +563,8 @@ async function getDailyFreeItemsReport(filters = {}) {
   const fileNumber = String(filters.file_number || '').trim();
   if (!fileNumber) throw new Error('رقم الملف مطلوب');
 
-  const { getOpenPatientStay } = require('./invoiceService');
-  const stay = await getOpenPatientStay(fileNumber);
-  const invoiceId = stay?.invoice?.id;
+  const invoiceId =
+    filters.invoice_id || (await getDailyPrintInvoiceContext(fileNumber))?.id || null;
   if (!invoiceId) {
     const patient = await getPatientByFileNumber(fileNumber);
     return {
@@ -596,24 +600,35 @@ async function getDailyFreeItemsReport(filters = {}) {
     [invoiceId]
   );
 
+  const fromDate = filters.from_date ? String(filters.from_date).slice(0, 10) : null;
+  const toDate = filters.to_date ? String(filters.to_date).slice(0, 10) : null;
   let totalAmount = 0;
-  const mappedRows = rows.map((row) => {
+  const mappedRows = [];
+  for (const row of rows) {
     const qty = Number(row.quantity) || 1;
     const unitPrice = Number(row.amount) || 0;
     const lineTotal = unitPrice * qty;
+    let description = String(row.description || '').trim();
+    let entryDate = row.entry_date;
+    const prefix = description.match(/^\[(\d{2})-(\d{2})-(\d{4})\]\s*/);
+    if (prefix) {
+      entryDate = `${prefix[3]}-${prefix[2]}-${prefix[1]}`;
+      description = description.slice(prefix[0].length).trim();
+      if ((fromDate && entryDate < fromDate) || (toDate && entryDate > toDate)) continue;
+    }
     totalAmount += lineTotal;
-    return {
+    mappedRows.push({
       patient_name: row.patient_name || '',
       file_number: row.file_number || fileNumber,
-      entry_date: row.entry_date,
-      service_name: row.description || '—',
+      entry_date: entryDate,
+      service_name: description || '—',
       quantity: qty,
       unit_price: unitPrice,
       total: lineTotal,
       service_code: '',
       section_code: 'free_items',
-    };
-  });
+    });
+  }
 
   const patient = mappedRows[0]
     ? { file_number: mappedRows[0].file_number, name: mappedRows[0].patient_name }
@@ -711,9 +726,14 @@ async function getDailyAllSectionsReport(filters = {}) {
     LEFT JOIN services s ON s.id = l.service_id
     LEFT JOIN daily_entry_catalog_items c ON c.id = l.catalog_item_id
     WHERE p.file_number = $1
-      AND COALESCE(l.amount, 0) > 0`;
-  const params = [fileNumber];
-  let i = 2;
+      AND COALESCE(l.amount, 0) > 0
+      AND l.section_code = ANY($2::text[])`;
+  const params = [fileNumber, DAILY_ALL_SECTIONS_CODES];
+  let i = 3;
+  if (filters.invoice_id) {
+    sql += ` AND (e.invoice_id IS NULL OR e.invoice_id = $${i++})`;
+    params.push(filters.invoice_id);
+  }
   if (filters.from_date) {
     sql += ` AND e.entry_date >= $${i++}::date`;
     params.push(filters.from_date);
@@ -757,14 +777,54 @@ async function getDailyAllSectionsReport(filters = {}) {
   };
 }
 
+async function getDailyPrintInvoiceContext(fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return null;
+  const { rows } = await query(
+    `SELECT id, status, employee_name, auditor_name, captain_name, manager_name
+     FROM invoices
+     WHERE TRIM(file_number) = TRIM($1)
+     ORDER BY CASE WHEN status IN ('draft', 'pending_review') THEN 0 ELSE 1 END,
+              updated_at DESC
+     LIMIT 1`,
+    [fn]
+  );
+  return rows[0] || null;
+}
+
+function formatManagerSignatureName(name) {
+  const cleaned = String(name || '')
+    .replace(/\s*[-–—]\s*المدير المالي\s*$/u, '')
+    .trim();
+  return cleaned || 'رائد / جمال عبد الناصر';
+}
+
+function buildDailyPrintSignatures(invoice) {
+  return [
+    { title: 'المدير المالي', name: formatManagerSignatureName(invoice?.manager_name) },
+    { title: 'رئيس حسابات المرضى', name: invoice?.captain_name || 'نقيب عمرو صالح' },
+    { title: 'المراجع المالي', name: invoice?.auditor_name || '' },
+    { title: 'الموظف المختص', name: invoice?.employee_name || '' },
+  ];
+}
+
 async function getDailyPrintReport(kind, filters = {}) {
   const resolved = resolveDailyPrintKind(kind);
   if (!resolved) throw new Error('نوع التقرير غير صالح');
-  if (resolved.type === 'operations') return getDailyOperationsReport(filters);
-  if (resolved.type === 'all') return getDailyAllSectionsReport(filters);
-  if (resolved.type === 'service') return getDailyServiceReport(resolved.kind, filters);
-  if (resolved.type === 'free') return getDailyFreeItemsReport(filters);
-  return getDailyItemsReport(resolved.kind, filters);
+  const invoice = await getDailyPrintInvoiceContext(filters.file_number);
+  const scoped = {
+    ...filters,
+    invoice_id:
+      invoice && ['draft', 'pending_review'].includes(invoice.status) ? invoice.id : null,
+  };
+  let report;
+  if (resolved.type === 'operations') report = await getDailyOperationsReport(scoped);
+  else if (resolved.type === 'all') report = await getDailyAllSectionsReport(scoped);
+  else if (resolved.type === 'service') report = await getDailyServiceReport(resolved.kind, scoped);
+  else if (resolved.type === 'free') report = await getDailyFreeItemsReport({ ...scoped, invoice_id: invoice?.id || null });
+  else report = await getDailyItemsReport(resolved.kind, scoped);
+  report.signatures = buildDailyPrintSignatures(invoice);
+  return report;
 }
 
 async function getSuppliesMarkupReport(filters = {}) {
@@ -1243,6 +1303,12 @@ function formatDailyExcelPeriod(report) {
 
 function formatDailyExcelDate(value) {
   if (!value) return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    const dd = String(value.getDate()).padStart(2, '0');
+    const mm = String(value.getMonth() + 1).padStart(2, '0');
+    return `${dd}/${mm}/${value.getFullYear()}`;
+  }
   const s = String(value).slice(0, 10);
   const [y, m, d] = s.split('-');
   return y && m && d ? `${d}/${m}/${y}` : s;
@@ -1279,7 +1345,7 @@ async function buildDailyPrintExcelBuffer(report) {
   const colCount = headers.length;
   const sheetTitle = String(report.title || 'تقرير').slice(0, 31);
   const sheet = workbook.addWorksheet(sheetTitle, {
-    views: [{ rightToLeft: true, state: 'frozen', ySplit: 7 }],
+    views: [{ rightToLeft: true, state: 'frozen', ySplit: report.price_list_name ? 6 : 5 }],
   });
 
   sheet.mergeCells(1, 1, 1, colCount);
@@ -1398,6 +1464,46 @@ async function buildDailyPrintExcelBuffer(report) {
     totalRow.font = { bold: true, size: 11, name: 'Arial' };
     totalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF3CD' } };
     applyExcelRowBorders(totalRow, colCount);
+    rowIndex += 1;
+  }
+
+  const signatures = report.signatures || [];
+  if (signatures.length) {
+    rowIndex += 2;
+    const titleSigRow = sheet.getRow(rowIndex);
+    const lineSigRow = sheet.getRow(rowIndex + 1);
+    const nameSigRow = sheet.getRow(rowIndex + 2);
+    const base = Math.floor(colCount / signatures.length);
+    let extra = colCount % signatures.length;
+    let startCol = 1;
+    signatures.forEach((sig) => {
+      const span = base + (extra > 0 ? 1 : 0);
+      if (extra > 0) extra -= 1;
+      const endCol = startCol + span - 1;
+      if (endCol > startCol) {
+        sheet.mergeCells(rowIndex, startCol, rowIndex, endCol);
+        sheet.mergeCells(rowIndex + 1, startCol, rowIndex + 1, endCol);
+        sheet.mergeCells(rowIndex + 2, startCol, rowIndex + 2, endCol);
+      }
+      const titleCell = titleSigRow.getCell(startCol);
+      titleCell.value = sig.title;
+      titleCell.font = { bold: true, size: 11, name: 'Arial' };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      const lineCell = lineSigRow.getCell(startCol);
+      lineCell.value = '';
+      lineCell.border = { bottom: { style: 'thin', color: { argb: 'FF000000' } } };
+      for (let c = startCol + 1; c <= endCol; c++) {
+        lineSigRow.getCell(c).border = { bottom: { style: 'thin', color: { argb: 'FF000000' } } };
+      }
+      const nameCell = nameSigRow.getCell(startCol);
+      nameCell.value = sig.name || '';
+      nameCell.font = { size: 10, name: 'Arial' };
+      nameCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      startCol = endCol + 1;
+    });
+    titleSigRow.height = 20;
+    lineSigRow.height = 28;
+    nameSigRow.height = 18;
   }
 
   if (isCatalog) {

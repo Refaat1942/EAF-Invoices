@@ -4861,7 +4861,7 @@ function collectStayLinesFromRow(tr) {
   getStayDayGroupRows(primaryTr).forEach((rowTr) => {
     const accLine = collectAccommodationLineFromRow(rowTr);
     if (accLine && lineHasChargeData(accLine)) lines.push(accLine);
-    if (rowTr.querySelector('.daily-companion-kind')) collectCompanionLineFromRow(rowTr, lines);
+    collectCompanionLineFromRow(rowTr, lines);
     collectAmountLineFromRow(rowTr, 'patient_assistant', lines);
     collectAmountLineFromRow(rowTr, 'nursing_point', lines);
   });
@@ -4947,7 +4947,6 @@ function createStayDailyEntryRow(entry = {}) {
   const assistantLine = assistantLines[0] || {};
   const nursingLines = getLinesForSection(entry, 'nursing_point');
   const nursingLine = nursingLines[0] || {};
-  const companionServiceId = companionKindSelectValueFromLine(companionLine);
   const accSection = dailySectionsCache.find((s) => s.code === 'accommodation');
   const accPickerHtml = accSection
     ? `<span class="d-none daily-acc-picker-wrap">${buildCatalogPickerCell(accSection)}</span>`
@@ -4965,7 +4964,6 @@ function createStayDailyEntryRow(entry = {}) {
       ${accPickerHtml}
       <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">
     </td>
-    <td class="daily-col-companion-kind"><select class="form-select form-select-sm daily-companion-kind">${buildCompanionKindOptions(companionServiceId)}</select></td>
     <td class="daily-col-amount">
       <div class="input-group input-group-sm">
         <input type="text" inputmode="decimal" class="form-control form-control-sm daily-amount comma-amount" data-section="companion" data-type="amount" autocomplete="off">
@@ -5001,6 +4999,7 @@ function createStayDailyEntryRow(entry = {}) {
     if (typeof setCommaAmountValue === 'function') setCommaAmountValue(companionInput, companionDisplay);
     else companionInput.value = formatAmountFieldValue(companionDisplay);
     if (companionLine.id) companionInput.dataset.lineId = String(companionLine.id);
+    if (companionLine.extra_text) companionInput.dataset.extraText = companionLine.extra_text;
   }
   const assistantInput = tr.querySelector('.daily-amount[data-section="patient_assistant"]');
   if (assistantInput && assistantLine.amount > 0) {
@@ -6171,7 +6170,6 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
   tr.dataset.addonSection = sectionCode;
   if (line.id) tr.dataset.lineId = String(line.id);
 
-  let companionKind = stayAddonSpacerCell('daily-col-companion-kind');
   let companionAmt = stayAddonSpacerCell('daily-col-amount');
   let assistantAmt = stayAddonSpacerCell('daily-col-amount');
   let nursingAmt = stayAddonSpacerCell('daily-col-amount');
@@ -6188,8 +6186,6 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
       <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">
     </td>`;
   } else if (sectionCode === 'companion') {
-    const serviceId = companionKindSelectValueFromLine(line);
-    companionKind = `<td class="daily-col-companion-kind"><select class="form-select form-select-sm daily-companion-kind">${buildCompanionKindOptions(serviceId)}</select></td>`;
     companionAmt = `<td class="daily-col-amount"><input type="text" inputmode="decimal" class="form-control form-control-sm daily-amount comma-amount" data-section="companion" data-type="amount" autocomplete="off"></td>`;
   } else if (sectionCode === 'patient_assistant') {
     assistantAmt = `<td class="daily-col-amount"><input type="text" inputmode="decimal" class="form-control form-control-sm daily-amount comma-amount" data-section="patient_assistant" data-type="amount" autocomplete="off"></td>`;
@@ -6201,7 +6197,6 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
     stayAddonSpacerCell('daily-col-date') +
     stayTypeCol +
     accAmtCol +
-    companionKind +
     companionAmt +
     assistantAmt +
     nursingAmt +
@@ -6232,6 +6227,7 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
     if (companionInput) {
       if (typeof setCommaAmountValue === 'function') setCommaAmountValue(companionInput, line.amount);
       else companionInput.value = formatAmountFieldValue(line.amount);
+      if (line.extra_text) companionInput.dataset.extraText = line.extra_text;
     }
   } else if (sectionCode === 'patient_assistant' && line.amount > 0) {
     const input = tr.querySelector('.daily-amount[data-section="patient_assistant"]');
@@ -6329,6 +6325,7 @@ function collectAmountLineFromRow(rowTr, sectionCode, lines) {
   const amount = dailyAmountForSave(dailyParseAmount(input?.value));
   if (amount <= 0) return;
   const line = { section_code: sectionCode, amount, quantity: 1 };
+  if (input?.dataset.extraText) line.extra_text = input.dataset.extraText;
   if (input?.dataset.lineId) line.id = Number(input.dataset.lineId);
   else if (rowTr.dataset.lineId && rowTr.dataset.addonSection === sectionCode) {
     line.id = Number(rowTr.dataset.lineId);
@@ -6771,7 +6768,6 @@ function renderDailySectionsTable() {
       '<th class="daily-meta-th daily-col-date">التاريخ</th>' +
       '<th class="daily-meta-th daily-col-stay-type">نوع الإقامة</th>' +
       '<th class="daily-meta-th daily-col-amount">سعر الإقامة <span class="text-muted fw-normal small">(ج.م — + إقامة)</span></th>' +
-      '<th class="daily-meta-th daily-col-companion-kind">مرافق (غرفة/جناح)</th>' +
       '<th class="daily-meta-th daily-col-amount">سعر المرافق <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-amount">مساعد تمريض <span class="text-muted fw-normal small">(ج.م)</span></th>' +
       '<th class="daily-meta-th daily-col-amount">نقطة تمريض <span class="text-muted fw-normal small">(ج.م)</span></th>' +
@@ -6781,7 +6777,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(10, 'إجمالي الإقامة (كل الأيام)');
+    configureDailyTableFooter(9, 'إجمالي الإقامة (كل الأيام)');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;

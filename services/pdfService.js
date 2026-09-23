@@ -1184,9 +1184,24 @@ function buildDailyItemsHtml(report, options = {}) {
         ${report.rows?.length ? buildDailyItemsFooter(report) : ''}
       </tbody>
     </table>
+    ${buildDailySignaturesHtml(report)}
   </div>
 </body>
 </html>`;
+}
+
+function buildDailySignaturesHtml(report) {
+  const signatures = report.signatures || [];
+  if (!signatures.length) return '';
+  const blocks = signatures
+    .map(
+      (sig) => `<div style="flex:1;text-align:center;padding:0 6px">
+        <div style="font-weight:900;font-size:11px;margin-bottom:26px">${escapeHtml(sig.title)}</div>
+        <div style="border-top:1px solid #000;padding-top:4px;font-weight:800;font-size:10px;min-height:16px">${escapeHtml(sig.name || '')}</div>
+      </div>`
+    )
+    .join('');
+  return `<div style="display:flex;justify-content:space-between;gap:8px;margin-top:28px;page-break-inside:avoid">${blocks}</div>`;
 }
 
 function buildDailyServiceRows(report) {
@@ -1332,6 +1347,7 @@ function buildDailyServiceReportHtml(report, options = {}) {
         ${report.rows?.length ? buildDailyServiceFooter(report) : ''}
       </tbody>
     </table>
+    ${buildDailySignaturesHtml(report)}
   </div>
 </body>
 </html>`;
