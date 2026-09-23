@@ -2179,11 +2179,12 @@ function updateDailyPatientSummaryTable(ctx) {
   if (!body) return;
   const p = ctx?.patient || {};
   const inv = ctx?.invoice || {};
-  const typeLabel = p.patient_type === 'external' ? 'خارجي' : 'داخلي';
+  const isExternal = p.patient_type === 'external';
+  const typeLabel = isExternal ? 'خارجي' : 'داخلي';
   const genderLabel =
     p.gender === 'male' ? 'ذكر' : p.gender === 'female' ? 'أنثى' : p.gender || '—';
   const account = Number(p.account_balance) || 0;
-  const roomInsurance = Number(p.room_insurance_amount) || 0;
+  const roomInsurance = isExternal ? 0 : Number(p.room_insurance_amount) || 0;
   const prepaid = Math.round((account + roomInsurance) * 100) / 100;
   const remaining = inv.remaining ?? inv.outstanding_amount ?? 0;
   const collected = inv.total_collected ?? 0;
@@ -2242,7 +2243,15 @@ function updateDailyPatientSummaryTable(ctx) {
       <th class="daily-summary-label text-nowrap"></th>
       <td></td>
     </tr>
-    <tr class="table-warning">
+    ${
+      isExternal
+        ? `<tr class="table-warning">
+      <th class="daily-summary-label text-nowrap">المحصل</th>
+      <td class="fw-bold amount-total">${dailyFmt(collected)}</td>
+      <th class="daily-summary-label text-nowrap">المتبقي على الفاتورة</th>
+      <td class="fw-bold text-danger amount-total" id="daily-invoice-remaining-total">${dailyFmt(remaining)}</td>
+    </tr>`
+        : `<tr class="table-warning">
       <th class="daily-summary-label text-nowrap">رصيد الحساب</th>
       <td class="fw-bold text-success amount-total">${dailyFmt(prepaid)}${prepaidHint}</td>
       <th class="daily-summary-label text-nowrap">المحصل</th>
@@ -2253,7 +2262,8 @@ function updateDailyPatientSummaryTable(ctx) {
       <td class="fw-bold text-danger amount-total" id="daily-invoice-remaining-total">${dailyFmt(remaining)}</td>
       <th class="daily-summary-label text-nowrap">تأمين الغرفة (ضمن الإقامة)</th>
       <td class="fw-bold amount-total">${roomInsurance > 0 ? dailyFmt(roomInsurance) : '—'}</td>
-    </tr>`;
+    </tr>`
+    }`;
 }
 
 async function loadDailyPatientGrid(search = '') {
@@ -3980,7 +3990,11 @@ function renderDailyInvoiceReviewPanel() {
       <div class="col-md-3"><span class="text-muted d-block mb-1">الجنس</span><div class="review-field">${dailyEscapeHtml(genderLabel)}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">الهاتف</span><div class="review-field">${dailyEscapeHtml(p.phone || '—')}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">الجنسية</span><div class="review-field">${dailyEscapeHtml(p.nationality || '—')}</div></div>
-      <div class="col-md-3"><span class="text-muted d-block mb-1">رصيد الحساب</span><div class="review-field fw-bold text-success">${dailyFmt(p.account_balance ?? 0)}</div></div>
+      ${
+        p.patient_type === 'external'
+          ? ''
+          : `<div class="col-md-3"><span class="text-muted d-block mb-1">رصيد الحساب</span><div class="review-field fw-bold text-success">${dailyFmt(p.account_balance ?? 0)}</div></div>`
+      }
       <div class="col-md-3"><span class="text-muted d-block mb-1">المعاملة المالية</span><div class="review-field">${dailyEscapeHtml(inv.financial_treatment || p.financial_treatment || '—')}</div></div>
       ${
         isEntityInvoiceType(inv.invoice_type) && inv.contracted_entity_name

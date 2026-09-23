@@ -139,7 +139,8 @@ async function recordInvoiceReturns(invoiceId, payload = {}, user = null) {
     const returnRecord = returnHeader[0];
 
     const discountPercent = round2(invoice.discount_percent) || 0;
-    const adminPercent = round2(invoice.admin_expenses_percent) || 12;
+    const adminPercent =
+      invoice.admin_expenses_percent != null ? round2(invoice.admin_expenses_percent) : 12;
 
     for (const { item, returnQty } of normalized) {
       const audit = buildReturnLineAudit(item, returnQty, discountPercent, adminPercent);

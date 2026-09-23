@@ -44,6 +44,7 @@ let excludedDailyLineIds = new Set();
 let excludedSectionCodes = new Set();
 let patientAccountBalance = null;
 let patientRoomInsuranceAmount = 0;
+let patientIsExternal = false;
 let permissionCatalog = [];
 let roleDefaults = {};
 let currentReportType = 'summary';
@@ -526,8 +527,9 @@ function renderInvoicePatientRegistrationSummary(inv) {
         ? 'bg-success'
         : 'bg-secondary';
   const period = inv.admission_date ? formatInvoicePeriodRange(inv.admission_date, inv.discharge_date) : '—';
+  const isExternal = p.patient_type === 'external';
   const account = Number(p.account_balance) || 0;
-  const roomInsurance = Number(p.room_insurance_amount) || 0;
+  const roomInsurance = isExternal ? 0 : Number(p.room_insurance_amount) || 0;
   const prepaid = Math.round((account + roomInsurance) * 100) / 100;
   const collected = Number(inv.total_collected) || 0;
   const finalTotal = Number(inv.final_total) || 0;
@@ -597,9 +599,13 @@ function renderInvoicePatientRegistrationSummary(inv) {
     }
     <tr class="table-warning">
       <th class="invoice-patient-summary-label">إجمالي الفاتورة</th>
-      <td class="fw-bold text-primary">${fmt(finalTotal)}</td>
-      <th class="invoice-patient-summary-label">رصيد الحساب</th>
-      <td class="fw-bold ${balanceClass}">${fmt(prepaid)}${prepaidHint}</td>
+      <td class="fw-bold text-primary"${isExternal ? ' colspan="3"' : ''}>${fmt(finalTotal)}</td>
+      ${
+        isExternal
+          ? ''
+          : `<th class="invoice-patient-summary-label">رصيد الحساب</th>
+      <td class="fw-bold ${balanceClass}">${fmt(prepaid)}${prepaidHint}</td>`
+      }
     </tr>
     <tr>
       <th class="invoice-patient-summary-label">المحصل</th>
@@ -615,10 +621,14 @@ function renderInvoicePatientRegistrationSummary(inv) {
     </tr>`
         : ''
     }
-    <tr class="${balanceAfter < -0.009 ? 'table-danger' : balanceAfter > 0.009 ? 'table-success' : ''}">
+    ${
+      isExternal
+        ? ''
+        : `<tr class="${balanceAfter < -0.009 ? 'table-danger' : balanceAfter > 0.009 ? 'table-success' : ''}">
       <th class="invoice-patient-summary-label">رصيد بعد الفاتورة</th>
       <td class="fw-bold ${balanceAfterClass}" colspan="3">${fmt(balanceAfter)} <span class="small text-muted">(${fmt(prepaid)} − ${fmt(creditApplied)} − ${fmt(invoiceDue)}${refundable > 0.009 ? ` + ${fmt(refundable)}` : ''})</span></td>
-    </tr>`;
+    </tr>`
+    }`;
   panel.style.display = '';
 }
 
@@ -1713,6 +1723,7 @@ function bindEvents() {
   document.getElementById('pricing-delete-all-services-btn')?.addEventListener('click', deleteAllPricingServices);
   document.getElementById('pricing-add-service-btn')?.addEventListener('click', () => openServiceEditor());
   document.getElementById('pricing-save-settings-btn')?.addEventListener('click', savePricingSettings);
+  document.getElementById('fees-save-btn')?.addEventListener('click', saveInvoiceFeesSettings);
   document.getElementById('service-edit-save-btn')?.addEventListener('click', saveServiceEditor);
   document.getElementById('service-edit-price-type')?.addEventListener('change', toggleServiceComponentsEditor);
 
@@ -2607,6 +2618,8 @@ function syncPatientBalanceField() {
   const balanceEl = document.getElementById('balance');
   const labelEl = document.getElementById('balance-field-label');
   if (!balanceEl) return;
+  const balanceCol = balanceEl.closest('.col-md-3');
+  if (balanceCol) balanceCol.classList.toggle('d-none', patientIsExternal && hasPatientFileNumber());
 
   if (hasPatientFileNumber()) {
     const net = getPatientBalanceAfterInvoice();
@@ -2723,6 +2736,7 @@ async function loadPatientBalance(options = {}) {
   if (!fileNumber) {
     patientAccountBalance = null;
     patientRoomInsuranceAmount = 0;
+    patientIsExternal = false;
     const nationalityEl = document.getElementById('invoice-patient-nationality');
     if (nationalityEl) nationalityEl.value = '';
     if (hint) hint.style.display = 'none';
@@ -2736,12 +2750,22 @@ async function loadPatientBalance(options = {}) {
   try {
     const res = await apiFetch(`${PATIENTS_API}/by-file/${encodeURIComponent(fileNumber)}`);
     const patient = await res.json();
-    const balance = Number(patient.account_balance) || 0;
-    const roomInsurance = Number(patient.room_insurance_amount) || 0;
+    const isExternal = patient.patient_type === 'external';
+    const balance = isExternal ? 0 : Number(patient.account_balance) || 0;
+    const roomInsurance = isExternal ? 0 : Number(patient.room_insurance_amount) || 0;
     patientAccountBalance = balance;
     patientRoomInsuranceAmount = roomInsurance;
+    patientIsExternal = isExternal;
+    syncPatientBalanceField();
     const nationalityEl = document.getElementById('invoice-patient-nationality');
     if (nationalityEl) nationalityEl.value = patient.nationality || '';
+    if (isExternal) {
+      if (hint) hint.style.display = 'none';
+      if (creditWrap) creditWrap.style.display = 'none';
+      autoApplyPatientCreditToRows();
+      if (!skipRecalculate) await recalculate({ skipAutoCredit: true });
+      return;
+    }
     const balanceDisplay = document.getElementById('patient-balance-display');
     if (balanceDisplay) {
       applyPatientBalanceBadge(balanceDisplay, getPatientPrepaidBalanceLocal());
@@ -2958,9 +2982,7 @@ function collectFormData() {
     stay_entries: shouldSkipLegacyStayEntries() ? [] : collectStayEntries(),
     notes: '',
     stamp_duty: parseDisplayAmount(fieldVal('stamp_duty')),
-    professional_fees: parseDisplayAmount(fieldVal('professional_fees')),
     balance: hasPatientFileNumber() ? 0 : parseDisplayAmount(fieldVal('balance')),
-    admin_expenses_percent: parseDisplayAmount(fieldVal('admin_expenses_percent')),
     method_payments: methodPayments,
     employee_name: fieldVal('employee_name'),
     auditor_name: fieldVal('auditor_name'),
@@ -3854,10 +3876,7 @@ function applyItemDiscountPercents(items) {
 }
 
 function updateSummaryTable(t) {
-  const adminPct =
-    t.admin_expenses_percent ??
-    parseDisplayAmount(document.getElementById('admin_expenses_percent')?.value) ??
-    12;
+  const adminPct = t.admin_expenses_percent ?? 0;
   const adminLabel = `مصروفات إدارية ${adminPct}%`;
   const hasDiscount = Number(t.discount_amount) > 0 || Number(t.discount_percent) > 0;
 
@@ -4046,9 +4065,7 @@ function resetForm() {
   updateInvoiceStatusUI(null);
   document.getElementById('captain_name').value = 'نقيب عمرو صالح';
   document.getElementById('manager_name').value = 'رائد / جمال عبد الناصر';
-  document.getElementById('admin_expenses_percent').value = formatAmountInput(12);
   document.getElementById('stamp_duty').value = formatAmountInput(0);
-  document.getElementById('professional_fees').value = formatAmountInput(0);
   patientAccountBalance = null;
   patientRoomInsuranceAmount = 0;
   document.getElementById('balance').value = formatAmountInput(0);
@@ -4146,9 +4163,7 @@ async function loadInvoiceForEdit(id, options = {}) {
       initStayEntries(dailyStayInvoice ? [] : inv.stay_entries || []);
     }
     setFieldValue('stamp_duty', formatAmountInput(inv.stamp_duty ?? 0));
-    setFieldValue('professional_fees', formatAmountInput(inv.professional_fees ?? 0));
     if (!inv.file_number) setFieldValue('balance', formatAmountInput(inv.balance ?? 0));
-    setFieldValue('admin_expenses_percent', formatAmountInput(inv.admin_expenses_percent ?? 0));
 
     const methodLinesByCode = {};
     if (inv.method_payments?.length) {
@@ -5700,6 +5715,7 @@ function showSettingsSection(section) {
 
   if (!section) return;
 
+  if (section === 'invoice-fees' && can('settings.*')) loadInvoiceFeesSection();
   if (section === 'pricing' && can('settings.*')) loadPricingSection();
   if (section === 'backup' && can('settings.*')) loadBackupSection();
   if (section === 'invoice-serial' && can('settings.*')) loadInvoiceSerialSection();
@@ -6627,7 +6643,6 @@ async function loadPricingSection() {
         .join('');
     }
 
-    document.getElementById('pricing-admin-fee-rate').value = formatAmountInput(settings.administrative_fee_rate ?? 12);
     document.getElementById('pricing-supplies-markup').value = formatAmountInput(
       settings.default_supplies_markup_percent ?? 20,
       0
@@ -7043,10 +7058,40 @@ async function onPricingListChange() {
   await loadPricingServices();
 }
 
+async function loadInvoiceFeesSection() {
+  try {
+    const settings = await apiJson(`${PRICING_API}/settings`);
+    const rate = String(settings.administrative_fee_rate ?? '').trim();
+    document.getElementById('fees-admin-rate').value = formatAmountInput(rate === '' ? 12 : Number(rate));
+    document.getElementById('fees-professional-amount').value = formatAmountInput(
+      Number(settings.professional_fees_amount) || 0
+    );
+    bindCommaAmountInputs(document.getElementById('settings-panel-invoice-fees'));
+  } catch (err) {
+    showToast(err.message || 'خطأ في تحميل المصروفات الإدارية', 'danger');
+  }
+}
+
+async function saveInvoiceFeesSettings() {
+  try {
+    const rate = parseDisplayAmount(document.getElementById('fees-admin-rate').value);
+    const professional = parseDisplayAmount(document.getElementById('fees-professional-amount').value);
+    if (!(rate >= 0) || rate > 100) throw new Error('نسبة المصروفات الإدارية يجب أن تكون بين 0 و 100');
+    if (!(professional >= 0)) throw new Error('قيمة المهن غير صحيحة');
+    await apiJson(`${PRICING_API}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ administrative_fee_rate: rate, professional_fees_amount: professional }),
+    });
+    showToast('تم حفظ المصروفات الإدارية والمهن — تُطبَّق على الفواتير غير المعتمدة', 'success');
+  } catch (err) {
+    showToast(err.message || 'تعذر الحفظ', 'danger');
+  }
+}
+
 async function savePricingSettings() {
   try {
     const body = {
-      administrative_fee_rate: parseDisplayAmount(document.getElementById('pricing-admin-fee-rate').value),
       default_supplies_markup_percent: parseDisplayAmount(
         document.getElementById('pricing-supplies-markup').value
       ),

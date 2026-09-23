@@ -138,6 +138,7 @@ async function setDefaultPriceList(id) {
 async function getPricingSettings() {
   const keys = [
     'administrative_fee_rate',
+    'professional_fees_amount',
     'default_supplies_markup_percent',
     'file_opening_fee',
     'ambulance_rental_cairo',
@@ -155,6 +156,7 @@ async function getPricingSettings() {
 async function savePricingSettings(data) {
   const allowed = [
     'administrative_fee_rate',
+    'professional_fees_amount',
     'default_supplies_markup_percent',
     'file_opening_fee',
     'ambulance_rental_cairo',

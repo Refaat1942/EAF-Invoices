@@ -482,6 +482,9 @@ router.post('/change-room', requirePermission('daily_charges.manage'), async (re
     if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
     const patient = await getPatientByFileNumber(file_number);
     if (!patient) return res.status(400).json({ error: 'المريض غير موجود' });
+    if (patient.patient_type === 'external') {
+      return res.status(400).json({ error: 'المريض الخارجي لا يُسجَّل عليه إقامة' });
+    }
     const { changeRoomAssignment } = require('../services/patientRoomService');
     const assignment = await changeRoomAssignment(patient.id, {
       stay_type_id: req.body.stay_type_id,

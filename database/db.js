@@ -1400,6 +1400,12 @@ async function seedLookupTables() {
     );
   }
 
+  await query(
+    `UPDATE patients SET room_insurance_amount = 0, stay_grade_id = NULL, floor = ''
+     WHERE patient_type = 'external'
+       AND (COALESCE(room_insurance_amount, 0) <> 0 OR stay_grade_id IS NOT NULL OR COALESCE(floor, '') <> '')`
+  );
+
   const exclusionCount = await query('SELECT COUNT(*)::int AS c FROM discount_exclusion_items');
   if (exclusionCount.rows[0].c === 0) {
     const exclusions = [

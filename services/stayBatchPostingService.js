@@ -377,6 +377,9 @@ async function syncAdmissionDayRoomInsurance(fileNumber, user = null) {
   if (!patient?.id || !stay?.invoice?.admission_date) {
     return { updated: false, reason: 'no_open_stay' };
   }
+  if (String(patient.patient_type || '').toLowerCase() === 'external') {
+    return { updated: false, reason: 'external_patient' };
+  }
 
   const admission = parseDateOnly(stay.invoice.admission_date);
   const roomIns = round2(patient.room_insurance_amount);

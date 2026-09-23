@@ -169,9 +169,28 @@ async function prepareCalculationData(data, client = null) {
   await ensurePatientCreditMethod();
   calcData.patient_credit_method_id = await getPaymentMethodIdByCode('patient_credit');
   calcData.discount_exclusions = await listDiscountExclusions(true);
-  calcData.administrative_fee_rate = Number(await getSetting('administrative_fee_rate', '12')) || 12;
-  if (calcData.admin_expenses_percent === undefined || calcData.admin_expenses_percent === '') {
+  const adminRateSetting = String(await getSetting('administrative_fee_rate', '12')).trim();
+  calcData.administrative_fee_rate =
+    adminRateSetting !== '' && Number(adminRateSetting) >= 0 ? Number(adminRateSetting) : 12;
+  const invoiceId = Number(calcData.invoice_id || calcData.id) || null;
+  const stored = invoiceId
+    ? (
+        await (client ? client.query.bind(client) : query)(
+          'SELECT status, admin_expenses_percent, professional_fees FROM invoices WHERE id = $1',
+          [invoiceId]
+        )
+      ).rows[0]
+    : null;
+  if (stored?.status === 'approved') {
+    if (calcData.admin_expenses_percent === undefined || calcData.admin_expenses_percent === '') {
+      calcData.admin_expenses_percent = stored.admin_expenses_percent;
+    }
+    if (calcData.professional_fees === undefined || calcData.professional_fees === '') {
+      calcData.professional_fees = stored.professional_fees;
+    }
+  } else {
     calcData.admin_expenses_percent = calcData.administrative_fee_rate;
+    calcData.professional_fees = Number(await getSetting('professional_fees_amount', '0')) || 0;
   }
 
   if (Array.isArray(calcData.items)) {
@@ -2094,7 +2113,7 @@ async function getOpenPatientStay(fileNumber) {
 
   let room_assignment = null;
   let current_room_assignment = null;
-  if (patient?.id) {
+  if (patient?.id && patient.patient_type !== 'external') {
     const { getAssignmentForDate } = require('./patientRoomService');
     const businessToday = require('./dailyChargeService').getCurrentBusinessDateString();
     const refDate = fmtDateOnly(invoice?.admission_date) || businessToday;
@@ -2249,7 +2268,7 @@ async function openPatientStay(data, user = null) {
   );
 
   let room_assignment = null;
-  if (patient?.id) {
+  if (patient?.id && patientType === 'internal') {
     const { getAssignmentForDate } = require('./patientRoomService');
     room_assignment = await getAssignmentForDate(patient.id, admissionDate);
   }

@@ -54,7 +54,7 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
     };
   }
   const data = dataOrName || {};
-  return {
+  const normalized = {
     file_number: String(fileNumber || data.file_number || '').trim(),
     name: String(data.name || '').trim(),
     phone: String(data.phone || '').trim(),
@@ -83,6 +83,12 @@ function normalizeUpsertData(fileNumber, dataOrName = '') {
     glasses_price: parseAmount(data.glasses_price),
     glasses_discount_percent: parseAmount(data.glasses_discount_percent),
   };
+  if (normalized.patient_type === 'external') {
+    normalized.floor = '';
+    normalized.stay_grade_id = null;
+    normalized.room_insurance_amount = 0;
+  }
+  return normalized;
 }
 
 async function getPatientByFileNumber(fileNumber) {
@@ -113,12 +119,16 @@ async function upsertPatient(fileNumber, dataOrName = '') {
        -- via COALESCE above) so an unspecified patient_type on an update preserves the
        -- existing row's type instead of silently flipping an external patient to internal.
        patient_type = COALESCE($7, patients.patient_type),
-       floor = CASE WHEN EXCLUDED.floor <> '' THEN EXCLUDED.floor ELSE patients.floor END,
+       floor = CASE WHEN COALESCE($7, patients.patient_type) = 'external' THEN ''
+                    WHEN EXCLUDED.floor <> '' THEN EXCLUDED.floor ELSE patients.floor END,
        age = COALESCE(EXCLUDED.age, patients.age),
        disability_degree = CASE WHEN EXCLUDED.disability_degree <> '' THEN EXCLUDED.disability_degree ELSE patients.disability_degree END,
        disability_type = CASE WHEN EXCLUDED.disability_type <> '' THEN EXCLUDED.disability_type ELSE patients.disability_type END,
-       stay_grade_id = COALESCE(EXCLUDED.stay_grade_id, patients.stay_grade_id),
-       room_insurance_amount = CASE WHEN EXCLUDED.room_insurance_amount > 0 THEN EXCLUDED.room_insurance_amount ELSE patients.room_insurance_amount END,
+       stay_grade_id = CASE WHEN COALESCE($7, patients.patient_type) = 'external' THEN NULL
+                            ELSE COALESCE(EXCLUDED.stay_grade_id, patients.stay_grade_id) END,
+       room_insurance_amount = CASE WHEN COALESCE($7, patients.patient_type) = 'external' THEN 0
+                                    WHEN EXCLUDED.room_insurance_amount > 0 THEN EXCLUDED.room_insurance_amount
+                                    ELSE patients.room_insurance_amount END,
        military_auth_from = COALESCE(EXCLUDED.military_auth_from, patients.military_auth_from),
        military_auth_to = COALESCE(EXCLUDED.military_auth_to, patients.military_auth_to),
        military_auth_amount = CASE WHEN EXCLUDED.military_auth_amount > 0 THEN EXCLUDED.military_auth_amount ELSE patients.military_auth_amount END,
@@ -159,6 +169,9 @@ async function setPatientBalance(fileNumber, balance, name = '', actor = null) {
   if (!patient) throw new Error('رقم الملف مطلوب');
 
   const newBalance = Math.round((Number(balance) || 0) * 100) / 100;
+  if (normalizePatientType(patient.patient_type) === 'external' && newBalance !== 0) {
+    throw new Error('المريض الخارجي ليس له رصيد حساب');
+  }
   const previousBalance = Math.round((Number(patient.account_balance) || 0) * 100) / 100;
   const delta = Math.round((newBalance - previousBalance) * 100) / 100;
 
@@ -463,6 +476,7 @@ function getPatientAccountBalanceAmount(patient = {}) {
 }
 
 function getPatientRoomInsuranceAmount(patient = {}) {
+  if (normalizePatientType(patient?.patient_type) === 'external') return 0;
   return Math.round((Number(patient?.room_insurance_amount) || 0) * 100) / 100;
 }
 

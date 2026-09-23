@@ -50,7 +50,7 @@ function cell(text, opts = {}) {
 }
 
 function buildSummaryRows(invoice) {
-  const adminLabel = `مصروفات إدارية ${invoice.admin_expenses_percent || 12}%`;
+  const adminLabel = `مصروفات إدارية ${Number(invoice.admin_expenses_percent ?? 12)}%`;
   const hasDiscount = Number(invoice.discount_amount) > 0 || Number(invoice.discount_percent) > 0;
   const hasStay = Number(invoice.stay_subtotal) > 0;
 

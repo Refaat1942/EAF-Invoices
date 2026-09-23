@@ -568,16 +568,8 @@
                     <input type="text" inputmode="decimal" class="form-control calc-trigger comma-amount" id="stamp_duty" value="0.00">
                   </div>
                   <div class="col-md-3">
-                    <label class="form-label fw-bold">مهن</label>
-                    <input type="text" inputmode="decimal" class="form-control calc-trigger comma-amount" id="professional_fees" value="0.00">
-                  </div>
-                  <div class="col-md-3">
                     <label class="form-label fw-bold" id="balance-field-label">الرصيد</label>
                     <input type="text" inputmode="decimal" class="form-control calc-trigger comma-amount" id="balance" value="0.00">
-                  </div>
-                  <div class="col-md-3">
-                    <label class="form-label fw-bold">نسبة المصروفات الإدارية %</label>
-                    <input type="text" inputmode="decimal" class="form-control calc-trigger comma-amount" id="admin_expenses_percent" value="12.00">
                   </div>
                 </div>
 
@@ -1322,6 +1314,11 @@
             <span class="hub-tile-title">كتالوج الأصناف</span>
             <span class="hub-tile-desc">أدوية ومستلزمات</span>
           </button>
+          <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="invoice-fees" data-admin="1">
+            <span class="hub-tile-icon">🧾</span>
+            <span class="hub-tile-title">المصروفات الإدارية والمهن</span>
+            <span class="hub-tile-desc">تظهر في الفاتورة الكبيرة</span>
+          </button>
           <button type="button" class="hub-tile hub-tile--primary settings-section-tile" data-settings-section="pricing" data-admin="1">
             <span class="hub-tile-icon">💰</span>
             <span class="hub-tile-title">الأسعار واللائحة</span>
@@ -1362,6 +1359,25 @@
               <input type="file" class="form-control mb-2" id="logo-file" accept="image/png,image/jpeg,image/svg+xml,image/webp">
               <button class="btn btn-success fw-bold" id="upload-logo-btn">رفع الشعار</button>
               <p class="small text-muted mt-2">PNG, JPG, SVG, WEBP — حد أقصى 3MB</p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6 settings-panel" id="settings-panel-invoice-fees" data-settings-section="invoice-fees" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-success text-white fw-black">🧾 المصروفات الإدارية والمهن</div>
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label fw-bold" for="fees-admin-rate">نسبة المصروفات الإدارية %</label>
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="fees-admin-rate">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label fw-bold" for="fees-professional-amount">مهن (ج.م لكل فاتورة)</label>
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="fees-professional-amount">
+                </div>
+              </div>
+              <p class="small text-muted mt-3 mb-3">تُحسب تلقائيًا في الفاتورة الكبيرة والطباعة لكل الفواتير غير المعتمدة. الفواتير المعتمدة تحتفظ بقيمها وقت الاعتماد.</p>
+              <button type="button" class="btn btn-success fw-bold" id="fees-save-btn">حفظ</button>
             </div>
           </div>
         </div>
@@ -1807,10 +1823,6 @@
                 <label class="form-check-label small fw-bold" for="pricing-import-replace">استبدال خدمات القسم المحدد عند الاستيراد (بدل الإضافة فقط)</label>
               </div>
               <div class="row g-2 mb-3">
-                <div class="col-md-2">
-                  <label class="form-label fw-bold small mb-1">المصروفات الإدارية %</label>
-                  <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-admin-fee-rate">
-                </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold small mb-1">فتح الملف</label>
                   <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold comma-amount" id="pricing-file-opening-fee">
@@ -2410,10 +2422,10 @@
   <script src="/js/auto-save.js?v=20260922h"></script>
   <script src="/js/api-client.js?v=20260923a"></script>
   <script src="/js/daily-section-bundles.js?v=20260922a"></script>
-  <script src="/js/app.js?v=20260923k"></script>
+  <script src="/js/app.js?v=20260923l"></script>
   <script src="/js/nationality-pricing.js?v=20260923a"></script>
   <script src="/js/daily-picker.js?v=20260923b"></script>
-  <script src="/js/daily-charges.js?v=20260923q"></script>
+  <script src="/js/daily-charges.js?v=20260923r"></script>
   <script src="/js/notifications.js?v=20260921a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260920u"></script>

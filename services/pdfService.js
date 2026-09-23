@@ -927,7 +927,7 @@ function buildStayDetailsTable(inv) {
 
 function buildSummaryRows(inv) {
   const sectionPreview = Boolean(inv._daily_kind_preview);
-  const adminLabel = `مصروفات إدارية ${inv.admin_expenses_percent || 12}%`;
+  const adminLabel = `مصروفات إدارية ${Number(inv.admin_expenses_percent ?? 12)}%`;
   const hasDiscount = Number(inv.discount_amount) > 0 || Number(inv.discount_percent) > 0;
   const hasStay = Number(inv.stay_subtotal) > 0;
 
