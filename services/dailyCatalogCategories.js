@@ -1,6 +1,7 @@
 /**
- * Daily charge screens read from the default price list (uploaded Excel in إدارة الأسعار).
- * Per-tab catalog sheets (daily_entry_catalog_items) are optional legacy — disabled by default.
+ * Each daily screen reads from exactly one source — the file uploaded from its own tab:
+ * - medicines / supplies / cosmetics → daily_entry_catalog_items (items sheet)
+ * - every other priced tab → its single category in the default price list
  */
 
 /** When true (default), pickers and save use services/price list only — not daily_entry_catalog_items. */
@@ -20,7 +21,7 @@ const CATALOG_TO_PRICE_LIST_CATEGORY_CODES = Object.freeze({
   Accommodation: ['ACCOMMODATION'],
   Companion: ['COMPANION'],
   Nursing: ['NURSING'],
-  General: ['GENERAL', 'SPINE_BUILDING', 'RF_INJECTION'],
+  General: ['GENERAL'],
   Prosthetics: ['PROSTHETICS'],
   SpineOperations: ['SPINE_CENTER'],
 });
@@ -31,9 +32,9 @@ const SECTION_PRICE_LIST_CATEGORY_CODES = Object.freeze({
   analyses: ['LAB'],
   xray_total: ['RADIOLOGY'],
   sessions: ['PHYSIO'],
-  medicines: ['PHARMACY', 'MEDICINE', 'DRUGS'],
-  supplies: ['SUPPLIES'],
-  cosmetics: ['COSMETICS'],
+  medicines: [],
+  supplies: [],
+  cosmetics: [],
   accommodation: [],
   companion: ['COMPANION'],
   nursing_point: ['NURSING'],
@@ -41,26 +42,13 @@ const SECTION_PRICE_LIST_CATEGORY_CODES = Object.freeze({
   consultation_stamp: ['STAMPS'],
   analyses_stamp: ['STAMPS'],
   xray_stamp: ['STAMPS'],
-  other: [
-    'GENERAL',
-    'SPINE_BUILDING',
-    'RF_INJECTION',
-    'MEDICAL_EXAMS',
-    'LAB',
-    'RADIOLOGY',
-    'PHYSIO',
-    'PROSTHETICS',
-    'COMPANION',
-    'NURSING',
-    'STAMPS',
-    'SPINE_CENTER',
-  ],
+  other: ['GENERAL'],
   prosthetics: ['PROSTHETICS'],
   operation_pick: ['SPINE_CENTER'],
 });
 
 function priceListCategoryCodesForSection(section) {
-  if (!section) return [];
+  if (!section || isCatalogSourceSection(section)) return [];
   const code = String(section.code || '').trim();
   if (SECTION_PRICE_LIST_CATEGORY_CODES[code]) return [...SECTION_PRICE_LIST_CATEGORY_CODES[code]];
   if (section.category_code) return [String(section.category_code).trim()];
@@ -128,10 +116,15 @@ const CATEGORY_ALIASES = Object.freeze({
   'عمليات': 'SpineOperations',
 });
 
-/** Sections that search multiple uploaded catalog sheets in one picker. */
-const SECTION_CATALOG_SEARCH_CATEGORIES = Object.freeze({
-  other: ['General', 'Prosthetics'],
-});
+/** Sections whose only source is the items catalog sheet (not the price list). */
+const CATALOG_SOURCE_SECTION_CODES = Object.freeze(['medicines', 'supplies', 'cosmetics']);
+const CATALOG_SOURCE_CATEGORIES = Object.freeze(['Medicine', 'Supplies', 'Cosmetics']);
+
+function isCatalogSourceSection(section) {
+  return CATALOG_SOURCE_SECTION_CODES.includes(String(section?.code || '').trim());
+}
+
+const SECTION_CATALOG_SEARCH_CATEGORIES = Object.freeze({});
 
 /** daily_charge_sections.code → catalog category for picker/search */
 const SECTION_CATALOG_CATEGORY = Object.freeze({
@@ -179,7 +172,7 @@ const TAB_CATALOG_IMPORT = Object.freeze({
   exams: { category: 'MedicalExams', template_key: 'medical_exams', label: 'رفع الكشوفات' },
   lab: { category: 'Lab', template_key: 'lab', label: 'رفع التحاليل' },
   radiology: { category: 'Radiology', template_key: 'radiology', label: 'رفع الأشعة' },
-  other: { category: 'General', template_key: null, detect_from_filename: true, label: 'رفع ملف خدمات' },
+  other: { category: 'General', template_key: null, label: 'رفع ملف خدمات' },
   operations: { category: 'SpineOperations', template_key: 'spine_operations', label: 'رفع العمليات الجراحية' },
 });
 
@@ -204,6 +197,7 @@ function catalogCategoryForSection(section) {
 }
 
 function catalogSearchCategoriesForSection(section) {
+  if (!isCatalogSourceSection(section)) return [];
   const code = String(section?.code || '').trim();
   if (SECTION_CATALOG_SEARCH_CATEGORIES[code]) return [...SECTION_CATALOG_SEARCH_CATEGORIES[code]];
   const single = catalogCategoryForSection(section);
@@ -229,4 +223,7 @@ module.exports = {
   catalogCategoryForServiceCode,
   dailyChargesUsePriceListOnly,
   priceListCategoryCodesForSection,
+  CATALOG_SOURCE_SECTION_CODES,
+  CATALOG_SOURCE_CATEGORIES,
+  isCatalogSourceSection,
 };

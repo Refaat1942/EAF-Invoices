@@ -1113,6 +1113,29 @@ async function confirmCatalogImportFile(buffer, originalName, mapping = {}) {
   return importCatalogRowsTransactional(mappedRows);
 }
 
+async function wipeAllCatalogItems() {
+  return withTransaction(async (client) => {
+    const { rowCount } = await client.query('DELETE FROM daily_entry_catalog_items');
+    await client.query('DELETE FROM daily_entry_catalog_code_registry');
+    await client.query('UPDATE daily_entry_catalog_code_sequence SET last_number = 0 WHERE id = 1');
+    return { deleted: rowCount || 0 };
+  });
+}
+
+/** Daily-tab upload: same column detection as the settings items import, no manual mapping step. */
+async function importCatalogFileAutoMapped(buffer, originalName, options = {}) {
+  const table = await readTabularFile(buffer, originalName);
+  if (!table.headers.length) throw new Error('لم يُعثر على أعمدة في الملف');
+  const detection = detectColumnMapping(table.headers, CATALOG_IMPORT_SCHEMA);
+  if (detection.missing_required.length) {
+    const labels = detection.missing_required.map((key) => CATALOG_IMPORT_SCHEMA[key]?.label || key);
+    throw new Error(`أعمدة مطلوبة غير موجودة في الشيت: ${labels.join('، ')} — استخدم نفس شيت الإعدادات`);
+  }
+  const mappedRows = applyColumnMapping(table.rows, table.headers, detection.mapping, CATALOG_IMPORT_SCHEMA);
+  if (!mappedRows.length) throw new Error('لم يُعثر على صفوف للاستيراد');
+  return importCatalogRowsTransactional(mappedRows, options);
+}
+
 function validateCatalogPayload(data, options = {}) {
   const { allowMissingCode = false, allowLegacyCode = false } = options;
   let code = String(data.code || '').trim();
@@ -1385,6 +1408,8 @@ module.exports = {
   analyzeImportRows,
   mergeImportRowsByProduct,
   confirmCatalogImportFile,
+  importCatalogFileAutoMapped,
+  wipeAllCatalogItems,
   parseCsvCatalog,
   parseExcelCatalog,
   exportCatalogCsv,

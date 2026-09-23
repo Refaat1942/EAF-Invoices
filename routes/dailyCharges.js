@@ -259,17 +259,8 @@ router.post('/catalog/import', catalogManagePerm, upload.single('file'), async (
     }
 
     const name = String(req.file.originalname || '').toLowerCase();
-    let rows;
-    if (name.endsWith('.csv') || name.endsWith('.txt')) {
-      rows = await parseCsvCatalog(req.file.buffer.toString('utf8'));
-    } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-      rows = await parseExcelCatalog(req.file.buffer);
-    } else {
+    if (!/\.(csv|txt|xlsx|xls)$/.test(name)) {
       return res.status(400).json({ error: 'صيغة غير مدعومة — استخدم CSV أو Excel (.xlsx)' });
-    }
-
-    if (!rows.length) {
-      return res.status(400).json({ error: 'لم يُعثر على أصناف في الملف — تأكد من الأعمدة: Code, Name, Category, Unit, Price' });
     }
 
     const importOptions = {};
@@ -283,8 +274,21 @@ router.post('/catalog/import', catalogManagePerm, upload.single('file'), async (
         .filter(Boolean);
     }
 
-    const result = await importCatalogRows(rows, importOptions);
+    const { importCatalogFileAutoMapped } = require('../services/dailyEntryCatalogService');
+    const result = await importCatalogFileAutoMapped(req.file.buffer, req.file.originalname, importOptions);
     res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/catalog/all', requirePermission('settings.*'), async (req, res) => {
+  try {
+    if (req.body?.confirm !== 'DELETE_ALL') {
+      return res.status(400).json({ error: 'تأكيد الحذف مطلوب' });
+    }
+    const { wipeAllCatalogItems } = require('../services/dailyEntryCatalogService');
+    res.json(await wipeAllCatalogItems());
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

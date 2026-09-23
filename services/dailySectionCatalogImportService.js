@@ -103,7 +103,7 @@ async function importSectionExcelToPriceList(buffer, options = {}) {
   if (forcedCategoryCode) {
     parsed.category_code = forcedCategoryCode;
     for (const svc of parsed.services || []) {
-      if (!svc.category_code) svc.category_code = forcedCategoryCode;
+      svc.category_code = forcedCategoryCode;
     }
   }
 

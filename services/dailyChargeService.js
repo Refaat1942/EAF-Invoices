@@ -45,34 +45,22 @@ function buildCompactArabicPattern(q) {
   return norm ? `%${norm}%` : null;
 }
 
-/** Daily sections that search multiple price-list categories in the picker. */
+/** Daily section → its single price-list category (the tab's uploaded sheet). */
 const SECTION_PICKER_CATEGORY_CODES = {
   consultant_exam: ['MEDICAL_EXAMS'],
   specialist_exam: ['MEDICAL_EXAMS'],
   analyses: ['LAB'],
   xray_total: ['RADIOLOGY'],
   sessions: ['PHYSIO'],
-  other: [
-    'GENERAL',
-    'SPINE_BUILDING',
-    'RF_INJECTION',
-    'MEDICAL_EXAMS',
-    'LAB',
-    'RADIOLOGY',
-    'PHYSIO',
-    'PROSTHETICS',
-    'COMPANION',
-    'NURSING',
-    'STAMPS',
-    'SPINE_CENTER',
-  ],
+  other: ['GENERAL'],
   prosthetics: ['PROSTHETICS'],
   operation_pick: ['SPINE_CENTER'],
 };
 
 function getSectionPickerCategoryCodes(section) {
   if (!section) return [];
-  const { priceListCategoryCodesForSection } = require('./dailyCatalogCategories');
+  const { priceListCategoryCodesForSection, isCatalogSourceSection } = require('./dailyCatalogCategories');
+  if (isCatalogSourceSection(section)) return [];
   const fromMap = priceListCategoryCodesForSection(section);
   if (fromMap.length) return fromMap;
   if (SECTION_PICKER_CATEGORY_CODES[section.code]) return SECTION_PICKER_CATEGORY_CODES[section.code];
@@ -853,15 +841,20 @@ async function listDailyPickerServicesByCategory({ category_code, category_codes
     throw err;
   }
 
-  const { dailyChargesUsePriceListOnly, catalogCategoryForServiceCode } = require('./dailyCatalogCategories');
-  const catalogCategory =
+  const {
+    dailyChargesUsePriceListOnly,
+    catalogCategoryForServiceCode,
+    CATALOG_SOURCE_CATEGORIES,
+  } = require('./dailyCatalogCategories');
+  const mappedCatalogCategory =
     codes.map((code) => catalogCategoryForServiceCode(code)).find(Boolean) ||
     catalogCategoryForServiceCode(category_code);
+  const catalogCategory = CATALOG_SOURCE_CATEGORIES.includes(mappedCatalogCategory) ? mappedCatalogCategory : null;
 
   const priceList = await getDefaultPriceList();
   const maxLimit = Math.min(500, Math.max(1, Number(limit) || 200));
   let serviceRows = [];
-  if (priceList) {
+  if (priceList && !catalogCategory) {
     const categoryRows = await resolvePickerCategoryIds(priceList.id, codes);
     const categoryIds = categoryRows.map((r) => r.id);
     if (categoryIds.length) {

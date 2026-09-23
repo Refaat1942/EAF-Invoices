@@ -58,13 +58,14 @@ const DAILY_TAB_IMPORT_CONFIG = {
   medicines: {
     kind: 'catalog',
     defaultCategory: 'Medicine',
+    allowCategories: ['Medicine', 'Supplies', 'Cosmetics'],
     label: 'رفع قائمة أدوية',
     accept: '.xlsx,.xls,.csv,.txt',
   },
   supplies: {
     kind: 'catalog',
     defaultCategory: 'Supplies',
-    allowCategories: ['Supplies', 'Cosmetics'],
+    allowCategories: ['Medicine', 'Supplies', 'Cosmetics'],
     label: 'رفع قائمة مستلزمات',
     accept: '.xlsx,.xls,.csv,.txt',
   },
