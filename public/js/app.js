@@ -1858,6 +1858,13 @@ function getPaymentRemainingExcluding(_excludeInput = null) {
   return getPaymentGap();
 }
 
+/** Remaining for «الباقي»: the automatic patient-credit deduction shrinks when cash is added. */
+function getPaymentGapForFill() {
+  const finalTotal = getInvoiceFinalTotalForPayment();
+  const paid = shouldAutoApplyPatientCredit() ? sumManualPaymentMethods() : sumAllPaymentInputs();
+  return Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
+}
+
 function sumPaymentMethodsByCode() {
   const totals = { cash: 0, bank_transfer: 0, check: 0, patient_credit: 0, room_insurance: 0, other: 0 };
   document.querySelectorAll('.payment-method-input').forEach((input) => {
@@ -1875,10 +1882,11 @@ function updatePaymentRowHints() {
   const finalTotal = getInvoiceFinalTotalForPayment();
   const paid = sumAllPaymentInputs();
   const remaining = getPaymentGap();
+  const fillable = getPaymentGapForFill();
 
   document.querySelectorAll('.payment-method-line .pay-remaining-btn').forEach((btn) => {
-    btn.disabled = remaining <= 0 || finalTotal <= 0;
-    btn.title = remaining > 0 ? `إضافة المتبقي ${fmt(remaining)}` : 'لا يوجد متبقي — تم تغطية الإجمالي';
+    btn.disabled = fillable <= 0 || finalTotal <= 0;
+    btn.title = fillable > 0 ? `إضافة المتبقي ${fmt(fillable)}` : 'لا يوجد متبقي — تم تغطية الإجمالي';
   });
 
   document.querySelectorAll('.payment-method-hint-row').forEach((hintRow) => {
@@ -1943,7 +1951,7 @@ function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0, 
 function fillRemainingPayment(code, inputEl = null) {
   const input = inputEl || getPaymentInputsByCode(code)[0];
   if (!input) return;
-  const gap = getPaymentGap();
+  const gap = getPaymentGapForFill();
   if (gap <= 0) {
     showToast('لا يوجد متبقي — تم تغطية إجمالي الفاتورة', 'info');
     updatePaymentRowHints();

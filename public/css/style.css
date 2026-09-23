@@ -503,9 +503,9 @@ body {
   font-size: 0.82rem;
 }
 
-/* مدفوعات المزامنة من «بيان المدفوعات» — للحفظ/الطباعة فقط، لا تظهر تحت بنود الفاتورة */
-#view-create #items-tbody tr.invoice-method-payment-row {
-  display: none;
+/* دفعات إضافية من «بيان المدفوعات» — صف بدون بند، فيه أعمدة المبالغ المسددة فقط */
+#view-create #items-tbody tr.invoice-method-payment-row > td {
+  background: #f7fbff;
 }
 
 .payment-methods-table {
