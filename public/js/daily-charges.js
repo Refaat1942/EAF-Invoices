@@ -2540,6 +2540,10 @@ function updateDailyMilitaryAuthBanner(ctx = dailyStayContext) {
 function resolveInvoiceTypeFromFinancialTreatment(text) {
   const value = String(text || '').trim();
   if (!value) return 'civil';
+  if (typeof invoiceTypeLabels !== 'undefined') {
+    const exact = Object.entries(invoiceTypeLabels).find(([, name]) => String(name).trim() === value);
+    if (exact) return exact[0];
+  }
   const normalized = value
     .replace(/[أإآ]/g, 'ا')
     .replace(/ى/g, 'ي')
@@ -2952,11 +2956,13 @@ function fillInternalStayFormFromContext(ctx) {
   if (inv) {
     const typeEl = document.getElementById('daily-stay-invoice-type');
     if (typeEl) {
-      typeEl.value =
-        inv.invoice_type || resolveInvoiceTypeFromFinancialTreatment(inv.financial_treatment);
+      setInvoiceTypeSelectValue(
+        typeEl,
+        inv.invoice_type || resolveInvoiceTypeFromFinancialTreatment(inv.financial_treatment)
+      );
     }
     const regTypeEl = document.getElementById('patient-reg-invoice-type');
-    if (regTypeEl && typeEl) regTypeEl.value = typeEl.value;
+    if (regTypeEl && typeEl) setInvoiceTypeSelectValue(regTypeEl, typeEl.value);
     toggleDailyStayEntityFields();
     togglePatientRegEntityFields();
     if (inv.contracted_entity_id) {
@@ -3349,8 +3355,10 @@ async function fillPatientRegisterFormFromContext(ctx) {
   }
   const invoiceTypeEl = document.getElementById('patient-reg-invoice-type');
   if (invoiceTypeEl) {
-    invoiceTypeEl.value =
-      inv.invoice_type || resolveInvoiceTypeFromFinancialTreatment(inv.financial_treatment || p.financial_treatment);
+    setInvoiceTypeSelectValue(
+      invoiceTypeEl,
+      inv.invoice_type || resolveInvoiceTypeFromFinancialTreatment(inv.financial_treatment || p.financial_treatment)
+    );
   }
   togglePatientRegEntityFields();
   await loadPatientEntitySelects(inv.contracted_entity_id || null);
@@ -3889,7 +3897,7 @@ async function saveOpenPatientStay() {
       gender: document.getElementById('daily-stay-gender')?.value || '',
       admission_date,
       discharge_date,
-      financial_treatment: document.getElementById('daily-stay-financial')?.value || '',
+      financial_treatment: getDailyInvoiceTypeLabel(collectInternalStayPayload(patient_type).invoice_type),
       patient_type,
       ...collectPatientDemographics('daily'),
       ...collectInternalStayPayload(patient_type),
@@ -5150,7 +5158,21 @@ function updateLetterAuthorizedDaysDisplay() {
 
 function getDailyInvoiceTypeLabel(code) {
   const key = String(code || '').trim();
-  return DAILY_INVOICE_TYPE_LABELS[key] || key || '—';
+  const dynamic = typeof invoiceTypeLabels !== 'undefined' ? invoiceTypeLabels[key] : '';
+  return dynamic || DAILY_INVOICE_TYPE_LABELS[key] || key || '—';
+}
+
+/** Selects a type code, keeping legacy/disabled codes selectable on old invoices. */
+function setInvoiceTypeSelectValue(select, code) {
+  if (!select) return;
+  const value = String(code || '').trim() || 'civil';
+  if (![...select.options].some((opt) => opt.value === value)) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = getDailyInvoiceTypeLabel(value);
+    select.appendChild(opt);
+  }
+  select.value = value;
 }
 
 function isGenericEntityFinancialLabel(text) {
@@ -8929,7 +8951,7 @@ document.addEventListener('DOMContentLoaded', () => {
     togglePatientRegEntityFields();
     const dailyType = document.getElementById('daily-stay-invoice-type');
     const regType = document.getElementById('patient-reg-invoice-type');
-    if (dailyType && regType) dailyType.value = regType.value;
+    if (dailyType && regType) setInvoiceTypeSelectValue(dailyType, regType.value);
     toggleDailyStayEntityFields();
   });
   document.getElementById('patient-reg-entity')?.addEventListener('change', onPatientRegEntityChange);

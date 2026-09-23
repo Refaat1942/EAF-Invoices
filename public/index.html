@@ -295,12 +295,6 @@
                   <label class="form-label fw-bold">نوع التعامل والجهة المتعاقدة *</label>
                   <select class="form-select fw-bold patient-reg-field" id="patient-reg-invoice-type" autocomplete="off">
                     <option value="civil">مدني (خاص)</option>
-                    <option value="contracted">جهات متعاقدة</option>
-                    <option value="non_contracted">جهات غير متعاقدة</option>
-                    <option value="military">عسكري</option>
-                    <option value="hospital">حالة مستشفى</option>
-                    <option value="special">حالة خاصة</option>
-                    <option value="operations">عمليات</option>
                   </select>
                 </div>
                 <div class="col-md-3" id="patient-reg-entity-wrap" style="display:none">
@@ -490,12 +484,7 @@
                       <label class="form-label fw-bold">عدد أيام الإقامة</label>
                       <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" data-decimals="0" id="stay_days" placeholder="0">
                     </div>
-                    <div class="col-lg-3 col-md-6">
-                      <label class="form-label fw-bold">المعاملة المالية للمريض</label>
-                      <select class="form-select fw-bold" id="financial_treatment">
-                        <option value="">-- اختر --</option>
-                      </select>
-                    </div>
+                    <input type="hidden" id="financial_treatment">
                   </div>
 
                   <div class="row g-3 mb-3 d-none" id="invoice-stay-section">
@@ -1164,13 +1153,7 @@
           <input type="hidden" id="daily-stay-assistant">
           <input type="hidden" id="daily-stay-room-insurance">
           <select id="daily-stay-invoice-type">
-            <option value="civil">مدني</option>
-            <option value="contracted">جهات متعاقدة</option>
-            <option value="non_contracted">جهات غير متعاقدة</option>
-            <option value="military">عسكري</option>
-            <option value="hospital">حالة مستشفى</option>
-            <option value="special">حالة خاصة</option>
-            <option value="operations">عمليات</option>
+            <option value="civil">مدني (خاص)</option>
           </select>
           <div id="daily-stay-entity-wrap"><select id="daily-stay-entity"><option value=""></option></select></div>
           <div id="daily-stay-letter-from-wrap"><input type="hidden" id="daily-stay-letter-from"></div>
@@ -1319,8 +1302,8 @@
             </button>
             <button type="button" class="hub-tile hub-tile--blue settings-section-tile" data-settings-section="invoice-types">
               <span class="hub-tile-icon">📋</span>
-              <span class="hub-tile-title">أنواع الفواتير</span>
-              <span class="hub-tile-desc">إضافة وتعديل</span>
+              <span class="hub-tile-title">أنواع الفواتير والمعاملة المالية</span>
+              <span class="hub-tile-desc">قائمة واحدة لكل الشاشات</span>
             </button>
             <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="invoice-serial" data-admin="1">
               <span class="hub-tile-icon">🔢</span>
@@ -1341,11 +1324,6 @@
               <span class="hub-tile-icon">💳</span>
               <span class="hub-tile-title">طرق الدفع</span>
               <span class="hub-tile-desc">كاش وفيزا وغيرها</span>
-            </button>
-            <button type="button" class="hub-tile hub-tile--slate settings-section-tile" data-settings-section="financial-treatments">
-              <span class="hub-tile-icon">💼</span>
-              <span class="hub-tile-title">المعاملات المالية</span>
-              <span class="hub-tile-desc">أنواع المعاملات</span>
             </button>
             <button type="button" class="hub-tile hub-tile--indigo settings-section-tile" data-settings-section="contracted-entities">
               <span class="hub-tile-icon">🏢</span>
@@ -1441,13 +1419,14 @@
         </div>
         <div class="col-md-6 settings-panel" id="settings-panel-invoice-types" data-settings-section="invoice-types" style="display:none">
           <div class="card shadow-sm">
-            <div class="card-header bg-info text-white fw-black">📋 أنواع الفواتير</div>
+            <div class="card-header bg-info text-white fw-black">📋 أنواع الفواتير والمعاملة المالية</div>
             <div class="card-body">
               <div class="input-group mb-3">
                 <input type="text" class="form-control fw-bold" id="new-invoice-type-name" placeholder="نوع فاتورة جديد...">
                 <button class="btn btn-primary fw-bold" id="add-invoice-type-btn">إضافة</button>
               </div>
               <ul class="list-group admin-lookup-list" id="invoice-types-list"></ul>
+              <p class="text-muted small mt-2 mb-0">القائمة دي بتظهر في تسجيل المريض والإدخال اليومي والفاتورة الكبيرة والتقارير، والمعاملة المالية بتتسجل بنفس اسم النوع.</p>
             </div>
           </div>
         </div>
@@ -1460,18 +1439,6 @@
                 <button class="btn btn-primary fw-bold" id="add-payment-method-btn">إضافة</button>
               </div>
               <ul class="list-group admin-lookup-list" id="payment-methods-list"></ul>
-            </div>
-          </div>
-        </div>
-        <div class="col-md-6 settings-panel" id="settings-panel-financial-treatments" data-settings-section="financial-treatments" style="display:none">
-          <div class="card shadow-sm">
-            <div class="card-header bg-dark text-white fw-black">💼 المعاملات المالية</div>
-            <div class="card-body">
-              <div class="input-group mb-3">
-                <input type="text" class="form-control fw-bold" id="new-financial-treatment" placeholder="معاملة مالية جديدة...">
-                <button class="btn btn-primary fw-bold" id="add-financial-treatment-btn">إضافة</button>
-              </div>
-              <ul class="list-group admin-lookup-list" id="financial-treatments-list"></ul>
             </div>
           </div>
         </div>
@@ -2476,10 +2443,10 @@
   <script src="/js/auto-save.js?v=20260922h"></script>
   <script src="/js/api-client.js?v=20260923a"></script>
   <script src="/js/daily-section-bundles.js?v=20260922a"></script>
-  <script src="/js/app.js?v=20260923r"></script>
+  <script src="/js/app.js?v=20260923s"></script>
   <script src="/js/nationality-pricing.js?v=20260923a"></script>
   <script src="/js/daily-picker.js?v=20260923b"></script>
-  <script src="/js/daily-charges.js?v=20260923v"></script>
+  <script src="/js/daily-charges.js?v=20260923w"></script>
   <script src="/js/notifications.js?v=20260921a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260920u"></script>

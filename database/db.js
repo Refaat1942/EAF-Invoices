@@ -1364,21 +1364,20 @@ async function seedLookupTables() {
     );
   }
 
-  const financialTreatments = [
-    'مدني (خاص)',
-    'جهات متعاقدة',
-    'جهات غير متعاقدة',
-    'عسكري',
-    'تأمين صحي',
-    'مجاني',
-  ];
-  for (let i = 0; i < financialTreatments.length; i++) {
-    await query(
-      `INSERT INTO financial_treatments (name, sort_order, is_active) VALUES ($1, $2, TRUE)
-       ON CONFLICT (name) DO UPDATE SET sort_order = EXCLUDED.sort_order, is_active = TRUE`,
-      [financialTreatments[i], i + 1]
-    );
-  }
+  // financial_treatments was merged into invoice_types (one list). Carry over any active
+  // names once, then retire them so a deleted type is not re-created on restart.
+  await query(`
+    INSERT INTO invoice_types (code, name, sort_order, is_active)
+    SELECT 'ft_' || ft.id,
+           TRIM(ft.name),
+           (SELECT COALESCE(MAX(sort_order), 0) FROM invoice_types) + ROW_NUMBER() OVER (ORDER BY ft.sort_order, ft.id),
+           TRUE
+    FROM financial_treatments ft
+    WHERE ft.is_active = TRUE
+      AND NOT EXISTS (SELECT 1 FROM invoice_types it WHERE TRIM(it.name) = TRIM(ft.name))
+    ON CONFLICT (code) DO NOTHING
+  `);
+  await query(`UPDATE financial_treatments SET is_active = FALSE WHERE is_active = TRUE`);
 
   const paymentMethods = [
     { code: 'cash', name: 'دفع نقدي', accepts_amount: true },
