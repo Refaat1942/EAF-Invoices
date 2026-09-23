@@ -768,9 +768,10 @@ function methodPaymentsToReceiptRows(methodPayments = []) {
     .filter((entry) => entry.accepts_amount !== false && (Number(entry.amount) || 0) > 0)
     .map((entry) => {
       const meta = entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
+      const fallbackName = entry.code === 'room_insurance' ? entry.name || 'مبلغ التأمين' : '';
       return {
         amount: entry.amount,
-        depositor_name: String(meta.depositor_name || '').trim(),
+        depositor_name: String(meta.depositor_name || fallbackName).trim(),
         receipt_number: String(meta.transfer_ref || meta.cheque_number || '').trim(),
         receipt_date: String(meta.cheque_date || meta.receipt_date || '').trim(),
       };

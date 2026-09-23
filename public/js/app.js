@@ -665,6 +665,7 @@ function applyInvoiceFollowUpPaymentsOnly() {
     const el = document.getElementById(id);
     if (el) el.style.display = '';
   });
+  updateRoomInsurancePaymentButton();
   document.getElementById('save-draft-btn').style.display =
     can('invoices.create') || can('invoices.edit') ? '' : 'none';
 }
@@ -832,6 +833,7 @@ function applyPermissions() {
     const el = document.getElementById(id);
     if (el) el.style.display = canEdit ? '' : 'none';
   });
+  updateRoomInsurancePaymentButton();
   updateInvoiceActionButtons();
   applyInvoiceEditMode();
 }
@@ -895,6 +897,7 @@ function applyInvoiceEditMode() {
     const el = document.getElementById(id);
     if (el) el.style.display = '';
   });
+  updateRoomInsurancePaymentButton();
 }
 
 function setFormReadonly(readonly) {
@@ -1731,6 +1734,7 @@ function bindEvents() {
   document.getElementById('pay-full-bank-btn')?.addEventListener('click', () => fillFullPayment('bank_transfer'));
   document.getElementById('pay-full-check-btn')?.addEventListener('click', () => fillFullPayment('check'));
   document.getElementById('clear-payments-btn')?.addEventListener('click', clearAllPayments);
+  document.getElementById('pay-room-insurance-btn')?.addEventListener('click', applyRoomInsurancePayment);
   document.getElementById('invoice_type')?.addEventListener('change', toggleContractedFields);
   document.getElementById('contracted_entity_id')?.addEventListener('change', onContractedEntityChange);
 
@@ -1784,6 +1788,11 @@ function bindPaymentMethodHelpers() {
       if (removeBtn) {
         event.preventDefault();
         removePaymentMethodLine(removeBtn);
+        return;
+      }
+      if (event.target.closest('.fill-room-insurance-btn')) {
+        event.preventDefault();
+        applyRoomInsurancePayment();
         return;
       }
       const remainBtn = event.target.closest('.pay-remaining-btn');
@@ -1848,7 +1857,7 @@ function getPaymentRemainingExcluding(_excludeInput = null) {
 }
 
 function sumPaymentMethodsByCode() {
-  const totals = { cash: 0, bank_transfer: 0, check: 0, patient_credit: 0, other: 0 };
+  const totals = { cash: 0, bank_transfer: 0, check: 0, patient_credit: 0, room_insurance: 0, other: 0 };
   document.querySelectorAll('.payment-method-input').forEach((input) => {
     const code = input.dataset.methodCode || 'other';
     const amount = parseDisplayAmount(input.value);
@@ -1886,6 +1895,7 @@ function updatePaymentRowHints() {
     getDischargeRefundableAmount(lastCalculationTotals),
     sumPaymentMethodsByCode()
   );
+  updateRoomInsurancePaymentButton();
 }
 
 function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0, methodTotals = null) {
@@ -1914,6 +1924,7 @@ function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0, 
     const mt = methodTotals || sumPaymentMethodsByCode();
     const parts = [];
     if (mt.cash_total > 0.009) parts.push(`نقدي/تحويل/شيك: ${fmt(mt.cash_total)}`);
+    if (mt.room_insurance > 0.009) parts.push(`مبلغ التأمين: ${fmt(mt.room_insurance)}`);
     if (mt.patient_credit > 0.009) {
       parts.push(`خصم من رصيد المريض: ${fmt(mt.patient_credit)} (مش تحصيل نقدي)`);
     }
@@ -2737,6 +2748,7 @@ async function loadPatientBalance(options = {}) {
     patientAccountBalance = null;
     patientRoomInsuranceAmount = 0;
     patientIsExternal = false;
+    updateRoomInsurancePaymentButton();
     const nationalityEl = document.getElementById('invoice-patient-nationality');
     if (nationalityEl) nationalityEl.value = '';
     if (hint) hint.style.display = 'none';
@@ -2757,6 +2769,7 @@ async function loadPatientBalance(options = {}) {
     patientRoomInsuranceAmount = roomInsurance;
     patientIsExternal = isExternal;
     syncPatientBalanceField();
+    updateRoomInsurancePaymentButton();
     const nationalityEl = document.getElementById('invoice-patient-nationality');
     if (nationalityEl) nationalityEl.value = patient.nationality || '';
     if (isExternal) {
@@ -3678,9 +3691,14 @@ function fillFullPayment(code) {
     return;
   }
   const creditSum = hasPatientFileNumber() ? computeInvoicePatientCredit(total) : sumLinePatientCredits();
-  const remainingForCash = Math.max(total - creditSum, 0);
+  const insurancePaid = getPaymentInputsByCode(ROOM_INSURANCE_PAYMENT_CODE).reduce(
+    (sum, input) => sum + parseDisplayAmount(input.value),
+    0
+  );
+  const remainingForCash = Math.max(total - creditSum - insurancePaid, 0);
   document.querySelectorAll('.payment-method-input').forEach((input) => {
     if (input.dataset.methodCode === 'patient_credit') return;
+    if (input.dataset.methodCode === ROOM_INSURANCE_PAYMENT_CODE) return;
     input.value = formatAmountInput(0);
   });
   const firstInput = document.querySelector(
@@ -3689,6 +3707,57 @@ function fillFullPayment(code) {
   if (firstInput) firstInput.value = formatAmountInput(remainingForCash);
   syncPatientCreditPaymentMethod(creditSum);
   recalculate();
+}
+
+const ROOM_INSURANCE_PAYMENT_CODE = 'room_insurance';
+const ROOM_INSURANCE_PAYMENT_LABEL = 'مبلغ التأمين';
+
+function getRoomInsurancePaymentInput() {
+  return document.querySelector(
+    `.payment-method-input[data-method-code="${ROOM_INSURANCE_PAYMENT_CODE}"][data-line-index="0"]`
+  );
+}
+
+function updateRoomInsurancePaymentButton() {
+  const btn = document.getElementById('pay-room-insurance-btn');
+  const insurance = patientIsExternal ? 0 : Number(getPatientRoomInsuranceBalance()) || 0;
+  const input = getRoomInsurancePaymentInput();
+  if (btn) {
+    const cashBtn = document.getElementById('pay-full-cash-btn');
+    const canEditPayments = Boolean(cashBtn) && cashBtn.style.display !== 'none' && !isInvoiceFollowUpLocked();
+    btn.style.display = insurance > 0 && input && canEditPayments ? '' : 'none';
+    btn.textContent = `🛡️ مبلغ التأمين: ${fmt(insurance)}`;
+    const applied = input ? parseDisplayAmount(input.value) : 0;
+    btn.classList.toggle('active', applied > 0);
+  }
+  document.querySelectorAll('.fill-room-insurance-btn').forEach((el) => {
+    el.textContent = `🛡️ ${fmt(insurance)}`;
+    el.disabled = insurance <= 0;
+  });
+}
+
+function applyRoomInsurancePayment() {
+  if (isInvoiceFollowUpLocked()) return;
+  const insurance = patientIsExternal ? 0 : Number(getPatientRoomInsuranceBalance()) || 0;
+  if (insurance <= 0) {
+    showToast('لا يوجد مبلغ تأمين مسجّل لهذا المريض', 'warning');
+    return;
+  }
+  const input = getRoomInsurancePaymentInput();
+  if (!input) {
+    showToast('طريقة الدفع «مبلغ التأمين» غير مفعّلة — فعّلها من الإعدادات', 'warning');
+    return;
+  }
+  input.value = formatAmountInput(insurance);
+  const depositor = document.querySelector(
+    `.payment-depositor-input[data-method-code="${ROOM_INSURANCE_PAYMENT_CODE}"][data-line-index="0"]`
+  );
+  if (depositor && !depositor.value.trim()) depositor.value = ROOM_INSURANCE_PAYMENT_LABEL;
+  togglePaymentMetaRows();
+  syncInvoicePaymentColumnsFromMethodPayments();
+  recalculate({ skipAutoCredit: true, skipAutoPayments: true });
+  updatePaymentRowHints();
+  showToast(`تمت إضافة مبلغ التأمين ${fmt(insurance)} إلى المبالغ المسددة`, 'success');
 }
 
 function clearAllPayments() {
@@ -5028,8 +5097,14 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
     ? `${methodIndex} - ${method.name}${isPatientCredit ? ' <small class="text-muted">(تلقائي من البيان)</small>' : ''}`
     : `<span class="text-muted small">↳ سطر ${lineIndex + 1}</span>`;
 
+  const isRoomInsurance = method.code === ROOM_INSURANCE_PAYMENT_CODE;
   const actions = [];
-  if (!isPatientCredit) {
+  if (isRoomInsurance) {
+    const insurance = patientIsExternal ? 0 : Number(getPatientRoomInsuranceBalance()) || 0;
+    actions.push(
+      `<button type="button" class="btn btn-outline-warning btn-sm fw-bold fill-room-insurance-btn" title="تعبئة مبلغ التأمين"${insurance > 0 ? '' : ' disabled'}>🛡️ ${fmt(insurance)}</button>`
+    );
+  } else if (!isPatientCredit) {
     actions.push(
       `<button type="button" class="btn btn-outline-success btn-sm fw-bold pay-remaining-btn" data-method-code="${method.code}">الباقي</button>`
     );

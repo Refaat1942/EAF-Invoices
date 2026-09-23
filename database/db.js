@@ -1385,6 +1385,7 @@ async function seedLookupTables() {
     { code: 'bank_transfer', name: 'تحويل بنكي', accepts_amount: true },
     { code: 'check', name: 'شيك مقبول الدفع', accepts_amount: true },
     { code: 'patient_credit', name: 'خصم من رصيد المريض', accepts_amount: true },
+    { code: 'room_insurance', name: 'مبلغ التأمين', accepts_amount: true },
     { code: 'multi', name: 'دفع بأكثر من طريقة', accepts_amount: false },
   ];
   for (let i = 0; i < paymentMethods.length; i++) {
