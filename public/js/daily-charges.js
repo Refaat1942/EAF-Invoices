@@ -73,7 +73,6 @@ const DAILY_TAB_IMPORT_CONFIG = {
   lab: { kind: 'section_excel', tab: 'lab', label: 'رفع التحاليل' },
   radiology: { kind: 'section_excel', tab: 'radiology', label: 'رفع الأشعة' },
   other: { kind: 'section_excel', tab: 'other', label: 'رفع ملف خدمات' },
-  stay: { kind: 'section_excel', tab: 'stay', label: 'رفع الإقامات' },
   operations: { kind: 'section_excel', tab: 'operations', label: 'رفع العمليات الجراحية' },
 };
 
@@ -671,16 +670,18 @@ async function hydrateDailyDoctorSuggest(tr, doctorId) {
   if (input?.value?.trim()) return;
   const seq = (tr._doctorHydrateSeq = (Number(tr._doctorHydrateSeq) || 0) + 1);
   try {
-    const doctors = await fetchDailyDoctorSuggestions('', doctorId, 1);
+    const params = new URLSearchParams({ doctor_id: String(doctorId), include_doctor_id: String(doctorId), limit: '1' });
+    const doctors = await apiJson(`/api/doctors/for-daily?${params}`);
     if (seq !== tr._doctorHydrateSeq) return;
-    if (!doctors[0]) return;
+    const doctor = (doctors || []).find((d) => Number(d.id) === Number(doctorId));
+    if (!doctor) return;
     if (input?.value?.trim()) return;
-    if (hidden) hidden.value = String(doctors[0].id);
-    if (input) input.value = doctors[0].name;
-    tr.dataset.doctorId = String(doctors[0].id);
+    if (hidden) hidden.value = String(doctor.id);
+    if (input) input.value = doctor.name;
+    tr.dataset.doctorId = String(doctor.id);
     if (wrap) {
-      wrap._pickedDoctorLabel = doctors[0].name || '';
-      wrap._pickedDoctorId = String(doctors[0].id);
+      wrap._pickedDoctorLabel = doctor.name || '';
+      wrap._pickedDoctorId = String(doctor.id);
     }
   } catch {
     /* ignore */
@@ -6941,22 +6942,6 @@ function applyDefaultPricesForRow(tr) {
   }
 }
 
-async function findAccommodationServiceForStayType(stayType) {
-  if (!stayType?.name || !window.DailyEntryPicker) return null;
-  try {
-    const result = await DailyEntryPicker.searchPicker('accommodation', String(stayType.name).trim(), 1);
-    const stayName = String(stayType.name).trim();
-    return (
-      result.rows?.find((s) => String(s.name).trim() === stayName) ||
-      result.rows?.find((s) => String(s.name).includes(stayName)) ||
-      result.rows?.[0] ||
-      null
-    );
-  } catch {
-    return null;
-  }
-}
-
 function setStayAccommodationUnitPrice(tr, rate) {
   const accInput = tr.querySelector('.daily-amount[data-section="accommodation"]');
   const display = tr.querySelector('.daily-stay-acc-unit-price');
@@ -6987,7 +6972,6 @@ async function applyStayTypeRateToRow(tr, options = {}) {
     ? dailyStayTypesCache.find((t) => String(t.id) === String(stayTypeId))
     : null;
   const accInput = tr.querySelector('.daily-amount[data-section="accommodation"]');
-  const accPicker = tr.querySelector('.daily-picker[data-section="accommodation"]');
   if (!accInput) return;
   const gradeRate =
     Number(grade?.daily_rate) ||
@@ -7005,19 +6989,6 @@ async function applyStayTypeRateToRow(tr, options = {}) {
     return;
   }
 
-  if (!force && hasAmount) return;
-
-  const match = await findAccommodationServiceForStayType(stayType);
-  if (!match || !accPicker) {
-    if (force && gradeRate > 0) setStayAccommodationUnitPrice(tr, gradeRate);
-    return;
-  }
-
-  const section = dailySectionsCache.find((s) => s.code === 'accommodation');
-  if (section && window.DailyEntryPicker) {
-    DailyEntryPicker.applyPickerSelection(tr, section, accPicker, match);
-    updateStayAccUnitPriceDisplay(tr);
-  }
 }
 
 function createDailyEntryRow(entry = {}) {

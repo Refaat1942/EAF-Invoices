@@ -299,10 +299,14 @@ const multiPayload = normalizeDocxImportPayload({
     { category_code: 'CAT-رسوم-عامة-وخدمات-إدارية', code: 'SRV-G1', name: 'خدمة إدارية', price: 50, sort_order: 1 },
   ],
 });
-const expectedCodes = ['PHYSIO', 'RADIOLOGY', 'ACCOMMODATION', 'STAMPS', 'PROSTHETICS', 'GENERAL'];
+const expectedCodes = ['PHYSIO', 'RADIOLOGY', 'STAMPS', 'PROSTHETICS', 'GENERAL'];
 for (const code of expectedCodes) {
   assert(multiPayload.categories.some((c) => c.code === code), `category ${code} normalized`);
 }
+assert(
+  !multiPayload.services.some((s) => s.code === 'SRV-A1'),
+  'accommodation sheet dropped (rates come from أنواع الإقامة)'
+);
 
 (async () => {
   if (!process.env.DATABASE_URL) {

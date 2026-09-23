@@ -30,7 +30,6 @@ const BUILTIN_CATEGORY_CODES = new Set([
   'SPINE_CENTER',
   'PHYSIO',
   'SPINE_BUILDING',
-  'ACCOMMODATION',
   'GENERAL',
   'PROSTHETICS',
   'COMPANION',
@@ -50,10 +49,12 @@ function isBuiltinCategoryCode(code) {
 }
 
 async function listCategories(priceListId, activeOnly = true) {
-  let sql = 'SELECT * FROM service_categories WHERE price_list_id = $1';
+  let sql = `SELECT c.*,
+      (SELECT COUNT(*)::int FROM services s WHERE s.category_id = c.id) AS service_count
+    FROM service_categories c WHERE c.price_list_id = $1`;
   const params = [priceListId];
-  if (activeOnly) sql += ' AND is_active = TRUE';
-  sql += ' ORDER BY sort_order, name';
+  if (activeOnly) sql += ' AND c.is_active = TRUE';
+  sql += ' ORDER BY c.sort_order, c.name';
   const { rows } = await query(sql, params);
   return rows.filter((row) => !isJunkCategoryName(row.name));
 }

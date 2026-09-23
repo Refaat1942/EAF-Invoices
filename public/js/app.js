@@ -1696,6 +1696,8 @@ function bindEvents() {
   document.getElementById('pricing-refresh-btn')?.addEventListener('click', loadPricingSection);
   document.getElementById('pricing-search')?.addEventListener('input', debounce(loadPricingServices, 300));
   document.getElementById('pricing-section-select')?.addEventListener('change', onPricingSectionChange);
+  document.getElementById('pricing-departments-grid')?.addEventListener('click', onPricingDepartmentsGridClick);
+  document.getElementById('pricing-back-to-departments')?.addEventListener('click', backToPricingDepartments);
   document.getElementById('pricing-list-select')?.addEventListener('change', onPricingListChange);
   document.getElementById('pricing-export-btn')?.addEventListener('click', exportPricingExcel);
   document.getElementById('pricing-export-csv-btn')?.addEventListener('click', exportPricingCsv);
@@ -6722,6 +6724,7 @@ function getSelectedPricingSection() {
 }
 
 function updatePricingSectionUi() {
+  updatePricingViewMode();
   const section = getSelectedPricingSection();
   const heading = document.getElementById('pricing-section-heading');
   const downloadBtn = document.getElementById('pricing-download-template-btn');
@@ -6802,6 +6805,89 @@ function populatePricingSectionSelect() {
   if (previous && [...select.options].some((o) => o.value === previous)) {
     select.value = previous;
   }
+  renderPricingDepartmentsGrid();
+}
+
+function listPricingDepartments() {
+  return pricingTemplatesCache.map((tpl) => {
+    const cat = pricingCategoriesCache.find((c) => c.code === tpl.category_code);
+    return {
+      value: `tpl:${tpl.key}`,
+      label: tpl.label || cat?.name || 'القسم',
+      categoryId: cat?.id || tpl.category_id || null,
+      count: Number(cat?.service_count) || 0,
+      custom: !!tpl.custom,
+    };
+  });
+}
+
+function renderPricingDepartmentsGrid() {
+  const grid = document.getElementById('pricing-departments-grid');
+  if (!grid) return;
+  const boxes = listPricingDepartments().map((dept) => {
+    const editBtn = dept.categoryId
+      ? `<button type="button" class="btn btn-outline-primary" data-dept-action="edit">تعديل</button>`
+      : '';
+    const deleteBtn =
+      dept.categoryId && dept.custom
+        ? `<button type="button" class="btn btn-outline-danger" data-dept-action="delete">حذف</button>`
+        : '';
+    return `<div class="pricing-dept-box${dept.count ? '' : ' pricing-dept-box--empty'}" data-dept-value="${escapeHtml(dept.value)}" title="عرض خدمات ${escapeHtml(dept.label)}">
+      <div class="pricing-dept-name">${escapeHtml(dept.label)}</div>
+      <div class="pricing-dept-count">${fmtInt(dept.count)}<small>خدمة</small></div>
+      <div class="pricing-dept-actions">
+        <button type="button" class="btn btn-primary" data-dept-action="open">فتح</button>
+        ${editBtn}${deleteBtn}
+      </div>
+    </div>`;
+  });
+  boxes.push(
+    `<div class="pricing-dept-box pricing-dept-box--add" data-dept-action="add" role="button">+ قسم جديد</div>`
+  );
+  grid.innerHTML = boxes.join('');
+}
+
+async function onPricingDepartmentsGridClick(e) {
+  const addBox = e.target.closest('[data-dept-action="add"].pricing-dept-box--add');
+  if (addBox) {
+    await addPricingCategory();
+    return;
+  }
+  const box = e.target.closest('.pricing-dept-box[data-dept-value]');
+  if (!box) return;
+  const action = e.target.closest('[data-dept-action]')?.dataset.deptAction || 'open';
+  const select = document.getElementById('pricing-section-select');
+  if (!select) return;
+  select.value = box.dataset.deptValue;
+  if (action === 'edit') {
+    await editPricingCategory();
+    select.value = 'all';
+    await onPricingSectionChange();
+  } else if (action === 'delete') {
+    await deletePricingCategory();
+    select.value = 'all';
+    await onPricingSectionChange();
+  } else {
+    await onPricingSectionChange();
+  }
+}
+
+async function backToPricingDepartments() {
+  const select = document.getElementById('pricing-section-select');
+  if (select) select.value = 'all';
+  const search = document.getElementById('pricing-search');
+  if (search) search.value = '';
+  await onPricingSectionChange();
+}
+
+function updatePricingViewMode() {
+  const section = getSelectedPricingSection();
+  const searching = Boolean(document.getElementById('pricing-search')?.value?.trim());
+  const showGrid = section.isAll && !searching;
+  const grid = document.getElementById('pricing-departments-view');
+  const table = document.getElementById('pricing-section-view');
+  if (grid) grid.style.display = showGrid ? '' : 'none';
+  if (table) table.style.display = showGrid ? 'none' : '';
 }
 
 function onPricingTableSortClick(e) {
@@ -6884,8 +6970,13 @@ async function loadPricingCategories() {
 
 async function loadPricingServices() {
   if (!currentPricingListId) return;
+  updatePricingViewMode();
   const search = document.getElementById('pricing-search')?.value?.trim() || '';
   const section = getSelectedPricingSection();
+  if (section.isAll && !search) {
+    await loadPricingCategories();
+    renderPricingDepartmentsGrid();
+  }
   const params = new URLSearchParams({ price_list_id: currentPricingListId, all: '1', limit: '10000' });
   if (!section.isAll) {
     if (section.categoryId) {

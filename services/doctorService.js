@@ -79,6 +79,10 @@ async function listDoctors(filters = {}) {
   } else if (filters.active_only || filters.active === '1' || filters.active === true) {
     sql += ` AND is_active = TRUE`;
   }
+  if (filters.doctor_id) {
+    sql += ` AND id = $${i++}`;
+    params.push(Number(filters.doctor_id));
+  }
   if (filters.department) {
     sql += ` AND LOWER(TRIM(department)) = LOWER(TRIM($${i++}))`;
     params.push(filters.department);

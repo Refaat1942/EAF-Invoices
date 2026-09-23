@@ -34,7 +34,7 @@ const SECTION_PRICE_LIST_CATEGORY_CODES = Object.freeze({
   medicines: ['PHARMACY', 'MEDICINE', 'DRUGS'],
   supplies: ['SUPPLIES'],
   cosmetics: ['COSMETICS'],
-  accommodation: ['ACCOMMODATION'],
+  accommodation: [],
   companion: ['COMPANION'],
   nursing_point: ['NURSING'],
   patient_assistant: ['NURSING'],
@@ -50,7 +50,6 @@ const SECTION_PRICE_LIST_CATEGORY_CODES = Object.freeze({
     'RADIOLOGY',
     'PHYSIO',
     'PROSTHETICS',
-    'ACCOMMODATION',
     'COMPANION',
     'NURSING',
     'STAMPS',
@@ -181,7 +180,6 @@ const TAB_CATALOG_IMPORT = Object.freeze({
   lab: { category: 'Lab', template_key: 'lab', label: 'رفع التحاليل' },
   radiology: { category: 'Radiology', template_key: 'radiology', label: 'رفع الأشعة' },
   other: { category: 'General', template_key: null, detect_from_filename: true, label: 'رفع ملف خدمات' },
-  stay: { category: 'Accommodation', template_key: 'accommodation', label: 'رفع الإقامات' },
   operations: { category: 'SpineOperations', template_key: 'spine_operations', label: 'رفع العمليات الجراحية' },
 });
 

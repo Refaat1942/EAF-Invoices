@@ -814,6 +814,7 @@ async function runMigrations() {
   await migrateServiceCodeUniqueConstraint();
   const { seedDefaultPriceList } = require('../database/seeds/seedPriceList');
   await seedDefaultPriceList();
+  await removeAccommodationPriceListSection();
 
   await query(`
     CREATE TABLE IF NOT EXISTS daily_charge_sections (
@@ -1169,6 +1170,15 @@ async function runMigrations() {
   await seedLookupTables();
 }
 
+// Room grades and daily rates live in Settings > أنواع الإقامة, not in the price list.
+async function removeAccommodationPriceListSection() {
+  await query(`
+    DELETE FROM services
+    WHERE category_id IN (SELECT id FROM service_categories WHERE code = 'ACCOMMODATION')
+  `);
+  await query(`DELETE FROM service_categories WHERE code = 'ACCOMMODATION'`);
+}
+
 async function migrateServiceCodeUniqueConstraint() {
   await query(`ALTER TABLE services DROP CONSTRAINT IF EXISTS services_price_list_id_code_key`);
   await query(`DROP INDEX IF EXISTS services_price_list_id_code_key`);
@@ -1183,8 +1193,8 @@ async function seedDailyChargeSections() {
     {
       code: 'accommodation',
       name: 'إقامة',
-      category_code: 'ACCOMMODATION',
-      catalog_category: 'Accommodation',
+      category_code: null,
+      catalog_category: null,
       input_type: 'amount',
       sort_order: 1,
     },

@@ -689,6 +689,78 @@ body {
   opacity: 0.55;
 }
 
+.pricing-dept-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.85rem;
+}
+
+.pricing-dept-box {
+  border: 2px solid #dbe4ef;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(13, 33, 55, 0.07);
+  padding: 0.85rem 0.75rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.pricing-dept-box:hover {
+  transform: translateY(-2px);
+  border-color: #0d6efd;
+  box-shadow: 0 8px 22px rgba(13, 33, 55, 0.12);
+}
+
+.pricing-dept-name {
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1.35;
+  min-height: 2.6em;
+}
+
+.pricing-dept-count {
+  font-size: 1.6rem;
+  font-weight: 900;
+  color: #0d3b66;
+  line-height: 1;
+}
+
+.pricing-dept-count small {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #6c757d;
+  margin-inline-start: 0.25rem;
+}
+
+.pricing-dept-box--empty .pricing-dept-count {
+  color: #adb5bd;
+}
+
+.pricing-dept-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: auto;
+}
+
+.pricing-dept-actions .btn {
+  flex: 1;
+  padding: 0.15rem 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.pricing-dept-box--add {
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+  color: #198754;
+  font-weight: 800;
+  min-height: 140px;
+}
+
 .pricing-sort-th {
   cursor: pointer;
   user-select: none;

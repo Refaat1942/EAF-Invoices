@@ -16,7 +16,6 @@ const IMPORT_CATEGORY_DEFINITIONS = {
   SPINE_CENTER: { name: 'عمليات العمود الفقري – حالات المركز', sort_order: 16 },
   PHYSIO: { name: 'العلاج الطبيعي والتأهيلي', sort_order: 8 },
   SPINE_BUILDING: { name: 'الخدمات الطبية بمبنى العمود الفقري', sort_order: 18 },
-  ACCOMMODATION: { name: 'الإقامات والرعاية المركزة', sort_order: 4 },
   GENERAL: { name: 'رسوم عامة وخدمات إدارية', sort_order: 41 },
 };
 
@@ -137,13 +136,6 @@ const EXCEL_TEMPLATES = {
     headers: ['م', 'الخدمة الطبية', 'السعر (جنيه)', 'ملاحظات'],
     unit: 'مرة',
   },
-  accommodation: {
-    label: 'الإقامات والرعاية',
-    category_code: 'ACCOMMODATION',
-    headers: ['المبنى / الدور', 'الدرجة', 'السعر اليومي (ج.م)'],
-    unit: 'يوم',
-    layout: 'accommodation',
-  },
 };
 
 function normalizeArabic(text) {
@@ -185,7 +177,6 @@ function detectTemplateFromFilename(filename) {
   if (n.includes('عمليات')) return 'spine_operations';
   if (n.includes('علاج') && n.includes('طبيعي')) return 'physio';
   if (n.includes('خدمات') && n.includes('طبيه')) return 'medical_services';
-  if (n.includes('اقامات') || n.includes('رعايه')) return 'accommodation';
   return null;
 }
 
@@ -217,24 +208,6 @@ async function parseExcelBuffer(buffer, options = {}) {
     if (!cells.some((c) => c)) return;
 
     rowIndex += 1;
-
-    if (template.layout === 'accommodation') {
-      const building = cells[0] || '';
-      const grade = cells[1] || '';
-      const price = parseAmount(cells[2]);
-      const name = [building, grade].filter(Boolean).join(' — ');
-      if (!name || price <= 0) return;
-      services.push({
-        code: serialCode(cells[0], rowIndex),
-        name,
-        unit: template.unit,
-        price,
-        price_type: 'fixed',
-        notes: building ? `المبنى/الدور: ${building}` : '',
-        category_code: template.category_code,
-      });
-      return;
-    }
 
     if (template.composite) {
       const serial = cells[0];
@@ -440,8 +413,6 @@ async function buildTemplateExcel(templateKey, options = {}) {
     sheet.addRow(['2', 'كشف استشاري', '500']);
   } else if (templateKey === 'lab') {
     sheet.addRow(['1', 'مثال: CBC', '150']);
-  } else if (templateKey === 'accommodation') {
-    sheet.addRow(['الدور الأول', 'غرفة فردية', '1200']);
   } else if (templateKey === 'spine_operations') {
     sheet.addRow(['1', 'مثال عملية', '30000', '2500', '4500', '2500', '1500', '7000', '48000']);
   } else {

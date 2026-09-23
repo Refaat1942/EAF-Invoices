@@ -57,6 +57,7 @@ router.get('/for-daily', viewDailyPerm, async (req, res) => {
       search,
       active_only: true,
       include_doctor_id: includeDoctorId,
+      doctor_id: req.query.doctor_id || null,
       limit: req.query.limit || 100,
     });
     res.json(doctors);

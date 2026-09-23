@@ -118,24 +118,6 @@ function buildServiceRules(seedServices) {
     if (!svc.code || !svc.category_code || !svc.name) continue;
   }
 
-  const stayRules = [
-    { code: 'STAY-ICU-SUITE', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['رعايه', 'مركزه', 'جناح']) },
-    { code: 'STAY-ICU-ROOM', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['رعايه', 'مركزه', 'غرفه']) && !includesAll(n, ['جناح']) },
-    { code: 'STAY-PALLIATIVE-SUITE', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['رعايه', 'تلطيفيه', 'جناح']) },
-    { code: 'STAY-PALLIATIVE-ROOM', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['رعايه', 'تلطيفيه', 'غرفه']) },
-    { code: 'STAY-VIP', category_code: 'ACCOMMODATION', match: (n) => n === 'vip' || n.includes('vip') },
-    { code: 'STAY-LARGE-SUITE-PREMIUM', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['جناح', 'كبير', 'مميز']) },
-    { code: 'STAY-PREMIUM-ROOM', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['غرفه', 'مميزه']) && !n.includes('جناح') },
-    { code: 'STAY-LARGE-SUITE', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['جناح', 'كبير']) && !n.includes('مميز') },
-    { code: 'STAY-SMALL-SUITE', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['جناح', 'صغير']) },
-    { code: 'STAY-SINGLE-ROOM', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['غرفه', 'فرديه']) },
-    { code: 'STAY-DOUBLE-ROOM', category_code: 'ACCOMMODATION', match: (n) => includesAll(n, ['غرفه', 'مزدوجه']) },
-  ];
-
-  for (const rule of stayRules) {
-    rules.push({ ...rule, priority: 25 });
-  }
-
   return rules.sort((a, b) => a.priority - b.priority);
 }
 
@@ -267,6 +249,20 @@ function mergeCategories(categories) {
 function normalizeDocxImportPayload(payload) {
   if (!payload || !Array.isArray(payload.categories) || !Array.isArray(payload.services)) {
     return payload;
+  }
+
+  // Room grades and daily rates live in Settings > أنواع الإقامة, never in the price list.
+  const accommodationCodes = new Set(
+    payload.categories
+      .filter((cat) => /اقامات|الاقامه/.test(normalizeArabic(cat.name)))
+      .map((cat) => cat.code)
+  );
+  if (accommodationCodes.size) {
+    payload = {
+      ...payload,
+      categories: payload.categories.filter((cat) => !accommodationCodes.has(cat.code)),
+      services: payload.services.filter((svc) => !accommodationCodes.has(svc.category_code)),
+    };
   }
 
   const registry = loadCanonicalRegistry();
