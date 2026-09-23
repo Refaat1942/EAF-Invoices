@@ -38,6 +38,7 @@ const { buildDailyPrintExcelBuffer } = require('../services/reportService');
 const { generateDailyItemsPdfBuffer } = require('../services/exportService');
 const { getLogoUrl } = require('../services/settingsService');
 const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
+const { userHasPermission } = require('../services/authService');
 
 const catalogManagePerm = requireAnyPermission('settings.*', 'daily_charges.manage');
 const {
@@ -417,7 +418,12 @@ router.get('/open-stay', requirePermission('daily_charges.view'), async (req, re
   try {
     const file_number = req.query.file_number?.trim();
     if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
-    const stay = await getOpenPatientStay(file_number);
+    let stay = await getOpenPatientStay(file_number);
+    if (stay?.invoice?.id && userHasPermission(req.user, 'daily_charges.manage')) {
+      const { ensureAllStayDaysPosted } = require('../services/stayBatchPostingService');
+      const result = await ensureAllStayDaysPosted(file_number, req.user);
+      if (result?.posted > 0) stay = await getOpenPatientStay(file_number);
+    }
     if (stay) return res.json(stay);
     const patient = await getPatientByFileNumber(file_number);
     return res.json({

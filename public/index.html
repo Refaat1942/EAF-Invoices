@@ -400,7 +400,7 @@
               <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3" id="invoice-followup-banner" style="display:none">
                 <div class="d-flex flex-wrap gap-2 align-items-center">
                   <button type="button" class="btn btn-sm btn-outline-primary fw-bold" id="goto-daily-from-invoice-btn">← العودة للمريض</button>
-                  <button type="button" class="btn btn-sm btn-info fw-bold" id="invoice-preview-top-btn" style="display:none">👁️ معاينة طباعة</button>
+                  <button type="button" class="btn btn-sm btn-info fw-bold" id="invoice-preview-top-btn" style="display:none">🖨️ طباعة كشف حساب فاتورة</button>
                 </div>
                 <span class="badge bg-warning text-dark" id="invoice-followup-admin-badge" style="display:none">صلاحية مسؤول — تعديل كامل</span>
               </div>
@@ -645,7 +645,7 @@
                   <button type="button" class="btn btn-outline-secondary fw-bold" id="reset-form-btn">← الرئيسية</button>
                   <button type="button" class="btn btn-danger fw-bold" id="download-pdf-btn" style="display:none">📄 PDF</button>
                   <button type="button" class="btn btn-primary fw-bold" id="download-docx-btn" style="display:none">📝 Word</button>
-                  <button type="button" class="btn btn-info fw-bold" id="preview-btn" style="display:none">👁️ معاينة طباعة</button>
+                  <button type="button" class="btn btn-info fw-bold" id="preview-btn" style="display:none">🖨️ طباعة كشف حساب فاتورة</button>
                 </div>
                 <div class="mt-2" id="created-by-wrap" style="display:none">
                   <small class="text-muted fw-bold">أُنشئت بواسطة: <span id="created_by_display"></span></small>
@@ -994,9 +994,9 @@
                 <input type="file" class="d-none" id="daily-tab-import-input" accept=".xlsx,.xls,.csv">
                 <button type="button" class="btn btn-sm btn-success fw-bold px-4" id="daily-save-btn" data-guard-key="daily:action" data-guard-busy="جاري الحفظ…" data-guard-siblings="daily-save-all-btn,daily-free-save-btn,daily-free-add-row">حفظ</button>
                 <button type="button" class="btn btn-sm btn-outline-success fw-bold" id="daily-save-all-btn" data-guard-key="daily:action" data-guard-busy="جاري الحفظ…" data-guard-siblings="daily-save-btn,daily-free-save-btn,daily-free-add-row">حفظ الكل</button>
-                <button type="button" class="btn btn-sm btn-info fw-bold d-none" id="daily-section-preview-btn" title="معاينة طباعة قسم الحالي على الفاتورة الكبيرة">👁️ معاينة طباعة</button>
+                <button type="button" class="btn btn-sm btn-info fw-bold d-none" id="daily-section-preview-btn" title="طباعة كشف حساب القسم الحالي على الفاتورة الكبيرة">🖨️ طباعة كشف حساب فاتورة</button>
                 <div class="dropdown">
-                  <button type="button" class="btn btn-sm btn-outline-dark fw-bold dropdown-toggle" data-bs-toggle="dropdown">📊 تصدير Excel</button>
+                  <button type="button" class="btn btn-sm btn-outline-dark fw-bold dropdown-toggle" data-bs-toggle="dropdown">📊 طباعة برنت</button>
                   <ul class="dropdown-menu dropdown-menu-end">
                     <li><button type="button" class="dropdown-item fw-bold" id="daily-print-medicines-btn">أدوية</button></li>
                     <li><button type="button" class="dropdown-item fw-bold" id="daily-print-supplies-btn">مستلزمات</button></li>
@@ -2428,7 +2428,7 @@
   <script src="/js/notifications.js?v=20260921a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260920u"></script>
-  <script src="/js/assistant.js?v=20260905b"></script>
+  <script src="/js/assistant.js?v=20260924a"></script>
   <script src="/js/analytics-dashboard.js?v=20260923a"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>

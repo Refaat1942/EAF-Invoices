@@ -76,9 +76,17 @@ router.post('/calculate', requirePermission('invoices.view'), async (req, res) =
   }
 });
 
+async function postMissingStayDaysForPreview(req, fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn || !userHasPermission(req.user, 'daily_charges.manage')) return;
+  const { ensureAllStayDaysPosted } = require('../services/stayBatchPostingService');
+  await ensureAllStayDaysPosted(fn, req.user);
+}
+
 router.post('/preview', requirePermission('invoices.view'), async (req, res) => {
   try {
     const data = req.body || {};
+    await postMissingStayDaysForPreview(req, data.file_number);
     if (!data.stay_days && data.admission_date && data.discharge_date) {
       data.stay_days = calculateStayDays(data.admission_date, data.discharge_date);
     }
@@ -334,8 +342,12 @@ router.get('/:id/qr', requirePermission('invoices.view'), async (req, res) => {
 
 router.get('/:id/preview', requirePermission('invoices.view'), async (req, res) => {
   try {
-    const invoice = await getInvoiceById(Number(req.params.id));
+    let invoice = await getInvoiceById(Number(req.params.id));
     if (!invoice) return res.status(404).send('Not found');
+    if (invoice.status !== 'approved') {
+      await postMissingStayDaysForPreview(req, invoice.file_number);
+      invoice = (await getInvoiceById(invoice.id)) || invoice;
+    }
 
     const baseUrl = getBaseUrl(req);
     const logoUrl = await getLogoUrl(baseUrl);

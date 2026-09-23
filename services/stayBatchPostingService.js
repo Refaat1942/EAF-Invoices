@@ -263,6 +263,39 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
   };
 }
 
+/**
+ * Every day the patient is admitted must be billed: post the missing stay days from
+ * admission through discharge (or today while still admitted). Days that already have
+ * stay lines or were excluded by the user are skipped.
+ */
+async function ensureAllStayDaysPosted(fileNumber, user = null) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return { posted: 0, reason: 'missing_file_number' };
+  const stay = await getOpenPatientStay(fn);
+  const patient = stay?.patient;
+  if (!stay?.invoice?.id || !patient?.id) return { posted: 0, reason: 'no_open_stay' };
+  if (String(patient.patient_type || '').toLowerCase() === 'external') {
+    return { posted: 0, reason: 'external_patient' };
+  }
+  const admission = parseDateOnly(stay.invoice.admission_date);
+  if (!admission) return { posted: 0, reason: 'no_admission_date' };
+  const discharge = parseDateOnly(stay.invoice.discharge_date);
+  const businessToday = getCurrentBusinessDateString();
+  // discharge == admission is how an open stay is stored — the patient is still in.
+  const stillAdmitted = !discharge || discharge === admission;
+  let endDate = stillAdmitted ? businessToday : discharge;
+  if (endDate < admission) endDate = admission;
+  try {
+    return await batchPostStayCharges(
+      fn,
+      { to_date: endDate, skip_existing: true, include_today: true },
+      user
+    );
+  } catch (err) {
+    return { posted: 0, reason: err.message };
+  }
+}
+
 function admissionCompanionWithInsurance(assignment, roomInsuranceAmount) {
   const base = round2(assignment?.companion_amount);
   const ins = round2(roomInsuranceAmount);
@@ -490,6 +523,7 @@ async function syncAdmissionDayRoomInsurance(fileNumber, user = null) {
 module.exports = {
   batchPostStayCharges,
   ensureAdmissionDayStayPosted,
+  ensureAllStayDaysPosted,
   syncAdmissionDayRoomInsurance,
   admissionCompanionWithInsurance,
   resolveAccommodationRateForStayType,
