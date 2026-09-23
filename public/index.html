@@ -7,7 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
   <meta name="app-build" content="20260921w">
-  <link href="/css/style.css?v=20260923c" rel="stylesheet">
+  <link href="/css/style.css?v=20260923d" rel="stylesheet">
 </head>
 <body>
   <!-- Login Screen -->
@@ -1273,87 +1273,112 @@
           <h2 class="hub-title fw-black mb-1">الإعدادات</h2>
           <p class="hub-subtitle mb-0">اختر القسم</p>
         </div>
-        <div class="hub-grid settings-hub-grid" id="settings-tiles-grid">
-          <button type="button" class="hub-tile hub-tile--primary settings-section-tile" data-settings-section="logo">
-            <span class="hub-tile-icon">🖼️</span>
-            <span class="hub-tile-title">شعار الفاتورة</span>
-            <span class="hub-tile-desc">رفع الشعار</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--blue settings-section-tile" data-settings-section="invoice-types">
-            <span class="hub-tile-icon">📋</span>
-            <span class="hub-tile-title">أنواع الفواتير</span>
-            <span class="hub-tile-desc">إضافة وتعديل</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="payment-methods">
-            <span class="hub-tile-icon">💳</span>
-            <span class="hub-tile-title">طرق الدفع</span>
-            <span class="hub-tile-desc">كاش وفيزا وغيرها</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--slate settings-section-tile" data-settings-section="financial-treatments">
-            <span class="hub-tile-icon">💼</span>
-            <span class="hub-tile-title">المعاملات المالية</span>
-            <span class="hub-tile-desc">أنواع المعاملات</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--teal settings-section-tile" data-settings-section="stay-types">
-            <span class="hub-tile-icon">🏨</span>
-            <span class="hub-tile-title">أنواع الإقامة</span>
-            <span class="hub-tile-desc">الغرف والأسعار</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--indigo settings-section-tile" data-settings-section="contracted-entities">
-            <span class="hub-tile-icon">🏢</span>
-            <span class="hub-tile-title">الجهات المتعاقدة</span>
-            <span class="hub-tile-desc">خصومات التعاقد</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--red settings-section-tile" data-settings-section="discount-exclusions">
-            <span class="hub-tile-icon">🚫</span>
-            <span class="hub-tile-title">بنود مستثناة</span>
-            <span class="hub-tile-desc">من الخصم</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--teal settings-section-tile" data-settings-section="doctors" data-admin="1">
-            <span class="hub-tile-icon">🩺</span>
-            <span class="hub-tile-title">الأطباء</span>
-            <span class="hub-tile-desc">داخلي — لا يطبع</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--indigo settings-section-tile" data-settings-section="exam-specialties" data-admin="1">
-            <span class="hub-tile-icon">📋</span>
-            <span class="hub-tile-title">تخصصات الكشوفات</span>
-            <span class="hub-tile-desc">قائمة التخصص</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--blue settings-section-tile" data-settings-section="item-catalog" data-admin="1">
-            <span class="hub-tile-icon">💊</span>
-            <span class="hub-tile-title">كتالوج الأصناف</span>
-            <span class="hub-tile-desc">أدوية ومستلزمات</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="invoice-fees" data-admin="1">
-            <span class="hub-tile-icon">🧾</span>
-            <span class="hub-tile-title">المصروفات الإدارية والمهن</span>
-            <span class="hub-tile-desc">وهامش المستلزمات</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--primary settings-section-tile" data-settings-section="pricing" data-admin="1">
-            <span class="hub-tile-icon">💰</span>
-            <span class="hub-tile-title">الأسعار واللائحة</span>
-            <span class="hub-tile-desc">استيراد وتعديل</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="invoice-serial" data-admin="1">
-            <span class="hub-tile-icon">🔢</span>
-            <span class="hub-tile-title">ترقيم الفواتير</span>
-            <span class="hub-tile-desc">مراجعة التسلسل</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--slate settings-section-tile" data-settings-section="backup" data-admin="1">
-            <span class="hub-tile-icon">💾</span>
-            <span class="hub-tile-title">النسخ الاحتياطي</span>
-            <span class="hub-tile-desc">قاعدة البيانات</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--indigo settings-section-tile" data-settings-section="users" data-perm="users.*">
-            <span class="hub-tile-icon">👥</span>
-            <span class="hub-tile-title">المستخدمين</span>
-            <span class="hub-tile-desc">صلاحيات النظام</span>
-          </button>
-          <button type="button" class="hub-tile hub-tile--red settings-section-tile" data-settings-section="audit-monitor" data-admin="1">
-            <span class="hub-tile-icon">🔔</span>
-            <span class="hub-tile-title">مراقبة النظام</span>
-            <span class="hub-tile-desc">سجل التدقيق والتنبيهات</span>
-          </button>
+        <div id="settings-tiles-grid" class="settings-groups">
+          <div class="settings-group">
+            <div class="settings-group-head"><h3 class="settings-group-title">بيانات الشاشات</h3><span class="settings-group-hint">كل اللي بتقرا منه شاشات الإدخال</span></div>
+            <div class="hub-grid settings-hub-grid">
+            <button type="button" class="hub-tile hub-tile--primary settings-section-tile" data-settings-section="data-sources" data-admin="1">
+              <span class="hub-tile-icon">🗂️</span>
+              <span class="hub-tile-title">مصادر بيانات الشاشات</span>
+              <span class="hub-tile-desc">رفع ومسح ملف كل شاشة</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--blue settings-section-tile" data-settings-section="pricing" data-admin="1">
+              <span class="hub-tile-icon">💰</span>
+              <span class="hub-tile-title">الأسعار واللائحة</span>
+              <span class="hub-tile-desc">جلسات، كشوفات، تحاليل، أشعة…</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--teal settings-section-tile" data-settings-section="item-catalog" data-admin="1">
+              <span class="hub-tile-icon">💊</span>
+              <span class="hub-tile-title">كتالوج الأصناف</span>
+              <span class="hub-tile-desc">أدوية ومستلزمات وتجميل</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="stay-types">
+              <span class="hub-tile-icon">🏨</span>
+              <span class="hub-tile-title">أنواع الإقامة</span>
+              <span class="hub-tile-desc">الغرف والأسعار</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--indigo settings-section-tile" data-settings-section="doctors" data-admin="1">
+              <span class="hub-tile-icon">🩺</span>
+              <span class="hub-tile-title">الأطباء</span>
+              <span class="hub-tile-desc">داخلي — لا يطبع</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--slate settings-section-tile" data-settings-section="exam-specialties" data-admin="1">
+              <span class="hub-tile-icon">📋</span>
+              <span class="hub-tile-title">تخصصات الكشوفات</span>
+              <span class="hub-tile-desc">قائمة التخصص</span>
+            </button>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-head"><h3 class="settings-group-title">الفاتورة</h3><span class="settings-group-hint">الشكل والترقيم والرسوم</span></div>
+            <div class="hub-grid settings-hub-grid">
+            <button type="button" class="hub-tile hub-tile--primary settings-section-tile" data-settings-section="logo">
+              <span class="hub-tile-icon">🖼️</span>
+              <span class="hub-tile-title">شعار الفاتورة</span>
+              <span class="hub-tile-desc">رفع الشعار</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--blue settings-section-tile" data-settings-section="invoice-types">
+              <span class="hub-tile-icon">📋</span>
+              <span class="hub-tile-title">أنواع الفواتير</span>
+              <span class="hub-tile-desc">إضافة وتعديل</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="invoice-serial" data-admin="1">
+              <span class="hub-tile-icon">🔢</span>
+              <span class="hub-tile-title">ترقيم الفواتير</span>
+              <span class="hub-tile-desc">مراجعة التسلسل</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--teal settings-section-tile" data-settings-section="invoice-fees" data-admin="1">
+              <span class="hub-tile-icon">🧾</span>
+              <span class="hub-tile-title">المصروفات الإدارية والمهن</span>
+              <span class="hub-tile-desc">وهامش المستلزمات</span>
+            </button>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-head"><h3 class="settings-group-title">الدفع والخصومات</h3><span class="settings-group-hint">طرق السداد والتعاقدات</span></div>
+            <div class="hub-grid settings-hub-grid">
+            <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="payment-methods">
+              <span class="hub-tile-icon">💳</span>
+              <span class="hub-tile-title">طرق الدفع</span>
+              <span class="hub-tile-desc">كاش وفيزا وغيرها</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--slate settings-section-tile" data-settings-section="financial-treatments">
+              <span class="hub-tile-icon">💼</span>
+              <span class="hub-tile-title">المعاملات المالية</span>
+              <span class="hub-tile-desc">أنواع المعاملات</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--indigo settings-section-tile" data-settings-section="contracted-entities">
+              <span class="hub-tile-icon">🏢</span>
+              <span class="hub-tile-title">الجهات المتعاقدة</span>
+              <span class="hub-tile-desc">خصومات التعاقد</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--red settings-section-tile" data-settings-section="discount-exclusions">
+              <span class="hub-tile-icon">🚫</span>
+              <span class="hub-tile-title">بنود مستثناة</span>
+              <span class="hub-tile-desc">من الخصم</span>
+            </button>
+            </div>
+          </div>
+          <div class="settings-group">
+            <div class="settings-group-head"><h3 class="settings-group-title">النظام</h3><span class="settings-group-hint">المستخدمين والنسخ والمراقبة</span></div>
+            <div class="hub-grid settings-hub-grid">
+            <button type="button" class="hub-tile hub-tile--indigo settings-section-tile" data-settings-section="users" data-perm="users.*">
+              <span class="hub-tile-icon">👥</span>
+              <span class="hub-tile-title">المستخدمين</span>
+              <span class="hub-tile-desc">صلاحيات النظام</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--slate settings-section-tile" data-settings-section="backup" data-admin="1">
+              <span class="hub-tile-icon">💾</span>
+              <span class="hub-tile-title">النسخ الاحتياطي</span>
+              <span class="hub-tile-desc">قاعدة البيانات</span>
+            </button>
+            <button type="button" class="hub-tile hub-tile--red settings-section-tile" data-settings-section="audit-monitor" data-admin="1">
+              <span class="hub-tile-icon">🔔</span>
+              <span class="hub-tile-title">مراقبة النظام</span>
+              <span class="hub-tile-desc">سجل التدقيق والتنبيهات</span>
+            </button>
+            </div>
+          </div>
         </div>
       </div>
       <div id="settings-panels-wrap" class="d-none">
@@ -1361,6 +1386,24 @@
           <button type="button" class="btn btn-outline-secondary fw-bold" id="settings-section-back">← كل الأقسام</button>
         </div>
         <div class="row g-3" id="settings-panels-row">
+        <div class="col-12 settings-panel" id="data-sources-settings-card" data-settings-section="data-sources" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white fw-black d-flex justify-content-between align-items-center">
+              <span>🗂️ مصادر بيانات الشاشات</span>
+              <button type="button" class="btn btn-sm btn-light fw-bold" id="data-sources-refresh">↻ تحديث</button>
+            </div>
+            <div class="card-body">
+              <p class="text-muted small mb-3">كل شاشة إدخال بتقرا من مصدر واحد بس — الملف اللي بيترفع لها هنا (أو من زرار الرفع في تبويبها). المسح هنا بيمسح بنود المصدر ده بس، والفواتير القديمة مش بتتأثر.</p>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle data-sources-table mb-0">
+                  <thead class="table-light"><tr><th>الشاشة</th><th>بتقرا من</th><th class="text-center">عدد البنود</th><th class="text-end">إجراءات</th></tr></thead>
+                  <tbody id="data-sources-body"><tr><td colspan="4" class="text-center text-muted py-3">جاري التحميل…</td></tr></tbody>
+                </table>
+              </div>
+              <input type="file" class="d-none" id="data-sources-file" accept=".xlsx,.xls,.csv,.txt">
+            </div>
+          </div>
+        </div>
         <div class="col-md-6 settings-panel" id="settings-panel-logo" data-settings-section="logo" style="display:none">
           <div class="card shadow-sm">
             <div class="card-header bg-primary text-white fw-black">🖼️ شعار الفاتورة</div>
@@ -2433,7 +2476,7 @@
   <script src="/js/auto-save.js?v=20260922h"></script>
   <script src="/js/api-client.js?v=20260923a"></script>
   <script src="/js/daily-section-bundles.js?v=20260922a"></script>
-  <script src="/js/app.js?v=20260923q"></script>
+  <script src="/js/app.js?v=20260923r"></script>
   <script src="/js/nationality-pricing.js?v=20260923a"></script>
   <script src="/js/daily-picker.js?v=20260923b"></script>
   <script src="/js/daily-charges.js?v=20260923v"></script>

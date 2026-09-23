@@ -1706,6 +1706,7 @@ function bindEvents() {
   document.getElementById('settings-section-back')?.addEventListener('click', () => {
     showSettingsSection('');
   });
+  initDataSourcesSection();
 
   document.getElementById('pricing-refresh-btn')?.addEventListener('click', loadPricingSection);
   document.getElementById('pricing-search')?.addEventListener('input', debounce(loadPricingServices, 300));
@@ -5764,6 +5765,10 @@ function applySettingsSectionPermissions() {
     if (perm && !can(perm)) allowed = false;
     tile.style.display = allowed ? '' : 'none';
   });
+  document.querySelectorAll('#settings-tiles-grid .settings-group').forEach((group) => {
+    const visible = [...group.querySelectorAll('.settings-section-tile')].some((t) => t.style.display !== 'none');
+    group.style.display = visible ? '' : 'none';
+  });
 
   if (!currentSettingsSection) return;
   const activeTile = document.querySelector(
@@ -5799,6 +5804,121 @@ function showSettingsSection(section) {
   if (section === 'doctors' && typeof loadDoctorsSection === 'function') loadDoctorsSection();
   if (section === 'item-catalog' && typeof loadItemCatalogSection === 'function') loadItemCatalogSection();
   if (section === 'audit-monitor' && typeof loadAuditMonitorSection === 'function') loadAuditMonitorSection();
+  if (section === 'data-sources' && can('settings.*')) loadDataSourcesSection();
+}
+
+let dataSourcesCache = [];
+let dataSourcesUploadKey = null;
+
+async function loadDataSourcesSection() {
+  const body = document.getElementById('data-sources-body');
+  if (!body) return;
+  try {
+    const res = await apiFetch('/api/daily-charges/data-sources');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'تعذر تحميل مصادر البيانات');
+    dataSourcesCache = data.sources || [];
+    body.innerHTML = dataSourcesCache
+      .map((src) => {
+        const empty = !src.count;
+        const countBadge = `<span class="badge ${empty ? 'bg-secondary' : 'bg-success'} fs-6">${Number(src.count || 0).toLocaleString('en-US')}</span>`;
+        const actions =
+          src.kind === 'settings'
+            ? `<button type="button" class="btn btn-sm btn-outline-primary fw-bold" data-ds-open="${escapeAttr(src.settings_section)}">فتح ${escapeHtml(src.source)}</button>`
+            : `<button type="button" class="btn btn-sm btn-primary fw-bold" data-ds-upload="${escapeAttr(src.key)}">📤 ${escapeHtml(src.upload_label)}</button>
+               <button type="button" class="btn btn-sm btn-outline-danger fw-bold ms-1" data-ds-clear="${escapeAttr(src.key)}"${empty ? ' disabled' : ''}>🗑️ مسح</button>`;
+        return `<tr>
+          <td class="fw-bold">${escapeHtml(src.screen)}</td>
+          <td class="text-muted small">${escapeHtml(src.source)}</td>
+          <td class="text-center">${countBadge}</td>
+          <td class="text-end text-nowrap">${actions}</td>
+        </tr>`;
+      })
+      .join('');
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-3">${escapeHtml(sanitizeApiErrorMessage(err.message))}</td></tr>`;
+  }
+}
+
+async function uploadDataSourceFile(src, file) {
+  const form = new FormData();
+  form.append('file', file);
+  let url;
+  if (src.kind === 'catalog') {
+    form.append('default_category', src.category);
+    form.append('allow_categories', 'Medicine,Supplies,Cosmetics');
+    url = '/api/daily-charges/catalog/import';
+  } else {
+    form.append('tab', src.tab);
+    url = '/api/daily-charges/catalog/import-section-excel';
+  }
+  const res = await apiFetch(url, { method: 'POST', body: form });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error);
+  const inserted = Number(data.inserted ?? data.imported ?? 0) || 0;
+  const updated = Number(data.updated ?? 0) || 0;
+  showToast(`${src.screen}: ${inserted} جديد، ${updated} محدّث`, inserted + updated > 0 ? 'success' : 'warning');
+}
+
+async function clearDataSource(src) {
+  if (!confirm(`مسح كل بنود «${src.screen}» (${src.count} بند)؟ الفواتير القديمة مش هتتأثر.`)) return;
+  const res =
+    src.kind === 'catalog'
+      ? await apiFetch('/api/daily-charges/catalog/all', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm: 'DELETE_ALL', category: src.category }),
+        })
+      : await apiFetch('/api/pricing/services/bulk', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ category_id: src.category_id }),
+        });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error);
+  showToast(`تم مسح ${data.deleted || 0} بند من «${src.screen}»`, 'success');
+}
+
+function initDataSourcesSection() {
+  const body = document.getElementById('data-sources-body');
+  const input = document.getElementById('data-sources-file');
+  if (!body || !input) return;
+  document.getElementById('data-sources-refresh')?.addEventListener('click', loadDataSourcesSection);
+  body.addEventListener('click', async (e) => {
+    const openBtn = e.target.closest('[data-ds-open]');
+    if (openBtn) return showSettingsSection(openBtn.dataset.dsOpen);
+    const uploadBtn = e.target.closest('[data-ds-upload]');
+    if (uploadBtn) {
+      dataSourcesUploadKey = uploadBtn.dataset.dsUpload;
+      input.value = '';
+      return input.click();
+    }
+    const clearBtn = e.target.closest('[data-ds-clear]');
+    if (clearBtn) {
+      const src = dataSourcesCache.find((s) => s.key === clearBtn.dataset.dsClear);
+      if (!src) return;
+      clearBtn.disabled = true;
+      try {
+        await clearDataSource(src);
+      } catch (err) {
+        showToast(sanitizeApiErrorMessage(err.message), 'danger');
+      }
+      await loadDataSourcesSection();
+    }
+  });
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    const src = dataSourcesCache.find((s) => s.key === dataSourcesUploadKey);
+    if (!file || !src) return;
+    try {
+      await uploadDataSourceFile(src, file);
+    } catch (err) {
+      showToast(sanitizeApiErrorMessage(err.message), 'danger');
+    } finally {
+      input.value = '';
+    }
+    await loadDataSourcesSection();
+  });
 }
 
 function formatBackupBytes(bytes) {

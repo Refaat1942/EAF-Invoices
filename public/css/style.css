@@ -2664,3 +2664,39 @@ textarea:-webkit-autofill {
 #view-create .invoice-patient-summary-table td {
   padding: 6px 10px;
 }
+
+/* Settings hub: grouped tiles */
+.settings-groups {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+.settings-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  border-bottom: 2px solid #e3e8ef;
+  padding-bottom: 0.35rem;
+  margin-bottom: 0.85rem;
+}
+.settings-group-title {
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #0f3d5e;
+  margin: 0;
+}
+.settings-group-hint {
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+.settings-groups .settings-hub-grid {
+  max-width: none;
+  margin: 0;
+}
+.data-sources-table td,
+.data-sources-table th {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}

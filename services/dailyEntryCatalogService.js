@@ -1122,6 +1122,11 @@ async function wipeAllCatalogItems() {
   });
 }
 
+async function deleteCatalogItemsByCategory(category) {
+  const { rowCount } = await query('DELETE FROM daily_entry_catalog_items WHERE category = $1', [category]);
+  return { deleted: rowCount || 0, category };
+}
+
 /** Daily-tab upload: same column detection as the settings items import, no manual mapping step. */
 async function importCatalogFileAutoMapped(buffer, originalName, options = {}) {
   const table = await readTabularFile(buffer, originalName);
@@ -1410,6 +1415,7 @@ module.exports = {
   confirmCatalogImportFile,
   importCatalogFileAutoMapped,
   wipeAllCatalogItems,
+  deleteCatalogItemsByCategory,
   parseCsvCatalog,
   parseExcelCatalog,
   exportCatalogCsv,

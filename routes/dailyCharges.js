@@ -282,12 +282,26 @@ router.post('/catalog/import', catalogManagePerm, upload.single('file'), async (
   }
 });
 
+router.get('/data-sources', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const { getDailyDataSources } = require('../services/dailyDataSourcesService');
+    res.json(await getDailyDataSources());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.delete('/catalog/all', requirePermission('settings.*'), async (req, res) => {
   try {
     if (req.body?.confirm !== 'DELETE_ALL') {
       return res.status(400).json({ error: 'تأكيد الحذف مطلوب' });
     }
-    const { wipeAllCatalogItems } = require('../services/dailyEntryCatalogService');
+    const { wipeAllCatalogItems, deleteCatalogItemsByCategory, normalizeCategory } = require('../services/dailyEntryCatalogService');
+    if (req.body.category) {
+      const category = normalizeCategory(req.body.category);
+      if (!category) return res.status(400).json({ error: 'تصنيف غير معروف' });
+      return res.json(await deleteCatalogItemsByCategory(category));
+    }
     res.json(await wipeAllCatalogItems());
   } catch (err) {
     res.status(400).json({ error: err.message });
