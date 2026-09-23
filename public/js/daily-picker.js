@@ -106,8 +106,9 @@
     return await apiJson(`${DAILY_API}/picker/search?${params}`, opts);
   }
 
-  async function fetchPickerItem(sectionCode, id) {
+  async function fetchPickerItem(sectionCode, id, kind = '') {
     const params = new URLSearchParams({ section_code: sectionCode, id: String(id) });
+    if (kind) params.set('kind', kind);
     return await apiJson(`${DAILY_API}/picker/item?${params}`);
   }
 
@@ -479,7 +480,11 @@
     if (!id) return;
 
     try {
-      const payload = await fetchPickerItem(section.code, id);
+      const payload = await fetchPickerItem(
+        section.code,
+        id,
+        line.catalog_item_id != null ? 'catalog' : line.service_id != null ? 'service' : ''
+      );
       const item = payload?.item;
       if (!item) return;
       item._pickerKind = payload?.kind || (usesCatalog ? 'catalog' : 'service');

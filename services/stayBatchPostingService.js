@@ -289,7 +289,60 @@ async function ensureAdmissionDayStayPosted(fileNumber, user = null) {
 }
 
 /**
- * تأمين الغرفة يُحمَّل على بند المرافق في يوم الدخول (يظهر في إجمالي الفاتورة).
+ * After the admission date moves, the old admission day must lose the room insurance.
+ */
+async function stripRoomInsuranceFromNonAdmissionDays(patient, invoiceId, admission, roomIns, user = null) {
+  if (!(roomIns > 0) || !admission) return 0;
+  const { rows } = await query(
+    `SELECT DISTINCT e.id, e.entry_date
+     FROM patient_daily_entries e
+     INNER JOIN patient_daily_entry_lines l ON l.entry_id = e.id
+     WHERE e.patient_id = $1
+       AND e.entry_date <> $2::date
+       AND (e.invoice_id IS NULL OR e.invoice_id = $3)
+       AND l.section_code = 'companion'
+       AND COALESCE(l.amount, 0) >= $4`,
+    [patient.id, admission, invoiceId || null, roomIns]
+  );
+  let fixed = 0;
+  for (const row of rows) {
+    const entryDate = parseDateOnly(row.entry_date);
+    const assignment = await getAssignmentForDate(patient.id, entryDate);
+    const base = round2(assignment?.companion_amount);
+    const entry = await getEntryById(row.id);
+    if (!entry) continue;
+    let changed = false;
+    const lines = (entry.lines || []).map((line) => {
+      if (line.section_code !== 'companion') return { ...line };
+      const amount = round2(line.amount ?? line.unit_price);
+      // Only undo an exact "base + insurance" amount; anything else was typed by hand.
+      if (Math.abs(amount - (base + roomIns)) >= 0.005) return { ...line };
+      changed = true;
+      return { ...line, amount: base, unit_price: base, quantity: 1 };
+    });
+    if (!changed) continue;
+    await saveEntry(
+      {
+        entry_id: entry.id,
+        file_number: patient.file_number,
+        patient_name: patient.name,
+        entry_date: entryDate,
+        stay_type_id: entry.stay_type_id,
+        notes: entry.notes || '',
+        doctor_id: entry.doctor_id,
+        doctor_specialty: entry.doctor_specialty || '',
+        lines: lines.filter((line) => line.section_code !== 'companion' || round2(line.amount) > 0),
+        allow_backfill: true,
+      },
+      user
+    );
+    fixed += 1;
+  }
+  return fixed;
+}
+
+/**
+ * تأمين الغرفة يُحمَّل على بند المرافق في يوم الدخول (يظهر في إجمالي الفاتورة).
  */
 async function syncAdmissionDayRoomInsurance(fileNumber, user = null) {
   const fn = String(fileNumber || '').trim();
@@ -304,6 +357,15 @@ async function syncAdmissionDayRoomInsurance(fileNumber, user = null) {
   const admission = parseDateOnly(stay.invoice.admission_date);
   const roomIns = round2(patient.room_insurance_amount);
   if (!admission) return { updated: false, reason: 'no_admission_date' };
+
+  const strippedDays = await stripRoomInsuranceFromNonAdmissionDays(
+    patient,
+    stay.invoice.id,
+    admission,
+    roomIns,
+    user
+  );
+  if (strippedDays > 0) await syncPatientDailyChargesToInvoice(fn, patient.name);
 
   const assignment = await getAssignmentForDate(patient.id, admission);
   const targetCompanion = admissionCompanionWithInsurance(assignment, roomIns);

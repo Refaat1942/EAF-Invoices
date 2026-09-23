@@ -140,7 +140,8 @@ router.get('/picker/item', requirePermission('daily_charges.view'), async (req, 
     const section_code = String(req.query.section_code || '').trim();
     const id = req.query.id;
     if (!section_code || !id) return res.status(400).json({ error: 'section_code و id مطلوبان' });
-    res.json(await getDailyPickerItemBySection(section_code, id));
+    const kind = String(req.query.kind || '').trim();
+    res.json(await getDailyPickerItemBySection(section_code, id, kind));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

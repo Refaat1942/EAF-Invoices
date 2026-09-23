@@ -175,6 +175,8 @@ const MANUAL_AMOUNT_SECTION_CODES = Object.freeze([
 
 const DAILY_EXAM_SECTION_CODES = Object.freeze(['consultant_exam', 'specialist_exam']);
 
+const CATALOG_PRICED_SECTION_CODES = ['medicines', 'supplies', 'cosmetics'];
+
 function isManualAmountSection(sectionOrCode) {
   const code = typeof sectionOrCode === 'string' ? sectionOrCode : sectionOrCode?.code;
   return MANUAL_AMOUNT_SECTION_CODES.includes(String(code || '').trim());
@@ -391,7 +393,7 @@ async function getSectionsWithServices() {
     sections.map(async (section) => {
       const bundle = inferBundleKey(section.code);
 
-      if (usePriceListOnly) {
+      if (usePriceListOnly && !(section.catalog_category && CATALOG_PRICED_SECTION_CODES.includes(section.code))) {
         if (isManualAmountSection(section)) {
           return {
             ...section,
@@ -437,12 +439,12 @@ async function getSectionsWithServices() {
         const catalogCategories = [section.catalog_category].filter(Boolean);
         return {
           ...section,
-          uses_catalog: catalogCount > 0 || ['medicines', 'supplies', 'cosmetics'].includes(section.code),
+          uses_catalog: catalogCount > 0 || CATALOG_PRICED_SECTION_CODES.includes(section.code),
           catalog_count: catalogCount,
           services: loaded.services,
           service_count: loaded.service_count,
           picker_kind:
-            catalogCount > 0 || ['medicines', 'supplies', 'cosmetics'].includes(section.code)
+            catalogCount > 0 || CATALOG_PRICED_SECTION_CODES.includes(section.code)
               ? 'catalog'
               : loaded.service_count > 0
                 ? 'service'
@@ -917,7 +919,7 @@ async function listDailyPickerServicesByCategory({ category_code, category_codes
   };
 }
 
-async function getDailyPickerItemBySection(section_code, id) {
+async function getDailyPickerItemBySection(section_code, id, kind = '') {
   const section = await getSectionByCode(section_code);
   const itemId = Number(id);
   if (!itemId) {
@@ -929,7 +931,7 @@ async function getDailyPickerItemBySection(section_code, id) {
   const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
   const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
 
-  const priceListService = await getServiceById(itemId);
+  const priceListService = kind === 'catalog' ? null : await getServiceById(itemId);
   if (priceListService?.is_active) {
     const priceList = await getDefaultPriceList();
     if (!priceList || Number(priceListService.price_list_id) === Number(priceList.id)) {
@@ -946,7 +948,7 @@ async function getDailyPickerItemBySection(section_code, id) {
     }
   }
 
-  if (catalogCategory) {
+  if (catalogCategory && kind !== 'service') {
     const { getCatalogItemById, catalogItemToPicker } = require('./dailyEntryCatalogService');
     const item = await getCatalogItemById(itemId);
     if (item && item.is_active) {
@@ -968,6 +970,12 @@ async function getDailyPickerItemBySection(section_code, id) {
     }
     // No matching catalog item — the id may be a price-list service picked via the
     // fallback search (empty catalog). Fall through to the service lookup below.
+  }
+
+  // Re-opening a saved line must show the service it is billed as, even if it no longer fits the section.
+  if (kind === 'service' && priceListService?.is_active) {
+    const enriched = await enrichServicesWithResolvedPrices([priceListService]);
+    return { kind: 'service', item: serviceToDailyPicker(enriched[0]) };
   }
 
   if (!section.category_code) {
@@ -1015,7 +1023,7 @@ function normalizeLine(section, rawLine = {}) {
       quantity: 1,
       unit_price: 0,
       amount: 0,
-      extra_date: rawLine.extra_date || rawLine.value || null,
+      extra_date: normalizeCalendarDate(rawLine.extra_date || rawLine.value) || null,
       extra_text: '',
     };
   }
@@ -1050,7 +1058,7 @@ function normalizeLine(section, rawLine = {}) {
     quantity,
     unit_price: unitPrice,
     amount,
-    extra_date: rawLine.extra_date || null,
+    extra_date: normalizeCalendarDate(rawLine.extra_date) || null,
     extra_text: rawLine.extra_text || '',
     weight: rawLine.weight != null && rawLine.weight !== '' ? Number(rawLine.weight) : null,
   };
@@ -1417,13 +1425,17 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
   const { catalogCategoryForSection } = require('./dailyCatalogCategories');
   let line = { ...rawLine };
+  // Catalog items and price-list services are separate tables: a catalog id that happens to
+  // equal a service id must never be billed as that service.
+  const catalogPriced = CATALOG_PRICED_SECTION_CODES.includes(String(section.code || '').trim());
+  if (catalogPriced && line.catalog_item_id) line.service_id = null;
 
   if (line.service_id) {
     const serviceOk = await serviceIdAllowedForSection(fullSection, line.service_id, sectionsWithServices);
     if (!serviceOk) line.service_id = null;
   }
 
-  if (!line.service_id && line.catalog_item_id) {
+  if (!catalogPriced && !line.service_id && line.catalog_item_id) {
     const catalogId = Number(line.catalog_item_id);
     const catalogAsService = await getServiceById(catalogId);
     if (
@@ -1434,7 +1446,7 @@ async function normalizeLineWithPrice(section, rawLine = {}, sectionsWithService
     }
   }
 
-  if (!line.service_id && line.catalog_item_id) {
+  if (!catalogPriced && !line.service_id && line.catalog_item_id) {
     const resolved = await resolveCatalogPickerToPriceListService(fullSection, line.catalog_item_id);
     if (resolved) {
       line = { ...line, service_id: Number(resolved.id), catalog_item_id: null };
@@ -2917,7 +2929,7 @@ async function restoreDailyEntrySnapshot(snapshot) {
           line.markup_percent != null ? line.markup_percent : null,
           line.catalog_unit || null,
           line.catalog_unit_level || null,
-          line.extra_date || null,
+          normalizeCalendarDate(line.extra_date) || null,
           line.extra_text || '',
           line.sort_order || 0,
         ]

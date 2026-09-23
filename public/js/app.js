@@ -1283,9 +1283,13 @@ function buildInvoiceItemsRenderPlan(items = []) {
     if (!groupItems.length) continue;
     if (invoiceGroupShouldAggregate(key, groupItems)) {
       let total = 0;
+      let unitCount = 0;
+      let returnedCount = 0;
       for (const item of groupItems) {
         if (window.DailySectionBundles?.isStampLineItem?.(item)) continue;
         total += estimateInvoiceItemLineTotal(item);
+        unitCount += Number(item.original_quantity ?? item.quantity) || 0;
+        returnedCount += Number(item.returned_quantity) || 0;
       }
       const label = key === '__manual__' ? 'بنود يدوية' : getInvoiceSectionLabel(groupItems[0]);
       const dayCount = key === 'stay' ? countStayBillableDays(groupItems) : 0;
@@ -1297,7 +1301,8 @@ function buildInvoiceItemsRenderPlan(items = []) {
         sectionCode: key === '__manual__' ? '' : key,
         bundleCode: key === '__manual__' ? '' : key,
         total: roundedTotal,
-        count: dayCount || groupItems.length,
+        count: dayCount || Math.round(unitCount * 100) / 100,
+        returnedCount: dayCount ? 0 : Math.round(returnedCount * 100) / 100,
         dayCount,
         unitAmount: dayCount > 0 ? Math.round((roundedTotal / dayCount) * 100) / 100 : 0,
       });
@@ -1338,7 +1343,10 @@ function fillInvoiceAggregateRow(tr, part = {}, pay = {}) {
   if (descEl) descEl.value = part.label || '';
   if (qtyEl) {
     const dayCount = Number(part.dayCount) || 0;
-    qtyEl.value = dayCount > 0 ? String(dayCount) : part.count > 0 ? String(part.count) : '';
+    const returned = Number(part.returnedCount) || 0;
+    if (dayCount > 0) qtyEl.value = String(dayCount);
+    else if (part.count > 0) qtyEl.value = returned > 0 ? `${part.count} / ${returned}` : String(part.count);
+    else qtyEl.value = '';
   }
   if (amtEl) amtEl.value = part.unitAmount > 0 ? fmt(part.unitAmount) : '';
   const totalEl = tr.querySelector('[data-field="total"]');
