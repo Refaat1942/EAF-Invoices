@@ -1263,32 +1263,7 @@
             <button type="button" class="hub-tile hub-tile--primary settings-section-tile" data-settings-section="data-sources" data-admin="1">
               <span class="hub-tile-icon">🗂️</span>
               <span class="hub-tile-title">مصادر بيانات الشاشات</span>
-              <span class="hub-tile-desc">رفع ومسح ملف كل شاشة</span>
-            </button>
-            <button type="button" class="hub-tile hub-tile--blue settings-section-tile" data-settings-section="pricing" data-admin="1">
-              <span class="hub-tile-icon">💰</span>
-              <span class="hub-tile-title">الأسعار واللائحة</span>
-              <span class="hub-tile-desc">جلسات، كشوفات، تحاليل، أشعة…</span>
-            </button>
-            <button type="button" class="hub-tile hub-tile--teal settings-section-tile" data-settings-section="item-catalog" data-admin="1">
-              <span class="hub-tile-icon">💊</span>
-              <span class="hub-tile-title">كتالوج الأصناف</span>
-              <span class="hub-tile-desc">أدوية ومستلزمات وتجميل</span>
-            </button>
-            <button type="button" class="hub-tile hub-tile--green settings-section-tile" data-settings-section="stay-types">
-              <span class="hub-tile-icon">🏨</span>
-              <span class="hub-tile-title">أنواع الإقامة</span>
-              <span class="hub-tile-desc">الغرف والأسعار</span>
-            </button>
-            <button type="button" class="hub-tile hub-tile--indigo settings-section-tile" data-settings-section="doctors" data-admin="1">
-              <span class="hub-tile-icon">🩺</span>
-              <span class="hub-tile-title">الأطباء</span>
-              <span class="hub-tile-desc">داخلي — لا يطبع</span>
-            </button>
-            <button type="button" class="hub-tile hub-tile--slate settings-section-tile" data-settings-section="exam-specialties" data-admin="1">
-              <span class="hub-tile-icon">📋</span>
-              <span class="hub-tile-title">تخصصات الكشوفات</span>
-              <span class="hub-tile-desc">قائمة التخصص</span>
+              <span class="hub-tile-desc">الأسعار، الأصناف، الإقامة، الأطباء والتخصصات — كلها من هنا</span>
             </button>
             </div>
           </div>
@@ -1368,7 +1343,10 @@
           <div class="card shadow-sm">
             <div class="card-header bg-primary text-white fw-black d-flex justify-content-between align-items-center">
               <span>🗂️ مصادر بيانات الشاشات</span>
-              <button type="button" class="btn btn-sm btn-light fw-bold" id="data-sources-refresh">↻ تحديث</button>
+              <span class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-light fw-bold" data-ds-open="pricing">💰 كل أقسام اللائحة</button>
+                <button type="button" class="btn btn-sm btn-light fw-bold" id="data-sources-refresh">↻ تحديث</button>
+              </span>
             </div>
             <div class="card-body">
               <p class="text-muted small mb-3">كل شاشة إدخال بتقرا من مصدر واحد بس — الملف اللي بيترفع لها هنا (أو من زرار الرفع في تبويبها). المسح هنا بيمسح بنود المصدر ده بس، والفواتير القديمة مش بتتأثر.</p>
@@ -2443,7 +2421,7 @@
   <script src="/js/auto-save.js?v=20260922h"></script>
   <script src="/js/api-client.js?v=20260923a"></script>
   <script src="/js/daily-section-bundles.js?v=20260922a"></script>
-  <script src="/js/app.js?v=20260923u"></script>
+  <script src="/js/app.js?v=20260924a"></script>
   <script src="/js/nationality-pricing.js?v=20260923a"></script>
   <script src="/js/daily-picker.js?v=20260923b"></script>
   <script src="/js/daily-charges.js?v=20260923x"></script>

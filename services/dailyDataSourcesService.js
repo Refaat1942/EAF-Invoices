@@ -14,6 +14,13 @@ const DAILY_DATA_SOURCES = Object.freeze([
   { key: 'cosmetics', screen: 'مستحضرات التجميل', kind: 'catalog', category: 'Cosmetics' },
   { key: 'stay', screen: 'الإقامة', kind: 'settings', settings_section: 'stay-types', source: 'أنواع الإقامة' },
   { key: 'doctors', screen: 'أطباء الكشوفات', kind: 'settings', settings_section: 'doctors', source: 'الأطباء' },
+  {
+    key: 'exam_specialties',
+    screen: 'تخصصات الكشوفات',
+    kind: 'settings',
+    settings_section: 'exam-specialties',
+    source: 'تخصصات الكشوفات',
+  },
 ]);
 
 async function getDailyDataSources() {
@@ -42,11 +49,17 @@ async function getDailyDataSources() {
   );
   const catalogCounts = new Map(catalogRows.map((row) => [row.category, row.n]));
 
-  const [{ rows: stayRows }, { rows: doctorRows }] = await Promise.all([
+  const { getExamSpecialties } = require('./examSpecialtyService');
+  const [{ rows: stayRows }, { rows: doctorRows }, specialties] = await Promise.all([
     query('SELECT COUNT(*)::int AS n FROM stay_types WHERE is_active = TRUE'),
     query('SELECT COUNT(*)::int AS n FROM doctors WHERE is_active = TRUE'),
+    getExamSpecialties({ activeOnly: true }),
   ]);
-  const settingsCounts = { 'stay-types': stayRows[0]?.n || 0, doctors: doctorRows[0]?.n || 0 };
+  const settingsCounts = {
+    'stay-types': stayRows[0]?.n || 0,
+    doctors: doctorRows[0]?.n || 0,
+    'exam-specialties': Array.isArray(specialties) ? specialties.length : 0,
+  };
 
   return {
     price_list: priceList ? { id: priceList.id, name: priceList.name } : null,

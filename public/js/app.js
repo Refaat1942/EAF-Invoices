@@ -1703,7 +1703,7 @@ function bindEvents() {
   });
 
   document.getElementById('settings-section-back')?.addEventListener('click', () => {
-    showSettingsSection('');
+    showSettingsSection(settingsReturnSection);
   });
   initDataSourcesSection();
 
@@ -5775,8 +5775,11 @@ function applySettingsSectionPermissions() {
   }
 }
 
-function showSettingsSection(section) {
+let settingsReturnSection = '';
+
+function showSettingsSection(section, options = {}) {
   currentSettingsSection = section || '';
+  settingsReturnSection = section ? options.returnTo || '' : '';
 
   document.querySelectorAll('.settings-panel').forEach((el) => {
     const key = el.dataset.settingsSection;
@@ -5794,7 +5797,11 @@ function showSettingsSection(section) {
   if (!section) return;
 
   if (section === 'invoice-fees' && can('settings.*')) loadInvoiceFeesSection();
-  if (section === 'pricing' && can('settings.*')) loadPricingSection();
+  if (section === 'pricing' && can('settings.*')) {
+    loadPricingSection().then(() => {
+      if (options.pricingCategoryCode) openPricingDepartmentByCode(options.pricingCategoryCode);
+    });
+  }
   if (section === 'backup' && can('settings.*')) loadBackupSection();
   if (section === 'invoice-serial' && can('settings.*')) loadInvoiceSerialSection();
   if (section === 'doctors' && typeof loadDoctorsSection === 'function') loadDoctorsSection();
@@ -5818,10 +5825,16 @@ async function loadDataSourcesSection() {
       .map((src) => {
         const empty = !src.count;
         const countBadge = `<span class="badge ${empty ? 'bg-secondary' : 'bg-success'} fs-6">${Number(src.count || 0).toLocaleString('en-US')}</span>`;
+        const openSection =
+          src.kind === 'settings' ? src.settings_section : src.kind === 'catalog' ? 'item-catalog' : 'pricing';
+        const openBtn = `<button type="button" class="btn btn-sm btn-outline-primary fw-bold" data-ds-open="${escapeAttr(openSection)}"${
+          src.category_code ? ` data-ds-category-code="${escapeAttr(src.category_code)}"` : ''
+        }>✏️ فتح وتعديل</button>`;
         const actions =
           src.kind === 'settings'
-            ? `<button type="button" class="btn btn-sm btn-outline-primary fw-bold" data-ds-open="${escapeAttr(src.settings_section)}">فتح ${escapeHtml(src.source)}</button>`
-            : `<button type="button" class="btn btn-sm btn-primary fw-bold" data-ds-upload="${escapeAttr(src.key)}">📤 ${escapeHtml(src.upload_label)}</button>
+            ? openBtn
+            : `${openBtn}
+               <button type="button" class="btn btn-sm btn-primary fw-bold ms-1" data-ds-upload="${escapeAttr(src.key)}">📤 ${escapeHtml(src.upload_label)}</button>
                <button type="button" class="btn btn-sm btn-outline-danger fw-bold ms-1" data-ds-clear="${escapeAttr(src.key)}"${empty ? ' disabled' : ''}>🗑️ مسح</button>`;
         return `<tr>
           <td class="fw-bold">${escapeHtml(src.screen)}</td>
@@ -5880,9 +5893,16 @@ function initDataSourcesSection() {
   const input = document.getElementById('data-sources-file');
   if (!body || !input) return;
   document.getElementById('data-sources-refresh')?.addEventListener('click', loadDataSourcesSection);
-  body.addEventListener('click', async (e) => {
+  document.getElementById('data-sources-settings-card')?.addEventListener('click', (e) => {
     const openBtn = e.target.closest('[data-ds-open]');
-    if (openBtn) return showSettingsSection(openBtn.dataset.dsOpen);
+    if (!openBtn) return;
+    showSettingsSection(openBtn.dataset.dsOpen, {
+      returnTo: 'data-sources',
+      pricingCategoryCode: openBtn.dataset.dsCategoryCode || '',
+    });
+  });
+  body.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-ds-open]')) return;
     const uploadBtn = e.target.closest('[data-ds-upload]');
     if (uploadBtn) {
       dataSourcesUploadKey = uploadBtn.dataset.dsUpload;
@@ -7037,8 +7057,9 @@ function populatePricingSectionSelect() {
   const previous = select.value;
   const options = ['<option value="all">— كل الأقسام —</option>'];
 
-  for (const tpl of pricingTemplatesCache) {
-    options.push(`<option value="tpl:${escapeHtml(tpl.key)}">${escapeHtml(tpl.label)}</option>`);
+  for (const dept of listPricingDepartments()) {
+    if (!isPricingDepartmentVisible(dept, previous)) continue;
+    options.push(`<option value="${escapeHtml(dept.value)}">${escapeHtml(dept.label)}</option>`);
   }
 
   select.innerHTML = options.join('');
@@ -7061,10 +7082,19 @@ function listPricingDepartments() {
   });
 }
 
+let pricingKeepVisibleDept = '';
+
+// Empty sections are hidden; screen upload targets stay reachable from «مصادر بيانات الشاشات».
+function isPricingDepartmentVisible(dept, selectedValue = '') {
+  return dept.count > 0 || dept.value === pricingKeepVisibleDept || dept.value === selectedValue;
+}
+
 function renderPricingDepartmentsGrid() {
   const grid = document.getElementById('pricing-departments-grid');
   if (!grid) return;
-  const boxes = listPricingDepartments().map((dept) => {
+  const boxes = listPricingDepartments()
+    .filter((dept) => isPricingDepartmentVisible(dept))
+    .map((dept) => {
     const editBtn = dept.categoryId
       ? `<button type="button" class="btn btn-outline-primary" data-dept-action="edit">تعديل</button>`
       : '';
@@ -7110,6 +7140,18 @@ async function onPricingDepartmentsGridClick(e) {
   } else {
     await onPricingSectionChange();
   }
+}
+
+async function openPricingDepartmentByCode(categoryCode) {
+  const dept = listPricingDepartments().find(
+    (d) => pricingTemplatesCache.find((tpl) => `tpl:${tpl.key}` === d.value)?.category_code === categoryCode
+  );
+  const select = document.getElementById('pricing-section-select');
+  if (!dept || !select) return;
+  pricingKeepVisibleDept = dept.value;
+  populatePricingSectionSelect();
+  select.value = dept.value;
+  await onPricingSectionChange();
 }
 
 async function backToPricingDepartments() {
@@ -7494,10 +7536,11 @@ async function addPricingCategory() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     showToast(`تم إضافة قسم «${name.trim()}» — يمكنك تحميل قالب Excel ورفع الخدمات`, 'success');
+    pricingKeepVisibleDept = `tpl:custom_${data.code}`;
     await loadPricingTemplates();
     await loadPricingCategories();
     populatePricingSectionSelect();
-    document.getElementById('pricing-section-select').value = `tpl:custom_${data.code}`;
+    document.getElementById('pricing-section-select').value = pricingKeepVisibleDept;
     await onPricingSectionChange();
   } catch (err) {
     showToast(err.message, 'danger');
