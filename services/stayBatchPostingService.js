@@ -64,6 +64,24 @@ async function hasStaySectionLine(patientId, date, sectionCode) {
   return rows.length > 0;
 }
 
+async function hasAnyStayLine(patientId, date) {
+  const pid = Number(patientId);
+  const d = parseDateOnly(date);
+  if (!pid || !d) return false;
+  const { rows } = await query(
+    `SELECT 1
+     FROM patient_daily_entries e
+     INNER JOIN patient_daily_entry_lines l ON l.entry_id = e.id
+     WHERE e.patient_id = $1
+       AND e.entry_date = $2::date
+       AND l.section_code IN ('accommodation', 'companion', 'nursing_point', 'patient_assistant')
+       AND COALESCE(l.amount, 0) > 0
+     LIMIT 1`,
+    [pid, d]
+  );
+  return rows.length > 0;
+}
+
 async function buildStayEntryPayload(patient, invoice, date, assignment, options = {}) {
   const skipExisting = options.skip_existing !== false;
   const entryDate = parseDateOnly(date);
@@ -192,6 +210,12 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
 
   for (const date of dates) {
     if (await isStayDateExcluded(patient.id, date)) {
+      skipped.push(date);
+      continue;
+    }
+    // The posted payload holds only the "missing" sections, and saving it replaces the
+    // whole day's stay lines — so a day that already has stay charges belongs to the user.
+    if (skipExisting && (await hasAnyStayLine(patient.id, date))) {
       skipped.push(date);
       continue;
     }

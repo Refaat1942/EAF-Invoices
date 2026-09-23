@@ -1253,6 +1253,8 @@ async function validateServiceForSection(section, serviceId, sectionsWithService
   return service;
 }
 
+const STAY_TYPE_TAG_RE = /^stay_type:(\d+)$/;
+
 async function normalizeManualAmountLine(section, rawLine = {}, sectionsWithServices = null) {
   const normalized = normalizeLine(section, rawLine);
   if (section.input_type !== 'amount') return normalized;
@@ -1264,7 +1266,8 @@ async function normalizeManualAmountLine(section, rawLine = {}, sectionsWithServ
   normalized.quantity = 1;
   normalized.amount = amount;
   normalized.service_id = null;
-  normalized.description = String(normalized.extra_text || '').trim() || section.name;
+  const hint = String(normalized.extra_text || '').trim();
+  normalized.description = (hint && !STAY_TYPE_TAG_RE.test(hint) ? hint : '') || section.name;
 
   return normalized;
 }
@@ -1563,7 +1566,8 @@ async function prepareEntrySaveContext(data) {
   }
 
   const stayTypeId = parseOptionalStayTypeId(data.stay_type_id) || 0;
-  if (stayTypeId && patientType !== 'external') {
+  const hasAccLine = lines.some((l) => l.section_code === 'accommodation');
+  if ((stayTypeId || hasAccLine) && patientType !== 'external') {
     await enrichStayLinesFromStayType(lines, stayTypeId, sections);
   }
 
@@ -1588,23 +1592,43 @@ async function resolveAccommodationGradeForStayType(stayTypeId) {
 }
 
 function applyAccommodationGradeToLine(accLine, grade, accSection, stayTypeName = '') {
-  if (!accLine || !grade) return accLine;
-  const label = String(grade.name || stayTypeName || accSection?.name || 'إقامة').trim();
+  if (!accLine || (!grade && !stayTypeName)) return accLine;
+  const label = String(grade?.name || stayTypeName || accSection?.name || 'إقامة').trim();
   if (label) accLine.description = label;
-  if (grade.catalog_item_id) accLine.catalog_item_id = grade.catalog_item_id;
-  if (grade.service_id) accLine.service_id = grade.service_id;
+  if (grade?.catalog_item_id) accLine.catalog_item_id = grade.catalog_item_id;
+  if (grade?.service_id) accLine.service_id = grade.service_id;
   return accLine;
 }
 
+function stayTypeIdFromAccommodationLine(line) {
+  const match = String(line?.extra_text || '').trim().match(STAY_TYPE_TAG_RE);
+  return match ? Number(match[1]) : 0;
+}
+
 async function enrichStayLinesFromStayType(lines, stayTypeId, sections) {
-  const stayId = Number(stayTypeId);
-  if (!stayId) return lines;
+  const stayId = Number(stayTypeId) || 0;
   const accSection = sections.find((s) => s.code === 'accommodation');
   if (!accSection) return lines;
 
   const grades = await listAccommodationStayGrades();
-  const grade = grades.find((g) => Number(g.stay_type_id) === stayId);
   const { getStayTypeById } = require('./stayTypeService');
+
+  const pricedAccLines = lines.filter(
+    (l) => l.section_code === 'accommodation' && round2(l.amount) > 0
+  );
+  if (pricedAccLines.length) {
+    for (const accLine of pricedAccLines) {
+      const lineStayId = stayTypeIdFromAccommodationLine(accLine) || stayId;
+      if (!lineStayId) continue;
+      const lineGrade = grades.find((g) => Number(g.stay_type_id) === lineStayId);
+      const lineStayName = lineGrade ? '' : (await getStayTypeById(lineStayId))?.name || '';
+      applyAccommodationGradeToLine(accLine, lineGrade, accSection, lineStayName);
+    }
+    return lines;
+  }
+
+  if (!stayId) return lines;
+  const grade = grades.find((g) => Number(g.stay_type_id) === stayId);
   const stayType = await getStayTypeById(stayId);
   const stayTypeName = stayType?.name || '';
   const rate =
@@ -1613,11 +1637,6 @@ async function enrichStayLinesFromStayType(lines, stayTypeId, sections) {
     0;
 
   let accLine = lines.find((l) => l.section_code === 'accommodation');
-  if (accLine && round2(accLine.amount) > 0) {
-    applyAccommodationGradeToLine(accLine, grade, accSection, stayTypeName);
-    return lines;
-  }
-
   if (rate <= 0) return lines;
 
   if (!accLine) {

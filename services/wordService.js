@@ -115,7 +115,7 @@ function buildStayDetailsTable(invoice) {
             cell(formatDate(entry.from_date)),
             cell(formatDate(entry.to_date)),
             cell(entry.days ?? 0),
-            cell(formatNumber(entry.daily_rate)),
+            cell(entry.daily_rate == null ? '—' : formatNumber(entry.daily_rate)),
             cell(formatNumber(entry.total)),
           ],
         })

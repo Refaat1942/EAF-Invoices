@@ -2587,7 +2587,7 @@ function resolveStayTypeIdForSave(selectVal, tr = null) {
 function resolveStayGradeSelectValueFromEntry(entry = {}, accLine = {}) {
   if (accLine.catalog_item_id) return `c:${accLine.catalog_item_id}`;
   if (accLine.service_id) return `s:${accLine.service_id}`;
-  const st = entry.stay_type_id || resolveStayTypeIdFromAccommodationLine(accLine) || '';
+  const st = resolveStayTypeIdFromAccommodationLine(accLine) || entry.stay_type_id || '';
   return st ? String(st) : '';
 }
 
@@ -2883,13 +2883,18 @@ async function applyRoomAssignmentToRow(tr, assignment) {
   updateDailyGrandTotal();
 }
 
+function currentDailyRoomAssignment() {
+  return dailyStayContext?.current_room_assignment || dailyStayContext?.room_assignment || null;
+}
+
 async function applyAutoRoomToTodayRows() {
   if (!canUseDailyStayCharges()) return;
   if (activeDailyTab !== 'stay') return;
-  const assignment = dailyStayContext?.room_assignment;
+  const assignment = currentDailyRoomAssignment();
   if (!assignment?.stay_type_id) return;
   const rows = document.querySelectorAll('#daily-sections-body .daily-stay-row');
   for (const tr of rows) {
+    if (tr.dataset.entryId) continue;
     const rowDate = fmtStayDate(tr.querySelector('.daily-row-date')?.value);
     const today = getLocalDateString();
     if (rowDate && rowDate !== today) continue;
@@ -3004,7 +3009,7 @@ let changeRoomModal = null;
 let batchStayModal = null;
 
 function openChangeRoomModal() {
-  const assignment = dailyStayContext?.room_assignment;
+  const assignment = currentDailyRoomAssignment();
   populateStayTypeSelects(assignment?.stay_type_id || '');
   const floorEl = document.getElementById('change-room-floor');
   const fromEl = document.getElementById('change-room-from');
@@ -4158,7 +4163,7 @@ function buildDailyStayTypeOptions(selectedId = '') {
 }
 
 function getDefaultStayTypeIdForRow() {
-  const assignment = dailyStayContext?.room_assignment;
+  const assignment = currentDailyRoomAssignment();
   if (assignment?.stay_type_id) return String(assignment.stay_type_id);
   const patientGrade = dailyStayContext?.patient?.stay_grade_id;
   if (patientGrade) return String(patientGrade);
@@ -4516,6 +4521,25 @@ function companionServiceIdFromLine(line = {}) {
   return match ? String(match.id) : '';
 }
 
+function companionKindSelectValueFromLine(line = {}) {
+  const serviceId = companionServiceIdFromLine(line);
+  if (serviceId) return serviceId;
+  const amount = Number(line.amount) || 0;
+  if (amount <= 0) return '';
+  const kinds = (dailyCompanionKindOptionsCache || []).filter(
+    (k) => k.code !== 'none' && (k.section_code || 'companion') === 'companion'
+  );
+  if (!kinds.length) return '';
+  const hint = String(line.extra_text || line.description || '').trim();
+  const roomIns = Number(dailyStayContext?.patient?.room_insurance_amount) || 0;
+  const match =
+    kinds.find((k) => hint && String(k.name).trim() === hint) ||
+    kinds.find((k) => Number(k.amount) === amount) ||
+    (roomIns > 0 ? kinds.find((k) => Number(k.amount) + roomIns === amount) : null) ||
+    kinds[0];
+  return String(match.code);
+}
+
 function formatAmountFieldValue(n) {
   if (n == null || n === '') return '';
   if (typeof formatAmountInput === 'function') return formatAmountInput(n);
@@ -4859,7 +4883,7 @@ function createStayDailyEntryRow(entry = {}) {
   const assistantLine = assistantLines[0] || {};
   const nursingLines = getLinesForSection(entry, 'nursing_point');
   const nursingLine = nursingLines[0] || {};
-  const companionServiceId = companionServiceIdFromLine(companionLine);
+  const companionServiceId = companionKindSelectValueFromLine(companionLine);
   const accSection = dailySectionsCache.find((s) => s.code === 'accommodation');
   const accPickerHtml = accSection
     ? `<span class="d-none daily-acc-picker-wrap">${buildCatalogPickerCell(accSection)}</span>`
@@ -6100,7 +6124,7 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
       <input type="hidden" class="daily-amount" data-section="accommodation" data-type="amount">
     </td>`;
   } else if (sectionCode === 'companion') {
-    const serviceId = companionServiceIdFromLine(line);
+    const serviceId = companionKindSelectValueFromLine(line);
     companionKind = `<td class="daily-col-companion-kind"><select class="form-select form-select-sm daily-companion-kind">${buildCompanionKindOptions(serviceId)}</select></td>`;
     companionAmt = `<td class="daily-col-amount"><input type="text" inputmode="decimal" class="form-control form-control-sm daily-amount comma-amount" data-section="companion" data-type="amount" autocomplete="off"></td>`;
   } else if (sectionCode === 'patient_assistant') {
@@ -6228,7 +6252,9 @@ function collectCompanionLineFromRow(rowTr, lines) {
     quantity: 1,
     extra_text: kindSel?.selectedOptions[0]?.text?.trim() || '',
   };
-  if (rowTr.dataset.lineId && (rowTr.classList.contains('daily-stay-row') || rowTr.dataset.addonSection === 'companion')) {
+  if (companionInput?.dataset.lineId) {
+    line.id = Number(companionInput.dataset.lineId);
+  } else if (rowTr.dataset.lineId && (rowTr.classList.contains('daily-stay-row') || rowTr.dataset.addonSection === 'companion')) {
     line.id = Number(rowTr.dataset.lineId);
   }
   lines.push(line);

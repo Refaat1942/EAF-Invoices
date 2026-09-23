@@ -387,43 +387,54 @@ function deriveStayEntriesFromDailyItems(items = []) {
   });
   if (!stayLines.length) return [];
 
-  const dates = [];
-  let totalRaw = 0;
-  let rateSum = 0;
-  let rateCount = 0;
-  let stayTypeName = '';
-
+  const groups = new Map();
   for (const item of stayLines) {
+    const code = String(item.section_code || '').trim();
+    const name =
+      code === 'accommodation'
+        ? String(item.service_name_snapshot || item.description || '')
+            .replace(/^\[[^\]]*\]\s*/, '')
+            .trim() || 'إقامة'
+        : STAY_DETAIL_LABELS[code] || String(item.section_name || '').trim() || 'إقامة ورعاية';
+    const key = `${STAY_DETAIL_ORDER[code] ?? 9}|${name}`;
+    if (!groups.has(key)) groups.set(key, { name, dates: [], units: new Set(), totalRaw: 0 });
+    const group = groups.get(key);
     const d = fmtDateOnly(item.entry_date || item.daily_entry_date);
-    if (d) dates.push(d);
-    totalRaw = round2(totalRaw + (Number(item.total_raw ?? item.total) || 0));
-    const unit = Number(item.amount) || 0;
-    if (unit > 0) {
-      rateSum = round2(rateSum + unit);
-      rateCount += 1;
-    }
-    if (!stayTypeName && item.service_name_snapshot) stayTypeName = item.service_name_snapshot;
+    if (d) group.dates.push(d);
+    group.totalRaw = round2(group.totalRaw + (Number(item.total_raw ?? item.total) || 0));
+    const unit = round2(item.amount);
+    if (unit > 0) group.units.add(unit);
   }
 
-  dates.sort();
-  const uniqueDays = new Set(dates).size;
-  const from_date = dates[0] || null;
-  const to_date = dates[dates.length - 1] || from_date;
-  const days = uniqueDays || calculateStayDays(from_date, to_date);
-  const daily_rate = rateCount > 0 ? round2(rateSum / rateCount) : days > 0 ? round2(totalRaw / days) : 0;
-
-  return [
-    {
-      stay_type_name: stayTypeName || 'إقامة ورعاية',
-      from_date,
-      to_date,
-      days,
-      daily_rate,
-      total_raw: totalRaw,
-      total: Math.round(totalRaw),
-    },
-  ];
+  return [...groups.entries()]
+    .sort(([a, ga], [b, gb]) => {
+      const orderDiff = Number(a.split('|')[0]) - Number(b.split('|')[0]);
+      if (orderDiff) return orderDiff;
+      return String([...ga.dates].sort()[0] || '').localeCompare(String([...gb.dates].sort()[0] || ''));
+    })
+    .map(([, group]) => {
+      const dates = [...group.dates].sort();
+      const from_date = dates[0] || null;
+      const to_date = dates[dates.length - 1] || from_date;
+      const days = new Set(dates).size || calculateStayDays(from_date, to_date);
+      return {
+        stay_type_name: group.name,
+        from_date,
+        to_date,
+        days,
+        daily_rate: group.units.size === 1 ? [...group.units][0] : null,
+        total_raw: group.totalRaw,
+        total: Math.round(group.totalRaw),
+      };
+    });
 }
+
+const STAY_DETAIL_ORDER = { accommodation: 0, companion: 1, nursing_point: 2, patient_assistant: 3 };
+const STAY_DETAIL_LABELS = {
+  companion: 'مرافق',
+  nursing_point: 'نقطة تمريض',
+  patient_assistant: 'مساعد تمريض',
+};
 
 async function resolveInvoiceForPrint(invoice) {
   if (!invoice) return invoice;
@@ -2082,11 +2093,16 @@ async function getOpenPatientStay(fileNumber) {
       : [];
 
   let room_assignment = null;
+  let current_room_assignment = null;
   if (patient?.id) {
     const { getAssignmentForDate } = require('./patientRoomService');
-    const refDate =
-      fmtDateOnly(invoice?.admission_date) || require('./dailyChargeService').getCurrentBusinessDateString();
+    const businessToday = require('./dailyChargeService').getCurrentBusinessDateString();
+    const refDate = fmtDateOnly(invoice?.admission_date) || businessToday;
     room_assignment = await getAssignmentForDate(patient.id, refDate);
+    const discharge = fmtDateOnly(invoice?.discharge_date);
+    const currentDate = discharge && discharge < businessToday ? discharge : businessToday;
+    current_room_assignment =
+      currentDate === refDate ? room_assignment : await getAssignmentForDate(patient.id, currentDate);
   }
 
   const fallbackType = patient?.patient_type || 'internal';
@@ -2102,6 +2118,7 @@ async function getOpenPatientStay(fileNumber) {
     invoice,
     daily_summary: dailySummary,
     room_assignment,
+    current_room_assignment,
     stay_excluded_dates,
   };
 }

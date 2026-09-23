@@ -793,7 +793,15 @@ function appendMethodPaymentsToPrintRows(items, payments, methodPayments = []) {
     };
   }
 
+  const receiptKey = (pay) =>
+    `${Math.round((Number(pay.amount) || 0) * 100)}|${String(pay.receipt_number || '').trim()}`;
+  const legacyKeys = nextPayments.map(receiptKey);
   methodReceipts.forEach((pay) => {
+    const matchIdx = legacyKeys.indexOf(receiptKey(pay));
+    if (matchIdx >= 0) {
+      legacyKeys[matchIdx] = null;
+      return;
+    }
     nextItems.push({});
     nextPayments.push(pay);
   });
@@ -866,8 +874,8 @@ function formatStaySummary(inv) {
     return entries
       .map((entry) => {
         const days = entry.days ?? 0;
-        const rate = Number(entry.daily_rate) || 0;
-        return `${entry.stay_type_name || '-'}: ${formatDate(entry.from_date)} → ${formatDate(entry.to_date)} (${days} يوم × ${fmtPlain(rate)})`;
+        const rateLabel = entry.daily_rate == null ? fmtPlain(entry.total) : `× ${fmtPlain(entry.daily_rate)}`;
+        return `${entry.stay_type_name || '-'}: ${formatDate(entry.from_date)} → ${formatDate(entry.to_date)} (${days} يوم ${rateLabel})`;
       })
       .join(' | ');
   }
@@ -885,7 +893,7 @@ function buildStayDetailsTable(inv) {
       <td>${formatDate(entry.from_date)}</td>
       <td>${formatDate(entry.to_date)}</td>
       <td class="num">${entry.days ?? 0}</td>
-      <td class="num">${fmtPlain(entry.daily_rate)}</td>
+      <td class="num">${entry.daily_rate == null ? '—' : fmtPlain(entry.daily_rate)}</td>
       <td class="num">${fmtPlain(entry.total)}</td>
     </tr>`
     )
