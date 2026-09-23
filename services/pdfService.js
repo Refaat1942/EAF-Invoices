@@ -765,47 +765,45 @@ function formatPaymentMethodLabel(method = {}) {
 
 function methodPaymentsToReceiptRows(methodPayments = []) {
   return (methodPayments || [])
-    .filter((entry) => entry.accepts_amount !== false && (Number(entry.amount) || 0) > 0)
+    .filter((entry) => entry.accepts_amount !== false && entry.code !== 'patient_credit')
     .map((entry) => {
       const meta = entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
       const fallbackName = entry.code === 'room_insurance' ? entry.name || 'مبلغ التأمين' : '';
+      const amount = Number(entry.amount) || 0;
+      const hasDetails =
+        amount > 0 || meta.depositor_name || meta.transfer_ref || meta.cheque_number || meta.cheque_date;
+      if (!hasDetails) return null;
       return {
-        amount: entry.amount,
-        depositor_name: String(meta.depositor_name || fallbackName).trim(),
+        amount,
+        depositor_name: String(meta.depositor_name || (amount > 0 ? fallbackName : '')).trim(),
         receipt_number: String(meta.transfer_ref || meta.cheque_number || '').trim(),
         receipt_date: String(meta.cheque_date || meta.receipt_date || '').trim(),
       };
-    });
+    })
+    .filter(Boolean);
 }
 
+// Mirrors syncInvoicePaymentColumnsFromMethodPayments on the invoice screen: receipts
+// fill billable rows in order (section headers take no receipt), overflow gets own rows.
 function appendMethodPaymentsToPrintRows(items, payments, methodPayments = []) {
   const methodReceipts = methodPaymentsToReceiptRows(methodPayments);
-  if (!methodReceipts.length) return { items, payments };
+  const receipts = methodReceipts.length ? methodReceipts : payments;
 
   const nextItems = [...items];
-  const nextPayments = [...payments];
-  const hasLegacyPayments = nextPayments.some(
-    (pay) => pay.amount || pay.receipt_number || pay.receipt_date || pay.depositor_name
-  );
-  if (!hasLegacyPayments) {
-    return {
-      items: [...nextItems, ...methodReceipts.map(() => ({}))],
-      payments: methodReceipts,
-    };
-  }
-
-  const receiptKey = (pay) =>
-    `${Math.round((Number(pay.amount) || 0) * 100)}|${String(pay.receipt_number || '').trim()}`;
-  const legacyKeys = nextPayments.map(receiptKey);
-  methodReceipts.forEach((pay) => {
-    const matchIdx = legacyKeys.indexOf(receiptKey(pay));
-    if (matchIdx >= 0) {
-      legacyKeys[matchIdx] = null;
+  const nextPayments = [];
+  let receiptIdx = 0;
+  nextItems.forEach((item) => {
+    if (item && item._section_header) {
+      nextPayments.push({});
       return;
     }
-    nextItems.push({});
-    nextPayments.push(pay);
+    nextPayments.push(receipts[receiptIdx] || {});
+    receiptIdx += 1;
   });
+  for (; receiptIdx < receipts.length; receiptIdx += 1) {
+    nextItems.push({});
+    nextPayments.push(receipts[receiptIdx]);
+  }
   return { items: nextItems, payments: nextPayments };
 }
 
@@ -956,7 +954,7 @@ function buildSummaryRows(inv) {
     rows.push(['إجمالي القسم', inv.final_total_raw, inv.final_total, '']);
   } else {
     rows.push(
-      ['الرصيد', inv.balance_raw, inv.balance, ''],
+      [String(inv.file_number || '').trim() ? 'رصيد المريض (بعد البنود)' : 'الرصيد', inv.balance_raw, inv.balance, ''],
       ['الإجمالي', inv.final_total_raw, inv.final_total, fmtDual(inv.total_collected_raw, inv.total_collected)]
     );
   }
