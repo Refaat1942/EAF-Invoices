@@ -92,8 +92,10 @@ async function fetchInvoicesForReport(filters = {}) {
     params.push(`%${String(filters.nationality).trim()}%`);
   }
   if (filters.search) {
-    sql += ` AND (patient_name ILIKE $${i} OR serial_number ILIKE $${i} OR file_number ILIKE $${i})`;
-    params.push(`%${filters.search}%`);
+    sql += ` AND (patient_name ILIKE $${i} OR serial_number ILIKE $${i} OR file_number ILIKE $${i}
+      OR EXISTS (SELECT 1 FROM patients pt WHERE pt.file_number = invoices.file_number
+                 AND (COALESCE(pt.phone, '') ILIKE $${i} OR COALESCE(pt.other_phone, '') ILIKE $${i})))`;
+    params.push(`%${String(filters.search).trim()}%`);
     i++;
   }
 
@@ -229,6 +231,79 @@ async function getInvoicesReport(filters = {}) {
     invoice_type_label: typeMap[inv.invoice_type] || inv.invoice_type,
     status_label: STATUS_LABELS[inv.status] || inv.status,
   }));
+}
+
+async function getAccountSummaryReport(filters = {}) {
+  const invoices = await fetchInvoicesForReport({
+    ...filters,
+    approved_only: filters.approved_only === true ? true : false,
+  });
+  const fileNumbers = [...new Set(invoices.map((inv) => String(inv.file_number || '').trim()).filter(Boolean))];
+  const phoneMap = {};
+  if (fileNumbers.length) {
+    const { rows } = await query(
+      `SELECT file_number, phone, other_phone FROM patients WHERE file_number = ANY($1::text[])`,
+      [fileNumbers]
+    );
+    rows.forEach((row) => {
+      phoneMap[row.file_number] = [row.phone, row.other_phone].filter((p) => String(p || '').trim()).join(' / ');
+    });
+  }
+  const typeMap = await getInvoiceTypesMap();
+  const num = (v) => Math.round((Number(v) || 0) * 100) / 100;
+  const totals = {
+    invoice_count: 0,
+    items_only: 0,
+    items_subtotal: 0,
+    stay_subtotal: 0,
+    fees: 0,
+    admin_expenses: 0,
+    total_after_admin: 0,
+    final_total: 0,
+    total_collected: 0,
+    remaining: 0,
+    refundable: 0,
+  };
+  const rows = invoices.map((inv) => {
+    const fees = num(Number(inv.stamp_duty) + Number(inv.professional_fees));
+    const finalTotal = num(inv.final_total);
+    const collected = num(inv.total_collected);
+    const refundable = collected > finalTotal ? num(collected - finalTotal) : 0;
+    const row = {
+      invoice_id: inv.id,
+      serial_number: inv.serial_number || '',
+      status: inv.status,
+      status_label: STATUS_LABELS[inv.status] || inv.status,
+      invoice_type_label: typeMap[inv.invoice_type] || inv.invoice_type,
+      issue_date: inv.issue_date || inv.created_at,
+      admission_date: inv.admission_date,
+      discharge_date: inv.discharge_date,
+      file_number: inv.file_number,
+      patient_name: inv.patient_name,
+      phone: phoneMap[inv.file_number] || '',
+      items_only: num(Number(inv.items_subtotal) - Number(inv.stay_subtotal)),
+      items_subtotal: num(inv.items_subtotal),
+      stay_subtotal: num(inv.stay_subtotal),
+      fees,
+      admin_expenses_percent: num(inv.admin_expenses_percent),
+      admin_expenses: num(inv.admin_expenses),
+      total_after_admin: num(inv.total_after_admin),
+      patient_credit_applied: num(inv.patient_credit_applied),
+      final_total: finalTotal,
+      total_collected: collected,
+      remaining: num(inv.remaining),
+      refundable,
+    };
+    totals.invoice_count += 1;
+    ['items_only', 'items_subtotal', 'stay_subtotal', 'fees', 'admin_expenses', 'total_after_admin', 'final_total', 'remaining', 'refundable'].forEach(
+      (key) => {
+        totals[key] = num(totals[key] + row[key]);
+      }
+    );
+    totals.total_collected = num(totals.total_collected + collected);
+    return row;
+  });
+  return { rows, totals, filters };
 }
 
 const DAILY_ITEMS_KINDS = {
@@ -1729,6 +1804,73 @@ async function buildExcelWorkbook(reportType, filters = {}) {
         Number(row.line_total),
       ]);
     });
+  } else if (reportType === 'account_summary') {
+    const data = await getAccountSummaryReport(filters);
+    sheet.addRow(['تقرير ملخص ومسار الحسابات']);
+    sheet.addRow(['من', filters.from_date || '—', 'إلى', filters.to_date || '—', 'بحث', filters.search || filters.file_number || '—']);
+    sheet.addRow([]);
+    sheet.addRow([
+      'الفاتورة',
+      'الحالة',
+      'النوع',
+      'التاريخ',
+      'الملف',
+      'المريض',
+      'التليفون',
+      'قيمة البنود',
+      'الإقامة',
+      'إجمالي البنود والإقامة',
+      'دمغة + مهن',
+      'نسبة المصروفات الإدارية %',
+      'المصروفات الإدارية',
+      'بعد المصروفات',
+      'خصم من الرصيد',
+      'الإجمالي النهائي',
+      'المحصل',
+      'المتبقي',
+      'مستحق إرجاع',
+    ]);
+    data.rows.forEach((row) => {
+      sheet.addRow([
+        row.serial_number || `#${row.invoice_id}`,
+        row.status_label,
+        row.invoice_type_label,
+        formatDailyExcelDate(row.issue_date),
+        row.file_number,
+        row.patient_name,
+        row.phone,
+        row.items_only,
+        row.stay_subtotal,
+        row.items_subtotal,
+        row.fees,
+        row.admin_expenses_percent,
+        row.admin_expenses,
+        row.total_after_admin,
+        row.patient_credit_applied,
+        row.final_total,
+        row.total_collected,
+        row.remaining,
+        row.refundable,
+      ]);
+    });
+    const t = data.totals;
+    const totalRow = sheet.addRow([
+      `الإجمالي (${t.invoice_count} فاتورة)`,
+      '', '', '', '', '', '',
+      t.items_only,
+      t.stay_subtotal,
+      t.items_subtotal,
+      t.fees,
+      '',
+      t.admin_expenses,
+      t.total_after_admin,
+      '',
+      t.final_total,
+      t.total_collected,
+      t.remaining,
+      t.refundable,
+    ]);
+    totalRow.font = { bold: true };
   } else if (reportType === 'reconciliation') {
     const data = await getReconciliationReport(filters);
     sheet.addRow(['تقرير مطابقة الفواتير والتحصيل']);
@@ -1794,6 +1936,7 @@ module.exports = {
   getDailyPrintReport,
   getPatientStatusReport,
   getReconciliationReport,
+  getAccountSummaryReport,
   exportExcelBuffer,
   buildDailyPrintExcelBuffer,
   STATUS_LABELS,

@@ -155,6 +155,15 @@ router.get('/serial-numbering/audit', requirePermission('settings.*'), async (re
   }
 });
 
+router.get('/reports/account-summary', requirePermission('reports.view'), async (req, res) => {
+  try {
+    const { getAccountSummaryReport } = require('../services/reportService');
+    res.json(await getAccountSummaryReport(reportFilters(req)));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/reports/reconciliation', requirePermission('reports.view'), async (req, res) => {
   try {
     const { getReconciliationReport } = require('../services/reportService');
@@ -167,7 +176,7 @@ router.get('/reports/reconciliation', requirePermission('reports.view'), async (
 router.get('/reports/export', requirePermission('reports.export'), async (req, res) => {
   try {
     const reportType = req.query.report || 'summary';
-    const allowed = ['summary', 'invoices', 'payments', 'remaining', 'patient_status', 'supplies_markup', 'reconciliation'];
+    const allowed = ['summary', 'invoices', 'payments', 'remaining', 'patient_status', 'supplies_markup', 'reconciliation', 'account_summary'];
     if (!allowed.includes(reportType)) {
       return res.status(400).json({ error: 'نوع التقرير غير صالح' });
     }

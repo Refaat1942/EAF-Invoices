@@ -629,7 +629,7 @@
                 </div>
 
                 <!-- Signatures (same roles as print preview / PDF) -->
-                <div class="row g-2 mb-3">
+                <div class="row g-2 mb-3 d-none" aria-hidden="true">
                   <div class="col-md-3"><label class="form-label fw-bold">المدير المالي</label><input type="text" class="form-control" id="manager_name" value="رائد / جمال عبد الناصر"></div>
                   <div class="col-md-3"><label class="form-label fw-bold">رئيس حسابات المرضى</label><input type="text" class="form-control" id="captain_name" value="نقيب عمرو صالح"></div>
                   <div class="col-md-3"><label class="form-label fw-bold">المراجع المالي</label><input type="text" class="form-control" id="auditor_name"></div>
@@ -677,7 +677,7 @@
                 </div>
               </div>
             </div>
-            <div class="col-lg-4">
+            <div class="col-lg-4 d-none" aria-hidden="true">
               <div class="card shadow-sm">
                 <div class="card-header bg-info text-white fw-black">📊 مسار الحساب</div>
                 <div class="card-body p-2">
@@ -688,7 +688,7 @@
                 </div>
               </div>
             </div>
-            <div class="col-lg-4">
+            <div class="col-lg-4 d-none" aria-hidden="true">
               <div class="card shadow-sm">
                 <div class="card-header bg-secondary text-white fw-black">ملخص الحسابات</div>
                 <div class="card-body compact-summary">
@@ -1978,8 +1978,8 @@
               <input type="text" class="form-control form-control-sm fw-bold" id="report-file-number" placeholder="رقم الملف" autocomplete="off">
             </div>
             <div class="col-lg-3 col-md-6">
-              <label class="form-label fw-bold small mb-1">بحث (اسم / فاتورة)</label>
-              <input type="search" class="form-control form-control-sm fw-bold" id="report-search" placeholder="اسم مريض أو رقم فاتورة..." autocomplete="off">
+              <label class="form-label fw-bold small mb-1">بحث (اسم / تليفون / فاتورة)</label>
+              <input type="search" class="form-control form-control-sm fw-bold" id="report-search" placeholder="اسم مريض أو تليفون أو رقم فاتورة..." autocomplete="off">
             </div>
             <div class="col-lg-2 col-md-4" id="report-invoice-type-wrap">
               <label class="form-label fw-bold small mb-1">نوع الفاتورة</label>
@@ -2424,7 +2424,7 @@
   <script src="/js/auto-save.js?v=20260922h"></script>
   <script src="/js/api-client.js?v=20260923a"></script>
   <script src="/js/daily-section-bundles.js?v=20260922a"></script>
-  <script src="/js/app.js?v=20260923o"></script>
+  <script src="/js/app.js?v=20260923p"></script>
   <script src="/js/nationality-pricing.js?v=20260923a"></script>
   <script src="/js/daily-picker.js?v=20260923b"></script>
   <script src="/js/daily-charges.js?v=20260923u"></script>

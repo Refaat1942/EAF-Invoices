@@ -72,6 +72,7 @@ const REPORT_TILES = [
   { id: 'remaining', label: 'المتبقي', icon: '⚠️', tileClass: 'hub-tile--red', desc: 'غير المسدد' },
   { id: 'patient_status', label: 'موقف مريض', icon: '👤', tileClass: 'hub-tile--teal', desc: 'حركة مريض كاملة' },
   { id: 'supplies_markup', label: 'هامش مستلزمات', icon: '🧴', tileClass: 'hub-tile--green', desc: 'ربح المستلزمات' },
+  { id: 'account_summary', label: 'ملخص ومسار الحسابات', icon: '🧮', tileClass: 'hub-tile--indigo', desc: 'مسار حساب كل فاتورة' },
   { id: 'reconciliation', label: 'مطابقة', icon: '✓', tileClass: 'hub-tile--slate', desc: 'تطابق المدفوعات' },
   { id: 'doctors', label: 'الأطباء', icon: '🩺', tileClass: 'hub-tile--indigo', desc: 'تقرير الأطباء' },
 ];
@@ -4445,6 +4446,7 @@ function updateReportFiltersUI() {
     'remaining',
     'supplies_markup',
     'patient_status',
+    'account_summary',
   ].includes(currentReportType);
   const isDoctorReport = currentReportType === 'doctors';
   const isPatientStatus = currentReportType === 'patient_status';
@@ -6277,6 +6279,7 @@ async function loadReports() {
     if (currentReportType === 'reconciliation') endpoint = `${API}/reports/reconciliation?${params}`;
     if (currentReportType === 'doctors') endpoint = `/api/doctors/reports/summary?${params}`;
     if (currentReportType === 'invoices') endpoint = `${API}/reports/invoices?${params}`;
+    if (currentReportType === 'account_summary') endpoint = `${API}/reports/account-summary?${params}`;
 
     const res = await apiFetch(endpoint);
     const data = await res.json();
@@ -6485,6 +6488,11 @@ async function loadReports() {
       return;
     }
 
+    if (currentReportType === 'account_summary') {
+      container.innerHTML = renderAccountSummaryReport(data);
+      return;
+    }
+
     if (currentReportType === 'invoices') {
       const rows = (Array.isArray(data) ? data : [])
         .map((inv) => {
@@ -6539,6 +6547,58 @@ async function loadReports() {
   } catch (err) {
     container.innerHTML = `<div class="col-12 text-center text-danger py-5">${err.message || 'خطأ في تحميل التقارير'}</div>`;
   }
+}
+
+function renderAccountSummaryReport(data) {
+  const t = data.totals || {};
+  const dateLabel = (v) => (v ? new Date(v).toLocaleDateString('ar-EG-u-nu-latn') : '—');
+  const rows = (data.rows || [])
+    .map((r) => {
+      const st = STATUS_BADGES[r.status] || { text: r.status_label || r.status, class: 'bg-secondary' };
+      return `<tr>
+        <td class="fw-bold">${escapeHtml(r.serial_number || `#${r.invoice_id}`)}</td>
+        <td><span class="badge ${st.class}">${st.text}</span></td>
+        <td>${dateLabel(r.issue_date)}</td>
+        <td class="fw-bold">${escapeHtml(r.file_number || '—')}</td>
+        <td>${escapeHtml(r.patient_name || '—')}</td>
+        <td dir="ltr">${escapeHtml(r.phone || '—')}</td>
+        <td>${fmt(r.items_only)}</td>
+        <td>${fmt(r.stay_subtotal)}</td>
+        <td>${fmt(r.items_subtotal)}</td>
+        <td>${fmt(r.fees)}</td>
+        <td>${fmt(r.admin_expenses)} <small class="text-muted">(${fmt(r.admin_expenses_percent)}%)</small></td>
+        <td>${fmt(r.total_after_admin)}</td>
+        <td class="fw-black">${fmt(r.final_total)}</td>
+        <td class="text-success">${fmt(r.total_collected)}</td>
+        <td class="${r.remaining > 0 ? 'text-danger fw-bold' : ''}">${fmt(r.remaining)}</td>
+        <td class="${r.refundable > 0 ? 'text-danger' : ''}">${fmt(r.refundable)}</td>
+      </tr>`;
+    })
+    .join('');
+  const card = (label, value, cls = '') =>
+    `<div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
+      <div class="report-label">${label}</div><div class="report-stat ${cls}">${value}</div></div></div></div>`;
+  return `
+    ${card('عدد الفواتير', t.invoice_count || 0)}
+    ${card('الإجمالي النهائي', fmt(t.final_total || 0), 'text-primary')}
+    ${card('المحصل', fmt(t.total_collected || 0), 'text-success')}
+    ${card('المتبقي', fmt(t.remaining || 0), 'text-danger')}
+    <div class="col-12"><div class="card shadow-sm"><div class="card-header bg-dark text-white fw-black">🧮 ملخص ومسار الحسابات</div>
+      <p class="small text-muted px-3 pt-2 mb-0">المسار: قيمة البنود + الإقامة ← + دمغة ومهن ← + المصروفات الإدارية ← الإجمالي النهائي ← − المحصل = المتبقي</p>
+      <div class="card-body p-0"><table class="table table-striped table-sm mb-0 reports-data-table">
+        <thead class="table-dark"><tr>
+          <th>الفاتورة</th><th>الحالة</th><th>التاريخ</th><th>الملف</th><th>المريض</th><th>التليفون</th>
+          <th>قيمة البنود</th><th>الإقامة</th><th>البنود والإقامة</th><th>دمغة + مهن</th><th>مصروفات إدارية</th>
+          <th>بعد المصروفات</th><th>الإجمالي النهائي</th><th>المحصل</th><th>المتبقي</th><th>مستحق إرجاع</th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="16" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
+        ${rows ? `<tfoot class="table-warning fw-black"><tr>
+          <td colspan="6" class="text-end">الإجمالي</td>
+          <td>${fmt(t.items_only)}</td><td>${fmt(t.stay_subtotal)}</td><td>${fmt(t.items_subtotal)}</td>
+          <td>${fmt(t.fees)}</td><td>${fmt(t.admin_expenses)}</td><td>${fmt(t.total_after_admin)}</td>
+          <td>${fmt(t.final_total)}</td><td>${fmt(t.total_collected)}</td><td>${fmt(t.remaining)}</td><td>${fmt(t.refundable)}</td>
+        </tr></tfoot>` : ''}
+      </table></div></div></div>`;
 }
 
 function renderPatientStatusReport(data) {
