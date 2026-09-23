@@ -2152,6 +2152,8 @@ async function openPatientStay(data, user = null) {
   if (!fileNumber || !patientName || !admissionDate) {
     throw new Error('رقم الملف واسم المريض وتاريخ الدخول مطلوبان');
   }
+  const { assertValidPatientPhones } = require('./patientService');
+  assertValidPatientPhones(data, await getPatientByFileNumber(fileNumber));
 
   await upsertPatient(fileNumber, {
     name: patientName,

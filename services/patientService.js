@@ -6,6 +6,31 @@ function normalizePatientType(type) {
   return t === 'external' || t === 'خارجي' ? 'external' : 'internal';
 }
 
+const EGYPT_MOBILE_RE = /^01[0125]\d{8}$/;
+
+function normalizePhoneInput(value) {
+  return String(value ?? '')
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[\s\-()+.]/g, '');
+}
+
+function assertValidPatientPhones(data, existing = null) {
+  const fields = [
+    ['phone', 'رقم التليفون'],
+    ['other_phone', 'التليفون الآخر'],
+  ];
+  for (const [key, label] of fields) {
+    if (data[key] === undefined || data[key] === null) continue;
+    const value = normalizePhoneInput(data[key]);
+    data[key] = value;
+    if (!value || value === normalizePhoneInput(existing?.[key])) continue;
+    if (!EGYPT_MOBILE_RE.test(value)) {
+      throw new Error(`${label} يجب أن يكون 11 رقمًا ويبدأ بـ 010 أو 011 أو 012 أو 015`);
+    }
+  }
+}
+
 function parseOptionalInt(value) {
   if (value === undefined || value === null || value === '') return null;
   const n = parseInt(String(value).trim(), 10);
@@ -563,4 +588,5 @@ module.exports = {
   getPatientRoomInsuranceAmount,
   getPatientPrepaidBalance,
   resolveRefundableAmount,
+  assertValidPatientPhones,
 };

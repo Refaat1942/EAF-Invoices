@@ -6643,10 +6643,6 @@ async function loadPricingSection() {
         .join('');
     }
 
-    document.getElementById('pricing-supplies-markup').value = formatAmountInput(
-      settings.default_supplies_markup_percent ?? 20,
-      0
-    );
     document.getElementById('pricing-file-opening-fee').value = formatAmountInput(settings.file_opening_fee ?? 50);
     document.getElementById('pricing-ambulance-fee').value = formatAmountInput(settings.ambulance_rental_cairo ?? 3000);
     document.getElementById('pricing-foreign-resident').value = formatAmountInput(settings.foreign_resident_multiplier ?? 150);
@@ -7066,6 +7062,8 @@ async function loadInvoiceFeesSection() {
     document.getElementById('fees-professional-amount').value = formatAmountInput(
       Number(settings.professional_fees_amount) || 0
     );
+    const markup = String(settings.default_supplies_markup_percent ?? '').trim();
+    document.getElementById('fees-supplies-markup').value = formatAmountInput(markup === '' ? 20 : Number(markup));
     bindCommaAmountInputs(document.getElementById('settings-panel-invoice-fees'));
   } catch (err) {
     showToast(err.message || 'خطأ في تحميل المصروفات الإدارية', 'danger');
@@ -7078,12 +7076,19 @@ async function saveInvoiceFeesSettings() {
     const professional = parseDisplayAmount(document.getElementById('fees-professional-amount').value);
     if (!(rate >= 0) || rate > 100) throw new Error('نسبة المصروفات الإدارية يجب أن تكون بين 0 و 100');
     if (!(professional >= 0)) throw new Error('قيمة المهن غير صحيحة');
+    const markup = parseDisplayAmount(document.getElementById('fees-supplies-markup').value);
+    if (!(markup >= 0) || markup > 1000) throw new Error('هامش المستلزمات غير صحيح');
     await apiJson(`${PRICING_API}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ administrative_fee_rate: rate, professional_fees_amount: professional }),
+      body: JSON.stringify({
+        administrative_fee_rate: rate,
+        professional_fees_amount: professional,
+        default_supplies_markup_percent: markup,
+      }),
     });
-    showToast('تم حفظ المصروفات الإدارية والمهن — تُطبَّق على الفواتير غير المعتمدة', 'success');
+    if (typeof dailySuppliesMarkupPercent !== 'undefined') dailySuppliesMarkupPercent = markup;
+    showToast('تم حفظ المصروفات الإدارية والمهن وهامش المستلزمات', 'success');
   } catch (err) {
     showToast(err.message || 'تعذر الحفظ', 'danger');
   }
@@ -7092,9 +7097,6 @@ async function saveInvoiceFeesSettings() {
 async function savePricingSettings() {
   try {
     const body = {
-      default_supplies_markup_percent: parseDisplayAmount(
-        document.getElementById('pricing-supplies-markup').value
-      ),
       file_opening_fee: parseDisplayAmount(document.getElementById('pricing-file-opening-fee').value),
       ambulance_rental_cairo: parseDisplayAmount(document.getElementById('pricing-ambulance-fee').value),
       foreign_resident_multiplier: parseDisplayAmount(document.getElementById('pricing-foreign-resident').value),

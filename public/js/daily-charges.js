@@ -3469,6 +3469,48 @@ function clearPatientRegisterForm(options = {}) {
   }
 }
 
+const EGYPT_MOBILE_RE = /^01[0125]\d{8}$/;
+
+function normalizePhoneDigits(value) {
+  return String(value ?? '')
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/\D/g, '')
+    .slice(0, 11);
+}
+
+function validatePatientPhoneField(id, label, original = '') {
+  const el = document.getElementById(id);
+  if (original && String(el?.value || '').trim() === String(original).trim()) {
+    el?.classList.remove('is-invalid');
+    return null;
+  }
+  const value = normalizePhoneDigits(el?.value);
+  if (el) el.value = value;
+  const valid = !value || EGYPT_MOBILE_RE.test(value);
+  el?.classList.toggle('is-invalid', !valid);
+  return valid ? null : `${label} يجب أن يكون 11 رقمًا ويبدأ بـ 010 أو 011 أو 012 أو 015`;
+}
+
+function bindPatientPhoneInputs() {
+  ['patient-reg-phone', 'patient-reg-other-phone'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.phoneBound) return;
+    el.dataset.phoneBound = '1';
+    el.addEventListener('input', () => {
+      const cleaned = normalizePhoneDigits(el.value);
+      if (cleaned !== el.value) el.value = cleaned;
+      el.classList.remove('is-invalid');
+    });
+    el.addEventListener('blur', () => {
+      if (el.value) validatePatientPhoneField(id, '');
+    });
+  });
+}
+
+document.addEventListener('DOMContentLoaded', bindPatientPhoneInputs);
+if (document.readyState !== 'loading') bindPatientPhoneInputs();
+
 async function savePatientRegistration(event) {
   if (event) event.preventDefault();
   if (!dailyCan('daily_charges.manage')) {
@@ -3478,8 +3520,6 @@ async function savePatientRegistration(event) {
   const patient_type = document.getElementById('patient-reg-type')?.value || patientRegSelectedType || 'internal';
   let file_number = '';
   const patient_name = document.getElementById('patient-reg-name')?.value.trim() || '';
-  const phone = document.getElementById('patient-reg-phone')?.value.trim() || '';
-  const other_phone = document.getElementById('patient-reg-other-phone')?.value.trim() || '';
   const nationality = normalizeNationalitySelectValue(
     document.getElementById('patient-reg-nationality')?.value
   );
@@ -3492,6 +3532,16 @@ async function savePatientRegistration(event) {
     showToast('اسم المريض وتاريخ الدخول مطلوبان', 'warning');
     return;
   }
+  const storedPatient = patientRegEditMode ? dailyStayContext?.patient || {} : {};
+  const phoneError =
+    validatePatientPhoneField('patient-reg-phone', 'رقم التليفون', storedPatient.phone) ||
+    validatePatientPhoneField('patient-reg-other-phone', 'التليفون الآخر', storedPatient.other_phone);
+  if (phoneError) {
+    showToast(phoneError, 'warning');
+    return;
+  }
+  const phone = document.getElementById('patient-reg-phone')?.value || '';
+  const other_phone = document.getElementById('patient-reg-other-phone')?.value || '';
 
   try {
     file_number = await resolvePatientRegisterFileNumber(patient_type);
