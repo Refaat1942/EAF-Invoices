@@ -2700,3 +2700,144 @@ textarea:-webkit-autofill {
   padding-top: 0.6rem;
   padding-bottom: 0.6rem;
 }
+/* === UI polish layer: one visual system for tables, forms, cards, buttons === */
+:root {
+  --ui-border: #dfe5ec;
+  --ui-border-strong: #c9d3de;
+  --ui-head-bg: #eef3f8;
+  --ui-head-fg: #1e3a52;
+  --ui-row-alt: #fafcfe;
+  --ui-row-hover: #f2f7fc;
+  --ui-radius: 10px;
+  --ui-control-h: 34px;
+}
+
+.app-main .table {
+  --bs-table-border-color: var(--ui-border);
+  border-color: var(--ui-border);
+  font-size: 0.9rem;
+}
+.app-main .table > :not(caption) > * > * {
+  border-color: var(--ui-border);
+  vertical-align: middle;
+}
+.app-main .table > thead > tr > th,
+.app-main .table > thead > tr > td {
+  background: var(--ui-head-bg);
+  color: var(--ui-head-fg);
+  font-weight: 800;
+  font-size: 0.82rem;
+  line-height: 1.3;
+  white-space: normal;
+  text-align: center;
+  border-bottom: 2px solid var(--ui-border-strong);
+}
+.app-main .table-bordered {
+  border: 1px solid var(--ui-border);
+}
+.app-main .table-bordered > :not(caption) > * > * {
+  border-width: 0 1px 1px 0;
+}
+.app-main .table-bordered > :not(caption) > * > *:last-child {
+  border-left-width: 0;
+}
+.app-main .table-responsive {
+  border-radius: var(--ui-radius);
+}
+.app-main .table-responsive > .table-bordered {
+  border: 0;
+}
+.app-main .table-responsive:has(> .table-bordered) {
+  border: 1px solid var(--ui-border);
+}
+.app-main .table > tbody > tr:nth-child(even) > td {
+  background-color: var(--ui-row-alt);
+}
+.app-main .table-hover > tbody > tr:hover > td,
+.app-main .table > tbody > tr:hover > td {
+  background-color: var(--ui-row-hover);
+}
+
+/* Inputs inside table cells: same height, radius and focus everywhere */
+.app-main .table td .form-control,
+.app-main .table td .form-select,
+.app-main .table td input[type='text'],
+.app-main .table td input[type='number'],
+.app-main .table td input[type='date'],
+.app-main .table td select {
+  height: var(--ui-control-h);
+  min-height: var(--ui-control-h);
+  padding: 4px 8px;
+  font-size: 0.88rem;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: 7px;
+  background-color: #fff;
+  box-shadow: none;
+}
+.app-main .table td .form-select,
+.app-main .table td select {
+  padding-inline-end: 1.9rem;
+}
+.app-main .table td .form-control:focus,
+.app-main .table td .form-select:focus,
+.app-main .table td input:focus,
+.app-main .table td select:focus {
+  border-color: #3b82c4;
+  box-shadow: 0 0 0 3px rgba(59, 130, 196, 0.15);
+}
+.app-main .table td .form-control[readonly],
+.app-main .table td input[readonly],
+.app-main .table td .form-control:disabled {
+  background-color: #f4f7fa;
+  color: #334155;
+}
+.app-main .table td .btn-sm {
+  min-height: 30px;
+  border-radius: 7px;
+}
+
+/* Form controls outside tables */
+.app-main .form-control,
+.app-main .form-select {
+  border-color: var(--ui-border-strong);
+  border-radius: 8px;
+}
+.app-main .form-control:focus,
+.app-main .form-select:focus {
+  border-color: #3b82c4;
+  box-shadow: 0 0 0 3px rgba(59, 130, 196, 0.15);
+}
+.app-main .form-label {
+  font-size: 0.86rem;
+  color: #334155;
+  margin-bottom: 0.3rem;
+}
+
+/* Cards */
+.app-main .card {
+  border: 1px solid var(--ui-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+.app-main .card > .card-header:first-child {
+  border-radius: 12px 12px 0 0;
+}
+
+/* Buttons: snappy feedback */
+.btn {
+  border-radius: 8px;
+  transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, transform 0.06s ease;
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.hub-tile {
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* Tabs */
+.app-main .nav-tabs .nav-link,
+.app-main .nav-pills .nav-link {
+  border-radius: 8px 8px 0 0;
+  font-weight: 800;
+}

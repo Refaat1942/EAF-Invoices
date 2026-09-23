@@ -2745,6 +2745,7 @@ function updateDailyForeignPricingHint() {
   if (!hint || !window.NationalityPricing) return;
   const foreign = !NationalityPricing.isEgyptianNationality(dailyPatientNationality());
   hint.classList.toggle('d-none', !foreign);
+  document.getElementById('daily-foreign-pricing-hint-row')?.classList.toggle('d-none', !foreign);
   if (foreign) {
     hint.textContent = `تسعير أجنبي: أسعار اللائحة × ${NationalityPricing.FOREIGN_PRICE_MULTIPLIER}`;
   }
@@ -4513,10 +4514,12 @@ function refreshExamRowsDropdowns() {
 }
 
 async function reloadDailyServiceCaches() {
-  await loadExamSpecialtiesCache();
-  await loadExamServicesCache();
-  await loadCompanionKindOptionsCache();
-  await loadCompanionServicesCache();
+  await Promise.all([
+    loadExamSpecialtiesCache(),
+    loadExamServicesCache(),
+    loadCompanionKindOptionsCache(),
+    loadCompanionServicesCache(),
+  ]);
   refreshExamRowsDropdowns();
   document.querySelectorAll('.daily-companion-kind').forEach((sel) => {
     const prev = sel.value;
@@ -6227,7 +6230,7 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
   }
 
   tr.innerHTML =
-    stayAddonSpacerCell('daily-col-date') +
+    '<td class="daily-stay-addon-spacer daily-col-date" colspan="2"></td>' +
     stayTypeCol +
     accAmtCol +
     companionAmt +
@@ -8747,14 +8750,16 @@ async function initDailyChargesView(options = {}) {
   if (!dailyCan('daily_charges.view')) return;
   try {
     if (typeof loadFinancialTreatments === 'function') await loadFinancialTreatments();
-    await loadDailyDoctorSpecialties();
-    await loadDailyStayTypes();
-    await loadDailyStayGrades();
+    await Promise.all([
+      loadDailyDoctorSpecialties(),
+      loadDailyStayTypes(),
+      loadDailyStayGrades(),
+      dailySectionsCache.length ? null : loadDailySections(),
+      reloadDailyServiceCaches(),
+    ]);
     populateStayTypeSelects();
     void loadPatientEntitySelects();
-    if (!dailySectionsCache.length) await loadDailySections();
     if (dailySectionsLoadFailed) return;
-    await reloadDailyServiceCaches();
     renderDailySectionTabs();
     setDailyTodayDate();
     void showDailyBuildBadge();

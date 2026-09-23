@@ -3953,13 +3953,13 @@ function updateSummaryTable(t) {
 
   const discountRows = hasDiscount
     ? `
-    <tr><td>${fmtDual(t.discount_amount_raw, t.discount_amount)}</td><td></td><td></td><td></td><td class="summary-label">خصم جهة متعاقدة ${t.discount_percent}%</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.net_after_discount_raw ?? t.items_subtotal_after_discount_raw, t.net_after_discount ?? t.items_subtotal_after_discount)}</td><td></td><td></td><td></td><td class="summary-label">صافي بعد الخصم</td><td></td><td></td><td></td><td></td></tr>`
+    <tr><td>${fmtDual(t.discount_amount_raw, t.discount_amount)}</td><td colspan="4" class="summary-label">خصم جهة متعاقدة ${t.discount_percent}%</td><td colspan="4" class="summary-pay-empty"></td></tr>
+    <tr><td>${fmtDual(t.net_after_discount_raw ?? t.items_subtotal_after_discount_raw, t.net_after_discount ?? t.items_subtotal_after_discount)}</td><td colspan="4" class="summary-label">صافي بعد الخصم</td><td colspan="4" class="summary-pay-empty"></td></tr>`
     : '';
 
   const stayRows =
     Number(t.stay_subtotal) > 0
-      ? `<tr><td>${fmtDual(t.stay_subtotal_raw, t.stay_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي تكلفة الإقامة</td><td></td><td></td><td></td><td></td></tr>`
+      ? `<tr><td>${fmtDual(t.stay_subtotal_raw, t.stay_subtotal)}</td><td colspan="4" class="summary-label">إجمالي تكلفة الإقامة</td><td colspan="4" class="summary-pay-empty"></td></tr>`
       : '';
 
   const tfoot = document.getElementById('summary-tfoot');

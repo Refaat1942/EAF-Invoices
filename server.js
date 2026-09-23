@@ -70,7 +70,10 @@ app.use(express.urlencoded({ extended: true }));
 // isn't lost before the route handlers run.
 app.use(require('./middleware/clientDate').clientDateMiddleware);
 
-app.use('/assets', express.static(path.join(__dirname, 'public', 'assets')));
+app.use('/assets', express.static(path.join(__dirname, 'public', 'assets'), { maxAge: '7d' }));
+const { compressedStatic, compressJson } = require('./middleware/staticAssets');
+app.use(compressedStatic(path.join(__dirname, 'public')));
+app.use('/api', compressJson);
 app.use(
   express.static(path.join(__dirname, 'public'), {
     setHeaders(res, filePath) {
