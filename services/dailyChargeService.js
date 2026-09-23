@@ -281,6 +281,7 @@ function buildDailyItemDescription(entryDate, name, extraText = '') {
   const dateLabel = formatDailyEntryDateLabel(entryDate);
   let desc = String(name || '').trim().replace(/^(\[\d{2}-\d{2}-\d{4}\]\s*)+/, '');
   if (/GMT|Coordinated Universal Time/i.test(desc)) desc = '';
+  if (STAY_TYPE_TAG_RE.test(String(extraText || '').trim())) extraText = '';
   if (extraText) desc = desc ? `${desc} (${extraText})` : String(extraText);
   return dateLabel ? `[${dateLabel}] ${desc}`.trim() : desc;
 }
@@ -3054,7 +3055,14 @@ async function ensureStayAccommodationOnEntries(entries = [], sections = [], pat
   const stayDates = new Set(
     entries.filter(hasAccommodation).map((e) => normalizeCalendarDate(e.entry_date))
   );
+  const hasStayLine = (entry) =>
+    (entry.lines || []).some((l) =>
+      ['accommodation', 'companion', 'nursing_point', 'patient_assistant'].includes(l.section_code)
+    );
   for (const entry of entries) {
+    // The invoice bills only stay days recorded on the stay screen; a day with other
+    // sections only must not get an accommodation line invented from the room type.
+    if (!hasStayLine(entry)) continue;
     const date = normalizeCalendarDate(entry.entry_date);
     const alreadyBilled = !hasAccommodation(entry) && stayDates.has(date);
     if (alreadyBilled) continue;

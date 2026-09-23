@@ -666,12 +666,16 @@ async function buildInvoiceHtml(invoice, options = {}) {
         <td class="value" colspan="6">${escapeHtml(inv.financial_treatment)}</td>
       </tr>`
       }
-      <tr>
+      ${
+        (inv.stay_entries || []).length
+          ? ''
+          : `<tr>
         <th colspan="6">تفاصيل الإقامة</th>
       </tr>
       <tr>
         <td class="value" colspan="6">${escapeHtml(formatStaySummary(inv))}</td>
-      </tr>
+      </tr>`
+      }
     </table>
 
     ${buildStayDetailsTable(inv)}

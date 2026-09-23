@@ -413,6 +413,7 @@ function deriveStayEntriesFromDailyItems(items = []) {
       code === 'accommodation'
         ? String(item.service_name_snapshot || item.description || '')
             .replace(/^\[[^\]]*\]\s*/, '')
+            .replace(/\s*\(\s*stay_type:?\s*\d+\s*\)\s*/gi, ' ')
             .trim() || 'إقامة'
         : STAY_DETAIL_LABELS[code] || String(item.section_name || '').trim() || 'إقامة ورعاية';
     const key = `${STAY_DETAIL_ORDER[code] ?? 9}|${name}`;
