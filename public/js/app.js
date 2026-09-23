@@ -479,7 +479,14 @@ function getInvoiceSelectLabel(id) {
 
 function fmtInvoiceSummaryDate(value) {
   if (!value) return '—';
-  const iso = String(value).slice(0, 10);
+  const text = String(value);
+  let iso = text.slice(0, 10);
+  if (text.length > 10 && text.includes('T')) {
+    const d = new Date(text);
+    if (!Number.isNaN(d.getTime())) {
+      iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+  }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   const [year, month, day] = iso.split('-');
   return `${day}/${month}/${year}`;
@@ -4598,7 +4605,14 @@ async function removeSystemUser(id) {
 
 function fmtDate(d) {
   if (!d) return '';
-  return String(d).slice(0, 10);
+  const text = String(d);
+  if (text.length > 10 && text.includes('T')) {
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) {
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+    }
+  }
+  return text.slice(0, 10);
 }
 
 function renderStayTypesList(items) {
