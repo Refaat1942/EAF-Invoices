@@ -3969,15 +3969,15 @@ function updateSummaryTable(t) {
     : `<td>${fmtDual(t.balance_raw, t.balance)}</td>`;
   tfoot.innerHTML = `
     ${stayRows}
-    <tr><td>${fmtDual(t.items_subtotal_raw, t.items_subtotal)}</td><td></td><td></td><td></td><td class="summary-label">إجمالي البنود</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td></td><td></td><td></td><td class="summary-label">دمغة</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.professional_fees_raw, t.professional_fees)}</td><td></td><td></td><td></td><td class="summary-label">مهن</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.subtotal_before_admin_raw, t.subtotal_before_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td></td><td></td><td></td><td class="summary-label">${adminLabel}</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td></td><td></td><td></td><td></td></tr>
+    <tr><td>${fmtDual(t.items_subtotal_raw, t.items_subtotal)}</td><td colspan="4" class="summary-label">إجمالي البنود</td><td colspan="4" class="summary-pay-empty"></td></tr>
+    <tr><td>${fmtDual(t.stamp_duty_raw, t.stamp_duty)}</td><td colspan="4" class="summary-label">دمغة</td><td colspan="4" class="summary-pay-empty"></td></tr>
+    <tr><td>${fmtDual(t.professional_fees_raw, t.professional_fees)}</td><td colspan="4" class="summary-label">مهن</td><td colspan="4" class="summary-pay-empty"></td></tr>
+    <tr><td>${fmtDual(t.subtotal_before_admin_raw, t.subtotal_before_admin)}</td><td colspan="4" class="summary-label">الإجمالي</td><td colspan="4" class="summary-pay-empty"></td></tr>
+    <tr><td>${fmtDual(t.admin_expenses_raw, t.admin_expenses)}</td><td colspan="4" class="summary-label">${adminLabel}</td><td colspan="4" class="summary-pay-empty"></td></tr>
+    <tr><td>${fmtDual(t.total_after_admin_raw, t.total_after_admin)}</td><td colspan="4" class="summary-label">الإجمالي بعد المصروفات الإدارية</td><td colspan="4" class="summary-pay-empty"></td></tr>
     ${discountRows}
-    <tr>${patientBalanceCell}<td></td><td></td><td></td><td class="summary-label">${hasPatientFileNumber() ? 'رصيد المريض (بعد البنود)' : 'الرصيد'}</td><td></td><td></td><td></td><td></td></tr>
-    <tr><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td></td><td></td><td></td><td class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td></td><td></td><td></td></tr>
+    <tr>${patientBalanceCell}<td colspan="4" class="summary-label">${hasPatientFileNumber() ? 'رصيد المريض (بعد البنود)' : 'الرصيد'}</td><td colspan="4" class="summary-pay-empty"></td></tr>
+    <tr class="summary-final"><td>${fmtDual(t.final_total_raw, t.final_total)}</td><td colspan="4" class="summary-label">الإجمالي</td><td>${fmtDual(t.total_collected_raw, t.total_collected)}</td><td colspan="3" class="summary-pay-empty"></td></tr>
   `;
 }
 

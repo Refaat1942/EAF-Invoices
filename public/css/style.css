@@ -2560,3 +2560,107 @@ textarea:-webkit-autofill {
   overflow-wrap: normal;
   word-break: normal;
 }
+
+/* === Big invoice page layout === */
+#view-create .invoice-card > .card-body {
+  padding: 1.25rem 1.5rem;
+}
+
+#view-create .invoice-items-wrap {
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+#view-create .invoice-table {
+  table-layout: fixed;
+  min-width: 1080px;
+  margin-bottom: 0;
+}
+
+#view-create .invoice-table th,
+#view-create .invoice-table td {
+  padding: 5px 6px !important;
+  overflow: hidden;
+}
+
+#view-create .invoice-table tbody td {
+  background: #fff;
+}
+
+#view-create .invoice-table tfoot td {
+  background: #f8fafc;
+  font-size: 0.88rem;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+
+#view-create .invoice-table tfoot td.summary-label {
+  color: #334155;
+}
+
+#view-create .invoice-table tfoot td.summary-pay-empty {
+  background: #fcfcfd;
+}
+
+#view-create .invoice-table tfoot tr.summary-final td {
+  background: #fff3cd;
+  font-size: 0.98rem;
+  font-weight: 900;
+  border-top: 2px solid #f0ad4e;
+}
+
+#view-create .invoice-items-toolbar {
+  padding: 0.6rem 0.75rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+#view-create .invoice-inline-field {
+  width: 170px;
+}
+
+#view-create .invoice-inline-field .form-control {
+  text-align: center;
+}
+
+#view-create .invoice-followup-mode .invoice-inline-fields {
+  display: none !important;
+}
+
+#view-create .invoice-section {
+  border: 1px solid #dee2e6;
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  background: #fff;
+}
+
+#view-create .invoice-section-title {
+  font-size: 1.02rem;
+}
+
+#view-create .payment-methods-table {
+  table-layout: fixed;
+  margin-bottom: 0;
+}
+
+#view-create .payment-methods-table td,
+#view-create .payment-methods-table th {
+  vertical-align: middle;
+  padding: 6px 8px;
+}
+
+#view-create .payment-split-summary {
+  padding: 0.5rem 0.75rem;
+  gap: 0.5rem;
+}
+
+#view-create .payment-split-summary .split-item strong {
+  font-size: 1.15rem;
+}
+
+#view-create .invoice-patient-summary-table th,
+#view-create .invoice-patient-summary-table td {
+  padding: 6px 10px;
+}
