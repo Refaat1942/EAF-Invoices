@@ -20,6 +20,8 @@ const {
 const { upsertPatient, getPatientByFileNumber, searchPatientsForDaily } = require('../services/patientService');
 const {
   listOperations,
+  listOperationsInRange,
+  getOpenInvoiceOperationRange,
   saveOperationsForDate,
   saveOperationsForPatient,
 } = require('../services/patientOperationService');
@@ -576,8 +578,11 @@ router.get('/operations', requirePermission('daily_charges.view'), async (req, r
     if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
     const patient = await getPatientByFileNumber(file_number);
     if (!patient) return res.json([]);
-    const ops = await listOperations(patient.id, req.query.entry_date || null);
-    res.json(ops);
+    if (req.query.entry_date) {
+      return res.json(await listOperations(patient.id, req.query.entry_date));
+    }
+    const range = await getOpenInvoiceOperationRange(file_number);
+    res.json(await listOperationsInRange(patient.id, range?.from || null, null));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -593,7 +598,8 @@ router.post('/operations', requirePermission('daily_charges.manage'), async (req
     if (!patient) return res.status(404).json({ error: 'المريض غير موجود' });
     const operations = await saveOperationsForPatient(
       patient.id,
-      Array.isArray(req.body.operations) ? req.body.operations : []
+      Array.isArray(req.body.operations) ? req.body.operations : [],
+      await getOpenInvoiceOperationRange(file_number)
     );
     const stay = await getOpenPatientStay(file_number);
     let invoice_id = null;

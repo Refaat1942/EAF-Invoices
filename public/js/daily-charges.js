@@ -1604,14 +1604,19 @@ function handleDailySheetAddRow() {
 function ensureOperationRows() {
   const tbody = document.getElementById('daily-operations-tbody');
   if (!tbody) return;
-  if (!tbody.querySelector('.daily-operation-row')) {
-    addOperationRow();
+  if (!tbody.querySelector('.daily-operation-row') && !tbody.querySelector('.daily-operations-empty')) {
+    const tr = document.createElement('tr');
+    tr.className = 'daily-operations-empty';
+    tr.innerHTML =
+      '<td colspan="15" class="text-center text-muted py-3">لا توجد عمليات مسجلة لهذا المريض — اضغط «+ صف عملية» لإضافة عملية</td>';
+    tbody.appendChild(tr);
   }
 }
 
 function addOperationRow(op = {}) {
   const tbody = document.getElementById('daily-operations-tbody');
   if (!tbody) return;
+  tbody.querySelectorAll('.daily-operations-empty').forEach((row) => row.remove());
   if (isOperationPresetEmpty(op)) {
     const blank = findBlankOperationRow();
     if (blank) {
@@ -1672,6 +1677,7 @@ async function loadOperationsForPatient() {
   const tbody = document.getElementById('daily-operations-tbody');
   if (!tbody) return;
   const fileNumber = getStayFileNumber();
+  tbody.dataset.loadedCount = '0';
   if (!fileNumber || !dailyStayContext?.invoice?.id) {
     tbody.innerHTML = '';
     if (activeDailyTab === 'operations') ensureOperationRows();
@@ -1683,7 +1689,9 @@ async function loadOperationsForPatient() {
     const ops = await apiJson(
       `${DAILY_API}/operations?file_number=${encodeURIComponent(fileNumber)}`
     );
+    if (getStayFileNumber() !== fileNumber) return;
     tbody.innerHTML = '';
+    tbody.dataset.loadedCount = String(ops.length || 0);
     if (ops.length) {
       ops.forEach((op) => addOperationRow(op));
       renumberPanelRowSerials('#daily-operations-tbody .daily-operation-row');
@@ -1717,7 +1725,9 @@ async function saveOperationsPanel(options = {}) {
     return false;
   }
   const operations = collectOperationsFromTable();
-  if (!operations.length) {
+  const hadSavedOperations =
+    Number(document.getElementById('daily-operations-tbody')?.dataset.loadedCount || 0) > 0;
+  if (!operations.length && (silent || !hadSavedOperations)) {
     if (!silent) showToast('أضف عملية واحدة على الأقل (اسم أو مبلغ)', 'warning');
     return false;
   }

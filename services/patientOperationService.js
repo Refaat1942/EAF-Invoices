@@ -167,18 +167,43 @@ async function saveOperationsForDate(patientId, entryDate, operations = []) {
   });
 }
 
-/** Replace all operations for a patient from the operations panel (all days). */
-async function saveOperationsForPatient(patientId, operations = []) {
+async function getOpenInvoiceOperationRange(fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return null;
+  const { rows } = await query(
+    `SELECT admission_date FROM invoices
+     WHERE TRIM(file_number) = TRIM($1)
+       AND status IN ('draft', 'pending_review')
+     ORDER BY updated_at DESC
+     LIMIT 1`,
+    [fn]
+  );
+  const from = fmtDateOnly(rows[0]?.admission_date);
+  return from ? { from } : null;
+}
+
+/** Replace the patient's operations inside the given range (or all days when no range). */
+async function saveOperationsForPatient(patientId, operations = [], range = null) {
   const pid = Number(patientId);
   if (!pid) throw new Error('المريض مطلوب');
+  const from = fmtDateOnly(range?.from);
 
   return withTransaction(async (client) => {
     await client.query('SELECT id FROM patients WHERE id = $1 FOR UPDATE', [pid]);
-    await client.query(`DELETE FROM patient_operations WHERE patient_id = $1`, [pid]);
+    const params = [pid];
+    let deleteSql = `DELETE FROM patient_operations WHERE patient_id = $1`;
+    if (from) {
+      params.push(from);
+      deleteSql += ` AND entry_date >= $${params.length}::date`;
+    }
+    await client.query(deleteSql, params);
     const saved = [];
     for (const op of operations || []) {
       const date = fmtDateOnly(op.entry_date);
       if (!date) continue;
+      if (from && date < from) {
+        throw new Error(`تاريخ العملية (${date}) قبل تاريخ دخول الفاتورة المفتوحة (${from})`);
+      }
       const row = await insertOperationRowClient(client, pid, date, op);
       if (row) saved.push(row);
     }
@@ -217,6 +242,7 @@ module.exports = {
   saveOperationsForPatient,
   getOperationsTotal,
   listOperationsInRange,
+  getOpenInvoiceOperationRange,
   operationChargeTotal,
   parseOptionalTime,
   computeDurationHours,

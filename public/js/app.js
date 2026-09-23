@@ -3226,7 +3226,7 @@ function updateInvoiceReturnHint(row, item) {
   const net = Number.isFinite(netQty) ? netQty : Math.max(0, original - returned);
   if (returned > 0) {
     hint.classList.remove('d-none');
-    hint.textContent = `مرتجع: ${formatAmountInput(returned, 0)} | صافي: ${formatAmountInput(net, 0)}`;
+    hint.textContent = `صافي: ${formatAmountInput(net, 0)}`;
     row.dataset.returnedQty = String(returned);
   } else {
     hint.classList.add('d-none');
