@@ -3772,6 +3772,53 @@ small, .small {
   font-weight: 800;
 }
 
+/* Stronger table grid */
+.app-main {
+  --erp-table-border: #a3b1c2;
+  --erp-table-border-strong: #64748b;
+}
+.app-main .table {
+  --bs-table-border-color: var(--erp-table-border);
+  border-color: var(--erp-table-border);
+}
+.app-main .table > :not(caption) > * > * {
+  border-color: var(--erp-table-border) !important;
+  border-bottom-width: 1.5px;
+}
+.app-main .table-bordered > :not(caption) > * > * {
+  border-width: 0 1.5px 1.5px 0;
+}
+.app-main .table-bordered > :not(caption) > * > *:last-child {
+  border-left-width: 0;
+}
+.app-main .table-bordered,
+.app-main .table-responsive:has(> .table-bordered) {
+  border: 2px solid var(--erp-table-border-strong) !important;
+}
+.app-main .table-responsive > .table-bordered {
+  border: 0 !important;
+}
+.app-main .table > thead > tr:last-child > th,
+.app-main .table > thead > tr:last-child > td {
+  border-bottom: 2px solid var(--erp-table-border-strong) !important;
+}
+.app-main .table > tfoot > tr:first-child > td,
+.app-main .table > tfoot > tr:first-child > th {
+  border-top: 2px solid var(--erp-table-border-strong) !important;
+}
+.app-main .table td :is(.form-control, .form-select, input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  border: 1.5px solid var(--erp-table-border) !important;
+}
+.app-main .table td :is(.form-control, .form-select, input, select, textarea):focus {
+  border-color: var(--erp-primary) !important;
+}
+.app-main .table td :is(.form-control, .form-select, input, select, textarea).is-invalid {
+  border-color: var(--erp-danger) !important;
+}
+.app-main .table td :is(.form-control, .form-select, input, select, textarea).is-valid {
+  border-color: var(--erp-success) !important;
+}
+
 .calculation-flow-list li {
   font-weight: 600;
   border-bottom-color: var(--erp-border);
