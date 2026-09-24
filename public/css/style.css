@@ -572,8 +572,6 @@ body {
   border-color: #0d6efd;
   box-shadow: 0 0 0 0.15rem rgba(13, 110, 253, 0.15);
 }
-  font-size: 0.88rem;
-}
 
 #view-create .card-body {
   padding: 1.1rem 1.25rem;
@@ -3095,6 +3093,15 @@ small, .small {
 :is(.bg-dark, .bg-primary, .bg-secondary, .bg-success, .bg-danger, .text-bg-dark, .text-bg-primary, .text-bg-secondary, .text-bg-success, .text-bg-danger, .table-dark)
   :is(.text-muted, .text-secondary, .text-body-secondary) {
   color: rgba(255, 255, 255, 0.78) !important;
+}
+:is(.bg-dark, .bg-primary, .bg-secondary, .bg-success, .bg-danger, .bg-info, .text-bg-dark, .text-bg-primary, .text-bg-secondary, .text-bg-success, .text-bg-danger, .app-topbar)
+  :is(h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6, .modal-title, .form-label, label, small, strong, .small) {
+  color: #fff;
+}
+:is(.text-white, .text-light):is(h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6, .modal-title),
+:is(.text-white, .text-light)
+  :is(h1, h2, h3, h4, h5, h6, .h1, .h2, .h3, .h4, .h5, .h6, .modal-title, .form-label, label, small, strong, .small) {
+  color: #fff !important;
 }
 :is(.bg-dark, .bg-primary, .bg-secondary, .bg-success, .bg-danger, .text-bg-dark, .text-bg-primary, .text-bg-secondary, .text-bg-success, .text-bg-danger)
   .btn-close {
