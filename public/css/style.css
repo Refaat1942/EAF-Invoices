@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
 
 .login-screen {
   min-height: 100vh;
@@ -2932,7 +2932,7 @@ textarea:-webkit-autofill {
 body {
   background: var(--erp-bg);
   color: var(--erp-text);
-  font-weight: 500;
+  font-weight: 600;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -2970,18 +2970,18 @@ hr {
 
 /* ---------- 3. Typography ---------- */
 .fw-black {
-  font-weight: 700 !important;
+  font-weight: 800 !important;
 }
 .app-main .fw-bold {
-  font-weight: 600 !important;
+  font-weight: 700 !important;
 }
 h1, h2, h3, .h1, .h2, .h3 {
-  font-weight: 700;
+  font-weight: 800;
   color: var(--erp-text);
   letter-spacing: 0;
 }
 h4, h5, h6, .h4, .h5, .h6 {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--erp-text);
 }
 .text-muted,
@@ -2989,20 +2989,20 @@ h4, h5, h6, .h4, .h5, .h6 {
   color: var(--erp-muted) !important;
 }
 small, .small {
-  font-weight: 500;
+  font-weight: 600;
 }
 .form-control,
 .form-select {
-  font-weight: 500;
+  font-weight: 600;
 }
 .dual-value .rounded-part,
 .report-stat,
 .summary-item.total,
 .summary-item.remaining {
-  font-weight: 700;
+  font-weight: 800;
 }
 .report-label {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--erp-muted);
 }
 
@@ -3020,11 +3020,11 @@ small, .small {
 }
 .hub-title {
   color: var(--erp-text);
-  font-weight: 700;
+  font-weight: 800;
 }
 .hub-subtitle {
   color: var(--erp-muted);
-  font-weight: 500;
+  font-weight: 600;
   font-size: 1rem;
 }
 
@@ -3037,10 +3037,10 @@ small, .small {
   padding-bottom: 0.4rem;
 }
 .navbar-brand {
-  font-weight: 700;
+  font-weight: 800;
 }
 .navbar-brand-text {
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0;
 }
 .navbar-logo {
@@ -3049,7 +3049,7 @@ small, .small {
   padding: 2px;
 }
 .app-topbar .btn {
-  font-weight: 600;
+  font-weight: 700;
   border-radius: var(--erp-radius);
 }
 .app-topbar .btn-outline-light,
@@ -3063,10 +3063,48 @@ small, .small {
   --bs-btn-active-border-color: rgba(255, 255, 255, 0.45);
   --bs-btn-active-color: #fff;
 }
+.app-topbar .btn-outline-danger {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: rgba(220, 38, 38, 0.22);
+  --bs-btn-border-color: rgba(252, 165, 165, 0.7);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: #dc2626;
+  --bs-btn-hover-border-color: #dc2626;
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: #b91c1c;
+  --bs-btn-active-border-color: #b91c1c;
+}
+.app-topbar .text-muted,
+.app-topbar .text-secondary,
+.app-topbar .text-dark {
+  color: #cbd5e1 !important;
+}
+
+/* Outline buttons and muted text on any dark surface */
+:is(.bg-dark, .bg-primary, .bg-secondary, .bg-success, .bg-danger, .bg-info, .text-bg-dark, .text-bg-primary, .text-bg-secondary, .text-bg-success, .text-bg-danger, .table-dark)
+  :is(.btn-outline-primary, .btn-outline-secondary, .btn-outline-dark, .btn-outline-success, .btn-outline-danger, .btn-outline-info, .btn-outline-warning) {
+  --bs-btn-color: #fff;
+  --bs-btn-border-color: rgba(255, 255, 255, 0.55);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: rgba(255, 255, 255, 0.16);
+  --bs-btn-hover-border-color: #fff;
+  --bs-btn-active-color: #fff;
+  --bs-btn-active-bg: rgba(255, 255, 255, 0.24);
+  --bs-btn-active-border-color: #fff;
+}
+:is(.bg-dark, .bg-primary, .bg-secondary, .bg-success, .bg-danger, .text-bg-dark, .text-bg-primary, .text-bg-secondary, .text-bg-success, .text-bg-danger, .table-dark)
+  :is(.text-muted, .text-secondary, .text-body-secondary) {
+  color: rgba(255, 255, 255, 0.78) !important;
+}
+:is(.bg-dark, .bg-primary, .bg-secondary, .bg-success, .bg-danger, .text-bg-dark, .text-bg-primary, .text-bg-secondary, .text-bg-success, .text-bg-danger)
+  .btn-close {
+  filter: invert(1) grayscale(100%) brightness(200%);
+}
+
 .nav-btn.active {
   background: #fff !important;
   color: var(--erp-primary) !important;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .app-main .nav-tabs {
@@ -3078,7 +3116,7 @@ small, .small {
   border-bottom: 2px solid transparent;
   border-radius: 0;
   color: var(--erp-muted);
-  font-weight: 600;
+  font-weight: 700;
   padding: 0.55rem 0.9rem;
   background: transparent;
   transition: color var(--erp-ease), border-color var(--erp-ease), background-color var(--erp-ease);
@@ -3095,7 +3133,7 @@ small, .small {
 }
 .app-main .nav-pills .nav-link {
   border-radius: var(--erp-radius);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--erp-text-soft);
 }
 .app-main .nav-pills .nav-link.active {
@@ -3108,7 +3146,7 @@ small, .small {
   border-radius: var(--erp-radius);
   box-shadow: var(--erp-shadow-hover);
   padding: 0.3rem;
-  font-weight: 500;
+  font-weight: 600;
 }
 .dropdown-item {
   border-radius: var(--erp-radius-sm);
@@ -3134,7 +3172,7 @@ small, .small {
 }
 .app-main .card > .card-header {
   padding: 0.7rem 1rem;
-  font-weight: 600;
+  font-weight: 700;
   border-bottom: 1px solid var(--erp-border);
 }
 .app-main .card > .card-header:first-child {
@@ -3184,7 +3222,7 @@ small, .small {
   padding: 0.85rem 1.1rem;
 }
 .modal-header .modal-title {
-  font-weight: 700;
+  font-weight: 800;
   font-size: 1.05rem;
 }
 .modal-footer {
@@ -3196,7 +3234,7 @@ small, .small {
 .alert {
   border-radius: var(--erp-radius);
   border-width: 1px;
-  font-weight: 500;
+  font-weight: 600;
 }
 .alert-info { background: var(--erp-info-soft); border-color: #c5ddee; color: #0c4a6e; }
 .alert-success { background: var(--erp-success-soft); border-color: #c4e3cd; color: #14532d; }
@@ -3204,7 +3242,7 @@ small, .small {
 .alert-danger { background: var(--erp-danger-soft); border-color: #f0c8c8; color: #7f1d1d; }
 
 .badge {
-  font-weight: 600;
+  font-weight: 700;
   border-radius: var(--erp-radius-sm);
   padding: 0.35em 0.6em;
   letter-spacing: 0;
@@ -3257,12 +3295,12 @@ small, .small {
   background: var(--erp-surface-alt);
 }
 .hub-tile-title {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.98rem;
   color: var(--erp-text);
 }
 .hub-tile-desc {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--erp-muted);
   font-size: 0.78rem;
 }
@@ -3303,7 +3341,7 @@ small, .small {
 .hub-tile--red .hub-tile-icon { background: var(--erp-danger-soft); }
 .hub-tile-badge {
   background: var(--erp-danger);
-  font-weight: 600;
+  font-weight: 700;
 }
 .report-type-tile.report-tile-active {
   outline: 2px solid var(--erp-teal);
@@ -3315,7 +3353,7 @@ small, .small {
   border-bottom: 1px solid var(--erp-border);
 }
 .settings-group-title {
-  font-weight: 700;
+  font-weight: 800;
   color: var(--erp-text);
   font-size: 1.02rem;
 }
@@ -3334,16 +3372,16 @@ small, .small {
   transform: translateY(-1px);
 }
 .pricing-dept-name {
-  font-weight: 600;
+  font-weight: 700;
 }
 .pricing-dept-count {
-  font-weight: 700;
+  font-weight: 800;
   color: var(--erp-primary);
 }
 
 /* ---------- 7. Buttons ---------- */
 .btn {
-  --bs-btn-font-weight: 600;
+  --bs-btn-font-weight: 700;
   --bs-btn-padding-x: 0.95rem;
   --bs-btn-padding-y: 0.4rem;
   --bs-btn-border-radius: var(--erp-radius);
@@ -3543,7 +3581,7 @@ small, .small {
 .btn-link {
   --bs-btn-color: var(--erp-primary);
   --bs-btn-hover-color: var(--erp-teal);
-  --bs-btn-font-weight: 600;
+  --bs-btn-font-weight: 700;
   min-height: 0;
 }
 
@@ -3559,7 +3597,7 @@ small, .small {
 
 /* ---------- 8. Forms ---------- */
 .form-label {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.84rem;
   color: var(--erp-text-soft);
   margin-bottom: 0.3rem;
@@ -3585,7 +3623,7 @@ small, .small {
 }
 .form-control::placeholder {
   color: #94a3b8;
-  font-weight: 400;
+  font-weight: 500;
 }
 .form-control:hover:not(:focus):not(:disabled):not([readonly]),
 .form-select:hover:not(:focus):not(:disabled) {
@@ -3623,7 +3661,7 @@ small, .small {
   border-color: var(--erp-success);
 }
 .invalid-feedback {
-  font-weight: 500;
+  font-weight: 600;
 }
 .form-check-input {
   border-color: var(--erp-border-strong);
@@ -3637,20 +3675,20 @@ small, .small {
   border-color: var(--erp-teal);
 }
 .form-check-label {
-  font-weight: 500;
+  font-weight: 600;
 }
 .input-group-text {
   background: var(--erp-surface-alt);
   border-color: var(--erp-border-strong);
   color: var(--erp-muted);
-  font-weight: 500;
+  font-weight: 600;
 }
 .stay-type-chip {
   border-width: 1px;
   border-color: var(--erp-border-strong);
 }
 .stay-type-chip span {
-  font-weight: 600;
+  font-weight: 700;
 }
 .stay-type-chip:has(input:checked) {
   border-color: var(--erp-primary);
@@ -3674,7 +3712,7 @@ small, .small {
 .app-main .table > thead.table-dark > tr > th {
   background: var(--ui-head-bg);
   color: var(--ui-head-fg);
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.8rem;
   border-bottom: 1px solid var(--erp-border-strong);
 }
@@ -3684,7 +3722,7 @@ small, .small {
 .app-main .table > tfoot > tr > td,
 .app-main .table > tfoot > tr > th {
   background: var(--erp-surface-alt);
-  font-weight: 600;
+  font-weight: 700;
   border-top: 1px solid var(--erp-border-strong);
 }
 .app-main .table-responsive {
@@ -3693,50 +3731,50 @@ small, .small {
 
 .app-main .invoice-table th,
 .app-main .invoice-table td {
-  font-weight: 500;
+  font-weight: 600;
 }
 .app-main .invoice-table thead th {
   background: var(--ui-head-bg) !important;
   color: var(--ui-head-fg);
-  font-weight: 600;
+  font-weight: 700;
 }
 .app-main .invoice-table input {
-  font-weight: 500;
+  font-weight: 600;
   border-color: var(--erp-border-strong);
   border-radius: var(--erp-radius-sm);
 }
 .app-main .invoice-table tfoot td {
-  font-weight: 600;
+  font-weight: 700;
   background: var(--erp-surface-alt);
 }
 .app-main .invoice-table tfoot tr.summary-final td {
-  font-weight: 700;
+  font-weight: 800;
   background: var(--erp-primary-soft);
   color: var(--erp-primary);
 }
 
 .daily-sheet-table .daily-section-th,
 .daily-sheet-table .daily-meta-th {
-  font-weight: 600;
+  font-weight: 700;
 }
 .daily-sheet-table .daily-row-total {
-  font-weight: 700;
+  font-weight: 800;
   color: var(--erp-text);
 }
 .daily-sheet-table tfoot td {
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .calculation-flow-list li {
-  font-weight: 500;
+  font-weight: 600;
   border-bottom-color: var(--erp-border);
 }
 .calculation-flow-list li strong {
-  font-weight: 700;
+  font-weight: 800;
 }
 .calculation-flow-list li.is-total {
   background: var(--erp-warning-soft);
-  font-weight: 700;
+  font-weight: 800;
 }
 .calculation-flow-list li.is-deduction strong {
   color: var(--erp-danger);
@@ -3745,7 +3783,7 @@ small, .small {
   color: var(--erp-primary);
 }
 .summary-item {
-  font-weight: 500;
+  font-weight: 600;
   border-bottom-color: var(--erp-border);
 }
 .summary-item.total {
@@ -3758,7 +3796,7 @@ small, .small {
 .calc-validation-banner,
 .payment-validation-banner {
   border-radius: var(--erp-radius);
-  font-weight: 600;
+  font-weight: 700;
   border-width: 1px !important;
 }
 .calc-validation-banner.is-valid,
@@ -3790,7 +3828,7 @@ small, .small {
 .pagination .page-link {
   color: var(--erp-primary);
   border-color: var(--erp-border);
-  font-weight: 600;
+  font-weight: 700;
 }
 .pagination .page-item.active .page-link {
   background: var(--erp-primary);
@@ -3814,7 +3852,7 @@ small, .small {
   letter-spacing: 0;
 }
 .reports-data-table th {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* ---------- 11. Login ---------- */
@@ -3833,7 +3871,7 @@ small, .small {
 .login-card h3,
 .login-card h4,
 .login-card h5 {
-  font-weight: 700;
+  font-weight: 800;
   color: var(--erp-text);
 }
 .login-card .form-control {
@@ -3900,7 +3938,7 @@ small, .small {
 @media print {
   body {
     background: #fff;
-    font-weight: 500;
+    font-weight: 600;
   }
   .app-main .card,
   .invoice-card,
