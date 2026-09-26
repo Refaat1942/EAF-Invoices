@@ -293,6 +293,10 @@ function getLocalDateString() {
 let dailySheetSerialNext = 1;
 const dailySheetSerialMap = new Map();
 let dailySheetEntriesCache = [];
+/** Tab switches reuse the last fetch; any patient/invoice write (see api-client) invalidates it. */
+let dailySheetEntriesFetchedAt = 0;
+let dailySheetEntriesFile = '';
+const DAILY_SHEET_CACHE_MS = 60000;
 let dailyChargesDeleteInProgress = false;
 let dailyAutosaveInFlight = null;
 let dailySaveInFlight = null;
@@ -2024,7 +2028,7 @@ async function showDailySection(sectionId, options = {}) {
     dailyStayContext?.invoice?.id &&
     !['operations', 'free-items'].includes(activeDailyTab)
   ) {
-    void loadDailyEntriesIntoSheet();
+    void loadDailyEntriesIntoSheet({ useCache: true });
   }
   return true;
 }
@@ -2045,6 +2049,7 @@ function showDailyPatientPicker() {
   dailySheetSerialNext = 1;
   dailySheetSerialMap.clear();
   dailySheetEntriesCache = [];
+  dailySheetEntriesFile = '';
   updateDailyMilitaryAuthBanner(null);
   if (typeof window.updateGlobalInvoicePrintButton === 'function') window.updateGlobalInvoicePrintButton();
 }
@@ -7407,6 +7412,7 @@ async function loadDailyEntriesIntoSheet(options = {}) {
   if (!fileNumber || !dailyStayContext?.invoice?.id) {
     if (loadId !== dailyEntriesLoadSeq) return;
     dailySheetEntriesCache = [];
+    dailySheetEntriesFile = '';
     addDailyEntryRow();
     setDailyTodayDate();
     renumberSheetRowSerials();
@@ -7416,10 +7422,23 @@ async function loadDailyEntriesIntoSheet(options = {}) {
   }
 
   try {
-    const entries = await apiJson(
-      `${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&include_lines=1&limit=120`
-    );
-    if (loadId !== dailyEntriesLoadSeq) return;
+    const cacheUsable =
+      options.useCache === true &&
+      dailySheetEntriesFile === fileNumber &&
+      dailySheetEntriesFetchedAt > (window.eafPatientDataChangedAt || 0) &&
+      Date.now() - dailySheetEntriesFetchedAt < DAILY_SHEET_CACHE_MS;
+    let entries;
+    if (cacheUsable) {
+      entries = dailySheetEntriesCache;
+    } else {
+      const startedAt = Date.now();
+      entries = await apiJson(
+        `${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&include_lines=1&limit=120`
+      );
+      if (loadId !== dailyEntriesLoadSeq) return;
+      dailySheetEntriesFetchedAt = startedAt;
+      dailySheetEntriesFile = fileNumber;
+    }
     dailySheetEntriesCache = entries || [];
     rebuildDailySheetSerialState(entries);
     dailySheetSerialNext = 1;
@@ -9069,6 +9088,8 @@ function clearDailyChargesSession() {
   dailyUserEditedTab = false;
   activeDailyTab = '';
   dailySheetDateScope = 'today';
+  dailySheetEntriesFile = '';
+  dailyRefDataLoadedAt = 0;
   sessionStorage.removeItem('dailyStayFileNumber');
   sessionStorage.removeItem('dailyActiveTab');
 }

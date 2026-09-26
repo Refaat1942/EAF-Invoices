@@ -149,11 +149,21 @@ if (typeof window !== 'undefined') {
 const REF_DATA_WRITE_RE =
   /\/api\/(settings|pricing|doctors)\b|\/api\/daily-charges\/(catalog|sections|stay-grades|picker)\b/;
 
-/** Screens that cache lookup lists compare against this before reusing them. */
+const PATIENT_DATA_WRITE_RE = /\/api\/(daily-charges|invoices|patients)\b/;
+
+/** Screens that cache lookup lists or patient entries compare against these before reusing them. */
 function noteRefDataWrite(url, method) {
   if (typeof window === 'undefined') return;
-  if (String(method || 'GET').toUpperCase() === 'GET') return;
-  if (REF_DATA_WRITE_RE.test(String(url || ''))) window.eafRefDataChangedAt = Date.now();
+  const path = String(url || '');
+  if (String(method || 'GET').toUpperCase() === 'GET') {
+    // These GETs post missing stay days on the server.
+    if (/\/api\/daily-charges\/open-stay|\/api\/invoices\/\d+\/preview/.test(path)) {
+      window.eafPatientDataChangedAt = Date.now();
+    }
+    return;
+  }
+  if (REF_DATA_WRITE_RE.test(path)) window.eafRefDataChangedAt = Date.now();
+  if (PATIENT_DATA_WRITE_RE.test(path)) window.eafPatientDataChangedAt = Date.now();
 }
 
 async function apiFetch(url, options = {}) {
