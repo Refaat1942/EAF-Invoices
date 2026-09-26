@@ -1898,7 +1898,20 @@ function renderDailySectionTiles() {
   renderDailySectionTabs();
 }
 
+/** Set only by real keyboard/mouse edits — auto-fill and hydration never count. */
+let dailyUserEditedTab = false;
+
+function markDailyUserEdit(e) {
+  if (!e.isTrusted) return;
+  if (e.type === 'click') {
+    const btn = e.target.closest('button, .btn');
+    if (!btn || !btn.closest('#daily-sections-body, #daily-operations-tbody, #daily-free-items-tbody')) return;
+  }
+  dailyUserEditedTab = true;
+}
+
 function captureDailySheetBaseline() {
+  dailyUserEditedTab = false;
   try {
     dailySavedSheetFingerprint = getDailyAutosaveFingerprint();
   } catch {
@@ -1952,6 +1965,7 @@ async function awaitDailySheetPickerHydration() {
 }
 
 function dailyTabHasUnsavedChanges() {
+  if (!dailyUserEditedTab) return false;
   if (!dailyStayContext?.invoice?.id) return false;
   if (!dailyCan('daily_charges.manage')) return false;
   try {
@@ -1989,6 +2003,7 @@ async function showDailySection(sectionId, options = {}) {
     if (!proceed) return false;
   }
   if (sectionId) {
+    if (sectionId !== activeDailyTab) dailyUserEditedTab = false;
     activeDailyTab = sectionId;
     sessionStorage.setItem('dailyActiveTab', sectionId);
   }
@@ -2025,6 +2040,7 @@ function showDailyPatientPicker() {
   sessionStorage.removeItem('dailyStayFileNumber');
   dailyStayContext = null;
   dailySavedSheetFingerprint = '';
+  dailyUserEditedTab = false;
   activeDailyTab = '';
   dailySheetSerialNext = 1;
   dailySheetSerialMap.clear();
@@ -9034,6 +9050,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sel) sel.value = 'period';
     void loadDailyEntriesIntoSheet();
   });
+  const dailySectionWorkspace = document.getElementById('daily-section-workspace');
+  ['input', 'change', 'click'].forEach((type) => {
+    dailySectionWorkspace?.addEventListener(type, markDailyUserEdit, true);
+  });
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
   document.getElementById('daily-free-add-row')?.addEventListener('click', () => addFreeItemRow());
   document.getElementById('daily-free-save-btn')?.addEventListener('click', () => {
@@ -9046,6 +9066,7 @@ document.addEventListener('DOMContentLoaded', () => {
 function clearDailyChargesSession() {
   dailyStayContext = null;
   dailySavedSheetFingerprint = '';
+  dailyUserEditedTab = false;
   activeDailyTab = '';
   dailySheetDateScope = 'today';
   sessionStorage.removeItem('dailyStayFileNumber');
