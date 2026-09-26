@@ -4182,7 +4182,16 @@ function fieldVal(id, fallback = '') {
 
 async function loadInvoiceForEdit(id, options = {}) {
   try {
-    const res = await apiFetch(`${API}/${id}`);
+    const refJson = (url) =>
+      apiFetch(url)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+    const [res, entitiesPrefetch, stayTypesPrefetch, paymentMethodsPrefetch] = await Promise.all([
+      apiFetch(`${API}/${id}`),
+      refJson(`${SETTINGS_API}/contracted-entities/tree`),
+      refJson(`${SETTINGS_API}/stay-types`),
+      refJson(`${SETTINGS_API}/payment-methods`),
+    ]);
     const inv = await res.json();
     if (!res.ok) throw new Error(inv.error);
 
@@ -4214,7 +4223,7 @@ async function loadInvoiceForEdit(id, options = {}) {
 
     setFieldValue('invoice_type', inv.invoice_type);
     toggleContractedFields();
-    await loadContractedEntities(inv.contracted_entity_id || null);
+    await loadContractedEntities(inv.contracted_entity_id || null, entitiesPrefetch);
     if (inv.contracted_entity_id) setFieldValue('contracted_entity_id', inv.contracted_entity_id);
     setFieldValue('discount_percent_display', inv.discount_percent || 0);
     setFieldValue('letter_from_date', fmtDate(inv.letter_from_date));
@@ -4236,7 +4245,7 @@ async function loadInvoiceForEdit(id, options = {}) {
       inv.stay_days != null && inv.stay_days !== '' ? formatAmountInput(inv.stay_days, 0) : ''
     );
     await loadFinancialTreatments({ financial_treatment: inv.financial_treatment || '' });
-    await loadStayTypes();
+    await loadStayTypes(stayTypesPrefetch);
     if (!invoiceFollowUpMode) {
       const dailyStayInvoice = invoiceItemsIncludeDailyStay(inv.items || []);
       initStayEntries(dailyStayInvoice ? [] : inv.stay_entries || []);
@@ -4265,7 +4274,7 @@ async function loadInvoiceForEdit(id, options = {}) {
         methodLinesByCode.check = [{ amount: inv.cash_external, metadata: {} }];
       }
     }
-    await loadPaymentMethodsForm(methodLinesByCode);
+    await loadPaymentMethodsForm(methodLinesByCode, paymentMethodsPrefetch);
 
     setFieldValue('employee_name', inv.employee_name);
     setFieldValue('auditor_name', inv.auditor_name);
@@ -4978,10 +4987,11 @@ async function deleteExamSpecialty(code) {
   }
 }
 
-async function loadStayTypes() {
+async function loadStayTypes(prefetched = null) {
   try {
-    const res = await apiFetch(`${SETTINGS_API}/stay-types`);
-    const types = await res.json();
+    const types = Array.isArray(prefetched)
+      ? prefetched
+      : await apiFetch(`${SETTINGS_API}/stay-types`).then((res) => res.json());
     stayTypesCache = types;
     document.querySelectorAll('.stay-type-select').forEach((select) => {
       const current = select.value;
@@ -5403,10 +5413,11 @@ function syncInvoicePaymentColumnsFromMethodPayments() {
   if (invoiceFollowUpMode || isInvoiceFollowUpLocked()) lockDailyInvoiceRows();
 }
 
-async function loadPaymentMethodsForm(methodLinesByCode = {}) {
+async function loadPaymentMethodsForm(methodLinesByCode = {}, prefetched = null) {
   try {
-    const res = await apiFetch(`${SETTINGS_API}/payment-methods`);
-    const methods = await res.json();
+    const methods = Array.isArray(prefetched)
+      ? prefetched
+      : await apiFetch(`${SETTINGS_API}/payment-methods`).then((res) => res.json());
     paymentMethodsCache = methods;
 
     const tbody = document.getElementById('payment-methods-tbody');
@@ -5545,10 +5556,11 @@ async function deleteLookupItem(kind, id) {
   }
 }
 
-async function loadContractedEntities(selectedId = null) {
+async function loadContractedEntities(selectedId = null, prefetched = null) {
   try {
-    const res = await apiFetch(`${SETTINGS_API}/contracted-entities/tree`);
-    const entities = await res.json();
+    const entities = Array.isArray(prefetched)
+      ? prefetched
+      : await apiFetch(`${SETTINGS_API}/contracted-entities/tree`).then((res) => res.json());
     contractedEntitiesCache = entities;
 
     const select = document.getElementById('contracted_entity_id');

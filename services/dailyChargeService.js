@@ -572,11 +572,9 @@ function catalogImportHintForSection(section) {
   const tab = SECTION_TAB_IMPORT[String(section?.code || '').trim()];
   const cfg = tab ? TAB_CATALOG_IMPORT[tab] : null;
   if (cfg?.label) {
-    return `لا توجد بنود في كتالوج القسم — استخدم «${cfg.label}» من تبويب الفاتورة، أو ارفع اللائحة من إدارة الأسعار`;
+    return `لا توجد بنود لهذا القسم — ارفع «${cfg.label}» من الإعدادات ← مصادر بيانات الشاشات`;
   }
-  const cat = section?.catalog_category;
-  if (cat) return `لا توجد بنود — ارفع شيت «${cat}» من زر الاستيراد في تبويب القسم`;
-  return 'لا توجد بنود — ارفع ملف القسم من زر الاستيراد';
+  return 'لا توجد بنود لهذا القسم — ارفع الملف من الإعدادات ← مصادر بيانات الشاشات';
 }
 
 function pickerRowNameKey(row) {

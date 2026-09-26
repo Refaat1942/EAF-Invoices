@@ -53,93 +53,6 @@ const DAILY_ADD_ROW_LABELS = {
 const DAILY_PRICING_API = '/api/pricing';
 
 
-/** Admin-only per-tab service list upload (catalog or price-list Excel). */
-const DAILY_TAB_IMPORT_CONFIG = {
-  medicines: {
-    kind: 'catalog',
-    defaultCategory: 'Medicine',
-    allowCategories: ['Medicine', 'Supplies', 'Cosmetics'],
-    label: 'رفع قائمة أدوية',
-    accept: '.xlsx,.xls,.csv,.txt',
-  },
-  supplies: {
-    kind: 'catalog',
-    defaultCategory: 'Supplies',
-    allowCategories: ['Medicine', 'Supplies', 'Cosmetics'],
-    label: 'رفع قائمة مستلزمات',
-    accept: '.xlsx,.xls,.csv,.txt',
-  },
-  sessions: { kind: 'section_excel', tab: 'sessions', label: 'رفع العلاج الطبيعي' },
-  exams: { kind: 'section_excel', tab: 'exams', label: 'رفع الكشوفات' },
-  lab: { kind: 'section_excel', tab: 'lab', label: 'رفع التحاليل' },
-  radiology: { kind: 'section_excel', tab: 'radiology', label: 'رفع الأشعة' },
-  other: { kind: 'section_excel', tab: 'other', label: 'رفع ملف خدمات' },
-  operations: { kind: 'section_excel', tab: 'operations', label: 'رفع العمليات الجراحية' },
-};
-
-function isDailyAdminImportAllowed() {
-  return typeof can === 'function' && can('settings.*');
-}
-
-function updateDailyTabImportButton() {
-  const btn = document.getElementById('daily-tab-import-btn');
-  const input = document.getElementById('daily-tab-import-input');
-  if (!btn || !input) return;
-  const cfg = DAILY_TAB_IMPORT_CONFIG[activeDailyTab];
-  const allowed = isDailyAdminImportAllowed() && cfg;
-  btn.classList.toggle('d-none', !allowed);
-  if (cfg) {
-    btn.textContent = `📤 ${cfg.label}`;
-    input.accept = cfg.accept || '.xlsx,.xls';
-  }
-}
-
-async function handleDailyTabImport(file) {
-  const cfg = DAILY_TAB_IMPORT_CONFIG[activeDailyTab];
-  if (!cfg || !file || !isDailyAdminImportAllowed()) return;
-
-  const btn = document.getElementById('daily-tab-import-btn');
-  if (btn) btn.disabled = true;
-  try {
-    if (cfg.kind === 'catalog') {
-      const form = new FormData();
-      form.append('file', file);
-      if (cfg.defaultCategory) form.append('default_category', cfg.defaultCategory);
-      if (cfg.allowCategories?.length) form.append('allow_categories', cfg.allowCategories.join(','));
-      const res = await apiFetch(`${DAILY_API}/catalog/import`, { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      const msg = `كتالوج: ${data.inserted || 0} جديد، ${data.updated || 0} محدّث`;
-      showToast(msg, 'success');
-      if (typeof loadCatalogCache === 'function') await loadCatalogCache();
-      await reloadDailyServiceCaches();
-    } else if (cfg.kind === 'section_excel') {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('tab', cfg.tab || activeDailyTab);
-      const res = await apiFetch(`${DAILY_API}/catalog/import-section-excel`, { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      const label = data.template_label || cfg.label;
-      const inserted = Number(data.inserted ?? data.imported ?? 0) || 0;
-      const updated = Number(data.updated ?? 0) || 0;
-      const total = Number(data.imported ?? data.total ?? inserted + updated) || 0;
-      const dest = data.source === 'price_list' ? 'اللائحة' : 'الكتالوج';
-      const msg = `شيت «${label}» → ${dest}: ${total} بند (${inserted} جديد، ${updated} محدّث)`;
-      showToast(msg, total > 0 ? 'success' : 'warning');
-      if (typeof loadCatalogCache === 'function') await loadCatalogCache();
-      await loadDailySections();
-      await reloadDailyServiceCaches();
-    }
-  } catch (err) {
-    showToast(sanitizeApiErrorMessage(err.message), 'danger');
-  } finally {
-    if (btn) btn.disabled = false;
-    const input = document.getElementById('daily-tab-import-input');
-    if (input) input.value = '';
-  }
-}
-
 let dailySectionsCache = [];
 let dailyCurrentEntryId = null;
 let dailyStayContext = null;
@@ -153,6 +66,9 @@ function canUseDailyStayCharges(ctx = dailyStayContext) {
   return !isExternalDailyPatient(ctx);
 }
 let dailyEntriesLoadSeq = 0;
+/** Stay types, grades and exam/companion services — shared by every patient. */
+let dailyRefDataLoadedAt = 0;
+const DAILY_REF_DATA_FRESH_MS = 30000;
 let dailyStayTypesCache = [];
 let dailyStayGradesCache = [];
 let dailySpecialtiesCache = [];
@@ -763,7 +679,6 @@ function applyDailyTabColumnVisibility() {
   if (saveBtn) saveBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
   if (saveAllBtn) saveAllBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
 
-  updateDailyTabImportButton();
   updateDailySheetScopeUi();
 
   if (activeDailyTab === 'operations') ensureOperationRows();
@@ -793,7 +708,7 @@ function applyDailyTabColumnVisibility() {
       'أشعة — ابحث عن نوع الأشعة. تُستورد من «الخدمات الطبية» (أشعة/دوبلكس/سونار) أو ملف أشعة مخصص.';
   } else if (hint && activeDailyTab === 'other') {
     hint.textContent =
-      'خدمات متنوعة — ارفع «الخدمات الطبية» أو «إجراءات وحقن الألم» من زر الاستيراد (إدارة).';
+      'خدمات متنوعة — ارفع «الخدمات الطبية» أو «إجراءات وحقن الألم» من الإعدادات ← مصادر بيانات الشاشات.';
   } else if (hint && activeDailyTab === 'operations') {
     hint.textContent =
       'عمليات — تاريخ، العملية، الأوقات، المرافق، نقطة تمريض، مساعد تمريض، والإجمالي يُحسب تلقائياً. مرّر الجدول لليمين/اليسار لرؤية كل الأعمدة.';
@@ -3853,14 +3768,19 @@ async function loadOpenPatientStay(fileNumber) {
     await ensurePatientDataReconciled(fn);
     data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
     applyDailyStayContext(data);
-    await loadDailyStayTypes();
-    await loadDailyStayGrades();
+    const refDataFresh = Date.now() - dailyRefDataLoadedAt < DAILY_REF_DATA_FRESH_MS;
+    await Promise.all([
+      refDataFresh ? null : loadDailyStayTypes(),
+      refDataFresh ? null : loadDailyStayGrades(),
+      refDataFresh ? null : reloadDailyServiceCaches(),
+      refreshOperationsTotalsCache(),
+    ]);
+    if (!refDataFresh) dailyRefDataLoadedAt = Date.now();
     populateStayTypeSelects(dailyStayContext?.room_assignment?.stay_type_id || '');
-    await reloadDailyServiceCaches();
-    await refreshOperationsTotalsCache();
+    const historyLoad = loadDailyPatientHistory();
     if (dailySectionsCache.length) await loadDailyEntriesIntoSheet();
     await loadOperationsForToday();
-    await loadDailyPatientHistory();
+    await historyLoad;
     return data;
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
@@ -8757,6 +8677,7 @@ async function initDailyChargesView(options = {}) {
       dailySectionsCache.length ? null : loadDailySections(),
       reloadDailyServiceCaches(),
     ]);
+    dailyRefDataLoadedAt = Date.now();
     populateStayTypeSelects();
     void loadPatientEntitySelects();
     if (dailySectionsLoadFailed) return;
@@ -9069,13 +8990,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const sel = document.getElementById('daily-sheet-scope');
     if (sel) sel.value = 'period';
     void loadDailyEntriesIntoSheet();
-  });
-  document.getElementById('daily-tab-import-btn')?.addEventListener('click', () => {
-    document.getElementById('daily-tab-import-input')?.click();
-  });
-  document.getElementById('daily-tab-import-input')?.addEventListener('change', (e) => {
-    const file = e.target.files?.[0];
-    if (file) void handleDailyTabImport(file);
   });
   document.getElementById('daily-op-add-row')?.addEventListener('click', () => addOperationRow());
   document.getElementById('daily-free-add-row')?.addEventListener('click', () => addFreeItemRow());

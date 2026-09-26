@@ -9,7 +9,7 @@ const {
   resolveAccommodationGradeForStayType,
   getCurrentBusinessDateString,
   normalizeCalendarDate,
-  isStayDateExcluded,
+  listStayExcludedDatesForPatient,
 } = require('./dailyChargeService');
 const { syncPatientDailyChargesToInvoice } = require('./invoiceService');
 
@@ -64,22 +64,22 @@ async function hasStaySectionLine(patientId, date, sectionCode) {
   return rows.length > 0;
 }
 
-async function hasAnyStayLine(patientId, date) {
+async function listDatesWithAnyStayLine(patientId, fromDate, toDate) {
   const pid = Number(patientId);
-  const d = parseDateOnly(date);
-  if (!pid || !d) return false;
+  const from = parseDateOnly(fromDate);
+  const to = parseDateOnly(toDate);
+  if (!pid || !from || !to) return [];
   const { rows } = await query(
-    `SELECT 1
+    `SELECT DISTINCT e.entry_date::text AS entry_date
      FROM patient_daily_entries e
      INNER JOIN patient_daily_entry_lines l ON l.entry_id = e.id
      WHERE e.patient_id = $1
-       AND e.entry_date = $2::date
+       AND e.entry_date BETWEEN $2::date AND $3::date
        AND l.section_code IN ('accommodation', 'companion', 'nursing_point', 'patient_assistant')
-       AND COALESCE(l.amount, 0) > 0
-     LIMIT 1`,
-    [pid, d]
+       AND COALESCE(l.amount, 0) > 0`,
+    [pid, from, to]
   );
-  return rows.length > 0;
+  return rows.map((row) => parseDateOnly(row.entry_date)).filter(Boolean);
 }
 
 async function buildStayEntryPayload(patient, invoice, date, assignment, options = {}) {
@@ -207,15 +207,21 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
   const entries = [];
   const skipped = [];
   const missingAssignment = [];
+  const [excludedDates, postedDates] = await Promise.all([
+    listStayExcludedDatesForPatient(patient.id, admission, endDate),
+    skipExisting ? listDatesWithAnyStayLine(patient.id, admission, endDate) : [],
+  ]);
+  const excludedSet = new Set(excludedDates);
+  const postedSet = new Set(postedDates);
 
   for (const date of dates) {
-    if (await isStayDateExcluded(patient.id, date)) {
+    if (excludedSet.has(date)) {
       skipped.push(date);
       continue;
     }
     // The posted payload holds only the "missing" sections, and saving it replaces the
     // whole day's stay lines — so a day that already has stay charges belongs to the user.
-    if (skipExisting && (await hasAnyStayLine(patient.id, date))) {
+    if (skipExisting && postedSet.has(date)) {
       skipped.push(date);
       continue;
     }
