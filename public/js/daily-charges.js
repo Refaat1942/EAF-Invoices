@@ -6711,17 +6711,19 @@ function renderDailyCellHtml(section, line = {}) {
   return `<td class="daily-section-cell" data-section="${section.code}"><label class="form-label small fw-bold text-primary mb-1">${dailyEscapeHtml(section.name)}</label>${pickerHtml}${weightHtml}<div class="input-group input-group-sm mb-1"><span class="input-group-text">كمية</span><input type="text" inputmode="decimal" class="form-control daily-catalog-qty comma-amount" data-section="${section.code}" data-decimals="0" value="${qtyVal}" autocomplete="off"></div><input type="text" inputmode="decimal" class="form-control form-control-sm daily-field daily-amount comma-amount" data-section="${section.code}" data-type="amount" data-manual-amount="${amountVal ? '1' : '0'}" value="${amountVal}"></td>`;
 }
 
-function configureDailyTableFooter(colCount, labelText = 'إجمالي الكل') {
+/** valueColumn: 1-based column the total sits under (defaults to the one before the action column). */
+function configureDailyTableFooter(colCount, labelText = 'إجمالي الكل', valueColumn = colCount - 1) {
   const footLabel = document.getElementById('daily-total-foot-label');
   const footSpacer = document.getElementById('daily-total-foot-spacer');
+  const valueCol = Math.min(Math.max(valueColumn, 2), colCount - 1);
   if (footLabel) {
-    footLabel.colSpan = Math.max(colCount - 2, 1);
+    footLabel.colSpan = Math.max(valueCol - 1, 1);
     footLabel.setAttribute('data-base-label', labelText);
     footLabel.textContent = labelText;
     footLabel.className = 'fw-black text-end daily-total-foot-label';
   }
   if (footSpacer) {
-    footSpacer.colSpan = 1;
+    footSpacer.colSpan = Math.max(colCount - valueCol, 1);
     footSpacer.textContent = '';
     footSpacer.className = 'daily-total-foot-action';
   }
@@ -6848,7 +6850,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(11, 'إجمالي المستلزمات (كل الأيام)');
+    configureDailyTableFooter(10, 'إجمالي المستلزمات (كل الأيام)', 7);
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;

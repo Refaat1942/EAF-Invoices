@@ -1036,7 +1036,7 @@ body {
 .daily-sheet-table--supplies th:nth-child(4),
 .daily-sheet-table--supplies td:nth-child(4) { width: 20%; min-width: 11rem; }
 .daily-sheet-table--supplies th:nth-child(5),
-.daily-sheet-table--supplies td:nth-child(5),
+.daily-sheet-table--supplies td:nth-child(5) { width: 5.5rem; }
 .daily-sheet-table--supplies th:nth-child(6),
 .daily-sheet-table--supplies td:nth-child(6),
 .daily-sheet-table--supplies th:nth-child(7),
@@ -1044,11 +1044,9 @@ body {
 .daily-sheet-table--supplies th:nth-child(8),
 .daily-sheet-table--supplies td:nth-child(8),
 .daily-sheet-table--supplies th:nth-child(9),
-.daily-sheet-table--supplies td:nth-child(9),
+.daily-sheet-table--supplies td:nth-child(9) { width: 8rem; }
 .daily-sheet-table--supplies th:nth-child(10),
-.daily-sheet-table--supplies td:nth-child(10) { width: 7rem; }
-.daily-sheet-table--supplies th:nth-child(11),
-.daily-sheet-table--supplies td:nth-child(11) { width: 2.75rem; }
+.daily-sheet-table--supplies td:nth-child(10) { width: 2.75rem; }
 
 .daily-sheet-table--lab th:nth-child(1),
 .daily-sheet-table--lab td:nth-child(1) { width: 3.25rem; }
