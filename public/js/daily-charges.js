@@ -68,7 +68,13 @@ function canUseDailyStayCharges(ctx = dailyStayContext) {
 let dailyEntriesLoadSeq = 0;
 /** Stay types, grades and exam/companion services — shared by every patient. */
 let dailyRefDataLoadedAt = 0;
-const DAILY_REF_DATA_FRESH_MS = 30000;
+const DAILY_REF_DATA_FRESH_MS = 120000;
+
+function isDailyRefDataFresh() {
+  if (!dailyRefDataLoadedAt) return false;
+  if ((window.eafRefDataChangedAt || 0) >= dailyRefDataLoadedAt) return false;
+  return Date.now() - dailyRefDataLoadedAt < DAILY_REF_DATA_FRESH_MS;
+}
 let dailyStayTypesCache = [];
 let dailyStayGradesCache = [];
 let dailySpecialtiesCache = [];
@@ -3768,7 +3774,7 @@ async function loadOpenPatientStay(fileNumber) {
     await ensurePatientDataReconciled(fn);
     data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
     applyDailyStayContext(data);
-    const refDataFresh = Date.now() - dailyRefDataLoadedAt < DAILY_REF_DATA_FRESH_MS;
+    const refDataFresh = isDailyRefDataFresh();
     await Promise.all([
       refDataFresh ? null : loadDailyStayTypes(),
       refDataFresh ? null : loadDailyStayGrades(),
@@ -8666,18 +8672,53 @@ async function showDailyBuildBadge() {
   if (el) el.textContent = '';
 }
 
+function beginDailyPatientOpening(fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  const workspace = document.getElementById('daily-patient-workspace');
+  const picker = document.getElementById('daily-patient-picker-wrap');
+  if (!fn || !workspace || !picker) return () => {};
+  const samePatient =
+    String(dailyStayContext?.patient?.file_number || '').trim() === fn && Boolean(activeDailyTab);
+  let loading = null;
+  if (samePatient) {
+    picker.classList.add('d-none');
+    workspace.classList.remove('d-none');
+    workspace.classList.add('daily-busy');
+    workspace.setAttribute('aria-busy', 'true');
+  } else {
+    picker.classList.add('d-none');
+    workspace.classList.add('d-none');
+    loading = document.createElement('div');
+    loading.className = 'daily-opening-indicator';
+    loading.setAttribute('role', 'status');
+    loading.innerHTML = `<div class="spinner-border text-primary" aria-hidden="true"></div><div class="fw-bold mt-2">جاري فتح ملف المريض ${dailyEscapeHtml(fn)}…</div>`;
+    picker.parentNode.insertBefore(loading, picker);
+  }
+  return () => {
+    workspace.classList.remove('daily-busy');
+    workspace.removeAttribute('aria-busy');
+    loading?.remove();
+    if (workspace.classList.contains('d-none') && picker.classList.contains('d-none')) {
+      showDailyPatientPicker();
+    }
+  };
+}
+
 async function initDailyChargesView(options = {}) {
   if (!dailyCan('daily_charges.view')) return;
+  const endOpening = beginDailyPatientOpening(options.openFileNumber);
   try {
     if (typeof loadFinancialTreatments === 'function') await loadFinancialTreatments();
-    await Promise.all([
-      loadDailyDoctorSpecialties(),
-      loadDailyStayTypes(),
-      loadDailyStayGrades(),
-      dailySectionsCache.length ? null : loadDailySections(),
-      reloadDailyServiceCaches(),
-    ]);
-    dailyRefDataLoadedAt = Date.now();
+    if (!isDailyRefDataFresh() || !dailySectionsCache.length) {
+      await Promise.all([
+        loadDailyDoctorSpecialties(),
+        loadDailyStayTypes(),
+        loadDailyStayGrades(),
+        dailySectionsCache.length ? null : loadDailySections(),
+        reloadDailyServiceCaches(),
+      ]);
+      dailyRefDataLoadedAt = Date.now();
+    }
     populateStayTypeSelects();
     void loadPatientEntitySelects();
     if (dailySectionsLoadFailed) return;
@@ -8702,6 +8743,8 @@ async function initDailyChargesView(options = {}) {
     }
   } catch (err) {
     showToast(sanitizeApiErrorMessage(err.message), 'danger');
+  } finally {
+    endOpening();
   }
 }
 

@@ -146,7 +146,18 @@ if (typeof window !== 'undefined') {
   setInterval(stampClientDate, 60 * 1000);
 }
 
+const REF_DATA_WRITE_RE =
+  /\/api\/(settings|pricing|doctors)\b|\/api\/daily-charges\/(catalog|sections|stay-grades|picker)\b/;
+
+/** Screens that cache lookup lists compare against this before reusing them. */
+function noteRefDataWrite(url, method) {
+  if (typeof window === 'undefined') return;
+  if (String(method || 'GET').toUpperCase() === 'GET') return;
+  if (REF_DATA_WRITE_RE.test(String(url || ''))) window.eafRefDataChangedAt = Date.now();
+}
+
 async function apiFetch(url, options = {}) {
+  noteRefDataWrite(url, options.method);
   const fetchImpl = typeof fetch === 'function' ? fetch : null;
   if (!fetchImpl) {
     throw new ApiClientError('تعذّر إتمام الطلب — بيئة غير مدعومة', {

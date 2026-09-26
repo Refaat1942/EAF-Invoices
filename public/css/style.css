@@ -4005,3 +4005,35 @@ small, .small {
     background-color: transparent;
   }
 }
+
+/* Daily screen while a patient is (re)loading */
+#daily-patient-workspace.daily-busy {
+  position: relative;
+  pointer-events: none;
+  cursor: progress;
+}
+#daily-patient-workspace.daily-busy > * {
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+#daily-patient-workspace.daily-busy::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  height: 3px;
+  z-index: 5;
+  background: linear-gradient(90deg, transparent, var(--erp-teal, #0f766e), transparent);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: daily-busy-bar 900ms linear infinite;
+}
+@keyframes daily-busy-bar {
+  from { background-position: -50% 0; }
+  to { background-position: 150% 0; }
+}
+.daily-opening-indicator {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--erp-muted, #64748b);
+}
