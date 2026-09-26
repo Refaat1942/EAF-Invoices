@@ -68,7 +68,7 @@ function canUseDailyStayCharges(ctx = dailyStayContext) {
 let dailyEntriesLoadSeq = 0;
 /** Stay types, grades and exam/companion services — shared by every patient. */
 let dailyRefDataLoadedAt = 0;
-const DAILY_REF_DATA_FRESH_MS = 120000;
+const DAILY_REF_DATA_FRESH_MS = 10000;
 
 function isDailyRefDataFresh() {
   if (!dailyRefDataLoadedAt) return false;
@@ -7551,6 +7551,7 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     }
     await awaitDailySheetPickerHydration();
     captureDailySheetBaseline();
+    if (cacheUsable) void revalidateDailySheetEntries(fileNumber, loadId);
   } catch (err) {
     if (loadId !== dailyEntriesLoadSeq) return;
     console.error(err);
@@ -7561,6 +7562,28 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     setDailyTodayDate();
     renumberSheetRowSerials();
     updateSectionTabTotal();
+  }
+}
+
+/** After an instant render from cache, confirm with the server and redraw if anything differs. */
+async function revalidateDailySheetEntries(fileNumber, loadId) {
+  try {
+    const startedAt = Date.now();
+    const fresh = await apiJson(
+      `${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&include_lines=1&limit=120`
+    );
+    if (loadId !== dailyEntriesLoadSeq || getStayFileNumber() !== fileNumber) return;
+    const changed = JSON.stringify(fresh || []) !== JSON.stringify(dailySheetEntriesCache || []);
+    if (!changed) {
+      dailySheetEntriesFetchedAt = startedAt;
+      return;
+    }
+    // Never overwrite rows the user has started editing; the next tab switch refetches.
+    dailySheetEntriesFetchedAt = 0;
+    if (dailyUserEditedTab) return;
+    await loadDailyEntriesIntoSheet();
+  } catch {
+    dailySheetEntriesFetchedAt = 0;
   }
 }
 

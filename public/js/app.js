@@ -1181,6 +1181,8 @@ async function openInvoicePrintPreview(options = {}) {
     const previewUrl = dailyKind
       ? `${API}/${invoiceId}/preview?daily_kind=${encodeURIComponent(dailyKind)}`
       : `${API}/${invoiceId}/preview`;
+    // The preview route may post missing stay days — cached daily entries must refetch.
+    window.eafPatientDataChangedAt = Date.now();
     window.open(previewUrl, '_blank');
   } catch (err) {
     showToast(err.message || 'فشل معاينة الفاتورة', 'danger');
