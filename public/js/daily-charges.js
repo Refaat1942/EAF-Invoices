@@ -6722,6 +6722,8 @@ function configureDailyTableFooter(colCount, labelText = 'إجمالي الكل'
     footLabel.textContent = labelText;
     footLabel.className = 'fw-black text-end daily-total-foot-label';
   }
+  const foreignHintCell = document.querySelector('#daily-foreign-pricing-hint-row > td');
+  if (foreignHintCell) foreignHintCell.colSpan = Math.max(colCount, 1);
   if (footSpacer) {
     footSpacer.colSpan = Math.max(colCount - valueCol, 1);
     footSpacer.textContent = '';
