@@ -1166,10 +1166,12 @@ async function getEntryByPatientDate(patientId, entryDate, client = null) {
 
 async function listEntries(filters = {}) {
   let sql = `
-    SELECT e.*, p.file_number, p.name AS patient_name, st.name AS stay_type_name
+    SELECT e.*, p.file_number, p.name AS patient_name, st.name AS stay_type_name,
+           inv.serial_number AS invoice_serial_number, inv.status AS invoice_status
     FROM patient_daily_entries e
     JOIN patients p ON p.id = e.patient_id
     LEFT JOIN stay_types st ON st.id = e.stay_type_id
+    LEFT JOIN invoices inv ON inv.id = e.invoice_id
     WHERE 1=1`;
   const params = [];
   let i = 1;
@@ -1181,6 +1183,12 @@ async function listEntries(filters = {}) {
   if (filters.file_number) {
     sql += ` AND p.file_number = $${i++}`;
     params.push(filters.file_number.trim());
+  }
+  if (filters.search) {
+    // Settings «سجل الحركات اليومية»: match patient name or file number.
+    sql += ` AND (p.name ILIKE $${i} OR TRIM(p.file_number) ILIKE $${i})`;
+    i++;
+    params.push(`%${String(filters.search).trim()}%`);
   }
   if (filters.from_date) {
     sql += ` AND e.entry_date >= $${i++}`;
@@ -1210,10 +1218,12 @@ async function listEntries(filters = {}) {
     const entryIds = rows.map((r) => r.id);
     const { rows: lineRows } = await query(
       `SELECT l.*, s.name AS service_name, s.code AS service_code,
-              c.name AS catalog_item_name, c.code AS catalog_item_code, c.category AS catalog_item_category
+              c.name AS catalog_item_name, c.code AS catalog_item_code, c.category AS catalog_item_category,
+              sec.name AS section_name
        FROM patient_daily_entry_lines l
        LEFT JOIN services s ON s.id = l.service_id
        LEFT JOIN daily_entry_catalog_items c ON c.id = l.catalog_item_id
+       LEFT JOIN daily_charge_sections sec ON sec.code = l.section_code
        WHERE l.entry_id = ANY($1::int[])
        ORDER BY l.entry_id, l.sort_order, l.id`,
       [entryIds]

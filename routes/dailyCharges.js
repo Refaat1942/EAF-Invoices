@@ -379,6 +379,7 @@ router.get('/entries', requirePermission('daily_charges.view'), async (req, res)
       await listEntries({
         patient_id: req.query.patient_id,
         file_number: req.query.file_number,
+        search: req.query.search,
         from_date: req.query.from_date,
         to_date: req.query.to_date,
         uninvoiced_only: req.query.uninvoiced_only === '1',

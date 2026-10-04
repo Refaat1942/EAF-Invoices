@@ -1264,6 +1264,11 @@
               <span class="hub-tile-title">مصادر بيانات الشاشات</span>
               <span class="hub-tile-desc">الأسعار، الأصناف، الإقامة، الأطباء والتخصصات — كلها من هنا</span>
             </button>
+            <button type="button" class="hub-tile hub-tile--teal settings-section-tile" data-settings-section="daily-log" data-perm="daily_charges.view">
+              <span class="hub-tile-icon">📅</span>
+              <span class="hub-tile-title">سجل الحركات اليومية</span>
+              <span class="hub-tile-desc">حركات أي مريض لأي فترة — بدون فتح المريض</span>
+            </button>
             </div>
           </div>
           <div class="settings-group">
@@ -1731,6 +1736,50 @@
                     </tr>
                   </thead>
                   <tbody id="invoice-serial-list-body"><tr><td colspan="8" class="text-muted">—</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 settings-panel" id="daily-log-settings-card" data-settings-section="daily-log" style="display:none">
+          <div class="card shadow-sm">
+            <div class="card-header bg-dark text-white fw-black d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <span>📅 سجل الحركات اليومية (عرض فقط)</span>
+              <button type="button" class="btn btn-sm btn-success fw-bold" id="daily-log-export-btn">⬇️ تصدير Excel</button>
+            </div>
+            <div class="card-body">
+              <div class="row g-2 align-items-end mb-3">
+                <div class="col-md-3">
+                  <label class="form-label small fw-bold mb-1" for="daily-log-search">رقم الملف أو اسم المريض</label>
+                  <input type="search" class="form-control" id="daily-log-search" placeholder="اتركه فارغًا لكل المرضى">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small fw-bold mb-1" for="daily-log-from">من</label>
+                  <input type="date" class="form-control" id="daily-log-from">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label small fw-bold mb-1" for="daily-log-to">إلى</label>
+                  <input type="date" class="form-control" id="daily-log-to">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small fw-bold mb-1" for="daily-log-section">القسم</label>
+                  <select class="form-select" id="daily-log-section"><option value="">كل الأقسام</option></select>
+                </div>
+                <div class="col-md-2">
+                  <button type="button" class="btn btn-primary fw-bold w-100" id="daily-log-load-btn">🔍 عرض</button>
+                </div>
+              </div>
+              <div class="alert alert-warning py-2 small fw-bold d-none" id="daily-log-warning"></div>
+              <div class="small fw-bold text-muted mb-2" id="daily-log-summary"></div>
+              <div class="table-responsive">
+                <table class="table table-sm table-bordered table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>التاريخ</th><th>رقم الملف</th><th>المريض</th><th>القسم</th><th>البند</th>
+                      <th>الكمية</th><th>السعر</th><th>الإجمالي</th><th>الطبيب</th><th>الفاتورة</th>
+                    </tr>
+                  </thead>
+                  <tbody id="daily-log-body"></tbody>
                 </table>
               </div>
             </div>
@@ -2420,7 +2469,7 @@
   <script src="/js/auto-save.js?v=20260922h"></script>
   <script src="/js/api-client.js?v=20260926d"></script>
   <script src="/js/daily-section-bundles.js?v=20260922a"></script>
-  <script src="/js/app.js?v=20260926e"></script>
+  <script src="/js/app.js?v=20261004a"></script>
   <script src="/js/nationality-pricing.js?v=20260923a"></script>
   <script src="/js/daily-picker.js?v=20260923b"></script>
   <script src="/js/daily-charges.js?v=20261004b"></script>
@@ -2431,5 +2480,6 @@
   <script src="/js/analytics-dashboard.js?v=20260923a"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>
+  <script src="/js/daily-entries-browser.js?v=20261004b"></script>
 </body>
 </html>

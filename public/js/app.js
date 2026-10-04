@@ -5822,6 +5822,9 @@ function showSettingsSection(section, options = {}) {
   if (section === 'item-catalog' && typeof loadItemCatalogSection === 'function') loadItemCatalogSection();
   if (section === 'audit-monitor' && typeof loadAuditMonitorSection === 'function') loadAuditMonitorSection();
   if (section === 'data-sources' && can('settings.*')) loadDataSourcesSection();
+  if (section === 'daily-log' && can('daily_charges.view') && typeof loadDailyLogSection === 'function') {
+    loadDailyLogSection();
+  }
 }
 
 let dataSourcesCache = [];
