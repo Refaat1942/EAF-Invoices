@@ -8575,12 +8575,7 @@ async function saveDailyEntryNow(options = {}) {
     captureDailySheetBaseline();
     return true;
   } catch (err) {
-    if (activeDailyTab === 'exams') {
-      resetUnsavedExamDraftRows();
-      if (!document.querySelector('#daily-sections-body .daily-exam-row:not([data-entry-id])')) {
-        addDailyEntryRow();
-      }
-    }
+    // Keep typed exam rows on failure — wiping them lost valid rows alongside the bad one.
     if (!silent) {
       showToast(sanitizeApiErrorMessage(err.message), 'danger');
     } else if (window.AutoSave) {
