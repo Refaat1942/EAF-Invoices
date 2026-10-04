@@ -4,6 +4,7 @@ const { getInvoiceByToken } = require('../services/invoiceService');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
 const { getLogoUrl } = require('../services/settingsService');
+const { cairoFontFaceCss } = require('../services/embeddedFonts');
 
 const router = express.Router();
 
@@ -50,7 +51,7 @@ function wrapDownloadPage(invoiceHtml, invoice, baseUrl) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>فاتورة ${invoice.serial_number}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap" rel="stylesheet">
+  <style>${cairoFontFaceCss()}</style>
   <style>
     body { font-family: 'Cairo', sans-serif; background: #f0f2f5; margin: 0; padding: 16px; direction: rtl; }
     .toolbar { max-width: 210mm; margin: 0 auto 12px; display: flex; gap: 8px; flex-wrap: wrap; background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); align-items: center; }

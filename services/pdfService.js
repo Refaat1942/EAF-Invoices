@@ -4,6 +4,7 @@ const { normalizeCaptainName } = require('./invoiceService');
 const { CENTER_NAME } = require('../config/branding');
 
 const { formatAmountAr } = require('./amountFormat');
+const { cairoFontFaceCss } = require('./embeddedFonts');
 
 function formatNumber(n) {
   return formatAmountAr(n, 2);
@@ -294,7 +295,7 @@ async function buildInvoiceHtml(invoice, options = {}) {
 <head>
   <meta charset="UTF-8">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap');
+    ${cairoFontFaceCss()}
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -1042,7 +1043,7 @@ function buildDailyItemsHtml(report, options = {}) {
 <head>
   <meta charset="UTF-8">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap');
+    ${cairoFontFaceCss()}
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Cairo', 'Arial', sans-serif;
@@ -1246,7 +1247,7 @@ function buildDailyServiceReportHtml(report, options = {}) {
 <head>
   <meta charset="UTF-8">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap');
+    ${cairoFontFaceCss()}
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Cairo', 'Arial', sans-serif;
@@ -1378,7 +1379,7 @@ function wrapDailyItemsPrintPage(reportHtml, report, baseUrl, kind) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@700;800;900&display=swap" rel="stylesheet">
+  <style>${cairoFontFaceCss()}</style>
   <style>
     body { font-family: 'Cairo', sans-serif; background: #f0f2f5; margin: 0; padding: 16px; direction: rtl; }
     .toolbar { max-width: 210mm; margin: 0 auto 12px; display: flex; gap: 8px; flex-wrap: wrap; background: #fff; padding: 12px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.1); align-items: center; }

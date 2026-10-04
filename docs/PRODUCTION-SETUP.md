@@ -197,6 +197,26 @@ Expected:
 
 No secrets or full `DATABASE_URL` in response.
 
+## Offline server (no internet)
+
+The app needs no internet at runtime:
+
+- Bootstrap 5.3.3 and the Cairo font ship in `public/vendor/` (no CDN / Google Fonts).
+- Printed invoices and PDFs embed the Cairo font (`services/embeddedFonts.js`).
+
+Only installation needs care, because `npm ci` downloads packages and puppeteer's Chrome:
+
+1. On a machine **with** internet (same OS family as the server is easiest), clone the repo and run `npm ci`.
+   All dependencies are plain JavaScript, so `node_modules` can be copied as-is.
+2. Copy the whole folder (including `node_modules`) to the offline server.
+3. PDF printing needs a Chrome-type browser. The app looks for one in this order:
+   - `PUPPETEER_EXECUTABLE_PATH` or `CHROME_PATH` in `.env`
+   - puppeteer's own Chrome (`~/.cache/puppeteer`, downloaded by `npm ci` — copy this folder too, for the same user)
+   - an installed browser: `/usr/bin/chromium`, `/usr/bin/chromium-browser`, `/usr/bin/google-chrome(-stable)`,
+     `/snap/bin/chromium`, or on Windows Chrome / Microsoft Edge in `Program Files`
+
+   Example `.env` line: `CHROME_PATH=/usr/bin/chromium`
+
 ## Deployment checklist
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for the recommended update flow.
