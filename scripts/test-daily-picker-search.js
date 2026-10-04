@@ -216,13 +216,15 @@ assert(
   assertEq(medicines.services.length, 0, 'sections API does not embed full catalog list');
   assert(medicines.catalog_count >= 0, 'sections API exposes catalog_count');
   assert(consultant?.default_service?.id, 'consultant default_service resolved without full services list');
+  // Price-list sections embed a bounded preview (loadPriceListServicesForSection, 200 rows)
+  // that server-side validation reads; full lists are only reached through picker search.
+  const SECTION_SERVICES_PREVIEW_LIMIT = 200;
   assert(
-    !consultant?.services?.length || consultant.services.length <= 1,
-    'sections API keeps at most one embedded service for default'
+    !consultant?.services?.length || consultant.services.length <= SECTION_SERVICES_PREVIEW_LIMIT,
+    'sections API keeps embedded services within the preview limit'
   );
-  const totalEmbeddedServices = sections.reduce((sum, s) => sum + (s.services?.length || 0), 0);
   assert(
-    totalEmbeddedServices <= sections.filter((s) => s.category_code && !s.catalog_category).length,
+    sections.every((s) => (s.services?.length || 0) <= SECTION_SERVICES_PREVIEW_LIMIT),
     'sections API does not embed full category service lists'
   );
 
@@ -234,7 +236,7 @@ assert(
     minor_unit: 'TAB',
     minor_quantity_per_major: 10,
     major_unit_selling_price: 100,
-    minor_unit_selling_price: 12,
+    minor_unit_selling_price: 10, // must equal major price ÷ minor_quantity_per_major
   });
 
   const searchResult = await searchDailyPickerItems({
@@ -283,6 +285,17 @@ assert(
   assertEq(serviceSearch.kind, 'service', 'service search kind');
   assert(serviceSearch.rows.length > 0, 'service search returns rows');
 
+  // «الخدمات المتنوعة» searches every uploaded services file, not only GENERAL.
+  const otherSearch = await searchDailyPickerItems({
+    section_code: 'other',
+    search: 'كشف',
+    page: 1,
+    limit: 10,
+  });
+  assert(otherSearch.rows.length > 0, 'misc services search finds items from other price-list files');
+  const otherHydrated = await getDailyPickerItemBySection('other', otherSearch.rows[0].id);
+  assertEq(otherHydrated?.kind, 'service', 'misc services accepts an item from another category');
+
   const { listDoctors } = require('../services/doctorService');
   const doctors = await listDoctors({ search: TEST_PREFIX, limit: 5 });
   assert(Array.isArray(doctors), 'doctor list API still works');
@@ -293,7 +306,7 @@ assert(
   let blocked = false;
   const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json() { return this; } };
   requirePermission('daily_charges.view')(
-    { session: { user: { username: 'x', permissions: ['invoices.view'] } }, method: 'GET', originalUrl: '/api/daily-charges/picker/search' },
+    { session: { user: { username: 'x', custom_permissions: ['invoices.view'] } }, method: 'GET', originalUrl: '/api/daily-charges/picker/search' },
     res,
     () => {}
   );

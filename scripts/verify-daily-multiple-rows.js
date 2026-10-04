@@ -38,7 +38,7 @@ async function main() {
     process.exit(1);
   }
 
-  const patient = await upsertPatient({ file_number: TEST_FILE, name: 'Multi Row Test' });
+  const patient = await upsertPatient(TEST_FILE, 'Multi Row Test');
   const today = new Date().toISOString().slice(0, 10);
 
   await query(

@@ -97,12 +97,8 @@ async function buildStayEntryPayload(patient, invoice, date, assignment, options
     });
   }
 
-  let companion = round2(assignment.companion_amount);
-  const admission = parseDateOnly(invoice?.admission_date);
-  const roomIns = round2(patient?.room_insurance_amount);
-  if (roomIns > 0 && admission && entryDate === admission) {
-    companion = round2(companion + roomIns);
-  }
+  // Room insurance is a deposit, never a charge — the companion line carries its own price only.
+  const companion = round2(assignment.companion_amount);
   if (
     companion > 0 &&
     !(skipExisting && (await hasStaySectionLine(patient.id, entryDate, 'companion')))
@@ -302,11 +298,9 @@ async function ensureAllStayDaysPosted(fileNumber, user = null) {
   }
 }
 
-function admissionCompanionWithInsurance(assignment, roomInsuranceAmount) {
-  const base = round2(assignment?.companion_amount);
-  const ins = round2(roomInsuranceAmount);
-  if (ins <= 0) return base;
-  return round2(base + ins);
+// Kept for callers; room insurance is no longer added to the admission-day companion line.
+function admissionCompanionWithInsurance(assignment) {
+  return round2(assignment?.companion_amount);
 }
 
 /**
@@ -352,20 +346,20 @@ async function ensureAdmissionDayStayPosted(fileNumber, user = null) {
 }
 
 /**
- * After the admission date moves, the old admission day must lose the room insurance.
+ * Room insurance is never charged: undo any companion line that older versions inflated
+ * with "companion + insurance" (on the admission day or any other day).
  */
-async function stripRoomInsuranceFromNonAdmissionDays(patient, invoiceId, admission, roomIns, user = null) {
-  if (!(roomIns > 0) || !admission) return 0;
+async function stripRoomInsuranceFromCompanionLines(patient, invoiceId, roomIns, user = null) {
+  if (!(roomIns > 0)) return 0;
   const { rows } = await query(
     `SELECT DISTINCT e.id, e.entry_date
      FROM patient_daily_entries e
      INNER JOIN patient_daily_entry_lines l ON l.entry_id = e.id
      WHERE e.patient_id = $1
-       AND e.entry_date <> $2::date
-       AND (e.invoice_id IS NULL OR e.invoice_id = $3)
+       AND (e.invoice_id IS NULL OR e.invoice_id = $2)
        AND l.section_code = 'companion'
-       AND COALESCE(l.amount, 0) >= $4`,
-    [patient.id, admission, invoiceId || null, roomIns]
+       AND COALESCE(l.amount, 0) >= $3`,
+    [patient.id, invoiceId || null, roomIns]
   );
   let fixed = 0;
   for (const row of rows) {
@@ -405,7 +399,9 @@ async function stripRoomInsuranceFromNonAdmissionDays(patient, invoiceId, admiss
 }
 
 /**
- * تأمين الغرفة يُحمَّل على بند المرافق في يوم الدخول (يظهر في إجمالي الفاتورة).
+ * تأمين الغرفة مبلغ مُودَع وليس بنداً — لا يُضاف لأي سطر (ولا لمرافق يوم الدخول).
+ * Removes insurance that older versions added to companion lines and makes sure the
+ * admission day has its stay row.
  */
 async function syncAdmissionDayRoomInsurance(fileNumber, user = null) {
   const fn = String(fileNumber || '').trim();
@@ -421,109 +417,39 @@ async function syncAdmissionDayRoomInsurance(fileNumber, user = null) {
   }
 
   const admission = parseDateOnly(stay.invoice.admission_date);
-  const roomIns = round2(patient.room_insurance_amount);
   if (!admission) return { updated: false, reason: 'no_admission_date' };
 
-  const strippedDays = await stripRoomInsuranceFromNonAdmissionDays(
+  const strippedDays = await stripRoomInsuranceFromCompanionLines(
     patient,
     stay.invoice.id,
-    admission,
-    roomIns,
+    round2(patient.room_insurance_amount),
     user
   );
   if (strippedDays > 0) await syncPatientDailyChargesToInvoice(fn, patient.name);
 
-  const assignment = await getAssignmentForDate(patient.id, admission);
-  const targetCompanion = admissionCompanionWithInsurance(assignment, roomIns);
-
   const { rows } = await query(
     `SELECT id FROM patient_daily_entries
      WHERE patient_id = $1 AND entry_date = $2::date
-     ORDER BY id DESC LIMIT 1`,
+     LIMIT 1`,
     [patient.id, admission]
   );
-  let entryId = Number(rows[0]?.id) || 0;
-
-  if (!entryId) {
+  if (!rows.length) {
     const stayPost = await ensureAdmissionDayStayPosted(fn, user);
-    const { rows: afterRows } = await query(
-      `SELECT id FROM patient_daily_entries
-       WHERE patient_id = $1 AND entry_date = $2::date
-       ORDER BY id DESC LIMIT 1`,
-      [patient.id, admission]
-    );
-    entryId = Number(afterRows[0]?.id) || 0;
-    if (!entryId) {
-      return { updated: false, reason: 'no_admission_entry', stay_post: stayPost };
-    }
-    await syncPatientDailyChargesToInvoice(fn, patient.name);
+    if (stayPost.posted) await syncPatientDailyChargesToInvoice(fn, patient.name);
     return {
-      updated: Boolean(stayPost.posted),
+      updated: strippedDays > 0 || Boolean(stayPost.posted),
       posted: Boolean(stayPost.posted),
-      reason: 'admission_stay_created',
+      stripped_days: strippedDays,
+      reason: stayPost.posted ? 'admission_stay_created' : stayPost.reason,
       entry_date: admission,
     };
   }
 
-  const entry = await getEntryById(entryId);
-  if (!entry) return { updated: false, reason: 'entry_not_found' };
-
-  const lines = (entry.lines || []).map((line) => ({ ...line }));
-  const companionIdx = lines.findIndex((line) => line.section_code === 'companion');
-  const currentCompanion =
-    companionIdx >= 0 ? round2(lines[companionIdx].amount ?? lines[companionIdx].unit_price) : 0;
-
-  if (Math.abs(currentCompanion - targetCompanion) < 0.005) {
-    return { updated: false, reason: 'already_synced', companion: targetCompanion };
-  }
-
-  if (targetCompanion > 0) {
-    if (companionIdx >= 0) {
-      lines[companionIdx] = {
-        ...lines[companionIdx],
-        amount: targetCompanion,
-        unit_price: targetCompanion,
-        quantity: 1,
-      };
-    } else {
-      lines.push({
-        section_code: 'companion',
-        amount: targetCompanion,
-        unit_price: targetCompanion,
-        quantity: 1,
-      });
-    }
-  } else if (companionIdx >= 0 && roomIns <= 0) {
-    const baseOnly = round2(assignment?.companion_amount);
-    if (baseOnly > 0) {
-      lines[companionIdx] = {
-        ...lines[companionIdx],
-        amount: baseOnly,
-        unit_price: baseOnly,
-        quantity: 1,
-      };
-    } else {
-      lines.splice(companionIdx, 1);
-    }
-  }
-
-  await saveEntry(
-    {
-      entry_id: entryId,
-      file_number: fn,
-      patient_name: patient.name,
-      entry_date: admission,
-      stay_type_id: entry.stay_type_id,
-      notes: entry.notes || '',
-      doctor_id: entry.doctor_id,
-      doctor_specialty: entry.doctor_specialty || '',
-      lines,
-      allow_backfill: true,
-    },
-    user
-  );
-  await syncPatientDailyChargesToInvoice(fn, patient.name);
-  return { updated: true, companion: targetCompanion };
+  return {
+    updated: strippedDays > 0,
+    stripped_days: strippedDays,
+    reason: strippedDays > 0 ? 'insurance_removed' : 'already_synced',
+  };
 }
 
 module.exports = {

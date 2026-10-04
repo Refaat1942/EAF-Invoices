@@ -27,11 +27,12 @@ const { getSuppliesMarkupReport } = require('../services/reportService');
 
 const TEST_FILE = 'E2E-FIN-WORKFLOW';
 const ENTITY_NAME = 'E2E-FIN-CONTRACT-ENTITY';
+// Catalog codes must be 7 digits.
 const CODES = {
-  med1: 'E2E-FIN-MED-10040',
-  med2: 'E2E-FIN-MED-9999',
-  supply: 'E2E-FIN-SUP-120',
-  lab: 'E2E-FIN-LAB-75',
+  med1: '9040001',
+  med2: '9040002',
+  supply: '9040003',
+  lab: '9040004',
 };
 
 const LEGACY_TEST_PRICE_LIST_CODE = 'E2E-FIN-PL';
@@ -229,8 +230,28 @@ async function assertNoDuplicateInvoiceLines(invoiceId, A) {
   A.assertTrue('no duplicate invoice items by daily_entry_line_id', !dup, dup ? `line ${dup.daily_entry_line_id} x${dup.n}` : '');
 }
 
-function entryLineByIndex(savedEntries, index) {
-  return savedEntries[index]?.lines?.[0] || null;
+// Same-day entries are consolidated onto one row, so find each saved line by the item it was posted for.
+function entryLineByIndex(savedEntries, index, batch) {
+  const posted = batch?.[index]?.lines?.[0];
+  if (!posted) return savedEntries[index]?.lines?.[0] || null;
+  const allLines = [];
+  const seen = new Set();
+  for (const entry of savedEntries) {
+    for (const line of entry.lines || []) {
+      if (seen.has(Number(line.id))) continue;
+      seen.add(Number(line.id));
+      allLines.push(line);
+    }
+  }
+  return (
+    allLines.find(
+      (l) =>
+        l.section_code === posted.section_code &&
+        (posted.catalog_item_id
+          ? Number(l.catalog_item_id) === Number(posted.catalog_item_id)
+          : Number(l.service_id) === Number(posted.service_id))
+    ) || null
+  );
 }
 
 function formatEntryDate(value) {
@@ -300,7 +321,7 @@ async function verifySavedEntriesInDb(A, savedEntries, patientId, today) {
     printEntryDiagnostics('saved entry id lookup mismatch', savedEntryIds, patientId, today, byIdRows);
   }
 
-  A.assertEq('four DB rows for saved entry ids', byIdRows.length, 4);
+  A.assertEq('one DB row for the consolidated same-day entry', byIdRows.length, new Set(savedEntryIds).size);
   const patientMismatch = byIdRows.filter((r) => Number(r.patient_id) !== Number(patientId));
   if (patientMismatch.length) {
     printEntryDiagnostics('patient_id mismatch on saved entries', savedEntryIds, patientId, today, byIdRows);
@@ -448,7 +469,7 @@ async function main() {
 
   const savedEntries = batchResult.saved || [];
   const entryIds = new Set(savedEntries.map((e) => e.id));
-  A.assertEq('four distinct daily entry ids', entryIds.size, 4);
+  A.assertEq('same-day entries consolidated onto one row', entryIds.size, 1);
 
   await verifySavedEntriesInDb(A, savedEntries, ctx.patientId, today);
 
@@ -463,7 +484,7 @@ async function main() {
 
   for (let i = 0; i < entryChecks.length; i++) {
     const { key, spec, isSupply } = entryChecks[i];
-    const line = entryLineByIndex(savedEntries, i);
+    const line = entryLineByIndex(savedEntries, i, dailyBatch);
     if (!line) {
       A.fail(`daily line exists (${key})`, 'missing line');
       continue;
@@ -477,10 +498,10 @@ async function main() {
     }
   }
 
-  const med1LineId = entryLineByIndex(savedEntries, 0)?.id;
-  const med2LineId = entryLineByIndex(savedEntries, 1)?.id;
-  const supplyLineId = entryLineByIndex(savedEntries, 2)?.id;
-  const labLineId = entryLineByIndex(savedEntries, 3)?.id;
+  const med1LineId = entryLineByIndex(savedEntries, 0, dailyBatch)?.id;
+  const med2LineId = entryLineByIndex(savedEntries, 1, dailyBatch)?.id;
+  const supplyLineId = entryLineByIndex(savedEntries, 2, dailyBatch)?.id;
+  const labLineId = entryLineByIndex(savedEntries, 3, dailyBatch)?.id;
 
   A.assertEq('invoice has four daily-linked items', await countDailyInvoiceItems(invoiceId), 4);
   await assertNoDuplicateInvoiceLines(invoiceId, A);
@@ -572,10 +593,13 @@ async function main() {
 
   const paymentAmount = money(expectedTotals.final_total_raw - REMAINING_TARGET);
   const financialPayload = buildFinancialSavePayload(invoice, ctx.entityId, paymentAmount);
-  const savedFinancial = await saveInvoice(financialPayload, invoiceId, null, {
-    save_mode: 'draft',
-    preserve_status: true,
-  });
+  // Switching the invoice to contracted is a structural edit — only an admin may do it.
+  const savedFinancial = await saveInvoice(
+    financialPayload,
+    invoiceId,
+    { role: 'admin', username: 'e2e-admin', full_name: 'E2E Admin' },
+    { save_mode: 'draft', preserve_status: true }
+  );
 
   A.assertEq('saved invoice items_subtotal', savedFinancial.items_subtotal_raw ?? savedFinancial.items_subtotal, expectedSubtotal);
   A.assertEq('saved invoice admin expenses', savedFinancial.admin_expenses_raw ?? savedFinancial.admin_expenses, expectedTotals.admin_expenses_raw);
@@ -589,26 +613,19 @@ async function main() {
     expectedTotals.final_total_raw
   );
 
+  // Same-day lines live on one consolidated entry; the daily screen re-saves it as one entry
+  // carrying every line (mergeDailySaveEntries), so the test does the same.
+  const consolidatedEntryId = savedEntries[0].id;
   const resaveBatch = [
     {
-      entry_id: savedEntries[0].id,
+      entry_id: consolidatedEntryId,
       entry_date: today,
-      lines: [{ section_code: 'medicines', catalog_item_id: med1.id, quantity: SPECS.med1.qty }],
-    },
-    {
-      entry_id: savedEntries[1].id,
-      entry_date: today,
-      lines: [{ section_code: 'medicines', catalog_item_id: med2.id, quantity: SPECS.med2.qty }],
-    },
-    {
-      entry_id: savedEntries[2].id,
-      entry_date: today,
-      lines: [{ section_code: 'supplies', catalog_item_id: supply.id, quantity: SPECS.supply.qty }],
-    },
-    {
-      entry_id: savedEntries[3].id,
-      entry_date: today,
-      lines: [{ section_code: 'analyses', service_id: labService.id, quantity: SPECS.lab.qty }],
+      lines: [
+        { id: med1LineId, section_code: 'medicines', catalog_item_id: med1.id, quantity: SPECS.med1.qty },
+        { id: med2LineId, section_code: 'medicines', catalog_item_id: med2.id, quantity: SPECS.med2.qty },
+        { id: supplyLineId, section_code: 'supplies', catalog_item_id: supply.id, quantity: SPECS.supply.qty },
+        { id: labLineId, section_code: 'analyses', service_id: labService.id, quantity: SPECS.lab.qty },
+      ],
     },
   ];
 

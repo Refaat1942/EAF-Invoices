@@ -25,6 +25,7 @@ const { calculateInvoiceTotals, round2 } = require('../services/calculations');
 const { getDailyPrintReport, buildDailyPrintExcelBuffer } = require('../services/reportService');
 const { buildInvoiceHtml, buildDailyReportHtml, enrichInvoice } = require('../services/pdfService');
 const { DEFAULT_SECTION_LABELS } = require('../services/invoicePresentationService');
+const { formatAmountAr } = require('../services/amountFormat');
 const {
   generatePdfBuffer,
   generateDailyItemsPdfBuffer,
@@ -60,11 +61,12 @@ const SPECS = {
     name: `${TEST_PREFIX} Supply Item`,
     qty: 3,
     unit: 'قطعة',
+    // Supplies are priced with the global markup from settings (default 20%), not the item's own.
     cost: 60,
-    markup: 40,
-    unitPrice: 84,
-    lineTotal: 252,
-    margin: 72,
+    markup: 20,
+    unitPrice: 72,
+    lineTotal: 216,
+    margin: 36,
   },
   lab: {
     name: `${TEST_PREFIX} Lab Analysis`,
@@ -86,12 +88,13 @@ function money(n) {
   return round2(n);
 }
 
+// Use the same formatter as the printed invoice so the expected text matches exactly.
 function fmtAmount(n) {
-  return Number(n).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatAmountAr(n, 2);
 }
 
 function fmtQtyInt(n) {
-  return Number(n).toLocaleString('ar-EG', { maximumFractionDigits: 0 });
+  return formatAmountAr(n, 0);
 }
 
 function fmtReturnQtyDisplay(original, returned, net) {
@@ -502,8 +505,8 @@ async function validateFinalInvoice(reportType, invoice) {
   assertTrue(reportType, 'invoice approved', invoice.status === 'approved', invoice.status);
   assertTrue(reportType, 'serial number present', Boolean(invoice.serial_number), invoice.serial_number);
 
-  const enriched = enrichInvoice(invoice);
-  const html = buildInvoiceHtml(enriched, { baseUrl: 'http://localhost:3000', showQr: false });
+  const enriched = await enrichInvoice(invoice);
+  const html = await buildInvoiceHtml(enriched, { baseUrl: 'http://localhost:3000', showQr: false });
   const htmlText = htmlToText(html);
   const medItem = enriched.items.find((i) => i.section_code === 'medicines');
   const supplyItem = enriched.items.find((i) => i.section_code === 'supplies');
@@ -517,8 +520,11 @@ async function validateFinalInvoice(reportType, invoice) {
   assertHtmlContains(reportType, html, 'supplies section label', CUSTOMER_SUPPLIES_LABEL);
   assertTrue(reportType, 'med item name hidden', !htmlText.includes(medProductName), medProductName);
   assertTrue(reportType, 'supply item name hidden', !htmlText.includes(supplyProductName), supplyProductName);
-  assertHtmlContains(reportType, html, 'lab service name', SPECS.lab.name);
-  assertHtmlContains(reportType, html, 'xray service name', SPECS.xray.name);
+  // The customer invoice prints one total per daily screen (التحاليل / الأشعة), not each service.
+  assertHtmlContains(reportType, html, 'lab section label', 'التحاليل');
+  assertHtmlContains(reportType, html, 'xray section label', 'الأشعة');
+  assertHtmlContains(reportType, html, 'aggregated lab total', fmtAmount(SPECS.lab.lineTotal));
+  assertHtmlContains(reportType, html, 'aggregated xray total', fmtAmount(SPECS.xray.lineTotal));
   assertHtmlContains(reportType, html, 'aggregated med total', fmtAmount(SPECS.med.lineTotal));
   assertHtmlContains(reportType, html, 'aggregated supply total', fmtAmount(SPECS.supply.lineTotal));
   assertEq(
@@ -546,8 +552,8 @@ async function validateFinalInvoice(reportType, invoice) {
     assertTextContains(reportType, pdfText, 'PDF file number', invoice.file_number);
     assertPdfArabicLabelPresent(reportType, pdfText, CUSTOMER_MEDICINES_LABEL, 'PDF medicines label');
     assertPdfArabicLabelPresent(reportType, pdfText, CUSTOMER_SUPPLIES_LABEL, 'PDF supplies label');
-    assertTextContains(reportType, pdfText, 'PDF lab service name', SPECS.lab.name);
-    assertTextContains(reportType, pdfText, 'PDF xray service name', SPECS.xray.name);
+    assertTextContains(reportType, pdfText, 'PDF aggregated lab total', fmtAmount(SPECS.lab.lineTotal));
+    assertTextContains(reportType, pdfText, 'PDF aggregated xray total', fmtAmount(SPECS.xray.lineTotal));
     assertTextContains(reportType, pdfText, 'PDF aggregated med total', fmtAmount(SPECS.med.lineTotal));
     assertTextContains(reportType, pdfText, 'PDF aggregated supply total', fmtAmount(SPECS.supply.lineTotal));
     assertTextContains(reportType, pdfText, 'PDF final total', fmtAmount(enriched.final_total));
@@ -757,7 +763,7 @@ async function main() {
     });
 
     const historicalInvoice = await getInvoiceById(approved.id);
-    const historicalHtml = buildInvoiceHtml(enrichInvoice(historicalInvoice), {
+    const historicalHtml = await buildInvoiceHtml(await enrichInvoice(historicalInvoice), {
       baseUrl: 'http://localhost:3000',
       showQr: false,
     });
@@ -800,7 +806,7 @@ async function main() {
     });
 
     const afterReturn = await getInvoiceById(approved.id);
-    const returnHtml = buildInvoiceHtml(enrichInvoice(afterReturn), {
+    const returnHtml = await buildInvoiceHtml(await enrichInvoice(afterReturn), {
       baseUrl: 'http://localhost:3000',
       showQr: false,
     });
@@ -827,11 +833,19 @@ async function main() {
     );
     console.log('OK partial return on printed invoice');
 
-    const recalc = calculateInvoiceTotals(enrichInvoice(afterReturn));
+    // The printed invoice (enrichInvoice) must show the same net total that was saved after the return.
+    const printedAfterReturn = await enrichInvoice(afterReturn);
+    const netMedReturn = SPECS.med.unitPrice;
+    assertTrue(
+      'returns',
+      'saved total dropped after return',
+      money(afterReturn.final_total_raw ?? afterReturn.final_total) < money(invoice.final_total_raw ?? invoice.final_total),
+      `${afterReturn.final_total} vs ${invoice.final_total} (returned ${netMedReturn})`
+    );
     assertEq(
       'returns',
       'final total after return',
-      recalc.final_total_raw,
+      printedAfterReturn.final_total_raw,
       afterReturn.final_total_raw ?? afterReturn.final_total
     );
     console.log('OK return totals reconcile');
@@ -842,7 +856,8 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+// The PDF browser and DB pool stay open for reuse, so exit explicitly once done.
+main().then(() => process.exit(0)).catch((err) => {
   if (String(err.message || err).includes('password authentication')) {
     console.log('SKIP PDF printing tests (no database)');
     process.exit(0);

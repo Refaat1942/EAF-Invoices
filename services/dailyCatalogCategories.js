@@ -2,6 +2,7 @@
  * Each daily screen reads from exactly one source — the file uploaded from its own tab:
  * - medicines / supplies / cosmetics → daily_entry_catalog_items (items sheet)
  * - every other priced tab → its single category in the default price list
+ * - «الخدمات المتنوعة» (other) → all categories of the default price list
  */
 
 /** When true (default), pickers and save use services/price list only — not daily_entry_catalog_items. */
@@ -26,6 +27,9 @@ const CATALOG_TO_PRICE_LIST_CATEGORY_CODES = Object.freeze({
   SpineOperations: ['SPINE_CENTER'],
 });
 
+/** Marker: the section reads from every active category of the default price list. */
+const ALL_PRICE_LIST_CATEGORIES = '*';
+
 const SECTION_PRICE_LIST_CATEGORY_CODES = Object.freeze({
   consultant_exam: ['MEDICAL_EXAMS'],
   specialist_exam: ['MEDICAL_EXAMS'],
@@ -42,7 +46,8 @@ const SECTION_PRICE_LIST_CATEGORY_CODES = Object.freeze({
   consultation_stamp: ['STAMPS'],
   analyses_stamp: ['STAMPS'],
   xray_stamp: ['STAMPS'],
-  other: ['GENERAL'],
+  // «الخدمات المتنوعة» searches every uploaded services file in the price list.
+  other: [ALL_PRICE_LIST_CATEGORIES],
   prosthetics: ['PROSTHETICS'],
   operation_pick: ['SPINE_CENTER'],
 });
@@ -223,6 +228,7 @@ module.exports = {
   catalogCategoryForServiceCode,
   dailyChargesUsePriceListOnly,
   priceListCategoryCodesForSection,
+  ALL_PRICE_LIST_CATEGORIES,
   CATALOG_SOURCE_SECTION_CODES,
   CATALOG_SOURCE_CATEGORIES,
   isCatalogSourceSection,

@@ -61,12 +61,40 @@ function filterManualItems(items = [], dailySync = false) {
   return (items || []).filter((i) => !i.daily_entry_line_id);
 }
 
+const DATE_HEADER_KEYS = new Set(['admission_date', 'discharge_date', 'letter_from_date', 'letter_to_date']);
+const NUMERIC_HEADER_KEYS = new Set([
+  'discount_percent',
+  'stamp_duty',
+  'professional_fees',
+  'admin_expenses_percent',
+]);
+
+function dateOnlyText(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return '';
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const text = String(value ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) return dateOnlyText(new Date(text));
+  return text;
+}
+
+// DB rows carry Date objects and "12.00"-style numerics; the payload carries "YYYY-MM-DD" and numbers.
+function normalizeHeaderValue(key, value) {
+  if (DATE_HEADER_KEYS.has(key)) return dateOnlyText(value);
+  if (NUMERIC_HEADER_KEYS.has(key)) return String(round2(value));
+  if (key === 'contracted_entity_id') return value ? String(Number(value) || value) : '';
+  return String(value ?? '').trim();
+}
+
 function hasHeaderChanges(existing, newData, allowedKeys = null) {
   for (const key of HEADER_KEYS) {
     if (allowedKeys && allowedKeys.has(key)) continue;
-    const a = existing[key] ?? '';
-    const b = newData[key] ?? '';
-    if (String(a).trim() !== String(b).trim()) return true;
+    if (normalizeHeaderValue(key, existing[key]) !== normalizeHeaderValue(key, newData[key])) return true;
   }
   return false;
 }

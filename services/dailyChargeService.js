@@ -117,12 +117,22 @@ async function resolveCatalogPickerToPriceListService(section, catalogItemId) {
 function sectionAllowsServiceCategory(section, categoryCode) {
   const allowed = getSectionPickerCategoryCodes(section);
   if (!allowed.length) return false;
+  const { ALL_PRICE_LIST_CATEGORIES } = require('./dailyCatalogCategories');
+  if (allowed.includes(ALL_PRICE_LIST_CATEGORIES)) return true;
   return allowed.includes(String(categoryCode || '').trim());
 }
 
 async function resolvePickerCategoryIds(priceListId, categoryCodes = []) {
   const codes = [...new Set(categoryCodes.filter(Boolean))];
   if (!codes.length) return [];
+  const { ALL_PRICE_LIST_CATEGORIES } = require('./dailyCatalogCategories');
+  if (codes.includes(ALL_PRICE_LIST_CATEGORIES)) {
+    const { rows } = await query(
+      `SELECT id, code FROM service_categories WHERE price_list_id = $1 AND is_active = TRUE`,
+      [priceListId]
+    );
+    return rows;
+  }
   const { rows } = await query(
     `SELECT id, code FROM service_categories
      WHERE price_list_id = $1 AND code = ANY($2::text[]) AND is_active = TRUE`,
@@ -791,7 +801,7 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
     if (canSearchCatalog && canSearchPriceList) {
       hint = catalogImportHintForSection(section);
     } else if (canSearchPriceList && priceListResult?.empty_catalog) {
-      const codes = getSectionPickerCategoryCodes(section);
+      const codes = getSectionPickerCategoryCodes(section).filter((code) => code !== '*');
       hint = codes.length
         ? `لا توجد بنود في اللائحة — ارفع شيت «${codes.join(' / ')}» من إدارة الأسعار`
         : 'ارفع لائحة الأسعار من الإعدادات';
@@ -919,10 +929,17 @@ async function getDailyPickerItemBySection(section_code, id, kind = '') {
     throw err;
   }
 
-  const { catalogCategoryForSection, catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+  const {
+    catalogCategoryForSection,
+    catalogSearchCategoriesForSection,
+    isCatalogSourceSection,
+  } = require('./dailyCatalogCategories');
   const catalogCategory = section.catalog_category || catalogCategoryForSection(section);
 
-  const priceListService = kind === 'catalog' ? null : await getServiceById(itemId);
+  // Medicines/supplies/cosmetics ids are catalog ids; only treat one as a price-list service
+  // when the caller says so, or a service that merely shares the number would be returned.
+  const skipServiceLookup = kind === 'catalog' || (isCatalogSourceSection(section) && kind !== 'service');
+  const priceListService = skipServiceLookup ? null : await getServiceById(itemId);
   if (priceListService?.is_active) {
     const priceList = await getDefaultPriceList();
     if (!priceList || Number(priceListService.price_list_id) === Number(priceList.id)) {

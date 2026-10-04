@@ -17,6 +17,66 @@ const {
 } = require('../services/invoiceService');
 
 const TEST_FILE = 'DAILY-INV-SYNC-TEST';
+// Own catalog fixtures (7-digit codes) so the test does not depend on uploaded data.
+const FIXTURES = [
+  { code: '9060001', name: 'Daily Sync Test Med 1', category: 'Medicine', price: 40 },
+  { code: '9060002', name: 'Daily Sync Test Med 2', category: 'Medicine', price: 25.5 },
+  { code: '9060003', name: 'Daily Sync Test Supply', category: 'Supplies', cost: 50 },
+];
+
+async function removeFixtures() {
+  const codes = FIXTURES.map((f) => f.code);
+  await query(`DELETE FROM daily_entry_catalog_items WHERE code = ANY($1::text[])`, [codes]);
+  await query(`DELETE FROM daily_entry_catalog_code_registry WHERE code = ANY($1::text[])`, [codes]);
+}
+
+async function createFixtures() {
+  const { createCatalogItem, computeSellingPrice } = require('../services/dailyEntryCatalogService');
+  const { getDefaultSuppliesMarkupPercent } = require('../services/priceListService');
+  await removeFixtures();
+  const markup = await getDefaultSuppliesMarkupPercent();
+  const out = [];
+  for (const f of FIXTURES) {
+    const item =
+      f.category === 'Supplies'
+        ? await createCatalogItem({
+            code: f.code,
+            name: f.name,
+            category: f.category,
+            unit: 'قطعة',
+            cost_price: f.cost,
+            markup_percent: markup,
+          })
+        : await createCatalogItem({
+            code: f.code,
+            name: f.name,
+            category: f.category,
+            major_unit: 'PAC',
+            minor_unit: 'PAC',
+            minor_quantity_per_major: 1,
+            major_unit_selling_price: f.price,
+            minor_unit_selling_price: f.price,
+          });
+    // Supplies are billed at cost + the global markup from settings.
+    const price = f.category === 'Supplies' ? computeSellingPrice(f.cost, markup) : f.price;
+    out.push({ id: item.id, name: item.name, price });
+  }
+  return out;
+}
+
+// Same-day entries are consolidated onto one row, so collect every saved line once.
+function uniqueSavedLines(savedEntries = []) {
+  const seen = new Set();
+  const lines = [];
+  for (const entry of savedEntries) {
+    for (const line of entry.lines || []) {
+      if (seen.has(Number(line.id))) continue;
+      seen.add(Number(line.id));
+      lines.push(line);
+    }
+  }
+  return lines;
+}
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -101,30 +161,12 @@ async function assertInvoiceMatchesExpectations(invoiceId, expectations, expecte
 async function main() {
   await initDatabase();
 
-  const meds = await query(
-    `SELECT id, name, price FROM daily_entry_catalog_items
-     WHERE category = 'Medicine' AND is_active = TRUE AND price > 0
-     ORDER BY id LIMIT 2`
-  );
-  const supplies = await query(
-    `SELECT id, name, price FROM daily_entry_catalog_items
-     WHERE category = 'Supplies' AND is_active = TRUE AND price > 0
-     ORDER BY id LIMIT 1`
-  );
+  const [med1, med2, supply] = await createFixtures();
 
-  if (meds.rows.length < 2 || !supplies.rows.length) {
-    console.error('FAIL: need at least 2 medicines and 1 supply in catalog');
-    process.exit(1);
-  }
-
-  const patient = await upsertPatient({ file_number: TEST_FILE, name: 'Daily Invoice Sync Test' });
+  const patient = await upsertPatient(TEST_FILE, 'Daily Invoice Sync Test');
   const today = getCurrentBusinessDateString();
 
   await cleanupPatientData(patient.id, TEST_FILE);
-
-  const med1 = meds.rows[0];
-  const med2 = meds.rows[1];
-  const supply = supplies.rows[0];
 
   const firstBatch = [
     {
@@ -157,8 +199,7 @@ async function main() {
   const invoiceId = firstSave.invoice_sync.invoice_id;
   const savedEntries = firstSave.saved;
 
-  const firstExpectations = savedEntries.map((entry) => {
-    const line = entry.lines[0];
+  const firstExpectations = uniqueSavedLines(savedEntries).map((line) => {
     const catalog =
       line.section_code === 'supplies'
         ? supply
@@ -178,21 +219,18 @@ async function main() {
   const firstSubtotal = firstExpectations.reduce((sum, row) => round2(sum + row.lineTotal), 0);
   await assertInvoiceMatchesExpectations(invoiceId, firstExpectations, firstSubtotal);
 
+  // The daily screen re-saves a consolidated day as one entry carrying all its lines.
+  const firstLines = uniqueSavedLines(savedEntries);
+  const lineFor = (catalogId) => firstLines.find((l) => Number(l.catalog_item_id) === Number(catalogId));
   const secondBatch = [
     {
       entry_id: savedEntries[0].id,
       entry_date: today,
-      lines: [{ section_code: 'medicines', catalog_item_id: med1.id, quantity: 2 }],
-    },
-    {
-      entry_id: savedEntries[1].id,
-      entry_date: today,
-      lines: [{ section_code: 'medicines', catalog_item_id: med2.id, quantity: 3 }],
-    },
-    {
-      entry_id: savedEntries[2].id,
-      entry_date: today,
-      lines: [{ section_code: 'supplies', catalog_item_id: supply.id, quantity: 4 }],
+      lines: [
+        { id: lineFor(med1.id)?.id, section_code: 'medicines', catalog_item_id: med1.id, quantity: 2 },
+        { id: lineFor(med2.id)?.id, section_code: 'medicines', catalog_item_id: med2.id, quantity: 3 },
+        { id: lineFor(supply.id)?.id, section_code: 'supplies', catalog_item_id: supply.id, quantity: 4 },
+      ],
     },
   ];
 
@@ -207,10 +245,9 @@ async function main() {
     process.exit(1);
   }
 
-  assertCount('re-saved entries', secondSave.count, 3);
+  assertCount('re-saved entries', secondSave.count, 1);
 
-  const secondExpectations = secondSave.saved.map((entry) => {
-    const line = entry.lines[0];
+  const secondExpectations = uniqueSavedLines(secondSave.saved).map((line) => {
     const catalog =
       line.section_code === 'supplies'
         ? supply
@@ -234,22 +271,14 @@ async function main() {
   console.log('OK: re-save updated lines without duplicates');
   console.log(`  Invoice #${invoiceId} items_subtotal=${secondSubtotal}`);
 
-  await testDraftDeleteDoesNotRecreate(patient);
+  await testDraftDeleteDoesNotRecreate(patient, med1.id);
   await cleanupPatientData(patient.id, TEST_FILE);
+  await removeFixtures();
 }
 
-async function testDraftDeleteDoesNotRecreate(patient) {
+async function testDraftDeleteDoesNotRecreate(patient, medicineId) {
   await cleanupPatientData(patient.id, TEST_FILE);
   const today = getCurrentBusinessDateString();
-  const meds = await query(
-    `SELECT id FROM daily_entry_catalog_items
-     WHERE category = 'Medicine' AND is_active = TRUE AND price > 0
-     ORDER BY id LIMIT 1`
-  );
-  if (!meds.rows.length) {
-    console.error('FAIL: need medicine catalog for draft delete test');
-    process.exit(1);
-  }
 
   const save = await saveEntriesBatch({
     file_number: TEST_FILE,
@@ -257,7 +286,7 @@ async function testDraftDeleteDoesNotRecreate(patient) {
     entries: [
       {
         entry_date: today,
-        lines: [{ section_code: 'medicines', catalog_item_id: meds.rows[0].id, quantity: 1 }],
+        lines: [{ section_code: 'medicines', catalog_item_id: medicineId, quantity: 1 }],
       },
     ],
   });
@@ -305,7 +334,9 @@ async function testDraftDeleteDoesNotRecreate(patient) {
   console.log('OK: deleting draft removes orphan daily entries and does not recreate invoice');
 }
 
-main().catch((err) => {
-  console.error('FAIL:', err.message || err);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error('FAIL:', err.message || err);
+    process.exit(1);
+  });

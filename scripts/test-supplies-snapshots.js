@@ -11,7 +11,7 @@ const { getInvoiceById } = require('../services/invoiceService');
 const { createCatalogItem, updateCatalogItem } = require('../services/dailyEntryCatalogService');
 
 const TEST_FILE = 'SUPPLY-SNAP-TEST';
-const TEST_CODE = 'SUP-SNAP-TEST-001';
+const TEST_CODE = '9050001'; // catalog codes must be 7 digits
 
 async function findSupplyInvoiceItem(invoiceId) {
   const { rows } = await query(
@@ -27,7 +27,7 @@ async function findSupplyInvoiceItem(invoiceId) {
 async function main() {
   await initDatabase();
 
-  const patient = await upsertPatient({ file_number: TEST_FILE, name: 'Supply Snapshot Test' });
+  const patient = await upsertPatient(TEST_FILE, 'Supply Snapshot Test');
   const today = new Date().toISOString().slice(0, 10);
 
   await query(
@@ -133,6 +133,9 @@ async function main() {
     )`,
     [patient.id]
   );
+  await query(`DELETE FROM patient_daily_entry_history WHERE entry_id IN (
+    SELECT id FROM patient_daily_entries WHERE patient_id = $1
+  )`, [patient.id]);
   await query(`DELETE FROM patient_daily_entries WHERE patient_id = $1`, [patient.id]);
   await query(`DELETE FROM daily_entry_catalog_items WHERE id = $1`, [catalogItem.id]);
   await query(`DELETE FROM patients WHERE id = $1`, [patient.id]);

@@ -2801,28 +2801,21 @@ function setDailySectionAmount(tr, sectionCode, amount) {
   input.dataset.manualAmount = '1';
 }
 
-function admissionCompanionAmount(assignment, roomInsuranceAmount = 0) {
-  const base = Number(assignment?.companion_amount) || 0;
-  const ins = Number(roomInsuranceAmount) || 0;
-  return ins > 0 ? base + ins : base;
+// Room insurance is a deposit, never added to the companion line (admission day included).
+function admissionCompanionAmount(assignment) {
+  return Number(assignment?.companion_amount) || 0;
 }
 
 function syncRoomInsuranceOnAdmissionStayDom() {
   if (!canUseDailyStayCharges()) return;
   const admission = fmtStayDate(dailyStayContext?.invoice?.admission_date);
   if (!admission) return;
-  const roomIns = Number(dailyStayContext?.patient?.room_insurance_amount) || 0;
   const assignment = dailyStayContext?.room_assignment;
   document.querySelectorAll('#daily-sections-body .daily-stay-row').forEach((tr) => {
     const rowDate = fmtStayDate(tr.querySelector('.daily-row-date')?.value);
     if (rowDate !== admission) return;
     if (assignment) {
-      setDailySectionAmount(tr, 'companion', admissionCompanionAmount(assignment, roomIns));
-    } else if (roomIns > 0) {
-      const companionEl = tr.querySelector('.daily-amount[data-section="companion"]');
-      const current = dailyParseAmount(companionEl?.value) || 0;
-      const base = current >= roomIns ? current - roomIns : current;
-      setDailySectionAmount(tr, 'companion', base + roomIns);
+      setDailySectionAmount(tr, 'companion', admissionCompanionAmount(assignment));
     }
     updateStayRowGroupTotal(tr);
   });
@@ -2839,10 +2832,9 @@ async function applyRoomAssignmentToRow(tr, assignment) {
   }
   const admission = fmtStayDate(dailyStayContext?.invoice?.admission_date);
   const rowDate = tr.querySelector('.daily-row-date')?.value;
-  const roomIns = Number(dailyStayContext?.patient?.room_insurance_amount) || 0;
   const companionAmt =
     admission && rowDate === admission
-      ? admissionCompanionAmount(assignment, roomIns)
+      ? admissionCompanionAmount(assignment)
       : Number(assignment.companion_amount) || 0;
   setDailySectionAmount(tr, 'companion', companionAmt);
   setDailySectionAmount(tr, 'nursing_point', assignment.nursing_point_amount);
