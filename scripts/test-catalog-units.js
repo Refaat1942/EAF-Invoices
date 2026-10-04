@@ -517,8 +517,13 @@ async function testDailyEntryToInvoiceTransfer() {
   const minorEntry = save.saved.find((e) =>
     e.lines.some((l) => l.catalog_unit_level === 'minor')
   );
-  const majorLine = majorEntry.lines.find((l) => l.section_code === 'medicines');
-  const minorLine = minorEntry.lines.find((l) => l.section_code === 'medicines');
+  // Same-day entries are consolidated onto one row, so pick each line by its unit level.
+  const majorLine = majorEntry.lines.find(
+    (l) => l.section_code === 'medicines' && l.catalog_unit_level === 'major'
+  );
+  const minorLine = minorEntry.lines.find(
+    (l) => l.section_code === 'medicines' && l.catalog_unit_level === 'minor'
+  );
 
   assertEq('daily major unit_price', round2(majorLine.unit_price), 52);
   assertEq('daily major catalog_unit', majorLine.catalog_unit, 'PAC');
