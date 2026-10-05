@@ -5917,6 +5917,21 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
   return tr;
 }
 
+let dailyRowUidCounter = 0;
+
+function dailyRowUid(tr) {
+  if (!tr.dataset.rowUid) tr.dataset.rowUid = String(++dailyRowUidCounter);
+  return tr.dataset.rowUid;
+}
+
+function tagNewRowLines(tr, lines) {
+  const uid = dailyRowUid(tr);
+  for (const line of lines) {
+    if (!Number(line.id)) line._row_uid = uid;
+  }
+  return lines;
+}
+
 function collectLabLinesFromRow(tr) {
   const tabCodes = ['analyses', 'analyses_stamp'];
   const snapshot = tr._entryLinesSnapshot || [];
@@ -5926,13 +5941,13 @@ function collectLabLinesFromRow(tr) {
     const mainLine = collectLineForSection(tr, section);
     const dateEl = tr.querySelector('.daily-lab-date');
     if (dateEl?.value) mainLine.extra_date = dateEl.value;
-    if (lineHasChargeData(mainLine)) lines.push(mainLine);
+    if (lineHasChargeData(mainLine)) lines.push(...tagNewRowLines(tr, [mainLine]));
   }
   const stamp = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-lab-stamp')?.value));
   if (stamp > 0) {
     const stampLine = { section_code: 'analyses_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
-    lines.push(stampLine);
+    lines.push(...tagNewRowLines(tr, [stampLine]));
   }
   return lines;
 }
@@ -5949,18 +5964,18 @@ function collectRadiologyLinesFromRow(tr) {
     const picker = tr.querySelector('.daily-picker[data-section="xray_total"]');
     const typeName = picker?._selectedItem?.name || mainLine.extra_text || '';
     if (typeName) mainLine.extra_text = typeName;
-    if (lineHasChargeData(mainLine)) lines.push(mainLine);
+    if (lineHasChargeData(mainLine)) lines.push(...tagNewRowLines(tr, [mainLine]));
     if (typeName) {
       const typeLineOut = { section_code: 'xray_type', extra_text: typeName };
       if (tr.dataset.typeLineId) typeLineOut.id = Number(tr.dataset.typeLineId);
-      lines.push(typeLineOut);
+      lines.push(...tagNewRowLines(tr, [typeLineOut]));
     }
   }
   const stamp = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-rad-stamp')?.value));
   if (stamp > 0) {
     const stampLine = { section_code: 'xray_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
-    lines.push(stampLine);
+    lines.push(...tagNewRowLines(tr, [stampLine]));
   }
   return lines;
 }
@@ -6314,6 +6329,9 @@ function dailyLineMergeKey(line) {
   const lineId = Number(line.id || line.line_id);
   if (lineId) return `id:${lineId}`;
   const code = String(line.section_code || '');
+  // New lab/X-ray lines are tagged with their table row: two rows with the same stamp
+  // (or the same test at the same price) are separate charges, not duplicates.
+  if (line._row_uid) return `row:${line._row_uid}:${code}`;
   const text = String(line.extra_text || '').trim();
   if (code === 'consultation_stamp' && text.startsWith('stamp_for:')) {
     return `stamp:${text}:${line.amount || 0}`;

@@ -770,10 +770,16 @@ function formatPaymentMethodLabel(method = {}) {
 
 function methodPaymentsToReceiptRows(methodPayments = []) {
   return (methodPayments || [])
-    .filter((entry) => entry.accepts_amount !== false && entry.code !== 'patient_credit')
+    .filter((entry) => entry.accepts_amount !== false)
     .map((entry) => {
       const meta = entry.metadata && typeof entry.metadata === 'object' ? entry.metadata : {};
-      const fallbackName = entry.code === 'room_insurance' ? entry.name || 'مبلغ التأمين' : '';
+      // Balance paid at admission shows as its own paid row, like مبلغ التأمين.
+      const fallbackName =
+        entry.code === 'room_insurance'
+          ? entry.name || 'مبلغ التأمين'
+          : entry.code === 'patient_credit'
+            ? 'المحصل عند الدخول'
+            : '';
       const amount = Number(entry.amount) || 0;
       const hasDetails =
         amount > 0 || meta.depositor_name || meta.transfer_ref || meta.cheque_number || meta.cheque_date;

@@ -5297,13 +5297,23 @@ function collectPaymentMetadata(code, lineIndex = '0') {
   return meta;
 }
 
+// Paid-column label for money taken from the balance the patient paid at admission.
+const PATIENT_CREDIT_RECEIPT_LABEL = 'المحصل عند الدخول';
+
 function collectMethodPaymentReceiptRows() {
   const receipts = [];
   document.querySelectorAll('.payment-method-line').forEach((lineRow) => {
     const code = lineRow.dataset.methodCode;
-    if (!code || code === 'patient_credit') return;
+    if (!code) return;
     const lineIndex = lineRow.dataset.lineIndex || '0';
     const amount = parseDisplayAmount(lineRow.querySelector('.payment-method-input')?.value);
+    // Shown as its own paid row (like مبلغ التأمين) so the paid column adds up to the total collected.
+    if (code === 'patient_credit') {
+      if (amount > 0) {
+        receipts.push({ amount, depositor_name: PATIENT_CREDIT_RECEIPT_LABEL, receipt_number: '', receipt_date: '' });
+      }
+      return;
+    }
     const meta = collectPaymentMetadata(code, lineIndex);
     const hasDetails =
       amount > 0 ||
