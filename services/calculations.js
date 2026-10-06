@@ -291,10 +291,12 @@ function resolvePatientCreditAmount(data) {
 function mergePatientCreditIntoMethodPayments(data, creditRaw) {
   const credit = roundNearest(creditRaw);
   const base = Array.isArray(data.method_payments) ? data.method_payments.map((entry) => ({ ...entry })) : [];
+  const creditIndex = base.findIndex((entry) => entry.code === 'patient_credit');
   const withoutCredit = base.filter((entry) => entry.code !== 'patient_credit');
   if (credit > 0) {
-    const existing = base.find((entry) => entry.code === 'patient_credit');
-    withoutCredit.push({
+    const existing = creditIndex >= 0 ? base[creditIndex] : null;
+    // Keep the credit line where the form had it, so printed receipts follow screen order.
+    withoutCredit.splice(creditIndex >= 0 ? creditIndex : withoutCredit.length, 0, {
       ...existing,
       code: 'patient_credit',
       amount: credit,

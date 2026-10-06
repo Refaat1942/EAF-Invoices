@@ -581,6 +581,7 @@
                         <button type="button" class="btn btn-outline-primary btn-sm fw-bold" id="pay-full-bank-btn" title="تعبئة المبلغ كاملًا تحويلًا">🏦 تحويل كامل</button>
                         <button type="button" class="btn btn-outline-info btn-sm fw-bold" id="pay-full-check-btn" title="تعبئة المبلغ كاملًا بشيك">📄 شيك كامل</button>
                         <button type="button" class="btn btn-outline-warning btn-sm fw-bold" id="pay-room-insurance-btn" style="display:none" title="إضافة مبلغ التأمين كسطر في المبالغ المسددة">🛡️ مبلغ التأمين</button>
+                        <button type="button" class="btn btn-outline-info btn-sm fw-bold" id="pay-patient-credit-btn" style="display:none" title="إضافة المبلغ المحصل عند الدخول كسطر في المبالغ المسددة">💰 المحصل عند الدخول</button>
                         <button type="button" class="btn btn-outline-secondary btn-sm fw-bold" id="clear-payments-btn" title="مسح جميع المدفوعات">🗑️ مسح</button>
                       </div>
                     </div>
@@ -1761,11 +1762,16 @@
                   <label class="form-label small fw-bold mb-1" for="daily-log-to">إلى</label>
                   <input type="date" class="form-control" id="daily-log-to">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                   <label class="form-label small fw-bold mb-1" for="daily-log-section">القسم</label>
                   <select class="form-select" id="daily-log-section"><option value="">كل الأقسام</option></select>
                 </div>
                 <div class="col-md-2">
+                  <label class="form-label small fw-bold mb-1" for="daily-log-item">البند</label>
+                  <input type="search" class="form-control" id="daily-log-item" list="daily-log-item-options" placeholder="كل البنود" autocomplete="off">
+                  <datalist id="daily-log-item-options"></datalist>
+                </div>
+                <div class="col-md-1">
                   <button type="button" class="btn btn-primary fw-bold w-100" id="daily-log-load-btn">🔍 عرض</button>
                 </div>
               </div>
@@ -2469,10 +2475,10 @@
   <script src="/js/auto-save.js?v=20260922h"></script>
   <script src="/js/api-client.js?v=20260926d"></script>
   <script src="/js/daily-section-bundles.js?v=20260922a"></script>
-  <script src="/js/app.js?v=20261005a"></script>
+  <script src="/js/app.js?v=20261006a"></script>
   <script src="/js/nationality-pricing.js?v=20260923a"></script>
   <script src="/js/daily-picker.js?v=20260923b"></script>
-  <script src="/js/daily-charges.js?v=20261005a"></script>
+  <script src="/js/daily-charges.js?v=20261006a"></script>
   <script src="/js/notifications.js?v=20260921a"></script>
   <script src="/js/audit-admin.js?v=20260905b"></script>
   <script src="/js/ops-center.js?v=20260920u"></script>
@@ -2480,6 +2486,6 @@
   <script src="/js/analytics-dashboard.js?v=20260923a"></script>
   <script src="/js/item-catalog-settings.js?v=20260824b"></script>
   <script src="/js/doctor-settings.js?v=20260824a"></script>
-  <script src="/js/daily-entries-browser.js?v=20261004b"></script>
+  <script src="/js/daily-entries-browser.js?v=20261006b"></script>
 </body>
 </html>

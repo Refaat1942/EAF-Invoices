@@ -5,6 +5,7 @@ const { CENTER_NAME } = require('../config/branding');
 
 const { formatAmountAr } = require('./amountFormat');
 const { cairoFontFaceCss } = require('./embeddedFonts');
+const { logoSrcForPrint } = require('./printLogo');
 
 function formatNumber(n) {
   return formatAmountAr(n, 2);
@@ -265,6 +266,7 @@ async function buildDailyKindPreviewInvoice(invoice, dailyKind) {
 
 async function buildInvoiceHtml(invoice, options = {}) {
   const { baseUrl = '', logoUrl = '', showQr = true, qrDataUrl = '', dailyKind = '' } = options;
+  const printLogoSrc = logoSrcForPrint(logoUrl);
   const inv = dailyKind
     ? await buildDailyKindPreviewInvoice(invoice, dailyKind)
     : await enrichInvoice(invoice);
@@ -612,7 +614,11 @@ async function buildInvoiceHtml(invoice, options = {}) {
     </div>
 
     <div class="header">
-      <div class="header-spacer"></div>
+      ${
+        printLogoSrc
+          ? `<div class="logo-area"><img src="${escapeHtml(printLogoSrc)}" alt="شعار" onerror="this.parentElement.style.visibility='hidden'"></div>`
+          : `<div class="header-spacer"></div>`
+      }
       <div class="header-text">
         <span class="line">وزارة الدفاع</span>
         <span class="line">إدارة الخدمات الطبية</span>
@@ -1024,9 +1030,14 @@ function buildDailyItemsFooter(report) {
   </tr>`;
 }
 
-function buildDailyDocumentHeaderHtml(title) {
+function buildDailyDocumentHeaderHtml(title, logoUrl = '') {
+  const logoSrc = logoSrcForPrint(logoUrl);
+  const logoHtml = logoSrc
+    ? `<img src="${escapeHtml(logoSrc)}" alt="شعار" style="position:absolute;left:0;top:0;width:56px;height:56px;object-fit:contain" onerror="this.style.display='none'">`
+    : '';
   return `
-    <div class="org-header">
+    <div class="org-header" style="position:relative;${logoSrc ? 'min-height:60px;' : ''}">
+      ${logoHtml}
       <div class="org-name">${escapeHtml(CENTER_NAME)}</div>
       <div class="org-dept">الإدارة المالية</div>
     </div>
@@ -1163,7 +1174,7 @@ function buildDailyItemsHtml(report, options = {}) {
 </head>
 <body>
   <div class="page">
-    ${buildDailyDocumentHeaderHtml(report.title || 'تقرير الأصناف')}
+    ${buildDailyDocumentHeaderHtml(report.title || 'تقرير الأصناف', options.logoUrl)}
     <table class="meta-table">
       <tr>
         <th>المريض</th>
@@ -1328,7 +1339,7 @@ function buildDailyServiceReportHtml(report, options = {}) {
 </head>
 <body>
   <div class="page">
-    ${buildDailyDocumentHeaderHtml(report.title || 'تقرير الخدمات')}
+    ${buildDailyDocumentHeaderHtml(report.title || 'تقرير الخدمات', options.logoUrl)}
     <table class="meta-table">
       <tr>
         <th>المريض</th>

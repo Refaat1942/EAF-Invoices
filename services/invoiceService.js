@@ -490,10 +490,16 @@ async function buildPreviewInvoiceFromFormData(data) {
   const totals = calculateInvoiceTotals(calcData);
   const typeMap = await getInvoiceTypesMap();
   const manualItems = (totals.items || []).filter((item) => !item.is_stay_entry);
+  // «رصيد المريض (بعد البنود)» needs the stored balance/insurance and whether the credit was
+  // already deducted — without them the unsaved preview counted the prepaid money as 0.
+  const savedId = Number(data.invoice_id || data.id) || 0;
+  const saved = savedId ? await getInvoiceById(savedId) : null;
   return attachInvoiceLabels(
     {
       ...calcData,
       ...totals,
+      patient_context: await buildInvoicePatientContext(calcData),
+      patient_credit_deducted: Boolean(saved?.patient_credit_deducted),
       items: manualItems,
       payments: totals.payments || calcData.payments || [],
       method_payments: totals.method_payments || calcData.method_payments || [],

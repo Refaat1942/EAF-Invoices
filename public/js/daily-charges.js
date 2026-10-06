@@ -1563,6 +1563,9 @@ function addOperationRow(op = {}) {
 
 function collectOperationsFromTable() {
   const rows = [];
+  // Rows belong to the patient they were loaded for; never send them for another patient.
+  const tbody = document.getElementById('daily-operations-tbody');
+  if (tbody && (tbody.dataset.fileNumber || '') !== getStayFileNumber()) return rows;
   document.querySelectorAll('#daily-operations-tbody .daily-operation-row').forEach((tr) => {
     const operation_name = getOperationNameFromRow(tr);
     const amount = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-op-amount')?.value));
@@ -1604,6 +1607,9 @@ async function loadOperationsForPatient() {
   if (!tbody) return;
   const fileNumber = getStayFileNumber();
   tbody.dataset.loadedCount = '0';
+  // Clear the previous patient's rows right away so nothing can save them for this patient.
+  if (tbody.dataset.fileNumber !== fileNumber) tbody.innerHTML = '';
+  tbody.dataset.fileNumber = '';
   if (!fileNumber || !dailyStayContext?.invoice?.id) {
     tbody.innerHTML = '';
     if (activeDailyTab === 'operations') ensureOperationRows();
@@ -1617,6 +1623,7 @@ async function loadOperationsForPatient() {
     );
     if (getStayFileNumber() !== fileNumber) return;
     tbody.innerHTML = '';
+    tbody.dataset.fileNumber = fileNumber;
     tbody.dataset.loadedCount = String(ops.length || 0);
     if (ops.length) {
       ops.forEach((op) => addOperationRow(op));
@@ -1629,6 +1636,7 @@ async function loadOperationsForPatient() {
   } catch (err) {
     console.error(err);
     tbody.innerHTML = '';
+    if (getStayFileNumber() === fileNumber) tbody.dataset.fileNumber = fileNumber;
     ensureOperationRows();
     updateOperationsTotal();
     captureDailySheetBaseline();
@@ -8729,6 +8737,7 @@ function clearDailyForm() {
   const opsBody = document.getElementById('daily-operations-tbody');
   if (opsBody) {
     opsBody.innerHTML = '';
+    opsBody.dataset.fileNumber = '';
     ensureOperationRows();
   }
   updateDailyGrandTotal();

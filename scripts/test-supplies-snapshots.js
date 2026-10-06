@@ -28,7 +28,8 @@ async function main() {
   await initDatabase();
 
   const patient = await upsertPatient(TEST_FILE, 'Supply Snapshot Test');
-  const today = new Date().toISOString().slice(0, 10);
+  // Daily entries must use the business date (Cairo), not the UTC date.
+  const today = require('../services/dailyChargeService').getCurrentBusinessDateString();
 
   await query(
     `DELETE FROM invoice_items WHERE invoice_id IN (

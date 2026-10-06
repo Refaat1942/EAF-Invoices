@@ -306,7 +306,7 @@ console.log('OK invoice isolation from doctor metadata');
       await saveEntry({
         file_number: patient.file_number,
         patient_name: patient.name,
-        entry_date: new Date().toISOString().slice(0, 10),
+        entry_date: require('../services/dailyChargeService').getCurrentBusinessDateString(),
         doctor_id: inactive.id,
         doctor_specialty: 'inactive-spec',
         lines: [
@@ -325,7 +325,7 @@ console.log('OK invoice isolation from doctor metadata');
     const saved = await saveEntry({
       file_number: patient.file_number,
       patient_name: patient.name,
-      entry_date: new Date().toISOString().slice(0, 10),
+      entry_date: require('../services/dailyChargeService').getCurrentBusinessDateString(),
       doctor_id: created.id,
       doctor_specialty: testSpec,
       lines: await (async () => {
@@ -367,8 +367,8 @@ console.log('OK invoice isolation from doctor metadata');
     }
 
     const report = await getDoctorReportSummary({
-      from_date: new Date().toISOString().slice(0, 10),
-      to_date: new Date().toISOString().slice(0, 10),
+      from_date: require('../services/dailyChargeService').getCurrentBusinessDateString(),
+      to_date: require('../services/dailyChargeService').getCurrentBusinessDateString(),
       doctor_id: created.id,
     });
     ok(report.rows.length >= 1, 'doctor report has rows');

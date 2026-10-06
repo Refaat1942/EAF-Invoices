@@ -446,22 +446,32 @@ async function allocateNextPatientFileNumber(patientType = 'internal', client = 
      ON CONFLICT (patient_type) DO NOTHING`,
     [scope]
   );
-  if (client) {
-    const locked = await run(
-      `SELECT last_number FROM patient_file_counter WHERE patient_type = $1 FOR UPDATE`,
-      [scope]
+  // Internal and external patients have separate counters but share one file-number space:
+  // skip numbers already on file, or a new patient would be saved onto an existing one.
+  for (let attempt = 0; attempt < 1000; attempt += 1) {
+    let nextNumber;
+    if (client) {
+      const locked = await run(
+        `SELECT last_number FROM patient_file_counter WHERE patient_type = $1 FOR UPDATE`,
+        [scope]
+      );
+      nextNumber = (locked.rows[0]?.last_number || 0) + 1;
+      await run(`UPDATE patient_file_counter SET last_number = $1 WHERE patient_type = $2`, [nextNumber, scope]);
+    } else {
+      const { rows } = await run(
+        `UPDATE patient_file_counter SET last_number = last_number + 1
+         WHERE patient_type = $1 RETURNING last_number`,
+        [scope]
+      );
+      nextNumber = rows[0]?.last_number || 1;
+    }
+    const { rows: taken } = await run(
+      `SELECT 1 FROM patients WHERE TRIM(file_number) = $1 LIMIT 1`,
+      [String(nextNumber)]
     );
-    const nextNumber = (locked.rows[0]?.last_number || 0) + 1;
-    await run(`UPDATE patient_file_counter SET last_number = $1 WHERE patient_type = $2`, [nextNumber, scope]);
-    return String(nextNumber);
+    if (!taken.length) return String(nextNumber);
   }
-  const { rows } = await run(
-    `UPDATE patient_file_counter SET last_number = last_number + 1
-     WHERE patient_type = $1 RETURNING last_number`,
-    [scope]
-  );
-  const nextNumber = rows[0]?.last_number || 1;
-  return String(nextNumber);
+  throw new Error('تعذّر توليد رقم ملف متاح — راجع أرقام الملفات المسجّلة');
 }
 
 /** Existing patient → keep file number; new patient → next atomic counter (safe for concurrent users). */

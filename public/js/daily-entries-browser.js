@@ -68,6 +68,47 @@ function dailyLogSelectedSection() {
   return document.getElementById('daily-log-section')?.value || '';
 }
 
+function dailyLogNormalizeText(text) {
+  return String(text || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ');
+}
+
+function dailyLogItemQuery() {
+  return dailyLogNormalizeText(document.getElementById('daily-log-item')?.value);
+}
+
+// Section + item filters, shared by the table, the totals and the Excel export.
+function dailyLogFilteredRows() {
+  const section = dailyLogSelectedSection();
+  const item = dailyLogItemQuery();
+  return dailyLogFlattenLines(dailyLogRows).filter(
+    (row) =>
+      (!section || row.line.section_code === section) &&
+      (!item || dailyLogNormalizeText(dailyLogItemName(row.line)).includes(item))
+  );
+}
+
+function populateDailyLogItems() {
+  const list = document.getElementById('daily-log-item-options');
+  if (!list) return;
+  const section = dailyLogSelectedSection();
+  const names = new Set();
+  for (const { line } of dailyLogFlattenLines(dailyLogRows)) {
+    if (section && line.section_code !== section) continue;
+    const name = String(dailyLogItemName(line)).trim();
+    if (name) names.add(name);
+  }
+  list.innerHTML = [...names]
+    .sort((a, b) => a.localeCompare(b, 'ar'))
+    .map((name) => `<option value="${dailyLogEscape(name)}"></option>`)
+    .join('');
+}
+
 function populateDailyLogSections(rows) {
   const select = document.getElementById('daily-log-section');
   if (!select) return;
@@ -90,8 +131,7 @@ function renderDailyLogTable() {
   const summary = document.getElementById('daily-log-summary');
   if (!body) return;
 
-  const section = dailyLogSelectedSection();
-  const rows = dailyLogFlattenLines(dailyLogRows).filter((row) => !section || row.line.section_code === section);
+  const rows = dailyLogFilteredRows();
 
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-3">لا توجد حركات في هذه الفترة</td></tr>';
@@ -177,6 +217,7 @@ async function loadDailyLogEntries() {
       warning.classList.remove('d-none');
     }
     populateDailyLogSections(dailyLogFlattenLines(dailyLogRows));
+    populateDailyLogItems();
     renderDailyLogTable();
   } catch (err) {
     dailyLogRows = [];
@@ -186,8 +227,7 @@ async function loadDailyLogEntries() {
 }
 
 function exportDailyLogCsv() {
-  const section = dailyLogSelectedSection();
-  const rows = dailyLogFlattenLines(dailyLogRows).filter((row) => !section || row.line.section_code === section);
+  const rows = dailyLogFilteredRows();
   if (!rows.length) {
     if (typeof showToast === 'function') showToast('لا توجد بيانات للتصدير', 'warning');
     return;
@@ -228,7 +268,15 @@ function bindDailyLogSection() {
   dailyLogBound = true;
   document.getElementById('daily-log-load-btn')?.addEventListener('click', loadDailyLogEntries);
   document.getElementById('daily-log-export-btn')?.addEventListener('click', exportDailyLogCsv);
-  document.getElementById('daily-log-section')?.addEventListener('change', renderDailyLogTable);
+  document.getElementById('daily-log-section')?.addEventListener('change', () => {
+    populateDailyLogItems();
+    renderDailyLogTable();
+  });
+  let itemTimer = null;
+  document.getElementById('daily-log-item')?.addEventListener('input', () => {
+    clearTimeout(itemTimer);
+    itemTimer = setTimeout(renderDailyLogTable, 200);
+  });
   document.getElementById('daily-log-search')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -237,12 +285,34 @@ function bindDailyLogSection() {
   });
 }
 
+// Entries are dated by the server's business day (Cairo), which can differ from this
+// computer's date around midnight — default the range from it.
+async function dailyLogBusinessDate() {
+  try {
+    const res = await apiFetch('/api/daily-charges/business-date');
+    const data = await res.json();
+    if (res.ok && /^\d{4}-\d{2}-\d{2}$/.test(data?.business_date || '')) return data.business_date;
+  } catch {
+    /* fall back to the local date */
+  }
+  return dailyLogLocalDate(0);
+}
+
+function dailyLogShiftDate(dateText, days) {
+  const [y, m, d] = dateText.split('-').map(Number);
+  const date = new Date(y, m - 1, d + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 async function loadDailyLogSection() {
   bindDailyLogSection();
   const from = document.getElementById('daily-log-from');
   const to = document.getElementById('daily-log-to');
-  if (from && !from.value) from.value = dailyLogLocalDate(-6);
-  if (to && !to.value) to.value = dailyLogLocalDate(0);
+  if ((from && !from.value) || (to && !to.value)) {
+    const today = await dailyLogBusinessDate();
+    if (from && !from.value) from.value = dailyLogShiftDate(today, -6);
+    if (to && !to.value) to.value = today;
+  }
   await loadDailyLogEntries();
 }
 

@@ -753,7 +753,7 @@ router.get('/daily-items/print', requirePermission('daily_charges.view'), async 
       return res.send(pdf);
     }
 
-    const html = buildDailyReportHtml(report, { logoUrl: '' });
+    const html = buildDailyReportHtml(report, { logoUrl });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(wrapDailyItemsPrintPage(html, report, baseUrl, kind));
   } catch (err) {

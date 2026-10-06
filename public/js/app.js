@@ -59,6 +59,9 @@ let pricingListsCache = [];
 let currentPricingListId = null;
 let serviceEditModal = null;
 
+// Paid-column label for money taken from the balance the patient paid at admission.
+const PATIENT_CREDIT_RECEIPT_LABEL = 'المحصل عند الدخول';
+
 const STATUS_BADGES = {
   draft: { text: 'مسودة', class: 'bg-secondary' },
   pending_review: { text: 'قيد المراجعة', class: 'bg-warning text-dark' },
@@ -1738,6 +1741,7 @@ function bindEvents() {
   document.getElementById('pay-full-check-btn')?.addEventListener('click', () => fillFullPayment('check'));
   document.getElementById('clear-payments-btn')?.addEventListener('click', clearAllPayments);
   document.getElementById('pay-room-insurance-btn')?.addEventListener('click', applyRoomInsurancePayment);
+  document.getElementById('pay-patient-credit-btn')?.addEventListener('click', applyPatientCreditPayment);
   document.getElementById('invoice_type')?.addEventListener('change', toggleContractedFields);
   document.getElementById('invoice_type')?.addEventListener('change', syncFinancialTreatmentFromInvoiceType);
   document.getElementById('contracted_entity_id')?.addEventListener('change', onContractedEntityChange);
@@ -1799,6 +1803,11 @@ function bindPaymentMethodHelpers() {
         applyRoomInsurancePayment();
         return;
       }
+      if (event.target.closest('.fill-patient-credit-btn')) {
+        event.preventDefault();
+        applyPatientCreditPayment();
+        return;
+      }
       const remainBtn = event.target.closest('.pay-remaining-btn');
       if (remainBtn) {
         event.preventDefault();
@@ -1820,6 +1829,15 @@ function bindPaymentMethodHelpers() {
         recalculate({ skipAutoCredit: true, skipAutoPayments: true });
       }
     });
+    if (input.dataset.methodCode === 'patient_credit') {
+      input.addEventListener('change', () => {
+        if (clampPatientCreditInputs()) {
+          showToast(`المبلغ أكبر من رصيد المريض — تم وضع ${fmt(getPatientCreditAvailable())}`, 'warning');
+        }
+        syncInvoicePaymentColumnsFromMethodPayments();
+        recalculate();
+      });
+    }
   });
 
   document.querySelectorAll('.payment-depositor-input').forEach((input) => {
@@ -1863,7 +1881,7 @@ function getPaymentRemainingExcluding(_excludeInput = null) {
 /** Remaining for «الباقي»: the automatic patient-credit deduction shrinks when cash is added. */
 function getPaymentGapForFill() {
   const finalTotal = getInvoiceFinalTotalForPayment();
-  const paid = shouldAutoApplyPatientCredit() ? sumManualPaymentMethods() : sumAllPaymentInputs();
+  const paid = sumAllPaymentInputs();
   return Math.max(0, Math.round((finalTotal - paid) * 100) / 100);
 }
 
@@ -2603,15 +2621,26 @@ function getDischargeRefundableAmount(totals = lastCalculationTotals) {
 
 // Room insurance is held until discharge (then refunded) and approval deducts
 // credit from account_balance only, so it must not be offered as spendable credit.
-function computeInvoicePatientCredit(finalTotal, otherPaid = null) {
-  const balance = getPatientAccountBalance();
-  if (balance <= 0) return 0;
-  const total = Number(finalTotal) || 0;
-  if (total <= 0) return 0;
-  const paidElsewhere =
-    otherPaid === null ? sumManualPaymentMethods() : Math.max(0, Number(otherPaid) || 0);
-  const remainingDue = Math.max(0, Math.round((total - paidElsewhere) * 100) / 100);
-  return Math.round(Math.min(balance, remainingDue) * 100) / 100;
+// Balance the patient paid at admission that this invoice may still use. Once approved the
+// credit is already deducted from account_balance, so the saved amount is added back.
+function getPatientCreditAvailable() {
+  if (!hasPatientFileNumber()) return 0;
+  const balance = Math.max(0, Number(getPatientAccountBalance()) || 0);
+  const saved = isPatientCreditAlreadyDeducted() ? Number(lastLoadedInvoice?.patient_credit_applied) || 0 : 0;
+  return Math.round((balance + saved) * 100) / 100;
+}
+
+function sumPatientCreditInputs() {
+  return Math.round(
+    getPaymentInputsByCode('patient_credit').reduce((sum, input) => sum + parseDisplayAmount(input.value), 0) * 100
+  ) / 100;
+}
+
+// «خصم من رصيد المريض / المحصل عند الدخول» works like «مبلغ التأمين»: the amount is what the
+// user put in the row (button or typing), never more than the available balance.
+function computeInvoicePatientCredit(_finalTotal = 0, _otherPaid = null) {
+  if (!hasPatientFileNumber()) return 0;
+  return Math.min(sumPatientCreditInputs(), getPatientCreditAvailable());
 }
 
 function distributePatientCreditAcrossRows(creditPool) {
@@ -2690,26 +2719,26 @@ function autoApplyPatientCreditToRows() {
   return Math.abs(before - sumLinePatientCredits()) > 0.009;
 }
 
-function syncPatientCreditPaymentOnly(totals) {
-  if (!shouldAutoApplyPatientCredit()) return false;
-
-  const creditTotal = computeInvoicePatientCredit(Number(totals?.final_total) || 0);
+function clampPatientCreditInputs() {
+  const available = getPatientCreditAvailable();
   let changed = false;
-
   getPaymentInputsByCode('patient_credit').forEach((input) => {
     const current = parseDisplayAmount(input.value);
-    const nextNum = creditTotal > 0.009 ? creditTotal : 0;
-    if (Math.abs(current - nextNum) > 0.009) {
-      input.value = creditTotal > 0.009 ? formatAmountInput(creditTotal) : '';
+    if (current > available + 0.009) {
+      input.value = available > 0.009 ? formatAmountInput(available) : '';
       changed = true;
     }
-    input.readOnly = true;
-    input.classList.add('bg-light');
+    input.readOnly = false;
+    input.classList.remove('bg-light');
     const row = input.closest('tr');
-    if (row) row.classList.toggle('payment-row-active', creditTotal > 0.009);
+    if (row) row.classList.toggle('payment-row-active', parseDisplayAmount(input.value) > 0.009);
   });
-
   return changed;
+}
+
+function syncPatientCreditPaymentOnly(_totals) {
+  if (!shouldAutoApplyPatientCredit()) return false;
+  return clampPatientCreditInputs();
 }
 
 function sumLinePatientCredits() {
@@ -2743,8 +2772,8 @@ function updatePatientCreditSummary(totals) {
 function syncPatientCreditPaymentMethod(amount) {
   getPaymentInputsByCode('patient_credit').forEach((input) => {
     input.value = amount > 0 ? formatAmountInput(amount) : '';
-    input.readOnly = true;
-    input.classList.add('bg-light');
+    input.readOnly = false;
+    input.classList.remove('bg-light');
     const row = input.closest('tr');
     if (row) row.classList.toggle('payment-row-active', amount > 0);
   });
@@ -2970,23 +2999,24 @@ function collectFormData() {
     }
   });
 
-  const methodPayments = collectMethodPayments().filter((entry) => entry.code !== 'patient_credit');
-  const otherPaid = methodPayments.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
+  const allMethodPayments = collectMethodPayments();
+  const creditIndex = allMethodPayments.findIndex((entry) => entry.code === 'patient_credit');
+  const creditEntry = creditIndex >= 0 ? allMethodPayments[creditIndex] : null;
+  const methodPayments = allMethodPayments.filter((entry) => entry.code !== 'patient_credit');
   const creditSum = hasPatientFileNumber()
-    ? computeInvoicePatientCredit(
-        Number(lastCalculationTotals?.final_total) || sumBillableLineTotals(),
-        otherPaid
-      )
+    ? computeInvoicePatientCredit()
     : items.reduce((sum, item) => sum + (Number(item.patient_credit_applied) || 0), 0);
   if (creditSum > 0) {
     let creditMethod = (paymentMethodsCache || []).find((m) => m.code === 'patient_credit');
     if (!creditMethod?.id) {
       creditMethod = { id: null, code: 'patient_credit' };
     }
-    methodPayments.push({
+    // Keep the row in its place (before مبلغ التأمين) so print lists receipts in screen order.
+    methodPayments.splice(creditIndex >= 0 ? creditIndex : methodPayments.length, 0, {
       payment_method_id: creditMethod.id,
       code: 'patient_credit',
       amount: creditSum,
+      metadata: creditEntry?.metadata || {},
     });
   }
 
@@ -3731,6 +3761,7 @@ function getRoomInsurancePaymentInput() {
 }
 
 function updateRoomInsurancePaymentButton() {
+  updatePatientCreditPaymentButton();
   const btn = document.getElementById('pay-room-insurance-btn');
   const insurance = patientIsExternal ? 0 : Number(getPatientRoomInsuranceBalance()) || 0;
   const input = getRoomInsurancePaymentInput();
@@ -3746,6 +3777,55 @@ function updateRoomInsurancePaymentButton() {
     el.textContent = `🛡️ ${fmt(insurance)}`;
     el.disabled = insurance <= 0;
   });
+}
+
+const PATIENT_CREDIT_PAYMENT_CODE = 'patient_credit';
+
+function getPatientCreditPaymentInput() {
+  return document.querySelector(
+    `.payment-method-input[data-method-code="${PATIENT_CREDIT_PAYMENT_CODE}"][data-line-index="0"]`
+  );
+}
+
+function updatePatientCreditPaymentButton() {
+  const available = getPatientCreditAvailable();
+  const input = getPatientCreditPaymentInput();
+  const btn = document.getElementById('pay-patient-credit-btn');
+  if (btn) {
+    const cashBtn = document.getElementById('pay-full-cash-btn');
+    const canEditPayments = Boolean(cashBtn) && cashBtn.style.display !== 'none' && !isInvoiceFollowUpLocked();
+    btn.style.display = available > 0 && input && canEditPayments ? '' : 'none';
+    btn.textContent = `💰 ${PATIENT_CREDIT_RECEIPT_LABEL}: ${fmt(available)}`;
+    btn.classList.toggle('active', (input ? parseDisplayAmount(input.value) : 0) > 0);
+  }
+  document.querySelectorAll('.fill-patient-credit-btn').forEach((el) => {
+    el.textContent = `💰 ${fmt(available)}`;
+    el.disabled = available <= 0;
+  });
+}
+
+function applyPatientCreditPayment() {
+  if (isInvoiceFollowUpLocked()) return;
+  const available = getPatientCreditAvailable();
+  if (available <= 0) {
+    showToast('لا يوجد مبلغ محصل عند الدخول (رصيد) لهذا المريض', 'warning');
+    return;
+  }
+  const input = getPatientCreditPaymentInput();
+  if (!input) {
+    showToast('طريقة الدفع «خصم من رصيد المريض» غير مفعّلة — فعّلها من الإعدادات', 'warning');
+    return;
+  }
+  input.value = formatAmountInput(available);
+  const depositor = document.querySelector(
+    `.payment-depositor-input[data-method-code="${PATIENT_CREDIT_PAYMENT_CODE}"][data-line-index="0"]`
+  );
+  if (depositor && !depositor.value.trim()) depositor.value = PATIENT_CREDIT_RECEIPT_LABEL;
+  togglePaymentMetaRows();
+  syncInvoicePaymentColumnsFromMethodPayments();
+  recalculate({ skipAutoPayments: true });
+  updatePaymentRowHints();
+  showToast(`تمت إضافة المبلغ المحصل عند الدخول ${fmt(available)} إلى المبالغ المسددة`, 'success');
 }
 
 function applyRoomInsurancePayment() {
@@ -5075,10 +5155,6 @@ function paymentReceiptDateMetaKey(code) {
 
 function buildPaymentReceiptCellsHtml(method, metadata = {}, lineIndex = 0) {
   const code = method.code;
-  const isPatientCredit = code === 'patient_credit';
-  if (isPatientCredit) {
-    return '<td class="text-muted text-center">—</td><td class="text-muted text-center">—</td>';
-  }
   const numKey = paymentReceiptNumberMetaKey(code);
   const dateKey = paymentReceiptDateMetaKey(code);
   const numVal = String(metadata[numKey] || '').trim();
@@ -5111,12 +5187,12 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
   const metadata = line.metadata && typeof line.metadata === 'object' ? line.metadata : {};
   const displayVal = amount ? formatAmountInput(amount) : '';
   const depositorVal = String(metadata.depositor_name || '').trim();
-  const readonlyAttr = isPatientCredit ? 'readonly' : '';
-  const extraClass = isPatientCredit ? ' bg-light' : '';
-  const depositorReadonly = isPatientCredit ? 'readonly' : '';
-  const depositorExtraClass = isPatientCredit ? ' bg-light' : '';
+  const readonlyAttr = '';
+  const extraClass = '';
+  const depositorReadonly = '';
+  const depositorExtraClass = '';
   const labelContent = isFirstLine
-    ? `${methodIndex} - ${method.name}${isPatientCredit ? ' <small class="text-muted">(تلقائي من البيان)</small>' : ''}`
+    ? `${methodIndex} - ${method.name}`
     : `<span class="text-muted small">↳ سطر ${lineIndex + 1}</span>`;
 
   const isRoomInsurance = method.code === ROOM_INSURANCE_PAYMENT_CODE;
@@ -5126,7 +5202,12 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
     actions.push(
       `<button type="button" class="btn btn-outline-warning btn-sm fw-bold fill-room-insurance-btn" title="تعبئة مبلغ التأمين"${insurance > 0 ? '' : ' disabled'}>🛡️ ${fmt(insurance)}</button>`
     );
-  } else if (!isPatientCredit) {
+  } else if (isPatientCredit) {
+    const available = getPatientCreditAvailable();
+    actions.push(
+      `<button type="button" class="btn btn-outline-info btn-sm fw-bold fill-patient-credit-btn" title="تعبئة المبلغ المحصل عند الدخول"${available > 0 ? '' : ' disabled'}>💰 ${fmt(available)}</button>`
+    );
+  } else {
     actions.push(
       `<button type="button" class="btn btn-outline-success btn-sm fw-bold pay-remaining-btn" data-method-code="${method.code}">الباقي</button>`
     );
@@ -5139,10 +5220,6 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
       `<button type="button" class="btn btn-outline-danger btn-sm remove-payment-line-btn" data-method-code="${method.code}" title="حذف السطر">×</button>`
     );
   }
-  if (isPatientCredit) {
-    actions.push('<span class="text-muted small">—</span>');
-  }
-
   const lineRow = `<tr class="payment-method-line${isFirstLine ? '' : ' payment-method-line-extra'}" data-method-code="${method.code}" data-line-index="${lineIndex}">
       <td class="${isFirstLine ? 'fw-bold' : ''}">${labelContent}</td>
       <td><input type="text" inputmode="decimal" class="form-control form-control-sm payment-method-input comma-amount${extraClass}"
@@ -5297,9 +5374,6 @@ function collectPaymentMetadata(code, lineIndex = '0') {
   return meta;
 }
 
-// Paid-column label for money taken from the balance the patient paid at admission.
-const PATIENT_CREDIT_RECEIPT_LABEL = 'المحصل عند الدخول';
-
 function collectMethodPaymentReceiptRows() {
   const receipts = [];
   document.querySelectorAll('.payment-method-line').forEach((lineRow) => {
@@ -5307,14 +5381,11 @@ function collectMethodPaymentReceiptRows() {
     if (!code) return;
     const lineIndex = lineRow.dataset.lineIndex || '0';
     const amount = parseDisplayAmount(lineRow.querySelector('.payment-method-input')?.value);
-    // Shown as its own paid row (like مبلغ التأمين) so the paid column adds up to the total collected.
-    if (code === 'patient_credit') {
-      if (amount > 0) {
-        receipts.push({ amount, depositor_name: PATIENT_CREDIT_RECEIPT_LABEL, receipt_number: '', receipt_date: '' });
-      }
-      return;
-    }
     const meta = collectPaymentMetadata(code, lineIndex);
+    // Like مبلغ التأمين, the admission balance row keeps a readable name when none is typed.
+    if (code === 'patient_credit' && amount > 0 && !String(meta.depositor_name || '').trim()) {
+      meta.depositor_name = PATIENT_CREDIT_RECEIPT_LABEL;
+    }
     const hasDetails =
       amount > 0 ||
       meta.depositor_name ||
