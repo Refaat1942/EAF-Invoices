@@ -9021,15 +9021,33 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-section-preview-btn')?.addEventListener('click', () => {
     openDailySectionPrintPreview();
   });
-  document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
-    const q = document.getElementById('daily-patient-search')?.value || '';
+  // Typed text searches the patient list; a scanned invoice QR (or invoice number) opens
+  // that invoice's patient directly with all their details.
+  const runDailyPatientSearch = async () => {
+    const input = document.getElementById('daily-patient-search');
+    const q = input?.value || '';
+    if (typeof window.isScannedInvoiceQr === 'function' && window.isScannedInvoiceQr(q, { allowSerial: true })) {
+      try {
+        const found = await window.lookupScannedInvoice(q);
+        if (!found.file_number) throw new Error('الفاتورة غير مرتبطة برقم ملف');
+        if (input) input.value = found.file_number;
+        showToast(`تم فتح المريض ${found.patient_name} — ملف ${found.file_number}`, 'success');
+        await selectDailyPatient(found.file_number);
+      } catch (err) {
+        if (input) input.value = '';
+        showToast(sanitizeApiErrorMessage(err.message), 'danger');
+      }
+      return;
+    }
     void loadDailyPatientGrid(q);
+  };
+  document.getElementById('daily-patient-search-btn')?.addEventListener('click', () => {
+    void runDailyPatientSearch();
   });
   document.getElementById('daily-patient-search')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const q = document.getElementById('daily-patient-search')?.value || '';
-      void loadDailyPatientGrid(q);
+      void runDailyPatientSearch();
     }
   });
   document.getElementById('daily-patient-list')?.addEventListener('click', (e) => {

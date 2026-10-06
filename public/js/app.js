@@ -216,6 +216,25 @@ function sanitizeApiErrorMessage(message) {
   return window.ApiClient.sanitizeUserMessage(message);
 }
 
+// A handheld scanner types the invoice QR (`…/download/<uuid>`) into the focused box and
+// presses Enter — possibly in Arabic letters when the keyboard layout is Arabic.
+function isScannedInvoiceQr(text, { allowSerial = false } = {}) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if ((value.match(/-/g) || []).length >= 4 && value.length >= 32) return true;
+  return allowSerial && /^[A-Za-z]{2,}-[A-Za-z]{2,}-\d{4}-\d{3,}$/.test(value);
+}
+
+async function lookupScannedInvoice(text) {
+  const res = await apiFetch(`/api/invoices/qr-lookup?code=${encodeURIComponent(String(text || '').trim())}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'تعذّر قراءة QR الفاتورة');
+  return data;
+}
+
+window.isScannedInvoiceQr = isScannedInvoiceQr;
+window.lookupScannedInvoice = lookupScannedInvoice;
+
 function escapeAttr(text) {
   return String(text || '').replace(/"/g, '&quot;');
 }
@@ -1562,11 +1581,27 @@ function bindEvents() {
 
   document.getElementById('list-refresh').addEventListener('click', loadInvoicesList);
   document.getElementById('list-clear-filters')?.addEventListener('click', clearInvoicesListFilters);
-  document.getElementById('list-search').addEventListener('input', debounce(loadInvoicesList, 300));
-  document.getElementById('list-search').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
+  document.getElementById('list-search').addEventListener('input', debounce(() => {
+    // A scanner is mid-typing a QR — wait for its Enter instead of searching for the URL.
+    if (isScannedInvoiceQr(document.getElementById('list-search').value)) return;
+    loadInvoicesList();
+  }, 300));
+  document.getElementById('list-search').addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const input = e.currentTarget;
+    if (!isScannedInvoiceQr(input.value)) {
       loadInvoicesList();
+      return;
+    }
+    try {
+      const found = await lookupScannedInvoice(input.value);
+      input.value = found.serial_number || found.file_number || '';
+      showToast(`فاتورة ${found.serial_number || '#' + found.invoice_id} — ${found.patient_name}`, 'success');
+      await loadInvoiceForEdit(found.invoice_id);
+    } catch (err) {
+      input.value = '';
+      showToast(err.message, 'danger');
     }
   });
   document.getElementById('list-type-filter').addEventListener('change', loadInvoicesList);

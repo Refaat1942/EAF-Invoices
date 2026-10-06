@@ -18,7 +18,7 @@ const { exportExcelBuffer } = require('../services/reportService');
 const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
 const { getLogoUrl } = require('../services/settingsService');
-const { requireAuth, requirePermission } = require('../middleware/auth');
+const { requireAuth, requirePermission, requireAnyPermission } = require('../middleware/auth');
 const { userHasPermission } = require('../services/authService');
 
 const router = express.Router();
@@ -233,6 +233,20 @@ router.post('/', requirePermission('invoices.create'), async (req, res) => {
     }
     const invoice = await saveInvoice(req.body, null, createdBy, { save_mode: saveMode, actor: user });
     res.status(201).json(invoice);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Scanned invoice QR (or typed serial) → invoice + patient, for the search boxes.
+router.get('/qr-lookup', requireAnyPermission('invoices.view', 'daily_charges.view'), async (req, res) => {
+  try {
+    const code = String(req.query.code || '').trim();
+    if (!code) return res.status(400).json({ error: 'امسح QR الفاتورة أولاً' });
+    const { lookupInvoiceByQr } = require('../services/invoiceQrLookupService');
+    const found = await lookupInvoiceByQr(code);
+    if (!found) return res.status(404).json({ error: 'لم يتم العثور على فاتورة لهذا الكود' });
+    res.json(found);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -606,7 +606,7 @@ async function buildInvoiceHtml(invoice, options = {}) {
 <body>
   <div class="page ${printProfile.className}">
     <div class="serial-bar">
-      رقم الفاتورة: ${escapeHtml(inv.serial_number)}
+      رقم الفاتورة: ${inv.serial_number ? escapeHtml(inv.serial_number) : 'يُصدر عند الاعتماد'}
       ${inv.fiscal_year_label ? `&nbsp;|&nbsp; السنة المالية: ${escapeHtml(inv.fiscal_year_label)}` : ''}
       &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(inv.issue_date || inv.created_at)}
       &nbsp;|&nbsp; النوع: ${escapeHtml(inv.invoice_type_label)}
@@ -628,7 +628,9 @@ async function buildInvoiceHtml(invoice, options = {}) {
       ${
         showQr && qrDataUrl
           ? `<div class="qr-area"><img src="${qrDataUrl}" alt="QR"><div class="qr-label">امسح للتحميل</div></div>`
-          : `<div class="header-spacer"></div>`
+          : inv.serial_number
+            ? `<div class="header-spacer"></div>`
+            : `<div class="qr-area"><div class="qr-label">QR يظهر بعد الاعتماد</div></div>`
       }
     </div>
 
