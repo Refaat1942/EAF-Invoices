@@ -1,0 +1,7 @@
+# Extra addresses users will type in the browser to open the program.
+# The server's own IP addresses, "localhost" and the computer name are added automatically.
+# Write one address per line, then run START.bat. Lines starting with # are ignored.
+# Examples (remove the # to use):
+# eaf-server
+# invoices.hospital.local
+# http://10.0.0.25:8080
