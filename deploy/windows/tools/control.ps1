@@ -38,6 +38,13 @@ try {
         $ErrorActionPreference = 'Continue'
         & (Join-Path $PgBin 'pg_ctl.exe') unregister -N $PgService 2>&1 | Out-Null
       }
+      # Anything still running from this folder (postgres.exe, node.exe, launcher) would keep
+      # the folder locked and stop the user from deleting or replacing it.
+      Start-Sleep -Seconds 2
+      Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+        Where-Object { ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)) -or
+                       ($_.CommandLine -and $_.CommandLine -like '*run-app.ps1*' -and $_.ProcessId -ne $PID) } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
       Write-Host 'Removed. Run INSTALL.bat again any time — it reuses the kept data.' -ForegroundColor Green
     }
   }
