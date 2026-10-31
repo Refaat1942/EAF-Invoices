@@ -26,6 +26,13 @@ function Write-Step([string]$Text) { Write-Host ''; Write-Host "==> $Text" -Fore
 function Write-Ok([string]$Text)   { Write-Host "    OK  $Text" -ForegroundColor Green }
 function Write-Warn2([string]$Text) { Write-Host "    !!  $Text" -ForegroundColor Yellow }
 
+# Confirmation prompt: accepts YES/yes/y, Arabic "نعم", and YES typed on an Arabic keyboard
+# layout (Y-E-S keys give "غثس").
+function Confirm-Yes([string]$Prompt = 'Type YES to continue') {
+  $answer = ([string](Read-Host $Prompt)).Trim().ToLowerInvariant()
+  return @('yes', 'y', 'نعم', 'غثس', 'غ') -contains $answer
+}
+
 function Test-IsAdmin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   return (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)

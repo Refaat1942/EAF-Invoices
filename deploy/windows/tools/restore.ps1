@@ -29,7 +29,7 @@ try {
     Write-Host "  $DumpFile" -ForegroundColor Yellow
   }
   Write-Host '(a safety backup of the current data is taken first)' -ForegroundColor Yellow
-  if ((Read-Host 'Type YES to continue') -cne 'YES') { Write-Host 'Cancelled.'; exit 0 }
+  if (-not (Confirm-Yes)) { Write-Host 'Cancelled.'; exit 0 }
 
   Set-RuntimePath
   Write-Step 'Stopping the program'

@@ -29,7 +29,7 @@ try {
     'uninstall' {
       Write-Host 'This removes the automatic start, the backup task, the firewall rule and the database service.'
       Write-Host "Your data is KEPT in: $DataDir and $BackupsDir" -ForegroundColor Yellow
-      if ((Read-Host 'Type YES to continue') -cne 'YES') { Write-Host 'Cancelled.'; exit 0 }
+      if (-not (Confirm-Yes)) { Write-Host 'Cancelled.'; exit 0 }
       Stop-EafApp
       foreach ($t in @($AppTask, $BackupTask)) { Unregister-ScheduledTask -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue }
       Get-NetFirewallRule -DisplayName $FwRule -ErrorAction SilentlyContinue | Remove-NetFirewallRule
