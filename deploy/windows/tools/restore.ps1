@@ -56,6 +56,21 @@ try {
   $ErrorActionPreference = 'Stop'
   Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
   Invoke-Psql $pgPort $config.pg_superuser_password $DbName "GRANT ALL ON SCHEMA public TO $DbUser" | Out-Null
+  # pg_restore exits non-zero even for harmless warnings, so judge by whether the program's
+  # tables arrived. If they did not, put the previous data back instead of starting empty.
+  $tablesArrived = (Invoke-Psql $pgPort $config.pg_superuser_password $DbName "SELECT CASE WHEN to_regclass('public.users') IS NOT NULL AND to_regclass('public.services') IS NOT NULL THEN 1 ELSE 0 END") -match '1'
+  if (-not $tablesArrived) {
+    Write-Warn2 'The file could not be restored (no program tables in it) — putting the previous data back.'
+    Invoke-Psql $pgPort $config.pg_superuser_password 'postgres' "DROP DATABASE IF EXISTS $DbName WITH (FORCE)" | Out-Null
+    Invoke-Psql $pgPort $config.pg_superuser_password 'postgres' "CREATE DATABASE $DbName OWNER $DbUser ENCODING 'UTF8' TEMPLATE template0" | Out-Null
+    $ErrorActionPreference = 'Continue'
+    $env:PGPASSWORD = $config.pg_superuser_password
+    & (Join-Path $PgBin 'pg_restore.exe') -h localhost -p $pgPort -U postgres -d $DbName --no-owner "--role=$DbUser" $safety 2>&1 | Out-Null
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    $ErrorActionPreference = 'Stop'
+    Invoke-Psql $pgPort $config.pg_superuser_password $DbName "GRANT ALL ON SCHEMA public TO $DbUser" | Out-Null
+    throw 'Nothing was imported; your previous data is back. If the messages above say "unsupported version", the file was made by a newer PostgreSQL (send a photo of this window).'
+  }
   if ($restoreCode -ne 0) {
     Write-Warn2 "pg_restore reported warnings/errors (code $restoreCode). Check the program; the safety backup is: $safety"
     Write-Warn2 'If it says "unsupported version", the file was made by a newer PostgreSQL than this package (16).'
