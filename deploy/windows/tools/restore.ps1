@@ -1,6 +1,8 @@
 # RESTORE-DATA.bat — replace the program's data with a .dump file
 # (from the VPS, or one of this server's own backups). A safety backup is taken first.
-param([string]$DumpFile)
+# IMPORT-SOURCES.bat (-SourcesOnly) — same, then removes all cases (patients, invoices,
+# daily entries...) and keeps only the data sources, settings and users.
+param([string]$DumpFile, [switch]$SourcesOnly)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 
@@ -17,8 +19,15 @@ try {
   if (-not (Test-Path $DumpFile)) { throw "File not found: $DumpFile" }
 
   Write-Host ''
-  Write-Host 'WARNING: all current data in the program will be REPLACED by this file:' -ForegroundColor Yellow
-  Write-Host "  $DumpFile" -ForegroundColor Yellow
+  if ($SourcesOnly) {
+    Write-Host 'IMPORT DATA SOURCES from this file (price lists, items, doctors, stay types, settings, users):' -ForegroundColor Yellow
+    Write-Host "  $DumpFile" -ForegroundColor Yellow
+    Write-Host 'Patients, invoices and daily entries are NOT imported.' -ForegroundColor Yellow
+    Write-Host 'WARNING: everything currently in THIS program (including any cases) will be replaced.' -ForegroundColor Yellow
+  } else {
+    Write-Host 'WARNING: all current data in the program will be REPLACED by this file:' -ForegroundColor Yellow
+    Write-Host "  $DumpFile" -ForegroundColor Yellow
+  }
   Write-Host '(a safety backup of the current data is taken first)' -ForegroundColor Yellow
   if ((Read-Host 'Type YES to continue') -cne 'YES') { Write-Host 'Cancelled.'; exit 0 }
 
@@ -49,15 +58,30 @@ try {
   Invoke-Psql $pgPort $config.pg_superuser_password $DbName "GRANT ALL ON SCHEMA public TO $DbUser" | Out-Null
   if ($restoreCode -ne 0) {
     Write-Warn2 "pg_restore reported warnings/errors (code $restoreCode). Check the program; the safety backup is: $safety"
+    Write-Warn2 'If it says "unsupported version", the file was made by a newer PostgreSQL than this package (16).'
   } else {
     Write-Ok 'Data restored'
+  }
+  if ($SourcesOnly) {
+    Write-Step 'Removing cases (patients, invoices, daily entries) — keeping data sources'
+    $ErrorActionPreference = 'Continue'
+    $env:PGPASSWORD = $config.pg_superuser_password
+    $sqlOut = & (Join-Path $PgBin 'psql.exe') -h localhost -p $pgPort -U postgres -d $DbName -v ON_ERROR_STOP=1 -q -f (Join-Path $PSScriptRoot 'keep-sources.sql') 2>&1
+    $sqlCode = $LASTEXITCODE
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+    $ErrorActionPreference = 'Stop'
+    if ($sqlCode -ne 0) {
+      Write-Host ($sqlOut | Out-String)
+      throw "Could not remove the cases — the full data is still there. Safety backup: $safety"
+    }
+    Write-Ok 'Cases removed; data sources, settings and users kept'
   }
 
   Write-Step 'Starting the program'
   Start-EafApp
   if (Wait-AppHttp ([int]$config.app_port) 180) { Write-Ok 'Program is running' } else { Write-Warn2 "Program did not answer yet — see $LogsDir\server.log" }
   Write-Host ''
-  Write-Host 'Done. Users and passwords are now the ones from the restored data.' -ForegroundColor Green
+  Write-Host 'Done. Users and passwords are now the ones from the imported file (the online ones).' -ForegroundColor Green
 } catch {
   Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
   try { Start-EafApp } catch { }

@@ -269,11 +269,24 @@ router.put('/general', requirePermission('settings.*'), async (req, res) => {
   }
 });
 
-const { getBackupStatus, runBackup } = require('../services/backupService');
+const { getBackupStatus, runBackup, getBackupDir, listDumpFiles } = require('../services/backupService');
 
 router.get('/backup', requirePermission('settings.*'), async (req, res) => {
   try {
     res.json(await getBackupStatus());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Newest backup file, e.g. to carry the online data to the offline server (IMPORT-SOURCES.bat).
+// Only the newest dump in the backup folder is served — no file name is taken from the request.
+router.get('/backup/download', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const latest = listDumpFiles(getBackupDir())[0];
+    if (!latest) return res.status(404).json({ error: 'لا توجد نسخة احتياطية — اضغط «نسخ احتياطي الآن» أولاً' });
+    console.log(`[backup] download ${latest.name} by ${req.session?.user?.username || '?'}`);
+    res.download(latest.path, latest.name);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

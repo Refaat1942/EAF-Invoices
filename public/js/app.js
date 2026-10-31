@@ -1640,6 +1640,7 @@ function bindEvents() {
 
   document.getElementById('upload-logo-btn').addEventListener('click', uploadLogo);
   document.getElementById('backup-run-btn')?.addEventListener('click', runManualBackup);
+  document.getElementById('backup-download-btn')?.addEventListener('click', downloadLatestBackup);
   document.getElementById('add-stay-type-btn').addEventListener('click', addStayType);
   document.getElementById('add-companion-kind-btn')?.addEventListener('click', addCompanionKind);
   document.getElementById('companion-kind-template-btn')?.addEventListener('click', () => {
@@ -6218,6 +6219,33 @@ async function loadBackupSection() {
     }
   } catch (err) {
     showToast(err.message, 'danger');
+  }
+}
+
+async function downloadLatestBackup() {
+  if (!can('settings.*')) return showToast('ليس لديك صلاحية', 'warning');
+  const btn = document.getElementById('backup-download-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/backup/download`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'تعذر تنزيل النسخة');
+    }
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="?([^";]+)"?/)?.[1] || 'eaf-invoices.dump';
+    const url = URL.createObjectURL(await res.blob());
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    showToast(`تم تنزيل ${name}`, 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
