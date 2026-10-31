@@ -40,7 +40,7 @@ try {
   $safety = Join-Path $BackupsDir ('before-restore_' + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss') + '.dump')
   $ErrorActionPreference = 'Continue'
   $env:PGPASSWORD = $config.pg_superuser_password
-  & (Join-Path $PgBin 'pg_dump.exe') -h localhost -p $pgPort -U postgres -Fc -f $safety $DbName 2>&1 | Out-Host
+  & (Join-Path $PgBin 'pg_dump.exe') -h localhost -p $pgPort -U postgres -Fc -f $safety $DbName 2>&1 | ForEach-Object { "$_" } | Out-Host
   $dumpCode = $LASTEXITCODE
   $ErrorActionPreference = 'Stop'
   if ($dumpCode -ne 0) { throw 'Safety backup failed — nothing was changed.' }
@@ -51,7 +51,7 @@ try {
   Invoke-Psql $pgPort $config.pg_superuser_password 'postgres' "CREATE DATABASE $DbName OWNER $DbUser ENCODING 'UTF8' TEMPLATE template0" | Out-Null
   $ErrorActionPreference = 'Continue'
   $env:PGPASSWORD = $config.pg_superuser_password
-  & (Join-Path $PgBin 'pg_restore.exe') -h localhost -p $pgPort -U postgres -d $DbName --no-owner "--role=$DbUser" $DumpFile 2>&1 | Out-Host
+  & (Join-Path $PgBin 'pg_restore.exe') -h localhost -p $pgPort -U postgres -d $DbName --no-owner --no-privileges "--role=$DbUser" $DumpFile 2>&1 | ForEach-Object { "$_" } | Out-Host
   $restoreCode = $LASTEXITCODE
   $ErrorActionPreference = 'Stop'
   Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
@@ -65,7 +65,7 @@ try {
     Invoke-Psql $pgPort $config.pg_superuser_password 'postgres' "CREATE DATABASE $DbName OWNER $DbUser ENCODING 'UTF8' TEMPLATE template0" | Out-Null
     $ErrorActionPreference = 'Continue'
     $env:PGPASSWORD = $config.pg_superuser_password
-    & (Join-Path $PgBin 'pg_restore.exe') -h localhost -p $pgPort -U postgres -d $DbName --no-owner "--role=$DbUser" $safety 2>&1 | Out-Null
+    & (Join-Path $PgBin 'pg_restore.exe') -h localhost -p $pgPort -U postgres -d $DbName --no-owner --no-privileges "--role=$DbUser" $safety 2>&1 | Out-Null
     Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
     $ErrorActionPreference = 'Stop'
     Invoke-Psql $pgPort $config.pg_superuser_password $DbName "GRANT ALL ON SCHEMA public TO $DbUser" | Out-Null
