@@ -19,7 +19,7 @@ async function getAnalyticsDashboard(filters = {}) {
     `SELECT COUNT(DISTINCT pde.patient_id)::int AS patients_with_entries,
             COUNT(*)::int AS entry_lines
      FROM patient_daily_entry_lines l
-     JOIN patient_daily_entries pde ON pde.id = l.daily_entry_id
+     JOIN patient_daily_entries pde ON pde.id = l.entry_id
      WHERE ($1::date IS NULL OR pde.entry_date >= $1::date)
        AND ($2::date IS NULL OR pde.entry_date <= $2::date)`,
     [filters.from_date || null, filters.to_date || null]

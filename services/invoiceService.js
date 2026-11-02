@@ -2329,7 +2329,8 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
   const countRes = await query(`SELECT COUNT(*)::int AS total FROM invoices`);
   const { rows } = await query(
     `SELECT id, status, serial_number, fiscal_year, serial_sequence, serial_scope,
-            issue_date, reviewed_at, created_at, updated_at, patient_name, file_number, patient_type
+            issue_date, reviewed_at, created_at, updated_at, patient_name, file_number,
+            (SELECT p.patient_type FROM patients p WHERE p.id = invoices.patient_id) AS patient_type
      FROM invoices
      ORDER BY COALESCE(fiscal_year, 0) DESC, COALESCE(serial_sequence, 0) DESC, id DESC
      LIMIT $1`,
