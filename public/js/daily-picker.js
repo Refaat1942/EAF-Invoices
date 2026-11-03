@@ -279,16 +279,17 @@
   }
 
   function getUnitPriceForSection(tr, sectionCode) {
+    // The chosen unit (box / strip...) decides the price; the item's own price is the major unit.
+    const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
+    if (unitSelect?.value) {
+      const fromUnit = Number(unitSelect.selectedOptions[0]?.dataset.price) || 0;
+      if (fromUnit > 0) return fromUnit;
+    }
     const picker = tr?.querySelector(`.daily-picker[data-section="${sectionCode}"]`);
     const item = picker?._selectedItem;
     if (item) {
       const fromItem = Number(item.price ?? item.list_price) || 0;
       if (fromItem > 0) return fromItem;
-    }
-    const unitSelect = tr?.querySelector(`.daily-catalog-unit[data-section="${sectionCode}"]`);
-    if (unitSelect?.value) {
-      const fromUnit = Number(unitSelect.selectedOptions[0]?.dataset.price) || 0;
-      if (fromUnit > 0) return fromUnit;
     }
     const amountInput = tr?.querySelector(`.daily-amount[data-section="${sectionCode}"]`);
     return Number(amountInput?.dataset.unitPrice) || 0;
@@ -499,6 +500,10 @@
           if (amountInput && qty > 0) amountInput.dataset.unitPrice = String(Number(line.amount) / qty);
         } else {
           applyCatalogUnitPrice(tr, section.code);
+        }
+        // The row was drawn before the unit list arrived; redraw its price for the saved unit.
+        if (typeof window.onDailyCatalogPickerHydrated === 'function') {
+          window.onDailyCatalogPickerHydrated(tr, section, item, line);
         }
       }
     } catch (err) {

@@ -5438,7 +5438,15 @@ function syncSupplyRowDisplay(tr, item, unitPrice) {
   const sectionCode = tr.dataset.sectionCode || 'supplies';
   const qty =
     dailyParseAmount(tr.querySelector(`.daily-catalog-qty[data-section="${sectionCode}"]`)?.value) || 1;
-  const costUnit = Number(item?.cost_price) || Number(tr.dataset.costPrice) || 0;
+  // Catalog cost is per major unit; a minor unit (strip, piece...) costs its share of it.
+  const unitSelects = Array.from(tr.querySelectorAll(`.daily-catalog-unit[data-section="${sectionCode}"]`));
+  const unitSelectEl = unitSelects.find((el) => el.style.display !== 'none') || unitSelects[0];
+  const unitLevel = unitSelectEl?.value || '';
+  const minorQty = Number(item?.minor_quantity_per_major) || 0;
+  const itemCost = Number(item?.cost_price) || 0;
+  const costUnit = itemCost
+    ? Math.round((unitLevel === 'minor' && minorQty > 1 ? itemCost / minorQty : itemCost) * 100) / 100
+    : Number(tr.dataset.costPrice) || 0;
   const catalogSell = Number(unitPrice) || Number(tr.dataset.sellUnit) || getCatalogRowUnitPrice(tr, sectionCode) || 0;
   const listSellUnit = calcSupplySellUnit(costUnit, catalogSell);
   const sellUnit = dailyAmountForDisplay(listSellUnit);
@@ -5744,14 +5752,14 @@ function getExamRowGrandTotal(tr) {
 }
 
 function bindLabRowEvents(tr) {
-  tr.querySelector('.daily-lab-stamp')?.addEventListener('input', refreshServiceRowTotals);
-  tr.querySelector('.daily-lab-date')?.addEventListener('change', refreshServiceRowTotals);
+  tr.querySelector('.daily-lab-stamp')?.addEventListener('input', () => refreshServiceRowTotals(tr));
+  tr.querySelector('.daily-lab-date')?.addEventListener('change', () => refreshServiceRowTotals(tr));
   bindDailyAmountRecalc(tr);
 }
 
 function bindRadRowEvents(tr) {
-  tr.querySelector('.daily-rad-stamp')?.addEventListener('input', refreshServiceRowTotals);
-  tr.querySelector('.daily-rad-date')?.addEventListener('change', refreshServiceRowTotals);
+  tr.querySelector('.daily-rad-stamp')?.addEventListener('input', () => refreshServiceRowTotals(tr));
+  tr.querySelector('.daily-rad-date')?.addEventListener('change', () => refreshServiceRowTotals(tr));
   bindDailyAmountRecalc(tr);
 }
 
@@ -6063,7 +6071,20 @@ function onDailyCatalogPickerCleared(tr, sectionCode) {
   }
 }
 
+// After a saved catalog line is reloaded: show the price it was saved with for its unit.
+function onDailyCatalogPickerHydrated(tr, section, item, line = {}) {
+  if (!tr || !section) return;
+  const qty = Number(line.quantity) || 0;
+  const saved = Number(line.unit_price) || (qty > 0 ? Number(line.amount) / qty : 0);
+  if (tr.classList.contains('daily-med-row')) {
+    syncMedicineRowDisplay(tr, item, saved || getCatalogRowUnitPrice(tr, 'medicines'));
+  } else if (tr.classList.contains('daily-sup-row')) {
+    syncSupplyRowDisplay(tr, item, saved || getCatalogRowUnitPrice(tr, tr.dataset.sectionCode || section.code));
+  }
+}
+
 window.onDailyCatalogPickerApplied = onDailyCatalogPickerApplied;
+window.onDailyCatalogPickerHydrated = onDailyCatalogPickerHydrated;
 window.onDailyCatalogPickerCleared = onDailyCatalogPickerCleared;
 
 function dailyEscapeAttr(text) {

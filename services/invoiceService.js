@@ -1249,7 +1249,8 @@ async function approveInvoice(id, reviewer) {
       throw new Error('مجموع طرق الدفع لا يساوي إجمالي الفاتورة — راجع المدفوعات قبل الاعتماد');
     }
 
-    const issueDate = invoice.issue_date || require('./dailyChargeService').getCurrentBusinessDateString();
+    // The invoice is issued on the day of its final approval (that day also decides its fiscal year).
+    const issueDate = require('./dailyChargeService').getCurrentBusinessDateString();
     let patientScope = 'internal';
     if (invoice.file_number) {
       const linkedPatient = await getPatientByFileNumber(String(invoice.file_number).trim());
@@ -1271,6 +1272,7 @@ async function approveInvoice(id, reviewer) {
         reviewed_by_user_id = $7,
         reviewed_by_name = $8,
         auditor_name = CASE WHEN COALESCE(auditor_name, '') = '' THEN $8 ELSE auditor_name END,
+        issue_date = $9::date,
         updated_at = NOW()
        WHERE id = $1`,
       [
@@ -1282,6 +1284,7 @@ async function approveInvoice(id, reviewer) {
         qrToken,
         reviewer?.id || null,
         reviewerName,
+        issueDate,
       ]
     );
 

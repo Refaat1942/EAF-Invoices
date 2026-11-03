@@ -1,4 +1,9 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+// DATE columns are calendar days. Without this, pg turns them into a JS Date at the server's
+// local midnight, which serialises as the previous day in UTC (e.g. 2026-11-01 -> 2026-10-31T22:00Z)
+// whenever the server clock is ahead of UTC (Egypt), shifting dates by one day in invoices.
+types.setTypeParser(1082, (value) => value);
 const fs = require('fs');
 const path = require('path');
 const { getDatabaseConnectionString } = require('./connectionConfig');
