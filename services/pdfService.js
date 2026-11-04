@@ -1,4 +1,4 @@
-const { formatDual, round2, calculateInvoiceTotals } = require('./calculations');
+const { formatDual, round2, calculateInvoiceTotals, calculateStayDays } = require('./calculations');
 const { buildCustomerPrintLines } = require('./invoicePresentationService');
 const { normalizeCaptainName } = require('./invoiceService');
 const { CENTER_NAME } = require('../config/branding');
@@ -285,6 +285,20 @@ async function buildInvoiceHtml(invoice, options = {}) {
   const realPayments = (inv.payments || []).filter(
     (p) => p.amount || p.receipt_number || p.receipt_date || p.depositor_name
   );
+
+  // Header period: while the patient is still in (no discharge, or discharge kept equal to
+  // admission as the "open stay" marker), show the stay through its last posted day.
+  const admissionDay = String(inv.admission_date || '').slice(0, 10);
+  const dischargeDay = String(inv.discharge_date || '').slice(0, 10);
+  const lastStayDay = (inv.stay_entries || [])
+    .map((entry) => String(entry.to_date || '').slice(0, 10))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort()
+    .pop();
+  if (admissionDay && lastStayDay && (!dischargeDay || dischargeDay <= admissionDay) && lastStayDay > admissionDay) {
+    inv.discharge_date = lastStayDay;
+    inv.stay_days = calculateStayDays(admissionDay, lastStayDay);
+  }
 
   const itemLineCount = realItems.filter((item) => !item._section_header).length;
   const printProfile = resolveInvoicePrintProfile(itemLineCount);
@@ -608,7 +622,7 @@ async function buildInvoiceHtml(invoice, options = {}) {
     <div class="serial-bar">
       رقم الفاتورة: ${inv.serial_number ? escapeHtml(inv.serial_number) : 'يُصدر عند الاعتماد'}
       ${inv.fiscal_year_label ? `&nbsp;|&nbsp; السنة المالية: ${escapeHtml(inv.fiscal_year_label)}` : ''}
-      &nbsp;|&nbsp; تاريخ الإصدار: ${formatDate(inv.issue_date || inv.created_at)}
+      &nbsp;|&nbsp; تاريخ الإصدار: ${inv.status === 'approved' ? formatDate(inv.issue_date || inv.reviewed_at || inv.created_at) : 'يُحدد عند الاعتماد'}
       &nbsp;|&nbsp; النوع: ${escapeHtml(inv.invoice_type_label)}
       ${inv._daily_kind_label ? `&nbsp;|&nbsp; معاينة القسم: ${escapeHtml(inv._daily_kind_label)}` : ''}
     </div>

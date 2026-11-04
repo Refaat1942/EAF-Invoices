@@ -452,9 +452,72 @@ async function syncAdmissionDayRoomInsurance(fileNumber, user = null) {
   };
 }
 
+/**
+ * Companion / nursing point / nursing assistant added (or set) after some stay days were
+ * already posted — e.g. through «تعديل البيانات» right after registration — never reached
+ * those days: posting skips a day that already has its stay row. Add the missing lines to
+ * every posted stay day of the open stay. Lines already on a day are left as they are.
+ */
+async function fillMissingStayDetailLines(fileNumber, user = null) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return 0;
+  const stay = await getOpenPatientStay(fn);
+  const patient = stay?.patient || (await getPatientByFileNumber(fn));
+  if (!patient?.id || !stay?.invoice?.id) return 0;
+  if (String(patient.patient_type || '').toLowerCase() === 'external') return 0;
+
+  const { rows } = await query(
+    `SELECT DISTINCT e.id, e.entry_date::text AS entry_date
+     FROM patient_daily_entries e
+     INNER JOIN patient_daily_entry_lines l ON l.entry_id = e.id
+     WHERE e.patient_id = $1
+       AND (e.invoice_id IS NULL OR e.invoice_id = $2)
+       AND l.section_code = 'accommodation'
+       AND COALESCE(l.amount, 0) > 0
+     ORDER BY 2`,
+    [patient.id, stay.invoice.id]
+  );
+  let fixed = 0;
+  for (const row of rows) {
+    const entryDate = parseDateOnly(row.entry_date);
+    const assignment = await getAssignmentForDate(patient.id, entryDate);
+    if (!assignment) continue;
+    const entry = await getEntryById(row.id);
+    if (!entry) continue;
+    const present = new Set((entry.lines || []).map((line) => line.section_code));
+    const missing = [
+      ['companion', round2(assignment.companion_amount)],
+      ['nursing_point', round2(assignment.nursing_point_amount)],
+      ['patient_assistant', round2(assignment.patient_assistant_amount)],
+    ].filter(([code, amount]) => amount > 0 && !present.has(code));
+    if (!missing.length) continue;
+    await saveEntry(
+      {
+        entry_id: entry.id,
+        file_number: patient.file_number,
+        patient_name: patient.name,
+        entry_date: entryDate,
+        stay_type_id: entry.stay_type_id,
+        notes: entry.notes || '',
+        doctor_id: entry.doctor_id,
+        doctor_specialty: entry.doctor_specialty || '',
+        lines: [
+          ...(entry.lines || []).map((line) => ({ ...line })),
+          ...missing.map(([code, amount]) => ({ section_code: code, amount, quantity: 1, unit_price: amount })),
+        ],
+        allow_backfill: true,
+      },
+      user
+    );
+    fixed += 1;
+  }
+  return fixed;
+}
+
 module.exports = {
   batchPostStayCharges,
   ensureAdmissionDayStayPosted,
+  fillMissingStayDetailLines,
   ensureAllStayDaysPosted,
   syncAdmissionDayRoomInsurance,
   admissionCompanionWithInsurance,

@@ -263,6 +263,7 @@ assertEq(stampTotals.manual_items_subtotal_raw, 200, 'stamp lines excluded from 
 assertEq(stampTotals.items_subtotal_raw, 200, 'stamp lines excluded from items subtotal');
 assertEq(stampTotals.stamp_duty_raw, 25, 'stamp billable from header or line items');
 assertEq(stampTotals.subtotal_before_admin_raw, 225, 'stamp added separately before admin');
+assertEq(stampTotals.admin_expenses_raw, 24, 'no administrative fee on daily stamp lines');
 const stampValidation = validateInvoiceCalculations({ ...base, stamp_duty: 25 }, stampTotals);
 assert(stampValidation.is_valid, `stamp validation: ${stampValidation.errors.join('; ')}`);
 

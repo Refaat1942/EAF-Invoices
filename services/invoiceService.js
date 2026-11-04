@@ -2261,9 +2261,11 @@ async function openPatientStay(data, user = null) {
     const {
       ensureAdmissionDayStayPosted,
       syncAdmissionDayRoomInsurance,
+      fillMissingStayDetailLines,
     } = require('./stayBatchPostingService');
     await ensureAdmissionDayStayPosted(fileNumber, user);
     await syncAdmissionDayRoomInsurance(fileNumber, user);
+    await fillMissingStayDetailLines(fileNumber, user);
     patient = await getPatientByFileNumber(fileNumber);
   }
 

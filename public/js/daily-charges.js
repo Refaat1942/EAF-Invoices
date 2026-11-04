@@ -5775,9 +5775,44 @@ function bindMiscRowEvents(tr) {
   bindDailyAmountRecalc(tr);
 }
 
+// A day's entry holds every test / X-ray of that day, each with its own stamp (and X-ray type)
+// line. Find the one that belongs to `mainLine`: a stamp saved with `stamp_for:<main id>`, or
+// else (rows saved together, before linking existed) the nearest earlier main line in save order.
+function pairRowCompanionLine(entry, mainLine, mainCode, code, { linkable = false } = {}) {
+  const lines = entry?.lines || [];
+  const companions = lines.filter((l) => l.section_code === code);
+  if (!companions.length) return {};
+  const linkOf = (l) => {
+    const m = String(l.extra_text || '').trim().match(/^stamp_for:(\d+)$/);
+    return m ? Number(m[1]) : 0;
+  };
+  const mainId = Number(mainLine?.id) || 0;
+  if (linkable && mainId) {
+    const linked = companions.find((l) => linkOf(l) === mainId);
+    if (linked) return linked;
+  }
+  const linkedMainIds = new Set(linkable ? companions.map(linkOf).filter(Boolean) : []);
+  const mains = lines
+    .filter((l) => l.section_code === mainCode && Number(l.id))
+    .sort((a, b) => Number(a.id) - Number(b.id));
+  const unlinked = companions.filter((l) => !(linkable && linkOf(l)));
+  if (!mainId) return mains.length ? {} : unlinked[0] || {};
+  const taken = new Set();
+  for (const comp of unlinked.sort((a, b) => Number(a.id) - Number(b.id))) {
+    const compId = Number(comp.id) || 0;
+    const owner = mains
+      .filter((m) => Number(m.id) < compId && !linkedMainIds.has(Number(m.id)) && !taken.has(Number(m.id)))
+      .pop();
+    if (!owner) continue;
+    taken.add(Number(owner.id));
+    if (Number(owner.id) === mainId) return comp;
+  }
+  return {};
+}
+
 function createLabRow(entry = {}, analysisLine = null) {
   const line = analysisLine || serviceLinesFromEntry(entry, 'analyses')[0] || {};
-  const stampLine = getLineForSection(entry, 'analyses_stamp');
+  const stampLine = pairRowCompanionLine(entry, line, 'analyses', 'analyses_stamp', { linkable: true });
   const section = dailySectionsCache.find((s) => s.code === 'analyses');
   const tr = document.createElement('tr');
   tr.className = 'daily-entry-row daily-lab-row';
@@ -5826,8 +5861,8 @@ function createLabRow(entry = {}, analysisLine = null) {
 
 function createRadiologyRow(entry = {}, xrayLine = null) {
   const line = xrayLine || serviceLinesFromEntry(entry, 'xray_total')[0] || {};
-  const stampLine = getLineForSection(entry, 'xray_stamp');
-  const typeLine = getLineForSection(entry, 'xray_type');
+  const stampLine = pairRowCompanionLine(entry, line, 'xray_total', 'xray_stamp', { linkable: true });
+  const typeLine = pairRowCompanionLine(entry, line, 'xray_total', 'xray_type');
   const section = dailySectionsCache.find((s) => s.code === 'xray_total');
   const tr = document.createElement('tr');
   tr.className = 'daily-entry-row daily-rad-row';
@@ -5963,6 +5998,7 @@ function collectLabLinesFromRow(tr) {
   if (stamp > 0) {
     const stampLine = { section_code: 'analyses_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
+    if (Number(tr.dataset.lineId)) stampLine.extra_text = `stamp_for:${Number(tr.dataset.lineId)}`;
     lines.push(...tagNewRowLines(tr, [stampLine]));
   }
   return lines;
@@ -5991,6 +6027,7 @@ function collectRadiologyLinesFromRow(tr) {
   if (stamp > 0) {
     const stampLine = { section_code: 'xray_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
+    if (Number(tr.dataset.lineId)) stampLine.extra_text = `stamp_for:${Number(tr.dataset.lineId)}`;
     lines.push(...tagNewRowLines(tr, [stampLine]));
   }
   return lines;
@@ -8032,7 +8069,7 @@ function applySavedLineIdsToRow(tr, entry) {
         if (svcId > 0) return Number(line.service_id) === svcId;
         return true;
       });
-    const stamp = lines.find((line) => line.section_code === 'analyses_stamp');
+    const stamp = main ? pairRowCompanionLine(entry, main, 'analyses', 'analyses_stamp', { linkable: true }) : null;
     if (main?.id) tr.dataset.lineId = String(main.id);
     if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
     const hidden = tr.querySelector('.daily-field.daily-amount[data-section="analyses"]');
@@ -8050,8 +8087,8 @@ function applySavedLineIdsToRow(tr, entry) {
         if (svcId > 0) return Number(line.service_id) === svcId;
         return true;
       });
-    const stamp = lines.find((line) => line.section_code === 'xray_stamp');
-    const type = lines.find((line) => line.section_code === 'xray_type');
+    const stamp = main ? pairRowCompanionLine(entry, main, 'xray_total', 'xray_stamp', { linkable: true }) : null;
+    const type = main ? pairRowCompanionLine(entry, main, 'xray_total', 'xray_type') : null;
     if (main?.id) tr.dataset.lineId = String(main.id);
     if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
     if (type?.id) tr.dataset.typeLineId = String(type.id);
@@ -8435,7 +8472,16 @@ async function saveAllDailyCharges() {
   const tabs = DAILY_TAB_GROUPS.map((g) => g.id).filter((id) => id !== 'free-items');
   let savedTabs = 0;
 
+  // Save what is typed on the open tab first: switching tabs redraws the table from the
+  // server, which used to wipe unsaved rows (e.g. a new X-ray and its stamp) before saving.
+  if (homeTab && homeTab !== 'operations' && tabs.includes(homeTab)) {
+    if (collectDailyRowsForSave().length && (await saveDailyEntryNow({ silent: true }))) savedTabs += 1;
+  } else if (homeTab === 'operations' && collectOperationsFromTable().length) {
+    if (await saveOperationsPanel({ silent: true })) savedTabs += 1;
+  }
+
   for (const tab of tabs) {
+    if (tab === homeTab) continue;
     if (tab === 'stay' && !canUseDailyStayCharges()) continue;
     await showDailySection(tab, { skipUnsavedPrompt: true });
     if (tab === 'operations') {

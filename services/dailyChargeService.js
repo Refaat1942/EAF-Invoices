@@ -292,6 +292,8 @@ function buildDailyItemDescription(entryDate, name, extraText = '') {
   let desc = String(name || '').trim().replace(/^(\[\d{2}-\d{2}-\d{4}\]\s*)+/, '');
   if (/GMT|Coordinated Universal Time/i.test(desc)) desc = '';
   if (STAY_TYPE_TAG_RE.test(String(extraText || '').trim())) extraText = '';
+  // `stamp_for:<line id>` only ties a stamp to its test / exam / X-ray row — not for display.
+  if (/^stamp_for:/.test(String(extraText || '').trim())) extraText = '';
   if (extraText) desc = desc ? `${desc} (${extraText})` : String(extraText);
   return dateLabel ? `[${dateLabel}] ${desc}`.trim() : desc;
 }

@@ -82,6 +82,8 @@ function matchesExclusion(description, exclusion) {
 
 function isItemAdminApplicable(item) {
   if (item.is_stay_entry) return true;
+  // Stamps (دمغة) are billed on their own line, outside إجمالي البنود: no administrative fee.
+  if (require('./dailySectionBundles').isStampLineItem(item)) return false;
   if (item.administrative_fee_applicable_snapshot === false) return false;
   if (item.administrative_fee_applicable_snapshot === true) return true;
   if (item.administrative_fee_applicable === false) return false;
