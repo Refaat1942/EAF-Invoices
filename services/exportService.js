@@ -44,10 +44,11 @@ async function getBrowser() {
   return browserInstance;
 }
 
-async function generatePdfBuffer(invoice, baseUrl, { logoUrl } = {}) {
+async function generatePdfBuffer(invoice, baseUrl, { logoUrl, qrBaseUrl } = {}) {
   const { getLogoUrl } = require('./settingsService');
+  const { invoiceQrUrl } = require('./publicUrl');
   const resolvedLogo = logoUrl ?? (await getLogoUrl(baseUrl));
-  const downloadUrl = `${baseUrl}/download/${invoice.qr_token}`;
+  const downloadUrl = invoiceQrUrl(qrBaseUrl || baseUrl, invoice.qr_token);
   const qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
   const html = await buildInvoiceHtml(invoice, { baseUrl, logoUrl: resolvedLogo, showQr: true, qrDataUrl });
 

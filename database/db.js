@@ -508,6 +508,9 @@ async function runMigrations() {
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reviewed_by_name TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_credit_applied NUMERIC(14,2) DEFAULT 0`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS patient_credit_deducted BOOLEAN DEFAULT FALSE`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopened_by_name TEXT DEFAULT ''`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopen_reason TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS depositor_name TEXT DEFAULT ''`);
 
   await query(

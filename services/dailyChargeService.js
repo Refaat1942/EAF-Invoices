@@ -685,7 +685,7 @@ async function searchPriceListPickerItems(section, { q, pageNum, maxLimit }) {
   );
   const catalog_total = catalogCountRes.rows[0]?.total || 0;
 
-  if (q.length < 2) {
+  if (q.length < 2 && !/^\d$/.test(q)) {
     return {
       rows: [],
       total: 0,
@@ -721,16 +721,26 @@ async function searchPriceListPickerItems(section, { q, pageNum, maxLimit }) {
   );
   const total = countRes.rows[0]?.total || 0;
 
-  const listParams = [...sqlParams, maxLimit, offset];
+  const listParams = [...sqlParams, maxLimit, offset, q];
   const limitIdx = sqlParams.length + 1;
   const offsetIdx = sqlParams.length + 2;
+  const qIdx = sqlParams.length + 3;
+  // Searching by the test / service number: the exact code first, then codes starting
+  // with it, then names starting with the text, then everything else.
   const { rows } = await query(
     `SELECT s.*, c.name AS category_name, c.code AS category_code
      FROM services s
      LEFT JOIN service_categories c ON c.id = s.category_id
      WHERE s.price_list_id = $1 AND s.category_id = ANY($2::int[]) AND s.is_active = TRUE
        AND ${matchSql}
-     ORDER BY c.sort_order, s.sort_order, s.name, s.id
+     ORDER BY CASE
+                WHEN LOWER(TRIM(s.code)) = LOWER($${qIdx}) THEN 0
+                WHEN s.code ILIKE $${qIdx} || '%' THEN 1
+                WHEN s.code ILIKE '%' || $${qIdx} THEN 2
+                WHEN s.name ILIKE $${qIdx} || '%' THEN 3
+                ELSE 4
+              END,
+              c.sort_order, s.sort_order, s.name, s.id
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
     listParams
   );
@@ -764,7 +774,7 @@ async function searchDailyPickerItems({ section_code, search, page = 1, limit = 
   const canSearchCatalog = searchCategories.length > 0;
   const canSearchPriceList = getSectionPickerCategoryCodes(section).length > 0 || Boolean(section.category_code);
 
-  if (q.length < 2) {
+  if (q.length < 2 && !/^\d$/.test(q)) {
     return {
       rows: [],
       total: 0,

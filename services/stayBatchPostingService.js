@@ -514,10 +514,82 @@ async function fillMissingStayDetailLines(fileNumber, user = null) {
   return fixed;
 }
 
+/**
+ * «تغيير الغرفة» from a date: stay days already posted from that date on move to the new
+ * room — its daily rate, and the new companion / nursing point / nursing assistant amounts.
+ */
+async function applyRoomChangeToPostedDays(fileNumber, fromDate, user = null) {
+  const fn = String(fileNumber || '').trim();
+  const from = parseDateOnly(fromDate);
+  if (!fn || !from) return 0;
+  const stay = await getOpenPatientStay(fn);
+  const patient = stay?.patient || (await getPatientByFileNumber(fn));
+  if (!patient?.id || !stay?.invoice?.id) return 0;
+
+  const { rows } = await query(
+    `SELECT DISTINCT e.id, e.entry_date::text AS entry_date
+     FROM patient_daily_entries e
+     INNER JOIN patient_daily_entry_lines l ON l.entry_id = e.id
+     WHERE e.patient_id = $1
+       AND (e.invoice_id IS NULL OR e.invoice_id = $2)
+       AND e.entry_date >= $3::date
+       AND l.section_code = 'accommodation'
+     ORDER BY 2`,
+    [patient.id, stay.invoice.id, from]
+  );
+  let changed = 0;
+  for (const row of rows) {
+    const entryDate = parseDateOnly(row.entry_date);
+    const assignment = await getAssignmentForDate(patient.id, entryDate);
+    if (!assignment?.stay_type_id) continue;
+    const rate = await resolveAccommodationRateForStayType(assignment.stay_type_id);
+    const entry = await getEntryById(row.id);
+    if (!entry) continue;
+    const wanted = {
+      companion: round2(assignment.companion_amount),
+      nursing_point: round2(assignment.nursing_point_amount),
+      patient_assistant: round2(assignment.patient_assistant_amount),
+    };
+    const lines = [];
+    for (const line of entry.lines || []) {
+      if (line.section_code === 'accommodation' && rate > 0) {
+        lines.push({ ...line, amount: rate, unit_price: rate, quantity: 1 });
+      } else if (Object.prototype.hasOwnProperty.call(wanted, line.section_code)) {
+        const amount = wanted[line.section_code];
+        delete wanted[line.section_code];
+        if (amount > 0) lines.push({ ...line, amount, unit_price: amount, quantity: 1 });
+      } else {
+        lines.push({ ...line });
+      }
+    }
+    for (const [code, amount] of Object.entries(wanted)) {
+      if (amount > 0) lines.push({ section_code: code, amount, unit_price: amount, quantity: 1 });
+    }
+    await saveEntry(
+      {
+        entry_id: entry.id,
+        file_number: patient.file_number,
+        patient_name: patient.name,
+        entry_date: entryDate,
+        stay_type_id: assignment.stay_type_id,
+        notes: entry.notes || '',
+        doctor_id: entry.doctor_id,
+        doctor_specialty: entry.doctor_specialty || '',
+        lines,
+        allow_backfill: true,
+      },
+      user
+    );
+    changed += 1;
+  }
+  return changed;
+}
+
 module.exports = {
   batchPostStayCharges,
   ensureAdmissionDayStayPosted,
   fillMissingStayDetailLines,
+  applyRoomChangeToPostedDays,
   ensureAllStayDaysPosted,
   syncAdmissionDayRoomInsurance,
   admissionCompanionWithInsurance,

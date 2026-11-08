@@ -1,5 +1,6 @@
 const express = require('express');
 const QRCode = require('qrcode');
+const { getPublicBaseUrl, invoiceQrUrl } = require('../services/publicUrl');
 const {
   listInvoices,
   getInvoiceById,
@@ -263,6 +264,15 @@ router.post('/:id/submit', requirePermission('invoices.submit'), async (req, res
   }
 });
 
+router.post('/:id/reopen', requireAnyPermission('invoices.edit', 'invoices.approve'), async (req, res) => {
+  try {
+    const { reopenInvoice } = require('../services/invoiceService');
+    res.json(await reopenInvoice(Number(req.params.id), req.session.user, req.body?.reason));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/:id/approve', requirePermission('invoices.approve'), async (req, res) => {
   try {
     const invoice = await approveInvoice(Number(req.params.id), req.session.user);
@@ -335,8 +345,7 @@ router.get('/:id/qr', requirePermission('invoices.view'), async (req, res) => {
       return res.status(400).json({ error: 'QR متاح فقط للفواتير المعتمدة' });
     }
 
-    const baseUrl = getBaseUrl(req);
-    const downloadUrl = `${baseUrl}/download/${invoice.qr_token}`;
+    const downloadUrl = invoiceQrUrl(getPublicBaseUrl(req), invoice.qr_token);
 
     const qrDataUrl = await QRCode.toDataURL(downloadUrl, {
       width: 300,
@@ -368,7 +377,7 @@ router.get('/:id/preview', requirePermission('invoices.view'), async (req, res) 
     const showQr = Boolean(invoice.qr_token);
     let qrDataUrl = null;
     if (showQr) {
-      const downloadUrl = `${baseUrl}/download/${invoice.qr_token}`;
+      const downloadUrl = invoiceQrUrl(getPublicBaseUrl(req), invoice.qr_token);
       qrDataUrl = await QRCode.toDataURL(downloadUrl, { width: 200, margin: 1 });
     }
 
@@ -391,7 +400,7 @@ router.get('/:id/pdf', requirePermission('invoices.view'), async (req, res) => {
     }
 
     const baseUrl = getBaseUrl(req);
-    const pdf = await generatePdfBuffer(invoice, baseUrl);
+    const pdf = await generatePdfBuffer(invoice, baseUrl, { qrBaseUrl: getPublicBaseUrl(req) });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice.serial_number}.pdf"`);

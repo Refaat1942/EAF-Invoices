@@ -5,6 +5,7 @@ const { buildInvoiceHtml } = require('../services/pdfService');
 const { generatePdfBuffer, generateDocxBuffer } = require('../services/exportService');
 const { getLogoUrl } = require('../services/settingsService');
 const { cairoFontFaceCss } = require('../services/embeddedFonts');
+const { getPublicBaseUrl, invoiceQrUrl } = require('../services/publicUrl');
 
 const router = express.Router();
 
@@ -12,20 +13,30 @@ function getBaseUrl(req) {
   return `${req.protocol}://${req.get('host')}`;
 }
 
+// Scanning the printed QR opens the invoice as a PDF (shown in the phone's browser).
+// ?format=page shows the web page with PDF / Word / print buttons, ?format=docx gives Word.
 router.get('/:token', async (req, res) => {
   try {
     const invoice = await getInvoiceByToken(req.params.token);
     if (!invoice) return res.status(404).send(renderNotFound());
 
-    const format = (req.query.format || 'page').toLowerCase();
+    const format = (req.query.format || 'pdf').toLowerCase();
     const baseUrl = getBaseUrl(req);
+    const qrBaseUrl = getPublicBaseUrl(req);
     const logoUrl = await getLogoUrl(baseUrl);
+    let pdfError = '';
 
     if (format === 'pdf') {
-      const pdf = await generatePdfBuffer(invoice, baseUrl, { logoUrl });
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `attachment; filename="invoice-${invoice.serial_number}.pdf"`);
-      return res.send(pdf);
+      try {
+        const pdf = await generatePdfBuffer(invoice, baseUrl, { logoUrl, qrBaseUrl });
+        const disposition = req.query.download === '1' ? 'attachment' : 'inline';
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `${disposition}; filename="invoice-${invoice.serial_number}.pdf"`);
+        return res.send(pdf);
+      } catch (err) {
+        console.error('[download] PDF failed, showing the page instead:', err.message);
+        pdfError = 'تعذر تجهيز ملف PDF على السيرفر — هذه نسخة الفاتورة للعرض والطباعة.';
+      }
     }
 
     if (format === 'docx' || format === 'word') {
@@ -35,16 +46,16 @@ router.get('/:token', async (req, res) => {
       return res.send(buffer);
     }
 
-    const qrDataUrl = await QRCode.toDataURL(`${baseUrl}/download/${invoice.qr_token}`, { width: 200, margin: 1 });
+    const qrDataUrl = await QRCode.toDataURL(invoiceQrUrl(qrBaseUrl, invoice.qr_token), { width: 200, margin: 1 });
     const html = await buildInvoiceHtml(invoice, { baseUrl, logoUrl, showQr: true, qrDataUrl });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(wrapDownloadPage(html, invoice, baseUrl));
+    res.send(wrapDownloadPage(html, invoice, baseUrl, pdfError));
   } catch (err) {
     res.status(500).send('خطأ في الخادم');
   }
 });
 
-function wrapDownloadPage(invoiceHtml, invoice, baseUrl) {
+function wrapDownloadPage(invoiceHtml, invoice, baseUrl, notice = '') {
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -64,10 +75,11 @@ function wrapDownloadPage(invoiceHtml, invoice, baseUrl) {
 <body>
   <div class="toolbar">
     <span class="serial">رقم الفاتورة: ${invoice.serial_number}</span>
-    <a class="btn-pdf" href="${baseUrl}/download/${invoice.qr_token}?format=pdf">تحميل PDF</a>
+    <a class="btn-pdf" href="${baseUrl}/download/${invoice.qr_token}?format=pdf&download=1">تحميل PDF</a>
     <a class="btn-word" href="${baseUrl}/download/${invoice.qr_token}?format=docx">تحميل Word</a>
     <button class="btn-print" onclick="window.print()">طباعة</button>
   </div>
+  ${notice ? `<div class="toolbar" style="color:#b45309;font-weight:800">${notice}</div>` : ''}
   ${invoiceHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] || invoiceHtml}
 </body>
 </html>`;

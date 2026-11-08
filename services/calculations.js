@@ -118,8 +118,21 @@ function sumSuppliesMarkup(items = []) {
   };
 }
 
-function resolveItemEligibility(item, exclusions, discountActive) {
-  if (!discountActive) {
+function isItemInExcludedDiscountSection(item, excludedBundles) {
+  if (!Array.isArray(excludedBundles) || !excludedBundles.length) return false;
+  const { inferBundleKeyFromItem } = require('./dailySectionBundles');
+  const key = item.is_stay_entry ? 'stay' : inferBundleKeyFromItem(item);
+  return excludedBundles.includes(key);
+}
+
+function resolveItemEligibility(item, exclusions, discountActive, excludedBundles = []) {
+  // Stamps (دمغة) are a fixed fee: never discounted for contracted entities. Sections
+  // switched off in الإعدادات ← بنود مستثناة من الخصم (e.g. medicines, exams) neither.
+  if (
+    !discountActive ||
+    require('./dailySectionBundles').isStampLineItem(item) ||
+    isItemInExcludedDiscountSection(item, excludedBundles)
+  ) {
     return {
       is_discount_eligible: false,
       item_discount_percent: 0,
@@ -318,6 +331,7 @@ function calculateInvoiceTotals(data) {
   const discountActive =
     data.invoice_type === 'contracted' && discountPercent > 0 && Number(data.contracted_entity_id);
   const exclusions = data.discount_exclusions || [];
+  const excludedDiscountBundles = data.discount_excluded_bundles || [];
 
   const stampDutyD = dualValue(data.stamp_duty);
   const professionalFeesD = dualValue(data.professional_fees);
@@ -344,14 +358,18 @@ function calculateInvoiceTotals(data) {
 
   const manualItems = (data.items || []).map((item) => {
     const { originalQuantity, returnedQuantity, netQuantity } = resolveItemQuantities(item);
-    const billableAmount = applyNationalityUnitPrice(item.amount, patientNationality);
+    // Foreign patients pay price-list prices × 2; a stamp is a fixed fee and is not doubled.
+    const billableAmount = isStampLineItem(item)
+      ? round2(item.amount)
+      : applyNationalityUnitPrice(item.amount, patientNationality);
     const calc = calculateItemTotal(netQuantity, billableAmount);
     const creditRaw = round2(item.patient_credit_applied || 0);
     const supplies = prorateSuppliesFields(item, originalQuantity, netQuantity);
     const eligibility = resolveItemEligibility(
       { ...item, total_raw: calc.raw, entity_discount_percent: discountPercent },
       exclusions,
-      discountActive
+      discountActive,
+      excludedDiscountBundles
     );
     const adminFeeRaw = computeItemAdminFeeRaw({ ...item, total_raw: calc.raw }, adminPercentResolved);
     return {
@@ -379,7 +397,8 @@ function calculateInvoiceTotals(data) {
     const eligibility = resolveItemEligibility(
       { ...item, total_raw: calc.raw, entity_discount_percent: discountPercent },
       exclusions,
-      discountActive
+      discountActive,
+      excludedDiscountBundles
     );
     return {
       ...item,

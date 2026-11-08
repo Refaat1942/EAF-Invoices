@@ -162,7 +162,10 @@
 
   window.initAuditAdmin = function initAuditAdmin() {
     if (!canAudit()) return;
-    bindAuditSection();
+    if (!window.__eafAuditBound) {
+      window.__eafAuditBound = true;
+      bindAuditSection();
+    }
     refreshAlertBadge();
     apiFetch(`${API}/health-check`, { method: 'POST' }).catch(() => {});
     if (alertPollTimer) clearInterval(alertPollTimer);

@@ -150,9 +150,18 @@ function formatAmountInput(n, decimals = 2) {
   return formatPlainNumber(num, decimals);
 }
 
+// Typing fields start empty instead of showing 0 (an empty amount is saved as 0).
+function isBlankZeroInput(input) {
+  return Boolean(input) && !input.readOnly && !input.disabled && input.dataset.keepZero !== '1';
+}
+
 function setCommaAmountValue(input, value, decimals = 2) {
   if (!input) return;
   if (value === '' || value === null || value === undefined) {
+    input.value = '';
+    return;
+  }
+  if (Number(value) === 0 && isBlankZeroInput(input)) {
     input.value = '';
     return;
   }
@@ -164,9 +173,12 @@ function bindCommaAmountInputs(root = document) {
   scope.querySelectorAll('input.comma-amount, input[data-comma-amount="1"]').forEach((input) => {
     const decimals = input.dataset.decimals === '0' ? 0 : 2;
     if (input.type === 'number') input.type = 'text';
-    if (input.value) {
+    // Never reformat the field being typed in: re-binding runs on every recalculation and
+    // used to turn "100." into "100", so fractions (100.75) could not be typed.
+    if (input.value && document.activeElement !== input) {
       const existing = parseDisplayAmount(input.value);
-      if (existing || existing === 0) input.value = formatAmountInput(existing, decimals);
+      if (existing === 0 && isBlankZeroInput(input)) input.value = '';
+      else if (existing || existing === 0) input.value = formatAmountInput(existing, decimals);
     }
     if (input.dataset.commaBound === '1') return;
     input.dataset.commaBound = '1';
@@ -174,12 +186,14 @@ function bindCommaAmountInputs(root = document) {
     input.autocomplete = 'off';
     input.addEventListener('blur', () => {
       const raw = parseDisplayAmount(input.value);
-      const next = raw || raw === 0 ? formatAmountInput(raw, decimals) : '';
+      const blank = String(input.value || '').trim() === '' || (raw === 0 && isBlankZeroInput(input));
+      const next = blank ? '' : raw || raw === 0 ? formatAmountInput(raw, decimals) : '';
       if (input.value !== next) input.value = next;
     });
     input.addEventListener('focus', () => {
       const raw = parseDisplayAmount(input.value);
-      if (input.value && !Number.isNaN(raw)) input.value = String(raw);
+      if (raw === 0 && isBlankZeroInput(input)) input.value = '';
+      else if (input.value && !Number.isNaN(raw)) input.value = String(raw);
     });
   });
 }
@@ -193,6 +207,8 @@ function fmtDual(raw, rounded) {
 
 function can(permission) {
   if (!currentUser) return false;
+  // Final approval: financial reviewer / admin roles only (the server enforces the same).
+  if (permission === 'invoices.approve' && !['admin', 'reviewer'].includes(currentUser.role)) return false;
   const perms = currentUser.permissions || [];
   if (perms.includes('*')) return true;
   if (perms.includes(permission)) return true;
@@ -1194,9 +1210,13 @@ async function openInvoicePrintPreview(options = {}) {
       viewCreate.style.display !== 'none' &&
       Number(currentInvoiceId) === invoiceId;
 
-    if (onInvoiceForm) {
-      await openInvoicePreviewFromForm();
-      return;
+    // Every print path shows the same saved invoice (GET /:id/preview). From the open invoice
+    // form, a draft is saved first so the print matches what is on screen.
+    if (onInvoiceForm && currentInvoiceStatus === 'draft') {
+      const saveBtn = document.getElementById('save-draft-btn');
+      if (saveBtn && saveBtn.style.display !== 'none') {
+        await saveInvoiceWithMode('draft', { silent: true });
+      }
     }
 
     const dailyKind = String(options.dailyKind || '').trim();
@@ -1526,6 +1546,8 @@ function bindEvents() {
   });
   document.getElementById('submit-review-btn').addEventListener('click', () => saveInvoiceWithMode('submit'));
   document.getElementById('approve-invoice-btn').addEventListener('click', approveCurrentInvoice);
+  document.getElementById('reopen-invoice-btn')?.addEventListener('click', reopenCurrentInvoice);
+  document.getElementById('discount-sections-save-btn')?.addEventListener('click', saveDiscountSections);
   document.getElementById('reset-form-btn').addEventListener('click', () => switchView('home'));
   document.getElementById('goto-daily-from-invoice-btn')?.addEventListener('click', () => {
     const fn = document.getElementById('file_number')?.value?.trim() || '';
@@ -1992,7 +2014,7 @@ function updatePaymentSplitSummary(finalTotal, paid, remaining, refundable = 0, 
     if (mt.cash_total > 0.009) parts.push(`نقدي/تحويل/شيك: ${fmt(mt.cash_total)}`);
     if (mt.room_insurance > 0.009) parts.push(`مبلغ التأمين: ${fmt(mt.room_insurance)}`);
     if (mt.patient_credit > 0.009) {
-      parts.push(`خصم من رصيد المريض: ${fmt(mt.patient_credit)} (مش تحصيل نقدي)`);
+      parts.push(`خصم من رصيد المريض: ${fmt(mt.patient_credit)} (ليس تحصيلًا نقديًا)`);
     }
     if (parts.length) {
       breakdownEl.style.display = '';
@@ -2937,6 +2959,12 @@ function updateInvoiceActionButtons() {
       ? ''
       : 'none';
 
+  const reopenBtn = document.getElementById('reopen-invoice-btn');
+  if (reopenBtn) {
+    reopenBtn.style.display =
+      currentInvoiceId && isApproved && (can('invoices.edit') || can('invoices.approve')) ? '' : 'none';
+  }
+
   const showExports = isApproved && currentInvoiceId;
   const returnBtn = document.getElementById('record-return-btn');
   if (returnBtn) {
@@ -3419,7 +3447,7 @@ async function openInvoiceReturnModal() {
           <td class="text-center">${formatAmountInput(original, 0)}</td>
           <td class="text-center">${formatAmountInput(returned, 0)}</td>
           <td class="text-center fw-bold">${formatAmountInput(available, 0)}</td>
-          <td><input type="text" inputmode="decimal" class="form-control form-control-sm invoice-return-qty comma-amount" data-item-id="${item.id}" value="" placeholder="0"></td>
+          <td><input type="text" inputmode="decimal" class="form-control form-control-sm invoice-return-qty comma-amount" data-item-id="${item.id}" value=""></td>
         </tr>`;
       })
       .join('');
@@ -3723,7 +3751,7 @@ function updatePaymentValidationUI(t) {
     const cashCollected = Math.max(0, collected - credit);
     const creditNote =
       credit > 0.009
-        ? ` — نقدي: ${fmt(cashCollected)} | رصيد مريض: ${fmt(credit)} (خصم مش تحصيل)`
+        ? ` — نقدي: ${fmt(cashCollected)} | رصيد مريض: ${fmt(credit)} (خصم وليس تحصيلًا)`
         : '';
     banner.textContent = `✓ متطابق: التحصيل (${fmt(collected)}) + المتبقي (${fmt(remaining)}) = الإجمالي (${fmt(finalTotal)})${creditNote}`;
     statusEl.textContent = '✓ متطابق';
@@ -3890,7 +3918,7 @@ function applyRoomInsurancePayment() {
 
 function clearAllPayments() {
   document.querySelectorAll('.payment-method-input').forEach((input) => {
-    input.value = formatAmountInput(0);
+    input.value = '';
   });
   document.querySelectorAll('.payment-depositor-input, .payment-meta-input').forEach((input) => {
     input.value = '';
@@ -4219,6 +4247,70 @@ async function approveCurrentInvoice() {
     await loadQR(result.id);
     await loadPatientBalance();
     showToast(`تم اعتماد الفاتورة - ${result.serial_number}`, 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function loadDiscountSections() {
+  const box = document.getElementById('discount-sections-list');
+  if (!box) return;
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/discount-sections`);
+    const list = await res.json();
+    if (!res.ok) throw new Error(list.error || 'تعذر تحميل الأقسام');
+    box.innerHTML = list
+      .map(
+        (s) => `<label class="form-check d-flex align-items-center gap-2 fw-bold">
+          <input type="checkbox" class="form-check-input discount-section-check" value="${escapeAttr(s.key)}"${s.discounted ? ' checked' : ''}>
+          <span>${escapeHtml(s.label)}</span></label>`
+      )
+      .join('');
+  } catch (err) {
+    box.textContent = err.message;
+  }
+}
+
+async function saveDiscountSections() {
+  const excluded = [...document.querySelectorAll('.discount-section-check')]
+    .filter((el) => !el.checked)
+    .map((el) => el.value);
+  try {
+    const res = await apiFetch(`${SETTINGS_API}/discount-sections`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ excluded }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'تعذر الحفظ');
+    showToast('تم حفظ أقسام الخصم — تُطبَّق على الفواتير غير المعتمدة', 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function reopenCurrentInvoice() {
+  if (!currentInvoiceId) return;
+  const reason = prompt(
+    'إعادة فتح الفاتورة المعتمدة للتعديل.\n' +
+      'ستعود الفاتورة مسودة بنفس رقمها، ويُرد ما خُصم من رصيد المريض، وتحتاج إرسالًا للمراجعة واعتمادًا جديدًا.\n\n' +
+      'اكتب سبب إعادة الفتح:'
+  );
+  if (reason === null) return;
+  if (String(reason).trim().length < 3) {
+    showToast('سبب إعادة الفتح مطلوب', 'warning');
+    return;
+  }
+  try {
+    const res = await apiFetch(`${API}/${currentInvoiceId}/reopen`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: String(reason).trim() }),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'تعذرت إعادة فتح الفاتورة');
+    await loadInvoiceForEdit(result.id);
+    showToast(`أُعيد فتح الفاتورة ${result.serial_number || ''} للتعديل — أرسلها للمراجعة بعد الانتهاء`, 'success');
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -5260,7 +5352,7 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
       <td class="${isFirstLine ? 'fw-bold' : ''}">${labelContent}</td>
       <td><input type="text" inputmode="decimal" class="form-control form-control-sm payment-method-input comma-amount${extraClass}"
         data-method-id="${method.id}" data-method-code="${method.code}" data-method-name="${escapeAttr(method.name)}" data-line-index="${lineIndex}"
-        value="${displayVal}" placeholder="0" ${readonlyAttr}></td>
+        value="${displayVal}" ${readonlyAttr}></td>
       ${buildPaymentReceiptCellsHtml(method, metadata, lineIndex)}
       <td><input type="text" class="form-control form-control-sm payment-depositor-input calc-trigger${depositorExtraClass}"
         data-method-code="${method.code}" data-line-index="${lineIndex}" value="${escapeAttr(depositorVal)}"
@@ -5862,6 +5954,7 @@ async function loadSettingsPage() {
     document.getElementById('payment-methods-list').innerHTML = renderAdminLookupList(paymentMethods, 'payment');
     document.getElementById('contracted-entities-list').innerHTML = renderContractedEntitiesList(entities);
     document.getElementById('discount-exclusions-list').innerHTML = renderAdminLookupList(exclusions, 'exclusion');
+    void loadDiscountSections();
     bindCommaAmountInputs(document.getElementById('stay-types-list'));
     bindCommaAmountInputs(document.getElementById('contracted-entities-list'));
 
@@ -6004,7 +6097,7 @@ async function uploadDataSourceFile(src, file) {
 }
 
 async function clearDataSource(src) {
-  if (!confirm(`مسح كل بنود «${src.screen}» (${src.count} بند)؟ الفواتير القديمة مش هتتأثر.`)) return;
+  if (!confirm(`مسح كل بنود «${src.screen}» (${src.count} بند)؟ لن تتأثر الفواتير السابقة.`)) return;
   const res =
     src.kind === 'catalog'
       ? await apiFetch('/api/daily-charges/catalog/all', {
@@ -6456,6 +6549,7 @@ async function loadInvoicesList() {
           <td>${fmtDual(inv.total_collected_raw ?? inv.total_collected, inv.total_collected)}</td>
           <td class="${inv.remaining > 0 ? 'text-danger fw-bold' : ''}">${fmtDual(inv.remaining_raw ?? inv.remaining, inv.remaining)}</td>
           <td>${inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ar-EG') : new Date(inv.created_at).toLocaleDateString('ar-EG')}</td>
+          <td class="small">${escapeHtml(inv.created_by_name || '-')}${inv.reviewed_by_name ? `<br><span class="text-muted">اعتمدها: ${escapeHtml(inv.reviewed_by_name)}</span>` : ''}</td>
           <td class="text-nowrap">
             <button class="btn btn-sm btn-outline-primary" onclick="loadInvoiceForEdit(${inv.id})">${canEdit ? '✏️' : '👁️'}</button>
             <button class="btn btn-sm btn-outline-info" onclick="openInvoicePrintPreview({ invoiceId: ${inv.id}, forceSaved: true })" title="معاينة الفاتورة الكبيرة">🖨️</button>
@@ -6466,7 +6560,7 @@ async function loadInvoicesList() {
         </tr>`;
           })
           .join('')
-      : '<tr><td colspan="10" class="text-center py-4">لا توجد فواتير</td></tr>';
+      : '<tr><td colspan="11" class="text-center py-4">لا توجد فواتير</td></tr>';
   } catch (err) {
     showToast('خطأ في تحميل الفواتير', 'danger');
   }
@@ -7001,7 +7095,13 @@ function showToast(message, type = 'info') {
   if (type === 'danger') {
     showToast._lastDanger = { text, time: now };
   }
-  const id = 'toast-' + now;
+  // The same message already on screen is not stacked again (repeated clicks).
+  const shown = [...container.querySelectorAll('.toast.show .toast-body, .toast.showing .toast-body')];
+  if (shown.some((el) => el.textContent === text)) return;
+  // Keep at most 3 messages on screen.
+  const visible = [...container.querySelectorAll('.toast')];
+  visible.slice(0, Math.max(0, visible.length - 2)).forEach((el) => el.remove());
+  const id = 'toast-' + now + '-' + Math.random().toString(36).slice(2, 6);
   container.insertAdjacentHTML(
     'beforeend',
     `<div id="${id}" class="toast align-items-center text-bg-${type} border-0" role="alert">

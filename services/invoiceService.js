@@ -169,6 +169,7 @@ async function prepareCalculationData(data, client = null) {
   await ensurePatientCreditMethod();
   calcData.patient_credit_method_id = await getPaymentMethodIdByCode('patient_credit');
   calcData.discount_exclusions = await listDiscountExclusions(true);
+  calcData.discount_excluded_bundles = await getDiscountExcludedBundles();
   const adminRateSetting = String(await getSetting('administrative_fee_rate', '12')).trim();
   calcData.administrative_fee_rate =
     adminRateSetting !== '' && Number(adminRateSetting) >= 0 ? Number(adminRateSetting) : 12;
@@ -996,7 +997,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           totals.outstanding_amount ?? totals.remaining,
           totals.outstanding_amount_raw ?? totals.remaining_raw,
           data.employee_name || '',
-          data.auditor_name || '',
+          '',
           data.captain_name || 'نقيب عمرو صالح',
           data.manager_name || 'رائد / جمال عبد الناصر',
           filePassword,
@@ -1082,7 +1083,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           totals.outstanding_amount ?? totals.remaining,
           totals.outstanding_amount_raw ?? totals.remaining_raw,
           data.employee_name || '',
-          data.auditor_name || '',
+          '',
           data.captain_name || 'نقيب عمرو صالح',
           data.manager_name || 'رائد / جمال عبد الناصر',
           qrToken,
@@ -1226,6 +1227,80 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
   return saved;
 }
 
+/**
+ * Reopen an approved invoice for editing. It goes back to draft (and must be sent for
+ * review and approved again), keeping its official number. What approval did to the
+ * patient's account is undone: the admission balance deducted by the invoice is given back
+ * and the recorded collections are removed (approval records them again).
+ */
+async function reopenInvoice(id, actor, reason = '') {
+  const why = String(reason || '').trim();
+  if (why.length < 3) throw new Error('اكتب سبب إعادة فتح الفاتورة');
+  const actorName = actor?.full_name || actor?.username || '';
+  const reopened = await withTransaction(async (client) => {
+    const { rows } = await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id]);
+    if (!rows.length) throw new Error('الفاتورة غير موجودة');
+    const invoice = rows[0];
+    if (invoice.status !== 'approved') throw new Error('الفاتورة ليست معتمدة');
+
+    const credit = Math.round((Number(invoice.patient_credit_applied) || 0) * 100) / 100;
+    if (invoice.patient_credit_deducted && credit > 0 && invoice.file_number) {
+      const pRes = await client.query('SELECT * FROM patients WHERE TRIM(file_number) = TRIM($1) FOR UPDATE', [
+        invoice.file_number,
+      ]);
+      const patient = pRes.rows[0];
+      if (patient) {
+        const newBalance = Math.round(((Number(patient.account_balance) || 0) + credit) * 100) / 100;
+        await client.query(
+          'UPDATE patients SET account_balance = $2, account_balance_raw = $2, updated_at = NOW() WHERE id = $1',
+          [patient.id, newBalance]
+        );
+        await client.query(
+          `INSERT INTO patient_transactions (patient_id, invoice_id, amount, balance_after, note, transaction_kind)
+           VALUES ($1, $2, $3, $4, $5, 'prepaid_restore')`,
+          [patient.id, invoice.id, credit, newBalance, `إرجاع خصم الرصيد — إعادة فتح الفاتورة ${invoice.serial_number || ''}`.trim()]
+        );
+      }
+    }
+    await client.query(
+      `DELETE FROM patient_transactions WHERE invoice_id = $1 AND transaction_kind = 'collection'`,
+      [invoice.id]
+    );
+    await client.query(
+      `UPDATE invoices SET
+         status = 'draft',
+         patient_credit_deducted = FALSE,
+         submitted_at = NULL,
+         reviewed_at = NULL,
+         reviewed_by_user_id = NULL,
+         reviewed_by_name = '',
+         auditor_name = '',
+         reopened_at = NOW(),
+         reopened_by_name = $2,
+         reopen_reason = $3,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [invoice.id, actorName, why]
+    );
+    return invoice;
+  });
+
+  try {
+    const { writeAuditLog } = require('./auditLogService');
+    await writeAuditLog({
+      user: actor,
+      action: 'invoice.reopen',
+      entity_type: 'invoice',
+      entity_id: String(id),
+      entity_label: `فاتورة ${reopened.serial_number || `#${id}`} — ${reopened.patient_name || ''}`.trim(),
+      details: { reason: why, serial_number: reopened.serial_number },
+    });
+  } catch (err) {
+    console.error('[audit] invoice reopen:', err.message);
+  }
+  return getInvoiceById(id);
+}
+
 async function approveInvoice(id, reviewer) {
   const approved = await withTransaction(async (client) => {
     const { rows } = await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id]);
@@ -1249,15 +1324,26 @@ async function approveInvoice(id, reviewer) {
       throw new Error('مجموع طرق الدفع لا يساوي إجمالي الفاتورة — راجع المدفوعات قبل الاعتماد');
     }
 
-    // The invoice is issued on the day of its final approval (that day also decides its fiscal year).
-    const issueDate = require('./dailyChargeService').getCurrentBusinessDateString();
+    // The invoice is issued on the day of its final approval (that day also decides its fiscal
+    // year). An invoice reopened for editing keeps its number, fiscal year, issue date and QR.
+    const reapproval = Boolean(invoice.serial_number);
+    const issueDate = reapproval
+      ? fmtDateOnly(invoice.issue_date) || require('./dailyChargeService').getCurrentBusinessDateString()
+      : require('./dailyChargeService').getCurrentBusinessDateString();
     let patientScope = 'internal';
     if (invoice.file_number) {
       const linkedPatient = await getPatientByFileNumber(String(invoice.file_number).trim());
       patientScope = linkedPatient?.patient_type === 'external' ? 'external' : 'internal';
     }
-    const serialInfo = await nextSerialNumber(client, issueDate, patientScope);
-    const qrToken = uuidv4();
+    const serialInfo = reapproval
+      ? {
+          serial_number: invoice.serial_number,
+          fiscal_year: invoice.fiscal_year,
+          serial_sequence: invoice.serial_sequence,
+          serial_scope: invoice.serial_scope,
+        }
+      : await nextSerialNumber(client, issueDate, patientScope);
+    const qrToken = invoice.qr_token || uuidv4();
     const reviewerName = reviewer?.full_name || reviewer?.username || '';
 
     await client.query(
@@ -1271,7 +1357,7 @@ async function approveInvoice(id, reviewer) {
         reviewed_at = NOW(),
         reviewed_by_user_id = $7,
         reviewed_by_name = $8,
-        auditor_name = CASE WHEN COALESCE(auditor_name, '') = '' THEN $8 ELSE auditor_name END,
+        auditor_name = $8,
         issue_date = $9::date,
         updated_at = NOW()
        WHERE id = $1`,
@@ -1330,6 +1416,9 @@ async function deleteInvoice(id, actor = null) {
   if (!rows.length) return false;
   if (rows[0].status === 'approved') {
     throw new Error('لا يمكن حذف فاتورة معتمدة');
+  }
+  if (rows[0].serial_number) {
+    throw new Error('لا يمكن حذف فاتورة لها رقم رسمي (أُعيد فتحها للتعديل) — عدّلها ثم أعد اعتمادها');
   }
   const snapshot = rows[0];
 
@@ -1566,6 +1655,16 @@ async function recalculateAndPersistInvoiceTotals(invoiceId, client = null) {
  * but calculateInvoiceTotals multiplies its input. Feeding stored amounts back unconverted
  * doubles foreign lines on every save, sync, approve and print.
  */
+async function getDiscountExcludedBundles() {
+  try {
+    const raw = await getSetting('discount_excluded_sections', '[]');
+    const list = JSON.parse(raw || '[]');
+    return Array.isArray(list) ? list.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 function itemsToListPrices(items = [], nationality, { dailyLinesAtList = false } = {}) {
   const mult = getNationalityPriceMultiplier(nationality);
   if (!(mult > 1)) return items;
@@ -1573,6 +1672,8 @@ function itemsToListPrices(items = [], nationality, { dailyLinesAtList = false }
     if (item?.amount === undefined || item.amount === null || item.amount === '') return item;
     // getInvoiceById re-reads daily-linked lines from the daily entry, already at list price.
     if (dailyLinesAtList && item.daily_entry_line_id) return item;
+    // Stamps are never doubled for foreign patients, so they are already at list value.
+    if (require('./dailySectionBundles').isStampLineItem(item)) return item;
     return { ...item, amount: round2((Number(item.amount) || 0) / mult) };
   });
 }
@@ -1824,7 +1925,7 @@ async function syncInvoiceDailyCharges(invoiceId, options = {}) {
   return updated;
 }
 
-async function createDraftInvoiceForDailyEntry(fileNumber, patientName, entryDate) {
+async function createDraftInvoiceForDailyEntry(fileNumber, patientName, entryDate, user = null) {
   const entry = fmtDateOnly(entryDate);
   const payload = {
     invoice_type: 'civil',
@@ -1843,7 +1944,9 @@ async function createDraftInvoiceForDailyEntry(fileNumber, patientName, entryDat
     include_daily_charges: true,
     save_mode: 'draft',
   };
-  return saveInvoice(payload, null, null, { save_mode: 'draft' });
+  // Record who opened the patient's invoice (shown in the invoice list as «أنشأها»).
+  const createdBy = user?.id ? { id: user.id, name: user.full_name || user.username || '' } : null;
+  return saveInvoice(payload, null, createdBy, { save_mode: 'draft' });
 }
 
 async function syncDailyEntryToInvoices(entry, meta = {}) {
@@ -1858,7 +1961,7 @@ async function syncDailyEntryToInvoices(entry, meta = {}) {
   let created = false;
 
   if (!invoiceId) {
-    const createdInvoice = await createDraftInvoiceForDailyEntry(fileNumber, patientName, entryDate);
+    const createdInvoice = await createDraftInvoiceForDailyEntry(fileNumber, patientName, entryDate, meta.user || meta.actor || null);
     invoiceId = createdInvoice.id;
     created = true;
   }
@@ -2210,7 +2313,7 @@ async function openPatientStay(data, user = null) {
   let created = false;
 
   if (!invoiceId) {
-    const createdInvoice = await createDraftInvoiceForDailyEntry(fileNumber, patientName, admissionDate);
+    const createdInvoice = await createDraftInvoiceForDailyEntry(fileNumber, patientName, admissionDate, user);
     invoiceId = createdInvoice.id;
     created = true;
   }
@@ -2317,7 +2420,7 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
   const violationsRes = await query(
     `SELECT id, status, serial_number, patient_name, file_number, fiscal_year, serial_sequence
      FROM invoices
-     WHERE serial_number IS NOT NULL AND status <> 'approved'
+     WHERE serial_number IS NOT NULL AND status <> 'approved' AND reopened_at IS NULL
      ORDER BY id DESC
      LIMIT 100`
   );
@@ -2369,6 +2472,7 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
 }
 
 module.exports = {
+  reopenInvoice,
   getInvoiceById,
   getInvoiceByToken,
   listInvoices,

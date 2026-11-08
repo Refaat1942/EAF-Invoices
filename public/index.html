@@ -286,7 +286,7 @@
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold">السن</label>
-                  <input type="text" inputmode="numeric" class="form-control fw-bold patient-reg-field" id="patient-reg-age" autocomplete="off" placeholder="0">
+                  <input type="text" inputmode="numeric" class="form-control fw-bold patient-reg-field" id="patient-reg-age" autocomplete="off">
                 </div>
                 <div class="col-md-3">
                   <label class="form-label fw-bold">تاريخ الدخول *</label>
@@ -310,7 +310,7 @@
                 </div>
                 <div class="col-md-3" id="patient-reg-balance-wrap">
                   <label class="form-label fw-bold">رصيد أول المدة</label>
-                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-balance" placeholder="0" autocomplete="off">
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-balance" autocomplete="off">
                 </div>
               </div>
 
@@ -337,7 +337,7 @@
                 </div>
                 <div class="col-md-2" id="patient-reg-military-amount-wrap" style="display:none">
                   <label class="form-label fw-bold">مبلغ التصديق</label>
-                  <input type="text" class="form-control fw-bold patient-reg-field comma-amount" id="patient-reg-military-amount" autocomplete="off" placeholder="0">
+                  <input type="text" class="form-control fw-bold patient-reg-field comma-amount" id="patient-reg-military-amount" autocomplete="off">
                 </div>
                 <div class="col-md-6" id="patient-reg-military-summary-wrap" style="display:none">
                   <div class="alert alert-warning py-2 mb-0 small fw-bold" id="patient-reg-military-summary" role="status"></div>
@@ -360,19 +360,19 @@
                   </div>
                   <div class="col-md-2">
                     <label class="form-label fw-bold">مرافق <span class="text-muted fw-normal small">(ج.م)</span></label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-companion" placeholder="0" autocomplete="off" title="قيمة مالية بالجنيه">
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-companion" autocomplete="off" title="قيمة مالية بالجنيه">
                   </div>
                   <div class="col-md-2">
                     <label class="form-label fw-bold">نقطة التمريض <span class="text-muted fw-normal small">(ج.م)</span></label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-nursing" placeholder="0" autocomplete="off" title="قيمة مالية بالجنيه">
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-nursing" autocomplete="off" title="قيمة مالية بالجنيه">
                   </div>
                   <div class="col-md-2">
                     <label class="form-label fw-bold">التمريض المساعد <span class="text-muted fw-normal small">(ج.م)</span></label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-assistant" placeholder="0" autocomplete="off" title="قيمة مالية بالجنيه">
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-assistant" autocomplete="off" title="قيمة مالية بالجنيه">
                   </div>
                   <div class="col-md-3">
                     <label class="form-label fw-bold">تأمين الغرفة <span class="text-muted fw-normal small">(ج.م)</span></label>
-                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-room-insurance" placeholder="0" autocomplete="off" title="قيمة مالية بالجنيه">
+                    <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount patient-reg-field" id="patient-reg-room-insurance" autocomplete="off" title="قيمة مالية بالجنيه">
                   </div>
                 </div>
               </div>
@@ -483,7 +483,7 @@
                     </div>
                     <div class="col-lg-3 col-md-6">
                       <label class="form-label fw-bold">عدد أيام الإقامة</label>
-                      <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" data-decimals="0" id="stay_days" placeholder="0">
+                      <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" data-decimals="0" id="stay_days">
                     </div>
                     <input type="hidden" id="financial_treatment">
                   </div>
@@ -632,7 +632,7 @@
                 <div class="row g-2 mb-3 d-none" aria-hidden="true">
                   <div class="col-md-3"><label class="form-label fw-bold">المدير المالي</label><input type="text" class="form-control" id="manager_name" value="رائد / جمال عبد الناصر"></div>
                   <div class="col-md-3"><label class="form-label fw-bold">رئيس حسابات المرضى</label><input type="text" class="form-control" id="captain_name" value="نقيب عمرو صالح"></div>
-                  <div class="col-md-3"><label class="form-label fw-bold">المراجع المالي</label><input type="text" class="form-control" id="auditor_name"></div>
+                  <div class="col-md-3"><label class="form-label fw-bold">المراجع المالي</label><input type="text" class="form-control bg-light" id="auditor_name" readonly tabindex="-1" placeholder="يُكتب تلقائيًا عند الاعتماد" title="اسم من اعتمد الفاتورة — يُكتب تلقائيًا"></div>
                   <div class="col-md-3"><label class="form-label fw-bold">الموظف المختص</label><input type="text" class="form-control" id="employee_name"></div>
                 </div>
 
@@ -643,6 +643,7 @@
                   <button type="button" class="btn btn-outline-secondary btn-lg fw-black" id="save-draft-btn" data-guard-key="invoice:save" data-guard-busy="جاري الحفظ…" data-guard-siblings="submit-review-btn">💾 حفظ مؤقت</button>
                   <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="delete-invoice-btn" style="display:none" title="حذف المسودة أو الفاتورة قيد المراجعة" data-guard-key="invoice:delete" data-guard-busy="جاري الحذف…">🗑️ حذف</button>
                   <button type="button" class="btn btn-warning btn-lg fw-black" id="submit-review-btn" style="display:none" data-guard-key="invoice:save" data-guard-busy="جاري الإرسال…" data-guard-siblings="save-draft-btn">📤 إرسال للمراجعة</button>
+                  <button type="button" class="btn btn-outline-warning btn-lg fw-black" id="reopen-invoice-btn" style="display:none" data-guard-key="invoice:reopen" data-guard-busy="جاري إعادة الفتح…" title="إرجاع الفاتورة المعتمدة إلى مسودة للتعديل — تحتفظ برقمها، وتحتاج اعتمادًا جديدًا">🔓 إعادة فتح الفاتورة للتعديل</button>
                   <button type="button" class="btn btn-success btn-lg fw-black" id="approve-invoice-btn" style="display:none" data-guard-key="invoice:approve" data-guard-busy="جاري الاعتماد…">✅ اعتماد نهائي</button>
                   <button type="button" class="btn btn-outline-secondary fw-bold" id="reset-form-btn">← الرئيسية</button>
                   <button type="button" class="btn btn-danger fw-bold" id="download-pdf-btn" style="display:none">📄 PDF</button>
@@ -893,6 +894,7 @@
                   <th>المحصل</th>
                   <th>المتبقي</th>
                   <th>تاريخ الإصدار</th>
+                  <th>أنشأها</th>
                   <th>إجراءات</th>
                 </tr>
               </thead>
@@ -1226,15 +1228,15 @@
                 </div>
                 <div class="col-md-4">
                   <label class="form-label fw-bold">مرافق <span class="text-muted fw-normal small">(ج.م)</span></label>
-                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-companion" placeholder="0">
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-companion">
                 </div>
                 <div class="col-md-4">
                   <label class="form-label fw-bold">نقطة التمريض <span class="text-muted fw-normal small">(ج.م)</span></label>
-                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-nursing" placeholder="0">
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-nursing">
                 </div>
                 <div class="col-md-4">
                   <label class="form-label fw-bold">التمريض المساعد <span class="text-muted fw-normal small">(ج.م)</span></label>
-                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-assistant" placeholder="0">
+                  <input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="change-room-assistant">
                 </div>
               </div>
               <p class="small text-muted mt-3 mb-0">يُحدَّث تعيين الغرفة من تاريخ البداية المحدد وفق أنواع الإقامة في الإعدادات.</p>
@@ -1258,7 +1260,7 @@
         </div>
         <div id="settings-tiles-grid" class="settings-groups">
           <div class="settings-group">
-            <div class="settings-group-head"><h3 class="settings-group-title">بيانات الشاشات</h3><span class="settings-group-hint">كل اللي بتقرا منه شاشات الإدخال</span></div>
+            <div class="settings-group-head"><h3 class="settings-group-title">بيانات الشاشات</h3><span class="settings-group-hint">المصادر التي تعتمد عليها شاشات الإدخال</span></div>
             <div class="hub-grid settings-hub-grid">
             <button type="button" class="hub-tile hub-tile--primary settings-section-tile" data-settings-section="data-sources" data-admin="1">
               <span class="hub-tile-icon">🗂️</span>
@@ -1354,7 +1356,7 @@
               </span>
             </div>
             <div class="card-body">
-              <p class="text-muted small mb-3">كل شاشة إدخال بتقرا من مصدر واحد بس — الملف اللي بيترفع لها هنا (أو من زرار الرفع في تبويبها). المسح هنا بيمسح بنود المصدر ده بس، والفواتير القديمة مش بتتأثر.</p>
+              <p class="text-muted small mb-3">تعتمد كل شاشة إدخال على مصدر واحد، وهو الملف المرفوع لها هنا (أو من زر الرفع في تبويبها). يحذف المسح بنود هذا المصدر فقط، ولا تتأثر الفواتير السابقة.</p>
               <div class="table-responsive">
                 <table class="table table-sm align-middle data-sources-table mb-0">
                   <thead class="table-light"><tr><th>الشاشة</th><th>بتقرا من</th><th class="text-center">عدد البنود</th><th class="text-end">إجراءات</th></tr></thead>
@@ -1409,7 +1411,7 @@
                 <button class="btn btn-primary fw-bold" id="add-invoice-type-btn">إضافة</button>
               </div>
               <ul class="list-group admin-lookup-list" id="invoice-types-list"></ul>
-              <p class="text-muted small mt-2 mb-0">القائمة دي بتظهر في تسجيل المريض والإدخال اليومي والفاتورة الكبيرة والتقارير، والمعاملة المالية بتتسجل بنفس اسم النوع.</p>
+              <p class="text-muted small mt-2 mb-0">تظهر هذه القائمة في تسجيل المريض والإدخال اليومي والفاتورة الكبيرة والتقارير، وتُسجَّل المعاملة المالية باسم النوع نفسه.</p>
             </div>
           </div>
         </div>
@@ -1534,7 +1536,7 @@
                 <div class="col-md-2"><label class="form-label small fw-bold">القسم</label><input type="text" class="form-control form-control-sm" id="doctor-add-department" required></div>
                 <div class="col-md-2"><label class="form-label small fw-bold">التخصص</label><input type="text" class="form-control form-control-sm" id="doctor-add-specialty" required></div>
                 <div class="col-md-3"><label class="form-label small fw-bold">اسم الطبيب</label><input type="text" class="form-control form-control-sm" id="doctor-add-name" required></div>
-                <div class="col-md-2"><label class="form-label small fw-bold">سعر الكشف</label><input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="doctor-add-price" placeholder="0" autocomplete="off"></div>
+                <div class="col-md-2"><label class="form-label small fw-bold">سعر الكشف</label><input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" id="doctor-add-price" autocomplete="off"></div>
                 <div class="col-md-2"><label class="form-label small fw-bold">كود (اختياري)</label><input type="text" class="form-control form-control-sm" id="doctor-add-code"></div>
                 <div class="col-md-2"><button type="submit" class="btn btn-sm btn-primary fw-bold w-100">إضافة</button></div>
               </form>
@@ -1931,6 +1933,11 @@
           <div class="card shadow-sm">
             <div class="card-header bg-danger text-white fw-black">🚫 البنود المستثناة من الخصم</div>
             <div class="card-body">
+              <h6 class="fw-black mb-2">الأقسام التي يُطبَّق عليها خصم الجهات المتعاقدة</h6>
+              <p class="small text-muted mb-2">أزل العلامة عن القسم الذي لا يُطبَّق عليه الخصم (مثل الأدوية أو الكشوفات). الدمغات لا يُطبَّق عليها خصم في كل الأحوال.</p>
+              <div class="d-flex flex-wrap gap-3 mb-2" id="discount-sections-list"></div>
+              <button type="button" class="btn btn-success btn-sm fw-bold mb-4" id="discount-sections-save-btn">💾 حفظ الأقسام</button>
+              <h6 class="fw-black mb-2">بنود مستثناة بالاسم</h6>
               <div class="input-group mb-3">
                 <input type="text" class="form-control fw-bold" id="new-exclusion-name" placeholder="بند مستثنى جديد (مثل: الأدوية)...">
                 <button class="btn btn-primary fw-bold" id="add-exclusion-btn">إضافة</button>
@@ -2473,22 +2480,22 @@
   </div><!-- app-container -->
 
   <script src="/vendor/bootstrap/bootstrap.bundle.min.js?v=5.3.3"></script>
-  <script src="/js/action-guard.js?v=20260920v"></script>
-  <script src="/js/enter-add-row.js?v=20260921a"></script>
-  <script src="/js/auto-save.js?v=20260922h"></script>
-  <script src="/js/api-client.js?v=20260926d"></script>
-  <script src="/js/daily-section-bundles.js?v=20260922a"></script>
-  <script src="/js/app.js?v=20261031a"></script>
-  <script src="/js/nationality-pricing.js?v=20260923a"></script>
-  <script src="/js/daily-picker.js?v=20261103a"></script>
-  <script src="/js/daily-charges.js?v=20261104a"></script>
-  <script src="/js/notifications.js?v=20260921a"></script>
-  <script src="/js/audit-admin.js?v=20260905b"></script>
-  <script src="/js/ops-center.js?v=20260920u"></script>
-  <script src="/js/assistant.js?v=20260924a"></script>
-  <script src="/js/analytics-dashboard.js?v=20260923a"></script>
-  <script src="/js/item-catalog-settings.js?v=20260824b"></script>
-  <script src="/js/doctor-settings.js?v=20260824a"></script>
-  <script src="/js/daily-entries-browser.js?v=20261006b"></script>
+  <script src="/js/action-guard.js?v=20261108a"></script>
+  <script src="/js/enter-add-row.js?v=20261108a"></script>
+  <script src="/js/auto-save.js?v=20261108a"></script>
+  <script src="/js/api-client.js?v=20261108a"></script>
+  <script src="/js/daily-section-bundles.js?v=20261108a"></script>
+  <script src="/js/app.js?v=20261108a"></script>
+  <script src="/js/nationality-pricing.js?v=20261108a"></script>
+  <script src="/js/daily-picker.js?v=20261108a"></script>
+  <script src="/js/daily-charges.js?v=20261108a"></script>
+  <script src="/js/notifications.js?v=20261108a"></script>
+  <script src="/js/audit-admin.js?v=20261108a"></script>
+  <script src="/js/ops-center.js?v=20261108a"></script>
+  <script src="/js/assistant.js?v=20261108a"></script>
+  <script src="/js/analytics-dashboard.js?v=20261108a"></script>
+  <script src="/js/item-catalog-settings.js?v=20261108a"></script>
+  <script src="/js/doctor-settings.js?v=20261108a"></script>
+  <script src="/js/daily-entries-browser.js?v=20261108a"></script>
 </body>
 </html>

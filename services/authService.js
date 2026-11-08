@@ -74,10 +74,17 @@ function getRoleDefaultPermissions(role) {
   return PERMISSIONS[normalizeRole(role)] || PERMISSIONS.user;
 }
 
+// Final approval belongs to the financial reviewer and the system admin only: a plain
+// user never gets it, even if it was ticked in their custom permissions.
+const REVIEWER_ONLY_PERMISSIONS = ['invoices.approve'];
+
 function getUserPermissions(user) {
   const custom = parseCustomPermissions(user?.custom_permissions);
-  if (custom && custom.length) return custom;
-  return getRoleDefaultPermissions(user?.role);
+  const perms = custom && custom.length ? custom : getRoleDefaultPermissions(user?.role);
+  if (normalizeRole(user?.role) === 'user') {
+    return perms.filter((perm) => !REVIEWER_ONLY_PERMISSIONS.includes(perm));
+  }
+  return perms;
 }
 
 function permissionsInclude(perms, permission) {
@@ -94,6 +101,7 @@ function roleHasPermission(role, permission) {
 
 function userHasPermission(user, permission) {
   if (!user) return false;
+  if (REVIEWER_ONLY_PERMISSIONS.includes(permission) && normalizeRole(user.role) === 'user') return false;
   return permissionsInclude(getUserPermissions(user), permission);
 }
 

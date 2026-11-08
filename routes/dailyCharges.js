@@ -357,6 +357,10 @@ router.post('/catalog', catalogManagePerm, async (req, res) => {
 router.put('/catalog/:id', catalogManagePerm, async (req, res) => {
   try {
     const item = await updateCatalogItem(Number(req.params.id), req.body);
+    const { repriceOpenPatients, runInBackground } = require('../services/openPriceSyncService');
+    runInBackground(`catalog item ${req.params.id}`, () =>
+      repriceOpenPatients({ catalogItemIds: [Number(req.params.id)] }, req.session.user)
+    );
     res.json({ item, stats: await getCatalogStats() });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -533,8 +537,14 @@ router.post('/change-room', requirePermission('daily_charges.manage'), async (re
         include_today: false,
       }, req.session?.user || null);
     }
+    const { applyRoomChangeToPostedDays } = require('../services/stayBatchPostingService');
+    const updatedDays = await applyRoomChangeToPostedDays(file_number, req.body.effective_from, req.session?.user || null);
+    if (updatedDays) {
+      const { syncPatientDailyChargesToInvoice } = require('../services/invoiceService');
+      await syncPatientDailyChargesToInvoice(file_number, patient.name);
+    }
     const stay = await getOpenPatientStay(file_number);
-    res.json({ assignment, backfill, ...stay });
+    res.json({ assignment, backfill, updated_days: updatedDays, ...stay });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

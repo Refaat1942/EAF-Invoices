@@ -3917,7 +3917,10 @@ function openDailySectionPrintPreview() {
     return;
   }
   if (typeof window.openInvoicePrintPreview === 'function') {
-    void window.openInvoicePrintPreview({ dailyKind: kind, forceSaved: true });
+    // «طباعة كشف حساب فاتورة» prints the whole big invoice, exactly as from the invoice list
+    // and the approvals centre. One section alone is printed from «طباعة برنت».
+    const invoiceId = dailyStayContext?.invoice?.id;
+    void window.openInvoicePrintPreview({ ...(invoiceId ? { invoiceId } : {}), forceSaved: true });
     return;
   }
   showToast('معاينة الطباعة غير متاحة — حدّث الصفحة', 'danger');
@@ -4326,14 +4329,20 @@ function examStampLinkRef(tr) {
   return `stamp_for:dom:${entryId}:${caseId}:${spec}:${doctor}`;
 }
 
+const EXAM_STAMP_MAIN_CODES = ['consultant_exam', 'specialist_exam'];
+
 function resolveConsultationStampForExamEntry(entry, examLine, stampPoolState) {
   const lines = entry?.lines || [];
   const stamps = lines.filter((l) => l.section_code === 'consultation_stamp');
   if (!stamps.length) return {};
   const examId = Number(examLine?.id) || 0;
   if (examId > 0) {
-    const linked = stamps.find((s) => String(s.extra_text || '').trim() === `stamp_for:${examId}`);
-    if (linked) return linked;
+    // Linked by the exam's line id, or (stamps saved together with a new exam row, whose
+    // link was only a temporary row reference) paired with the exam saved just before it.
+    const paired = pairRowCompanionLine(entry, examLine, EXAM_STAMP_MAIN_CODES, 'consultation_stamp', {
+      linkable: true,
+    });
+    return paired?.id ? paired : {};
   }
   const entryKey = String(entry?.id || 'new');
   if (!stampPoolState.has(entryKey)) {
@@ -4706,7 +4715,7 @@ function entryHasStayChargeData(entry) {
 
 function collectLineIdsForRowRemoval(tr) {
   const ids = new Set();
-  ['examLineId', 'stampLineId', 'lineId', 'dateLineId', 'detailLineId'].forEach((attr) => {
+  ['examLineId', 'stampLineId', 'lineId', 'dateLineId', 'detailLineId', 'typeLineId'].forEach((attr) => {
     if (tr.dataset[attr]) ids.add(Number(tr.dataset[attr]));
   });
   tr.querySelectorAll('[data-line-id]').forEach((el) => {
@@ -4880,7 +4889,7 @@ function collectExamLinesFromRow(tr) {
     lines.push(line);
   }
   const stampCell = tr.querySelector('[data-stamp-cell="1"]');
-  const stamp = stampCell ? dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value)) : 0;
+  const stamp = stampCell ? dailyParseAmount(tr.querySelector('.daily-exam-stamp')?.value) : 0;
   if (stamp > 0) {
     const stampLine = {
       section_code: 'consultation_stamp',
@@ -5052,14 +5061,14 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
   const patientName = getDailyPatientDisplayName();
   const priceVal = line.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(line.amount)) : '';
   const stampVal =
-    stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
+    stampLine.amount > 0 ? formatAmountFieldValue(Number(stampLine.amount)) : '';
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
     <td><select class="form-select form-select-sm daily-exam-case">${buildExamCaseOptions(caseServiceId)}</select></td>
     <td><select class="form-select form-select-sm daily-exam-specialty">${buildExamSpecialtyOptions(sectionCode, specialtyCode)}</select></td>
     <td class="daily-exam-doctor-cell">${buildDailyDoctorSuggestHtml('', entry.doctor_id || '')}</td>
-    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-unit-price comma-amount" value="${dailyEscapeAttr(priceVal)}" autocomplete="off" title="يمكن تعديل السعر قبل الحفظ"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-unit-price comma-amount bg-light" value="${dailyEscapeAttr(priceVal)}" autocomplete="off" readonly tabindex="-1" title="سعر الكشف من لائحة الأسعار — لا يُعدَّل يدويًا"></td>
     <td><input type="date" class="form-control form-control-sm daily-exam-date" value="${dailyEscapeAttr(dateVal)}" autocomplete="off"></td>
     <td><input type="text" class="form-control form-control-sm daily-exam-patient bg-light" readonly value="${dailyEscapeAttr(patientName)}"></td>
     <td data-stamp-cell="1"><input type="text" inputmode="decimal" class="form-control form-control-sm daily-exam-stamp comma-amount" value="${dailyEscapeAttr(stampVal)}" autocomplete="off" title="دمغة الكشف"></td>
@@ -5779,6 +5788,7 @@ function bindMiscRowEvents(tr) {
 // line. Find the one that belongs to `mainLine`: a stamp saved with `stamp_for:<main id>`, or
 // else (rows saved together, before linking existed) the nearest earlier main line in save order.
 function pairRowCompanionLine(entry, mainLine, mainCode, code, { linkable = false } = {}) {
+  const mainCodes = Array.isArray(mainCode) ? mainCode : [mainCode];
   const lines = entry?.lines || [];
   const companions = lines.filter((l) => l.section_code === code);
   if (!companions.length) return {};
@@ -5793,7 +5803,7 @@ function pairRowCompanionLine(entry, mainLine, mainCode, code, { linkable = fals
   }
   const linkedMainIds = new Set(linkable ? companions.map(linkOf).filter(Boolean) : []);
   const mains = lines
-    .filter((l) => l.section_code === mainCode && Number(l.id))
+    .filter((l) => mainCodes.includes(l.section_code) && Number(l.id))
     .sort((a, b) => Number(a.id) - Number(b.id));
   const unlinked = companions.filter((l) => !(linkable && linkOf(l)));
   if (!mainId) return mains.length ? {} : unlinked[0] || {};
@@ -5824,7 +5834,7 @@ function createLabRow(entry = {}, analysisLine = null) {
   tr._entryLinesSnapshot = dailyRowSnapshotExcluding(entry, line, ['analyses', 'analyses_stamp']);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
-  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
+  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(Number(stampLine.amount)) : '';
   const dateVal = line.extra_date
     ? fmtStayDate(line.extra_date)
     : entry.entry_date
@@ -5878,7 +5888,7 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
   ]);
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
-  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(stampLine.amount)) : '';
+  const stampVal = stampLine.amount > 0 ? formatAmountFieldValue(Number(stampLine.amount)) : '';
   const dateVal = line.extra_date
     ? fmtStayDate(line.extra_date)
     : typeLine.extra_date
@@ -5994,7 +6004,7 @@ function collectLabLinesFromRow(tr) {
     if (dateEl?.value) mainLine.extra_date = dateEl.value;
     if (lineHasChargeData(mainLine)) lines.push(...tagNewRowLines(tr, [mainLine]));
   }
-  const stamp = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-lab-stamp')?.value));
+  const stamp = dailyParseAmount(tr.querySelector('.daily-lab-stamp')?.value);
   if (stamp > 0) {
     const stampLine = { section_code: 'analyses_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
@@ -6023,7 +6033,7 @@ function collectRadiologyLinesFromRow(tr) {
       lines.push(...tagNewRowLines(tr, [typeLineOut]));
     }
   }
-  const stamp = dailyAmountForSave(dailyParseAmount(tr.querySelector('.daily-rad-stamp')?.value));
+  const stamp = dailyParseAmount(tr.querySelector('.daily-rad-stamp')?.value);
   if (stamp > 0) {
     const stampLine = { section_code: 'xray_stamp', amount: stamp, quantity: 1 };
     if (tr.dataset.stampLineId) stampLine.id = Number(tr.dataset.stampLineId);
@@ -7681,9 +7691,9 @@ function countDailyRowsForEntryId(entryId) {
 
 function shouldDeleteEntireDailyEntryForRow(tr) {
   if (activeDailyTab === 'stay' || tr.classList.contains('daily-stay-row')) return true;
-  if (['lab', 'radiology'].includes(activeDailyTab)) return true;
-  const entryId = tr.dataset.entryId;
-  if (entryId && countDailyRowsForEntryId(entryId) <= 1) return true;
+  // A day's entry also holds the stay and every other section of that day: deleting one
+  // row (a test, an X-ray, a medicine...) removes only that row's lines, never the whole
+  // day. The entry itself goes away only when nothing is left in it.
   return false;
 }
 
@@ -7746,8 +7756,9 @@ async function removeRowLinesFromEntry(tr, entryId) {
         entries: [
           {
             entry_id: entryId,
-            entry_date: getLocalDateString(),
-            stay_type_id: resolveStayTypeIdForSave(null, tr),
+            // Keep the entry on its own day (it may be an earlier day of the stay).
+            entry_date: fmtStayDate(cachedEntry?.entry_date) || getLocalDateString(),
+            stay_type_id: cachedEntry?.stay_type_id || resolveStayTypeIdForSave(null, tr),
             notes: tr.dataset.entryNotes || '',
             lines: remaining,
           },
@@ -8052,6 +8063,14 @@ function getDailyChargeDomRows() {
   });
 }
 
+function lineIdsClaimedByOtherRows(tr, rowClass) {
+  const claimed = new Set();
+  document.querySelectorAll(`#daily-sections-body tr.${rowClass}`).forEach((row) => {
+    if (row !== tr && Number(row.dataset.lineId)) claimed.add(Number(row.dataset.lineId));
+  });
+  return claimed;
+}
+
 function applySavedLineIdsToRow(tr, entry) {
   const lines = entry?.lines || [];
   if (tr.classList.contains('daily-lab-row')) {
@@ -8060,6 +8079,7 @@ function applySavedLineIdsToRow(tr, entry) {
       (lineId && lines.find((line) => Number(line.id) === lineId)) ||
       lines.find((line) => {
         if (line.section_code !== 'analyses') return false;
+        if (lineIdsClaimedByOtherRows(tr, 'daily-lab-row').has(Number(line.id))) return false;
         const picker = tr.querySelector('.daily-picker[data-section="analyses"]');
         const svcId =
           Number(picker?.dataset?.serviceId) ||
@@ -8082,6 +8102,7 @@ function applySavedLineIdsToRow(tr, entry) {
       (lineId && lines.find((line) => Number(line.id) === lineId)) ||
       lines.find((line) => {
         if (line.section_code !== 'xray_total') return false;
+        if (lineIdsClaimedByOtherRows(tr, 'daily-rad-row').has(Number(line.id))) return false;
         const picker = tr.querySelector('.daily-picker[data-section="xray_total"]');
         const svcId = Number(picker?.dataset?.serviceId) || Number(picker?._selectedItem?.service_id) || 0;
         if (svcId > 0) return Number(line.service_id) === svcId;
@@ -8099,15 +8120,9 @@ function applySavedLineIdsToRow(tr, entry) {
     const exam =
       (examLineId && lines.find((line) => Number(line.id) === examLineId)) ||
       lines.find((line) => ['consultant_exam', 'specialist_exam'].includes(line.section_code));
-    const examId = exam?.id ? Number(exam.id) : 0;
-    const stamp =
-      (examId &&
-        lines.find(
-          (line) =>
-            line.section_code === 'consultation_stamp' &&
-            String(line.extra_text || '').trim() === `stamp_for:${examId}`
-        )) ||
-      lines.find((line) => line.section_code === 'consultation_stamp');
+    const stamp = exam
+      ? pairRowCompanionLine(entry, exam, EXAM_STAMP_MAIN_CODES, 'consultation_stamp', { linkable: true })
+      : null;
     if (exam?.id) tr.dataset.examLineId = String(exam.id);
     if (stamp?.id) tr.dataset.stampLineId = String(stamp.id);
     return;
@@ -9229,3 +9244,18 @@ window.importDailyChargesToInvoice = importDailyChargesToInvoice;
 window.syncDailyChargeRowsFromTotals = syncDailyChargeRowsFromTotals;
 window.reloadDailyCatalogSectionsFromSettings = reloadDailyCatalogSectionsFromSettings;
 window.reloadDailyServiceCaches = reloadDailyServiceCaches;
+
+// A refresh (F5) or closing the tab while a row is typed but not saved: the browser asks
+// first («Changes you made may not be saved»), so typed entries are not lost by mistake.
+window.addEventListener('beforeunload', (event) => {
+  try {
+    const dailyView = document.getElementById('view-daily');
+    const onDaily = dailyView && dailyView.style.display !== 'none';
+    if (onDaily && typeof dailyTabHasUnsavedChanges === 'function' && dailyTabHasUnsavedChanges()) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  } catch {
+    /* never block leaving because of an error here */
+  }
+});

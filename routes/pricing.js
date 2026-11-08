@@ -277,7 +277,12 @@ router.post('/services', requirePermission('settings.*'), async (req, res) => {
 
 router.put('/services/:id', requirePermission('settings.*'), async (req, res) => {
   try {
-    res.json(await updateService(Number(req.params.id), req.body, actor(req)));
+    const updated = await updateService(Number(req.params.id), req.body, actor(req));
+    const { repriceOpenPatients, runInBackground } = require('../services/openPriceSyncService');
+    runInBackground(`service ${req.params.id}`, () =>
+      repriceOpenPatients({ serviceIds: [Number(req.params.id)] }, req.session.user)
+    );
+    res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -285,7 +290,11 @@ router.put('/services/:id', requirePermission('settings.*'), async (req, res) =>
 
 router.post('/services/bulk-update', requirePermission('settings.*'), async (req, res) => {
   try {
-    res.json(await bulkUpdatePrices(req.body.updates || [], actor(req)));
+    const result = await bulkUpdatePrices(req.body.updates || [], actor(req));
+    const { repriceOpenPatients, runInBackground } = require('../services/openPriceSyncService');
+    const ids = (req.body.updates || []).map((u) => Number(u.id)).filter(Boolean);
+    runInBackground('bulk price update', () => repriceOpenPatients({ serviceIds: ids }, req.session.user));
+    res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -84,9 +84,56 @@ router.post('/stay-types', requirePermission('settings.*'), async (req, res) => 
   }
 });
 
+// Which sections get the contracted-entity discount (all of them unless switched off here).
+const DISCOUNT_SECTIONS = [
+  ['stay', 'إقامة ورعاية'],
+  ['sessions', 'الجلسات'],
+  ['medicines', 'الأدوية'],
+  ['supplies', 'المستلزمات'],
+  ['exams', 'الكشوفات'],
+  ['lab', 'التحاليل'],
+  ['radiology', 'الأشعة'],
+  ['other', 'خدمات متنوعة'],
+  ['operations', 'العمليات'],
+  ['__manual__', 'البنود الحرة'],
+];
+
+router.get('/discount-sections', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const { getSetting } = require('../services/settingsService');
+    let excluded = [];
+    try {
+      excluded = JSON.parse((await getSetting('discount_excluded_sections', '[]')) || '[]');
+    } catch {
+      excluded = [];
+    }
+    res.json(DISCOUNT_SECTIONS.map(([key, label]) => ({ key, label, discounted: !excluded.includes(key) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/discount-sections', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const { setSetting } = require('../services/settingsService');
+    const known = new Set(DISCOUNT_SECTIONS.map(([key]) => key));
+    const excluded = (Array.isArray(req.body?.excluded) ? req.body.excluded : []).map(String).filter((k) => known.has(k));
+    await setSetting('discount_excluded_sections', JSON.stringify(excluded));
+    res.json({ excluded });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.put('/stay-types/:id', requirePermission('settings.*'), async (req, res) => {
   try {
+    const { query } = require('../database/db');
+    const before = await query('SELECT daily_rate FROM stay_types WHERE id = $1', [Number(req.params.id)]);
     const row = await updateStayType(Number(req.params.id), req.body);
+    const { repriceOpenStayType, runInBackground } = require('../services/openPriceSyncService');
+    runInBackground(`room rate ${req.params.id}`, () =>
+      repriceOpenStayType(row.id, before.rows[0]?.daily_rate, row.daily_rate, req.session.user)
+    );
     res.json(row);
   } catch (err) {
     res.status(400).json({ error: err.message });

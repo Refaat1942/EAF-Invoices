@@ -277,9 +277,13 @@
     document.getElementById('approvals-drafts-body')?.addEventListener('click', handleApprovalsTableClick);
   }
 
+  let opsCenterStarted = false;
   window.initOpsCenter = function initOpsCenter() {
-    bindOpsCenter();
     refreshApprovalsBadge();
+    // Runs again after an in-page login: bind and start polling only once.
+    if (opsCenterStarted) return;
+    opsCenterStarted = true;
+    bindOpsCenter();
     setInterval(refreshApprovalsBadge, 60000);
   };
 

@@ -1,6 +1,7 @@
 const TRANSACTION_KIND_LABELS = Object.freeze({
   collection: 'تحصيل',
   prepaid_deduct: 'خصم من الرصيد',
+  prepaid_restore: 'إرجاع خصم الرصيد (إعادة فتح فاتورة)',
   legacy: 'حركة سابقة',
   manual_adjustment: 'تعديل رصيد',
 });
