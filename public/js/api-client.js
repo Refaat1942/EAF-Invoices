@@ -182,6 +182,16 @@ async function apiFetch(url, options = {}) {
       ? Object.fromEntries(options.headers.entries())
       : { ...(options.headers || {}) };
   if (clientDate) headers['X-Client-Date'] = clientDate;
+  // Activity log: tell the server which screen the user was on.
+  const method = String(options.method || 'GET').toUpperCase();
+  if (method !== 'GET' && typeof window !== 'undefined' && typeof window.eafCurrentScreenLabel === 'function') {
+    try {
+      const screen = window.eafCurrentScreenLabel();
+      if (screen) headers['X-EAF-Screen'] = encodeURIComponent(screen);
+    } catch {
+      /* optional */
+    }
+  }
 
   try {
     return await fetchImpl(url, { credentials: 'include', ...options, headers });

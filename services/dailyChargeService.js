@@ -233,7 +233,24 @@ function normalizeCalendarDate(value) {
   return '';
 }
 
-function resolveAllowedDailyEntryDate(submittedDate) {
+/**
+ * First day that may still be recorded / edited for a patient: the admission day of their
+ * open (not yet approved) invoice. Earlier days of the stay can be corrected until the
+ * invoice is approved; the approval is the check on those corrections.
+ */
+async function getOpenStayFirstEditableDate(fileNumber) {
+  const fn = String(fileNumber || '').trim();
+  if (!fn) return '';
+  const { rows } = await query(
+    `SELECT admission_date::text AS admission_date FROM invoices
+     WHERE TRIM(file_number) = TRIM($1) AND status IN ('draft', 'pending_review')
+     ORDER BY updated_at DESC LIMIT 1`,
+    [fn]
+  );
+  return normalizeCalendarDate(rows[0]?.admission_date) || '';
+}
+
+function resolveAllowedDailyEntryDate(submittedDate, firstEditableDate = '') {
   const allowed = getCurrentBusinessDateString();
   const hasSubmitted =
     submittedDate !== undefined && submittedDate !== null && String(submittedDate).trim() !== '';
@@ -242,18 +259,23 @@ function resolveAllowedDailyEntryDate(submittedDate) {
     if (!submitted) {
       throw new Error('تاريخ اليوم غير صالح');
     }
-    if (submitted !== allowed) {
-      throw new Error(
-        `لا يمكن تسجيل الحركة اليومية إلا لتاريخ اليوم (${allowed}) — التاريخ المُرسَل (${submitted}) غير مقبول`
-      );
-    }
+    if (submitted === allowed) return allowed;
+    const first = normalizeCalendarDate(firstEditableDate);
+    if (first && submitted >= first && submitted < allowed) return submitted;
+    throw new Error(
+      first
+        ? `التاريخ (${submitted}) خارج فترة إقامة المريض المفتوحة (${first} إلى ${allowed})`
+        : `لا يمكن تسجيل الحركة اليومية إلا لتاريخ اليوم (${allowed}) — التاريخ المُرسَل (${submitted}) غير مقبول`
+    );
   }
   return allowed;
 }
 
-function assertExistingEntryDateIsToday(existingEntryDate) {
+function assertExistingEntryDateIsToday(existingEntryDate, firstEditableDate = '') {
   const allowed = getCurrentBusinessDateString();
   const existing = normalizeCalendarDate(existingEntryDate);
+  const first = normalizeCalendarDate(firstEditableDate);
+  if (existing && first && existing >= first && existing <= allowed) return;
   if (!existing || existing !== allowed) {
     const shown = existing || '—';
     throw new Error(
@@ -1554,9 +1576,10 @@ async function prepareEntrySaveContext(data) {
   const patient = await resolvePatient(data.file_number, data.patient_name);
   const patientType = String(patient.patient_type || 'internal').toLowerCase() === 'external' ? 'external' : 'internal';
   const allowBackfill = data.allow_backfill === true;
+  const firstEditableDate = allowBackfill ? '' : await getOpenStayFirstEditableDate(patient.file_number);
   const entryDate = allowBackfill
     ? normalizeCalendarDate(data.entry_date) || getCurrentBusinessDateString()
-    : resolveAllowedDailyEntryDate(data.entry_date);
+    : resolveAllowedDailyEntryDate(data.entry_date, firstEditableDate);
 
   const sections = await listSections();
   const sectionsWithServices = await getSectionsWithServices();
@@ -1594,6 +1617,18 @@ async function prepareEntrySaveContext(data) {
 
   if (linesIncludeStay(lines) && patientType === 'external') {
     throw new Error('المريض الخارجي لا يُسجَّل عليه إقامة — احذف بنود الإقامة أو غيّر نوع المريض');
+  }
+
+  // A save from another screen (e.g. deleting an exam row) may not carry the day's room
+  // type: keep the one already stored instead of wiping it.
+  if (!parseOptionalStayTypeId(data.stay_type_id) && lines.some((l) => l.section_code === 'accommodation')) {
+    const { rows: prev } = await query(
+      `SELECT stay_type_id FROM patient_daily_entries
+       WHERE stay_type_id IS NOT NULL AND (id = $1 OR (patient_id = $2 AND entry_date = $3::date))
+       ORDER BY (id = $1) DESC LIMIT 1`,
+      [Number(data.entry_id || data.id) || 0, patient.id, entryDate]
+    );
+    if (prev[0]?.stay_type_id) data.stay_type_id = prev[0].stay_type_id;
   }
 
   const stayTypeId = parseOptionalStayTypeId(data.stay_type_id) || 0;
@@ -1958,7 +1993,9 @@ async function persistEntryInTransaction(client, data, user, context = null) {
     );
     existing = rows[0] || null;
     if (!existing) throw new Error(`الحركة #${entryIdInput} غير موجودة`);
-    if (!data.allow_backfill) assertExistingEntryDateIsToday(existing.entry_date);
+    if (!data.allow_backfill) {
+      assertExistingEntryDateIsToday(existing.entry_date, await getOpenStayFirstEditableDate(patient.file_number));
+    }
   } else if (!entryIdInput && lines.length) {
     // كل كشف = حركة مستقلة (طبيب) — لا تُلحق بحركة بنفس بند اللائحة
     const duplicate = linesIncludeExam(lines)

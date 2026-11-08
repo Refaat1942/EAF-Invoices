@@ -1301,6 +1301,84 @@ async function reopenInvoice(id, actor, reason = '') {
   return getInvoiceById(id);
 }
 
+const RETURN_SECTION_LABELS = {
+  patient: 'بيانات المريض',
+  stay: 'الإقامة والرعاية',
+  sessions: 'الجلسات',
+  medicines: 'الأدوية',
+  supplies: 'المستلزمات',
+  exams: 'الكشوفات',
+  lab: 'التحاليل',
+  radiology: 'الأشعة',
+  other: 'خدمات متنوعة',
+  operations: 'العمليات',
+  free: 'البنود الحرة',
+  payments: 'المدفوعات',
+};
+
+/**
+ * The financial reviewer / admin sends an invoice back to its employee for correction:
+ * which parts to review and a note. The invoice becomes a draft again (an approved one is
+ * reopened first: same number, the patient's deducted balance given back), every screen
+ * can be edited again, and the employee gets a notification with the patient and invoice.
+ */
+async function returnInvoiceForCorrection(id, actor, { sections = [], note = '' } = {}) {
+  const why = String(note || '').trim();
+  const parts = (Array.isArray(sections) ? sections : []).map(String).filter((k) => RETURN_SECTION_LABELS[k]);
+  if (!parts.length && why.length < 3) throw new Error('اختر الأجزاء المطلوب مراجعتها أو اكتب ملاحظة');
+  const { rows: current } = await query('SELECT * FROM invoices WHERE id = $1', [id]);
+  const invoice = current[0];
+  if (!invoice) throw new Error('الفاتورة غير موجودة');
+  if (!['pending_review', 'approved'].includes(invoice.status)) {
+    throw new Error('الإرجاع للتصحيح متاح للفواتير المرسلة للمراجعة أو المعتمدة');
+  }
+  const labels = parts.map((k) => RETURN_SECTION_LABELS[k]);
+  const summary = [labels.length ? `راجع: ${labels.join('، ')}` : '', why].filter(Boolean).join(' — ');
+  if (invoice.status === 'approved') await reopenInvoice(id, actor, summary);
+
+  const actorName = actor?.full_name || actor?.username || '';
+  await query(
+    `UPDATE invoices SET
+       status = 'draft',
+       submitted_at = NULL,
+       returned_at = NOW(),
+       returned_by_name = $2,
+       return_note = $3,
+       return_sections = $4::jsonb,
+       updated_at = NOW()
+     WHERE id = $1`,
+    [id, actorName, why, JSON.stringify(parts)]
+  );
+
+  const label = invoice.serial_number || `#${id}`;
+  try {
+    const { createAlert } = require('./alertService');
+    await createAlert({
+      alert_type: 'invoice_returned',
+      severity: 'warning',
+      title: `فاتورة مُرجعة للتصحيح: ${invoice.patient_name || ''} (${label})`.trim(),
+      message: `${summary}${actorName ? ` — من ${actorName}` : ''}`,
+      entity_type: 'invoice',
+      entity_id: String(id),
+      target_user_id: invoice.created_by_user_id || null,
+      details: { sections: parts, note: why, returned_by: actorName, file_number: invoice.file_number },
+      always_new: true,
+    });
+    const { writeAuditLog } = require('./auditLogService');
+    await writeAuditLog({
+      user: actor,
+      action: 'invoice.return',
+      entity_type: 'invoice',
+      entity_id: String(id),
+      entity_label: `فاتورة ${label} — ${invoice.patient_name || ''}`.trim(),
+      details: { sections: parts, note: why },
+    });
+  } catch (err) {
+    console.error('[invoice] return notification:', err.message);
+  }
+  return getInvoiceById(id);
+}
+
 async function approveInvoice(id, reviewer) {
   const approved = await withTransaction(async (client) => {
     const { rows } = await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id]);
@@ -2473,6 +2551,8 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
 
 module.exports = {
   reopenInvoice,
+  returnInvoiceForCorrection,
+  RETURN_SECTION_LABELS,
   getInvoiceById,
   getInvoiceByToken,
   listInvoices,

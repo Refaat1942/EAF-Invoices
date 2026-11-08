@@ -1546,7 +1546,9 @@ function bindEvents() {
   });
   document.getElementById('submit-review-btn').addEventListener('click', () => saveInvoiceWithMode('submit'));
   document.getElementById('approve-invoice-btn').addEventListener('click', approveCurrentInvoice);
-  document.getElementById('reopen-invoice-btn')?.addEventListener('click', reopenCurrentInvoice);
+  document.getElementById('return-invoice-btn')?.addEventListener('click', () => {
+    if (currentInvoiceId) openReturnInvoiceModal(currentInvoiceId, () => loadInvoiceForEdit(currentInvoiceId));
+  });
   document.getElementById('discount-sections-save-btn')?.addEventListener('click', saveDiscountSections);
   document.getElementById('reset-form-btn').addEventListener('click', () => switchView('home'));
   document.getElementById('goto-daily-from-invoice-btn')?.addEventListener('click', () => {
@@ -2959,10 +2961,10 @@ function updateInvoiceActionButtons() {
       ? ''
       : 'none';
 
-  const reopenBtn = document.getElementById('reopen-invoice-btn');
-  if (reopenBtn) {
-    reopenBtn.style.display =
-      currentInvoiceId && isApproved && (can('invoices.edit') || can('invoices.approve')) ? '' : 'none';
+  const returnBtn2 = document.getElementById('return-invoice-btn');
+  if (returnBtn2) {
+    returnBtn2.style.display =
+      currentInvoiceId && (isApproved || isPending) && can('invoices.approve') ? '' : 'none';
   }
 
   const showExports = isApproved && currentInvoiceId;
@@ -4289,6 +4291,109 @@ async function saveDiscountSections() {
   }
 }
 
+const RETURN_SECTIONS = [
+  ['patient', 'بيانات المريض'],
+  ['stay', 'الإقامة والرعاية'],
+  ['sessions', 'الجلسات'],
+  ['medicines', 'الأدوية'],
+  ['supplies', 'المستلزمات'],
+  ['exams', 'الكشوفات'],
+  ['lab', 'التحاليل'],
+  ['radiology', 'الأشعة'],
+  ['other', 'خدمات متنوعة'],
+  ['operations', 'العمليات'],
+  ['free', 'البنود الحرة'],
+  ['payments', 'المدفوعات'],
+];
+
+// Reviewer / admin: choose what the employee must review, add a note, send it back.
+function openReturnInvoiceModal(invoiceId, onDone) {
+  document.getElementById('return-invoice-modal')?.remove();
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `<div class="modal fade" id="return-invoice-modal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+        <div class="modal-header bg-warning"><h5 class="modal-title fw-black">↩ إرجاع الفاتورة للموظف للتصحيح</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p class="small text-muted">تعود الفاتورة مسودة بنفس رقمها، ويصل للموظف الذي أنشأها إشعار باسم المريض ورقم الفاتورة والأجزاء المطلوب مراجعتها.</p>
+          <div class="fw-bold mb-2">الأجزاء المطلوب مراجعتها</div>
+          <div class="d-flex flex-wrap gap-3 mb-3">${RETURN_SECTIONS.map(
+            ([key, label]) => `<label class="form-check d-flex gap-2 align-items-center fw-bold">
+              <input type="checkbox" class="form-check-input return-section-check" value="${key}"><span>${label}</span></label>`
+          ).join('')}</div>
+          <label class="fw-bold mb-1" for="return-invoice-note">ملاحظة للموظف</label>
+          <textarea class="form-control" id="return-invoice-note" rows="3" placeholder="مثال: عدد أيام الإقامة غير صحيح، وسعر أشعة الرنين."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">إلغاء</button>
+          <button type="button" class="btn btn-warning fw-black" id="return-invoice-confirm">إرجاع للموظف</button>
+        </div>
+      </div></div></div>`
+  );
+  const el = document.getElementById('return-invoice-modal');
+  const modal = new bootstrap.Modal(el);
+  el.querySelector('#return-invoice-confirm').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const sections = [...el.querySelectorAll('.return-section-check:checked')].map((x) => x.value);
+    const note = el.querySelector('#return-invoice-note').value.trim();
+    if (!sections.length && note.length < 3) {
+      showToast('اختر الأجزاء المطلوب مراجعتها أو اكتب ملاحظة', 'warning');
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const res = await apiFetch(`${API}/${invoiceId}/return`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sections, note }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'تعذر إرجاع الفاتورة');
+      modal.hide();
+      showToast('أُرجعت الفاتورة للموظف للتصحيح وأُرسل له إشعار', 'success');
+      if (typeof onDone === 'function') await onDone(data);
+    } catch (err) {
+      showToast(err.message, 'danger');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  el.addEventListener('hidden.bs.modal', () => el.remove());
+  modal.show();
+}
+window.openReturnInvoiceModal = openReturnInvoiceModal;
+
+// Shown to the employee while a returned invoice waits for correction.
+function invoiceReturnBannerHtml(inv) {
+  if (!inv || inv.status !== 'draft' || !inv.returned_at) return '';
+  const submitted = inv.submitted_at ? new Date(inv.submitted_at).getTime() : 0;
+  if (submitted && submitted > new Date(inv.returned_at).getTime()) return '';
+  let sections = inv.return_sections;
+  if (typeof sections === 'string') {
+    try { sections = JSON.parse(sections); } catch { sections = []; }
+  }
+  const labels = (Array.isArray(sections) ? sections : [])
+    .map((k) => (RETURN_SECTIONS.find(([key]) => key === k) || [])[1])
+    .filter(Boolean);
+  return `<div class="alert alert-warning fw-bold mb-0">
+    ↩ هذه الفاتورة أُرجعت للتصحيح${inv.returned_by_name ? ` من ${escapeHtml(inv.returned_by_name)}` : ''}
+    (${escapeHtml(new Date(inv.returned_at).toLocaleString('ar-EG'))}).
+    ${labels.length ? `<div class="mt-1">المطلوب مراجعته: ${labels.map(escapeHtml).join('، ')}</div>` : ''}
+    ${inv.return_note ? `<div class="mt-1">ملاحظة: ${escapeHtml(inv.return_note)}</div>` : ''}
+    <div class="small mt-1 fw-normal">صحّح البيانات من شاشات حركة المريض ثم احفظ وأرسل الفاتورة للمراجعة مرة أخرى.</div>
+  </div>`;
+}
+window.invoiceReturnBannerHtml = invoiceReturnBannerHtml;
+
+function renderInvoiceReturnBanner(inv) {
+  const box = document.getElementById('invoice-return-banner');
+  if (!box) return;
+  const html = invoiceReturnBannerHtml(inv);
+  box.innerHTML = html;
+  box.classList.toggle('d-none', !html);
+}
+
 async function reopenCurrentInvoice() {
   if (!currentInvoiceId) return;
   const reason = prompt(
@@ -4406,6 +4511,7 @@ async function loadInvoiceForEdit(id, options = {}) {
     if (!res.ok) throw new Error(inv.error);
 
     lastLoadedInvoice = inv;
+    renderInvoiceReturnBanner(inv);
     currentInvoiceId = inv.id;
     resetInvoiceExclusions(inv.excluded_daily_line_ids || [], inv.excluded_section_codes || []);
     switchView('create', { keepForm: true });
@@ -4533,6 +4639,28 @@ async function loadInvoiceForEdit(id, options = {}) {
   }
 }
 
+const EAF_VIEW_LABELS = {
+  home: 'الرئيسية',
+  'patient-register': 'تسجيل المريض',
+  create: 'الفاتورة',
+  'live-activity': 'النشاط المباشر',
+  approvals: 'مركز الاعتماد',
+  list: 'قائمة الفواتير',
+  daily: 'الحركة اليومية',
+  settings: 'الإعدادات',
+  reports: 'التقارير',
+  analytics: 'التحليلات',
+};
+let eafCurrentView = '';
+window.eafCurrentScreenLabel = () => {
+  const base = EAF_VIEW_LABELS[eafCurrentView] || '';
+  if (eafCurrentView === 'daily' && typeof window.eafActiveDailyTabLabel === 'function') {
+    const tab = window.eafActiveDailyTabLabel();
+    if (tab) return `${base} — ${tab}`;
+  }
+  return base;
+};
+
 function switchView(view, options = {}) {
   if (view === 'create' && !options.keepForm) {
     showToast('افتح المريض من الحركة اليومية لمراجعة الفاتورة', 'info');
@@ -4542,6 +4670,7 @@ function switchView(view, options = {}) {
   document.querySelectorAll('.view-section').forEach((s) => (s.style.display = 'none'));
   const section = document.getElementById(`view-${view}`);
   if (section) section.style.display = 'block';
+  eafCurrentView = view;
 
   if (typeof window.stopOpsCenterPolls === 'function') window.stopOpsCenterPolls();
 

@@ -701,7 +701,7 @@ function applyDailyTabColumnVisibility() {
       'بنود حرة — اكتب الوصف والسعر ثم اضغط «حفظ» مرة واحدة. لا تكرّر الضغط حتى يظهر «تم الحفظ».';
   } else if (hint && activeDailyTab === 'exams') {
     hint.textContent =
-      'كشوفات — حالة الكشف من لائحة الأسعار. السعر يُملأ تلقائيًا ويمكن تعديله قبل الحفظ. لرؤية كشوفات أيام الدخول السابقة: «عرض الحركة → كل أيام الإقامة» (الصفوف الصفراء = يوم سابق).';
+      'كشوفات — حالة الكشف من لائحة الأسعار. السعر يُملأ تلقائيًا من لائحة الأسعار ولا يُعدَّل يدويًا. لرؤية كشوفات أيام الدخول السابقة: «عرض الحركة → كل أيام الإقامة» (الصفوف الصفراء = يوم سابق).';
   } else if (hint && activeDailyTab === 'medicines') {
     hint.textContent = 'أدوية — ابحث عن الصنف، السعر من اللائحة المرفوعة. الإجمالي في أسفل الجدول.';
   } else if (hint && activeDailyTab === 'supplies') {
@@ -4113,6 +4113,11 @@ let dailyPriceListMeta = null;
 let dailySectionsLoadFailed = false;
 let dailyBusinessDate = null;
 let activeDailyTab = '';
+window.eafActiveDailyTabLabel = () => {
+  if (!activeDailyTab) return '';
+  const group = DAILY_TAB_GROUPS.find((g) => g.id === activeDailyTab);
+  return group ? group.label : '';
+};
 
 async function refreshDailyBusinessDate() {
   try {

@@ -6,6 +6,7 @@ async function createAlert(alert = {}, client = null) {
   const alertType = String(alert.alert_type || 'general').slice(0, 64);
   const entityType = alert.entity_type ? String(alert.entity_type).slice(0, 64) : null;
   const entityId = alert.entity_id != null ? String(alert.entity_id) : null;
+  const targetUserId = Number(alert.target_user_id) || null;
 
   const recent = await run(
     `SELECT id FROM system_alerts
@@ -14,14 +15,15 @@ async function createAlert(alert = {}, client = null) {
        AND COALESCE(entity_id, '') = COALESCE($3, '')
        AND is_read = FALSE
        AND created_at > NOW() - INTERVAL '24 hours'
+       AND target_user_id IS NOT DISTINCT FROM $4
      LIMIT 1`,
-    [alertType, entityType, entityId]
+    [alertType, entityType, entityId, targetUserId]
   );
-  if (recent.rows.length) return recent.rows[0];
+  if (recent.rows.length && !alert.always_new) return recent.rows[0];
 
   const { rows } = await run(
-    `INSERT INTO system_alerts (alert_type, severity, title, message, entity_type, entity_id, details)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+    `INSERT INTO system_alerts (alert_type, severity, title, message, entity_type, entity_id, details, target_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
      RETURNING *`,
     [
       alertType,
@@ -31,9 +33,17 @@ async function createAlert(alert = {}, client = null) {
       entityType,
       entityId,
       JSON.stringify(alert.details && typeof alert.details === 'object' ? alert.details : {}),
+      targetUserId,
     ]
   );
   return rows[0];
+}
+
+// Alerts for everyone, plus the ones addressed to this user.
+function viewerFilterSql(params, userId) {
+  if (!Number(userId)) return 'target_user_id IS NULL';
+  params.push(Number(userId));
+  return `(target_user_id IS NULL OR target_user_id = $${params.length})`;
 }
 
 const ORPHANED_ALERTS_SQL = `
@@ -60,6 +70,7 @@ async function listAlerts(filters = {}) {
   const offset = Math.max(Number(filters.offset) || 0, 0);
   const params = [];
   const where = [`NOT ${ORPHANED_ALERTS_SQL}`];
+  where.push(viewerFilterSql(params, filters.user_id));
 
   if (filters.unread_only === true || filters.unread_only === 'true') {
     where.push('is_read = FALSE');
@@ -76,7 +87,7 @@ async function listAlerts(filters = {}) {
   );
   params.push(limit, offset);
   const { rows } = await query(
-    `SELECT id, created_at, alert_type, severity, title, message, entity_type, entity_id, is_read, read_at, details
+    `SELECT id, created_at, alert_type, severity, title, message, entity_type, entity_id, is_read, read_at, details, target_user_id
      FROM system_alerts sa
      ${whereSql}
      ORDER BY is_read ASC, created_at DESC, id DESC
@@ -92,10 +103,13 @@ async function listAlerts(filters = {}) {
   };
 }
 
-async function getUnreadAlertCount() {
+async function getUnreadAlertCount(userId = null) {
+  const params = [];
+  const viewer = viewerFilterSql(params, userId);
   const { rows } = await query(
     `SELECT COUNT(*)::int AS c FROM system_alerts sa
-     WHERE is_read = FALSE AND NOT ${ORPHANED_ALERTS_SQL}`
+     WHERE is_read = FALSE AND NOT ${ORPHANED_ALERTS_SQL} AND ${viewer}`,
+    params
   );
   return rows[0]?.c || 0;
 }
@@ -115,7 +129,7 @@ async function markAllAlertsRead(userId = null) {
   await query(
     `UPDATE system_alerts
      SET is_read = TRUE, read_at = NOW(), read_by_user_id = $1
-     WHERE is_read = FALSE`,
+     WHERE is_read = FALSE AND (target_user_id IS NULL OR target_user_id = $1)`,
     [userId || null]
   );
 }

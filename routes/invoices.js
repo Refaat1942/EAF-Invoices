@@ -264,7 +264,23 @@ router.post('/:id/submit', requirePermission('invoices.submit'), async (req, res
   }
 });
 
-router.post('/:id/reopen', requireAnyPermission('invoices.edit', 'invoices.approve'), async (req, res) => {
+// Financial reviewer / admin: send the invoice back to its employee for correction.
+router.post('/:id/return', requirePermission('invoices.approve'), async (req, res) => {
+  try {
+    const { returnInvoiceForCorrection } = require('../services/invoiceService');
+    res.json(
+      await returnInvoiceForCorrection(Number(req.params.id), req.session.user, {
+        sections: req.body?.sections,
+        note: req.body?.note,
+      })
+    );
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Only the financial reviewer / admin may reopen an approved invoice (never an employee).
+router.post('/:id/reopen', requirePermission('invoices.approve'), async (req, res) => {
   try {
     const { reopenInvoice } = require('../services/invoiceService');
     res.json(await reopenInvoice(Number(req.params.id), req.session.user, req.body?.reason));

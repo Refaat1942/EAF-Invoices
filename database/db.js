@@ -511,6 +511,10 @@ async function runMigrations() {
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMPTZ`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopened_by_name TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopen_reason TEXT DEFAULT ''`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS returned_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS returned_by_name TEXT DEFAULT ''`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS return_note TEXT DEFAULT ''`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS return_sections JSONB DEFAULT '[]'::jsonb`);
   await query(`ALTER TABLE invoice_payments ADD COLUMN IF NOT EXISTS depositor_name TEXT DEFAULT ''`);
 
   await query(
@@ -578,6 +582,10 @@ async function runMigrations() {
   `);
   await query(
     `CREATE INDEX IF NOT EXISTS idx_system_alerts_unread ON system_alerts (created_at DESC) WHERE is_read = FALSE`
+  );
+  // A notification meant for one user only (e.g. «فاتورة مُرجعة للتصحيح» to its employee).
+  await query(
+    `ALTER TABLE system_alerts ADD COLUMN IF NOT EXISTS target_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL`
   );
 
   await query(`

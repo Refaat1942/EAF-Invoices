@@ -99,11 +99,42 @@
     }
   }
 
+  const AUDIT_ACTION_LABELS = {
+    'invoice.approve': 'اعتماد الفاتورة',
+    'invoice.reopen': 'إعادة فتح فاتورة معتمدة',
+    'invoice.return': 'إرجاع الفاتورة للموظف للتصحيح',
+    'invoice.delete': 'حذف فاتورة',
+    'patient.balance_adjust': 'تعديل رصيد المريض',
+  };
+
+  function auditActionLabel(row) {
+    return row.details?.action_label || AUDIT_ACTION_LABELS[row.action] || row.action;
+  }
+
+  function auditDetailsText(d = {}) {
+    if (!d || typeof d !== 'object') return '';
+    const parts = [];
+    if (Array.isArray(d.sections) && d.sections.length && !Array.isArray(d.changes)) parts.push(`الأقسام: ${d.sections.join('، ')}`);
+    if (Array.isArray(d.dates) && d.dates.length) parts.push(`التاريخ: ${d.dates.join('، ')}`);
+    if (d.items_count) parts.push(`عدد البنود: ${d.items_count}`);
+    if (d.room) parts.push(`الغرفة: ${d.room}`);
+    if (d.status_before) parts.push(`الحالة قبل: ${d.status_before}`);
+    if (d.note) parts.push(`ملاحظة: ${d.note}`);
+    if (d.reason) parts.push(`السبب: ${d.reason}`);
+    if (d.name) parts.push(d.name);
+    const head = parts.length ? escapeHtml(parts.join(' | ')) : '';
+    const changes = Array.isArray(d.changes) ? d.changes : [];
+    if (!changes.length) return head;
+    return `${head}<ul class="mb-0 mt-1 ps-3 text-body">${changes
+      .map((c) => `<li class="${/^حذف/.test(c) ? 'text-danger' : /^عدّل/.test(c) ? 'text-warning-emphasis' : 'text-success'}">${escapeHtml(c)}</li>`)
+      .join('')}</ul>`;
+  }
+
   async function loadAuditLogsPanel() {
     const body = document.getElementById('audit-logs-body');
     const search = document.getElementById('audit-log-search')?.value?.trim() || '';
     if (!body) return;
-    body.innerHTML = '<tr><td colspan="5" class="text-muted text-center">جاري التحميل...</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" class="text-muted text-center">جاري التحميل...</td></tr>';
     try {
       const qs = new URLSearchParams({ limit: '80' });
       if (search) qs.set('q', search);
@@ -111,7 +142,7 @@
       const data = await res.json();
       const rows = data.rows || [];
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="5" class="text-muted text-center">لا توجد سجلات</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="text-muted text-center">لا توجد سجلات</td></tr>';
         return;
       }
       body.innerHTML = rows
@@ -120,14 +151,15 @@
         <tr>
           <td class="text-nowrap small">${fmtDateTime(row.created_at)}</td>
           <td>${escapeHtml(row.user_name || '—')}</td>
-          <td><code>${escapeHtml(row.action)}</code></td>
+          <td class="fw-bold">${escapeHtml(auditActionLabel(row))}</td>
+          <td>${escapeHtml(row.details?.screen || '—')}</td>
           <td>${escapeHtml(row.entity_label || row.entity_type || '—')}</td>
-          <td class="small text-muted">${escapeHtml(JSON.stringify(row.details || {}))}</td>
+          <td class="small text-muted">${auditDetailsText(row.details)}</td>
         </tr>`
         )
         .join('');
     } catch (err) {
-      body.innerHTML = `<tr><td colspan="5" class="text-danger">${escapeHtml(err.message)}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="6" class="text-danger">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 

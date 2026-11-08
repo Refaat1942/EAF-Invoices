@@ -391,6 +391,7 @@
         <button type="button" class="btn btn-outline-secondary fw-bold hub-back-btn">← الرئيسية</button>
       </div>
       <div class="row g-3">
+        <div class="col-12 d-none" id="invoice-return-banner"></div>
         <div class="col-12">
           <div class="card shadow-sm invoice-card">
             <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -643,7 +644,7 @@
                   <button type="button" class="btn btn-outline-secondary btn-lg fw-black" id="save-draft-btn" data-guard-key="invoice:save" data-guard-busy="جاري الحفظ…" data-guard-siblings="submit-review-btn">💾 حفظ مؤقت</button>
                   <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="delete-invoice-btn" style="display:none" title="حذف المسودة أو الفاتورة قيد المراجعة" data-guard-key="invoice:delete" data-guard-busy="جاري الحذف…">🗑️ حذف</button>
                   <button type="button" class="btn btn-warning btn-lg fw-black" id="submit-review-btn" style="display:none" data-guard-key="invoice:save" data-guard-busy="جاري الإرسال…" data-guard-siblings="save-draft-btn">📤 إرسال للمراجعة</button>
-                  <button type="button" class="btn btn-outline-warning btn-lg fw-black" id="reopen-invoice-btn" style="display:none" data-guard-key="invoice:reopen" data-guard-busy="جاري إعادة الفتح…" title="إرجاع الفاتورة المعتمدة إلى مسودة للتعديل — تحتفظ برقمها، وتحتاج اعتمادًا جديدًا">🔓 إعادة فتح الفاتورة للتعديل</button>
+                  <button type="button" class="btn btn-outline-warning btn-lg fw-black" id="return-invoice-btn" style="display:none" title="إرجاع الفاتورة للموظف لتصحيح أجزاء محددة — تحتفظ برقمها وتحتاج اعتمادًا جديدًا">↩ إرجاع للموظف للتصحيح</button>
                   <button type="button" class="btn btn-success btn-lg fw-black" id="approve-invoice-btn" style="display:none" data-guard-key="invoice:approve" data-guard-busy="جاري الاعتماد…">✅ اعتماد نهائي</button>
                   <button type="button" class="btn btn-outline-secondary fw-bold" id="reset-form-btn">← الرئيسية</button>
                   <button type="button" class="btn btn-danger fw-bold" id="download-pdf-btn" style="display:none">📄 PDF</button>
@@ -1994,12 +1995,12 @@
               </div>
               <h6 class="fw-black mb-2">سجل التدقيق (Audit Log)</h6>
               <div class="input-group mb-2" style="max-width:28rem">
-                <input type="search" class="form-control form-control-sm" id="audit-log-search" placeholder="بحث في السجل...">
+                <input type="search" class="form-control form-control-sm" id="audit-log-search" placeholder="بحث باسم الموظف أو المريض أو رقم الملف أو الشاشة...">
                 <button type="button" class="btn btn-sm btn-primary fw-bold" id="audit-log-search-btn">بحث</button>
               </div>
               <div class="table-responsive audit-logs-scroll">
                 <table class="table table-sm table-bordered mb-0">
-                  <thead class="table-light"><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>الكيان</th><th>تفاصيل</th></tr></thead>
+                  <thead class="table-light"><tr><th>الوقت</th><th>المستخدم</th><th>الإجراء</th><th>الشاشة</th><th>المريض / الفاتورة</th><th>تفاصيل</th></tr></thead>
                   <tbody id="audit-logs-body"><tr><td colspan="5" class="text-muted text-center">—</td></tr></tbody>
                 </table>
               </div>
@@ -2480,22 +2481,22 @@
   </div><!-- app-container -->
 
   <script src="/vendor/bootstrap/bootstrap.bundle.min.js?v=5.3.3"></script>
-  <script src="/js/action-guard.js?v=20261108a"></script>
-  <script src="/js/enter-add-row.js?v=20261108a"></script>
-  <script src="/js/auto-save.js?v=20261108a"></script>
-  <script src="/js/api-client.js?v=20261108a"></script>
-  <script src="/js/daily-section-bundles.js?v=20261108a"></script>
-  <script src="/js/app.js?v=20261108a"></script>
-  <script src="/js/nationality-pricing.js?v=20261108a"></script>
-  <script src="/js/daily-picker.js?v=20261108a"></script>
-  <script src="/js/daily-charges.js?v=20261108a"></script>
-  <script src="/js/notifications.js?v=20261108a"></script>
-  <script src="/js/audit-admin.js?v=20261108a"></script>
-  <script src="/js/ops-center.js?v=20261108a"></script>
-  <script src="/js/assistant.js?v=20261108a"></script>
-  <script src="/js/analytics-dashboard.js?v=20261108a"></script>
-  <script src="/js/item-catalog-settings.js?v=20261108a"></script>
-  <script src="/js/doctor-settings.js?v=20261108a"></script>
-  <script src="/js/daily-entries-browser.js?v=20261108a"></script>
+  <script src="/js/action-guard.js?v=20261108b"></script>
+  <script src="/js/enter-add-row.js?v=20261108b"></script>
+  <script src="/js/auto-save.js?v=20261108b"></script>
+  <script src="/js/api-client.js?v=20261108b"></script>
+  <script src="/js/daily-section-bundles.js?v=20261108b"></script>
+  <script src="/js/app.js?v=20261108b"></script>
+  <script src="/js/nationality-pricing.js?v=20261108b"></script>
+  <script src="/js/daily-picker.js?v=20261108b"></script>
+  <script src="/js/daily-charges.js?v=20261108b"></script>
+  <script src="/js/notifications.js?v=20261108b"></script>
+  <script src="/js/audit-admin.js?v=20261108b"></script>
+  <script src="/js/ops-center.js?v=20261108b"></script>
+  <script src="/js/assistant.js?v=20261108b"></script>
+  <script src="/js/analytics-dashboard.js?v=20261108b"></script>
+  <script src="/js/item-catalog-settings.js?v=20261108b"></script>
+  <script src="/js/doctor-settings.js?v=20261108b"></script>
+  <script src="/js/daily-entries-browser.js?v=20261108b"></script>
 </body>
 </html>
