@@ -366,13 +366,27 @@ function calculateInvoiceTotals(data) {
     is_stay_entry: true,
   }));
 
+  // Free-item discount (البنود الحرة): «before_admin» lowers the line itself (the
+  // administrative fee is on the discounted amount); «after_admin» keeps the line and takes
+  // the discount off after the administrative expenses. Set in الإعدادات.
+  const freeDiscountMode = data.free_items_discount_mode === 'after_admin' ? 'after_admin' : 'before_admin';
+  let freeItemsDiscountRaw = 0;
+
   const manualItems = (data.items || []).map((item) => {
     const { originalQuantity, returnedQuantity, netQuantity } = resolveItemQuantities(item);
     // Foreign patients pay price-list prices × 2; a stamp is a fixed fee and is not doubled.
     const billableAmount = isStampLineItem(item)
       ? round2(item.amount)
       : applyNationalityUnitPrice(item.amount, patientNationality);
-    const calc = calculateItemTotal(netQuantity, billableAmount);
+    const grossCalc = calculateItemTotal(netQuantity, billableAmount);
+    const isFreeItem = !item.daily_entry_line_id && !item.daily_entry_id && !item.is_stay_entry;
+    const freePct = isFreeItem ? Math.min(100, Math.max(0, Number(item.free_discount_percent) || 0)) : 0;
+    const freeDiscountRaw = freePct > 0 ? round2(grossCalc.raw * (freePct / 100)) : 0;
+    freeItemsDiscountRaw = round2(freeItemsDiscountRaw + freeDiscountRaw);
+    const calc =
+      freeDiscountRaw > 0 && freeDiscountMode === 'before_admin'
+        ? calculateItemTotal(1, round2(grossCalc.raw - freeDiscountRaw))
+        : grossCalc;
     const creditRaw = round2(item.patient_credit_applied || 0);
     const supplies = prorateSuppliesFields(item, originalQuantity, netQuantity);
     const eligibility = resolveItemEligibility(
@@ -405,10 +419,14 @@ function calculateInvoiceTotals(data) {
       patient_credit_applied_raw: creditRaw,
       admin_fee_amount_raw: adminFeeRaw,
       admin_fee_amount: roundNearest(adminFeeRaw),
+      free_discount_percent: freePct,
+      free_discount_amount_raw: freeDiscountRaw,
+      gross_total_raw: grossCalc.raw,
       ...supplies,
       ...eligibility,
     };
   });
+  const freeDiscountAfterAdminRaw = freeDiscountMode === 'after_admin' ? freeItemsDiscountRaw : 0;
 
   const items = [...manualItems, ...stayItems.map((item) => {
     const calc = calculateItemTotal(item.quantity, item.amount);
@@ -478,7 +496,7 @@ function calculateInvoiceTotals(data) {
     : 0;
   const discountAmount = roundNearest(discountAmountRaw);
 
-  const netAfterDiscountRaw = round2(totalAfterAdminRaw - discountAmountRaw);
+  const netAfterDiscountRaw = round2(totalAfterAdminRaw - discountAmountRaw - freeDiscountAfterAdminRaw);
   const netAfterDiscount = roundNearest(netAfterDiscountRaw);
 
   const balanceD = dualValue(data.balance);
@@ -560,6 +578,10 @@ function calculateInvoiceTotals(data) {
     subtotal_before_admin_raw: subtotalBeforeAdminRaw,
     admin_applicable_subtotal: adminApplicableSubtotal,
     admin_applicable_subtotal_raw: adminApplicableSubtotalRaw,
+    free_items_discount_mode: freeDiscountMode,
+    free_items_discount_raw: freeItemsDiscountRaw,
+    free_items_discount: roundNearest(freeItemsDiscountRaw),
+    free_items_discount_after_admin_raw: freeDiscountAfterAdminRaw,
     admin_expenses_percent: adminPercentResolved,
     admin_excluded_note: adminExcludedBundles.length
       ? `لا تشمل ${adminExcludedBundles
@@ -716,6 +738,24 @@ function buildCalculationSteps(totals) {
     }
   );
 
+  if (Number(totals.free_items_discount_after_admin_raw) > 0) {
+    steps.push({
+      key: 'free_items_discount',
+      label: 'خصم البنود الحرة',
+      raw: totals.free_items_discount_after_admin_raw,
+      rounded: roundNearest(totals.free_items_discount_after_admin_raw),
+      is_deduction: true,
+    });
+    if (!(Number(totals.discount_amount_raw) > 0)) {
+      steps.push({
+        key: 'net_after_discount',
+        label: 'صافي بعد الخصم',
+        raw: totals.net_after_discount_raw,
+        rounded: totals.net_after_discount,
+      });
+    }
+  }
+
   if (Number(totals.discount_amount_raw) > 0) {
     steps.push(
       {
@@ -780,7 +820,11 @@ function validateInvoiceCalculations(data, totals) {
     if (item.is_stay_entry) continue;
     if (!item.description && !item.quantity && !item.amount) continue;
     const { netQuantity } = resolveItemQuantities(item);
-    const expected = round2(netQuantity * (Number(item.amount) || 0));
+    const gross = round2(netQuantity * (Number(item.amount) || 0));
+    // A free item discounted «before the administrative expenses» carries its net amount.
+    const lineDiscount =
+      totals.free_items_discount_mode !== 'after_admin' ? Number(item.free_discount_amount_raw) || 0 : 0;
+    const expected = round2(gross - lineDiscount);
     if (!approxEqual(expected, item.total_raw)) {
       errors.push(
         `بند "${item.description || '—'}": صافي ${netQuantity} × ${item.amount} = ${expected} ≠ ${item.total_raw}`
@@ -839,7 +883,11 @@ function validateInvoiceCalculations(data, totals) {
       errors.push('خطأ: قيمة خصم الجهة المتعاقدة غير صحيحة');
     }
 
-    const expectedNet = round2((totals.total_after_admin_raw || 0) - (totals.discount_amount_raw || 0));
+    const expectedNet = round2(
+      (totals.total_after_admin_raw || 0) -
+        (totals.discount_amount_raw || 0) -
+        (totals.free_items_discount_after_admin_raw || 0)
+    );
     if (!approxEqual(expectedNet, totals.net_after_discount_raw)) {
       errors.push('خطأ: صافي بعد الخصم غير صحيح');
     }

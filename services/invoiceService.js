@@ -171,6 +171,7 @@ async function prepareCalculationData(data, client = null) {
   calcData.discount_exclusions = await listDiscountExclusions(true);
   calcData.discount_excluded_bundles = await getDiscountExcludedBundles();
   calcData.admin_excluded_bundles = await getContractedAdminExcludedBundles();
+  calcData.free_items_discount_mode = (await getFreeItemsDiscountSettings()).mode;
   const adminRateSetting = String(await getSetting('administrative_fee_rate', '12')).trim();
   calcData.administrative_fee_rate =
     adminRateSetting !== '' && Number(adminRateSetting) >= 0 ? Number(adminRateSetting) : 12;
@@ -530,7 +531,8 @@ async function saveDiscountFields(client, invoiceId, data, totals, createdBy = n
       letter_from_date = $11,
       letter_to_date = $12,
       created_by_user_id = COALESCE(created_by_user_id, $13),
-      created_by_name = CASE WHEN COALESCE(created_by_name, '') = '' THEN $14 ELSE created_by_name END
+      created_by_name = CASE WHEN COALESCE(created_by_name, '') = '' THEN $14 ELSE created_by_name END,
+      free_items_discount_mode = COALESCE($15, free_items_discount_mode)
      WHERE id = $1`,
     [
       invoiceId,
@@ -547,6 +549,7 @@ async function saveDiscountFields(client, invoiceId, data, totals, createdBy = n
       fmtDateOnly(data.letter_to_date),
       createdBy?.id || null,
       createdBy?.name || '',
+      totals.free_items_discount_mode || null,
     ]
   );
 }
@@ -761,7 +764,7 @@ async function getInvoiceById(id, client = null) {
   const frozen = invoice.status === 'approved' || invoice.status === 'cancelled';
   let calcRules = {};
   if (frozen) {
-    calcRules = { admin_rules_frozen: true };
+    calcRules = { admin_rules_frozen: true, free_items_discount_mode: invoice.free_items_discount_mode || 'before_admin' };
     const percent = Number(invoice.admin_expenses_percent) || 0;
     if (invoice.invoice_type === 'contracted' && percent > 0) {
       for (const item of enrichedItems) {
@@ -774,6 +777,7 @@ async function getInvoiceById(id, client = null) {
     calcRules = {
       admin_excluded_bundles: await getContractedAdminExcludedBundles(),
       discount_excluded_bundles: await getDiscountExcludedBundles(),
+      free_items_discount_mode: (await getFreeItemsDiscountSettings()).mode,
     };
   }
 
@@ -1187,8 +1191,9 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           price_type_snapshot, tier_key_snapshot, discountable_snapshot, administrative_fee_applicable_snapshot,
           admin_fee_amount_snapshot, admin_fee_percent_snapshot, price_list_id_snapshot, price_list_name_snapshot,
           composite_components_snapshot, patient_credit_applied, daily_entry_id, daily_entry_line_id,
-          cost_price_snapshot, markup_percent_snapshot, selling_price_snapshot, margin_amount_snapshot
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`,
+          cost_price_snapshot, markup_percent_snapshot, selling_price_snapshot, margin_amount_snapshot,
+          free_discount_percent
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`,
         [
           invoiceId,
           item.description || item.service_name_snapshot || '',
@@ -1221,6 +1226,7 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
           item.markup_percent_snapshot != null ? item.markup_percent_snapshot : null,
           item.selling_price_snapshot != null ? item.selling_price_snapshot : null,
           item.margin_amount_snapshot != null ? item.margin_amount_snapshot : null,
+          Number(item.free_discount_percent) || 0,
         ]
       );
     }
@@ -1695,6 +1701,7 @@ function invoiceManualItems(invoice) {
       patient_credit_applied: item.patient_credit_applied,
       item_discount_percent: item.item_discount_percent,
       discount_exclusion_id: item.discount_exclusion_id,
+      free_discount_percent: Number(item.free_discount_percent) || 0,
     }));
 }
 
@@ -1710,6 +1717,7 @@ function buildCalcDataFromInvoice(invoice) {
     quantity: item.quantity,
     returned_quantity: item.returned_quantity || 0,
     amount: item.amount,
+    free_discount_percent: Number(item.free_discount_percent) || 0,
     unit_price_snapshot: item.unit_price_snapshot,
     service_id: item.service_id,
     service_code_snapshot: item.service_code_snapshot,
@@ -1860,6 +1868,22 @@ async function recalculateAndPersistInvoiceTotals(invoiceId, client = null) {
 // Contracted entities: sections billed WITHOUT administrative expenses (setting, with a
 // default of medicines, supplies and free items; stamps and professional fees never carry it).
 const DEFAULT_CONTRACTED_ADMIN_EXCLUDED = ['medicines', 'supplies', '__manual__'];
+
+// Free-item discount rules (الإعدادات): before / after the administrative expenses, the
+// highest percent allowed, and who may give it.
+async function getFreeItemsDiscountSettings() {
+  try {
+    const raw = await getSetting('free_items_discount', '');
+    const s = raw ? JSON.parse(raw) : {};
+    return {
+      mode: s.mode === 'after_admin' ? 'after_admin' : 'before_admin',
+      max_percent: Number.isFinite(Number(s.max_percent)) ? Math.min(100, Math.max(0, Number(s.max_percent))) : 100,
+      who: s.who === 'reviewer' ? 'reviewer' : 'all',
+    };
+  } catch {
+    return { mode: 'before_admin', max_percent: 100, who: 'all' };
+  }
+}
 async function getContractedAdminExcludedBundles() {
   try {
     const raw = await getSetting('contracted_admin_excluded_sections', '');
@@ -2345,12 +2369,28 @@ async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = nu
           quantity,
           returned_quantity: parseInvoiceItemAmount(item.returned_quantity) || 0,
           amount,
+          free_discount_percent: Math.min(100, Math.max(0, Number(item.free_discount_percent) || 0)),
           patient_credit_applied: 0,
           service_id: null,
         };
       })
       .filter((item) => item.description || item.amount > 0)
   );
+
+  const discountRules = await getFreeItemsDiscountSettings();
+  const storedPct = new Map(invoiceManualItems(invoice).map((i) => [Number(i.id), Number(i.free_discount_percent) || 0]));
+  for (const item of manualItems) {
+    const pct = Number(item.free_discount_percent) || 0;
+    if (pct <= 0) continue;
+    if (pct > discountRules.max_percent) {
+      throw new Error(`خصم «${item.description || 'بند حر'}» (${pct}%) أكبر من المسموح (${discountRules.max_percent}%)`);
+    }
+    const unchanged = item.id && storedPct.get(Number(item.id)) === pct;
+    const role = String(user?.role || 'user');
+    if (!unchanged && discountRules.who === 'reviewer' && role !== 'admin' && role !== 'reviewer') {
+      throw new Error('خصم البنود الحرة للمراجع المالي أو مدير النظام فقط');
+    }
+  }
 
   const freeItemsTotal = Math.round(
     manualItems.reduce((sum, item) => sum + (Number(item.quantity) || 1) * (Number(item.amount) || 0), 0) *
@@ -2757,6 +2797,7 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
 
 module.exports = {
   reopenInvoice,
+  getFreeItemsDiscountSettings,
   getContractedAdminExcludedBundles,
   cancelInvoice,
   returnInvoiceForCorrection,

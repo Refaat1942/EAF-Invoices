@@ -73,6 +73,10 @@ function formatInvoiceLineDescription(item) {
   if (unit && desc && !desc.includes(unit)) {
     desc = `${desc} (${unit})`;
   }
+  const freePct = Number(item?.free_discount_percent) || 0;
+  if (freePct > 0 && desc && !desc.includes('خصم')) {
+    desc = `${desc} (خصم ${freePct}%)`;
+  }
 
   return desc;
 }
@@ -999,7 +1003,9 @@ function buildStayDetailsTable(inv) {
 
 function buildSummaryRows(inv) {
   const sectionPreview = Boolean(inv._daily_kind_preview);
-  const adminLabel = `مصروفات إدارية ${Number(inv.admin_expenses_percent ?? 12)}%`;
+  const adminLabel = `مصروفات إدارية ${Number(inv.admin_expenses_percent ?? 12)}%${
+    inv.admin_excluded_note ? ` (${inv.admin_excluded_note})` : ''
+  }`;
   const hasDiscount = Number(inv.discount_amount) > 0 || Number(inv.discount_percent) > 0;
   const hasStay = Number(inv.stay_subtotal) > 0;
 
@@ -1015,6 +1021,14 @@ function buildSummaryRows(inv) {
     [adminLabel, inv.admin_expenses_raw, inv.admin_expenses, ''],
     ['الإجمالي بعد المصروفات الإدارية', inv.total_after_admin_raw, inv.total_after_admin, '']
   );
+
+  const freeAfterAdmin = Number(inv.free_items_discount_after_admin_raw) || 0;
+  if (freeAfterAdmin > 0) {
+    rows.push(['خصم البنود الحرة', freeAfterAdmin, freeAfterAdmin, '']);
+    if (!hasDiscount) {
+      rows.push(['صافي بعد الخصم', inv.net_after_discount_raw, inv.net_after_discount, '']);
+    }
+  }
 
   if (hasDiscount) {
     rows.push(

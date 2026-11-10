@@ -1713,13 +1713,15 @@ function createFreeItemRowHtml(item = {}) {
         ? dailyFormatInput(item.amount)
         : String(item.amount)
       : '';
-  const lineTotal = (Number(item.quantity) || 1) * dailyParseAmount(item.amount);
+  const discPct = Number(item.free_discount_percent) || 0;
+  const lineTotal = (Number(item.quantity) || 1) * dailyParseAmount(item.amount) * (1 - discPct / 100);
   const totalVal = lineTotal > 0 && typeof dailyFormatInput === 'function' ? dailyFormatInput(lineTotal) : '';
   return `
     <td class="daily-col-serial"><input type="text" class="form-control form-control-sm daily-row-serial bg-light text-center fw-bold" readonly tabindex="-1"></td>
     <td><input type="text" class="form-control form-control-sm daily-free-desc" value="${dailyEscapeHtml(item.description || '')}" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-qty comma-amount" data-decimals="0" value="${qty}" autocomplete="off"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-amount comma-amount" value="${amt}" autocomplete="off"></td>
+    <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-free-discount" value="${discPct > 0 ? discPct : ''}" placeholder="—" autocomplete="off" title="نسبة الخصم على هذا البند"></td>
     <td><input type="text" class="form-control form-control-sm daily-free-line-total bg-light fw-bold" readonly tabindex="-1" value="${totalVal}"></td>
     <td><button type="button" class="btn btn-sm btn-outline-danger daily-free-remove" title="حذف">×</button></td>`;
 }
@@ -1728,13 +1730,15 @@ function bindFreeItemRowEvents(tr) {
   const updateLine = () => {
     const qty = dailyParseAmount(tr.querySelector('.daily-free-qty')?.value) || 1;
     const amt = dailyParseAmount(tr.querySelector('.daily-free-amount')?.value);
+    const pct = Math.min(100, Math.max(0, dailyParseAmount(tr.querySelector('.daily-free-discount')?.value) || 0));
+    const net = qty * amt * (1 - pct / 100);
     const totalEl = tr.querySelector('.daily-free-line-total');
     if (totalEl) {
-      totalEl.value = amt ? (typeof dailyFormatInput === 'function' ? dailyFormatInput(qty * amt) : String(qty * amt)) : '';
+      totalEl.value = amt ? (typeof dailyFormatInput === 'function' ? dailyFormatInput(net) : String(net)) : '';
     }
     updateFreeItemsTotal();
   };
-  tr.querySelectorAll('.daily-free-qty, .daily-free-amount').forEach((el) => {
+  tr.querySelectorAll('.daily-free-qty, .daily-free-amount, .daily-free-discount').forEach((el) => {
     el.addEventListener('input', updateLine);
   });
   tr.querySelector('.daily-free-remove')?.addEventListener('click', () => {
@@ -1785,11 +1789,16 @@ function collectFreeItemsFromTable() {
     const amount = dailyParseAmount(tr.querySelector('.daily-free-amount')?.value);
     const id = tr.dataset.itemId ? Number(tr.dataset.itemId) : null;
     if (!description && amount <= 0) return;
+    const free_discount_percent = Math.min(
+      100,
+      Math.max(0, dailyParseAmount(tr.querySelector('.daily-free-discount')?.value) || 0)
+    );
     rows.push({
       id,
       description,
       quantity,
       amount,
+      free_discount_percent,
       returned_quantity: 0,
       patient_credit_applied: 0,
     });

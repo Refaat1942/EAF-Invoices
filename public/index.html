@@ -1105,10 +1105,11 @@
                       <thead>
                         <tr>
                           <th style="width:4rem">مسلسل</th>
-                          <th style="width:40%">البيان</th>
-                          <th style="width:12%">الكمية</th>
-                          <th style="width:18%">المبلغ (سعر الوحدة)</th>
-                          <th style="width:18%">الإجمالي</th>
+                          <th style="width:34%">البيان</th>
+                          <th style="width:10%">الكمية</th>
+                          <th style="width:16%">المبلغ (سعر الوحدة)</th>
+                          <th style="width:10%">خصم %</th>
+                          <th style="width:16%">الإجمالي بعد الخصم</th>
                           <th style="width:8%"></th>
                         </tr>
                       </thead>
@@ -1428,6 +1429,28 @@
               <h6 class="fw-black mb-1">الجهات المتعاقدة: أقسام خارج المصروفات الإدارية</h6>
               <p class="small text-muted mb-2">الأقسام المعلَّمة لا تُحسب عليها مصروفات إدارية في فواتير الجهات المتعاقدة. الدمغات والمهن خارج المصروفات الإدارية دائمًا.</p>
               <div class="d-flex flex-wrap gap-3 mb-3" id="contracted-admin-sections-list"></div>
+              <hr>
+              <h6 class="fw-black mb-1">خصم البنود الحرة</h6>
+              <div class="row g-2 mb-3">
+                <div class="col-md-5">
+                  <label class="form-label small fw-bold" for="free-disc-mode">طريقة الحساب</label>
+                  <select class="form-select form-select-sm fw-bold" id="free-disc-mode">
+                    <option value="before_admin">قبل المصروفات الإدارية (تُحسب المصروفات على المبلغ بعد الخصم)</option>
+                    <option value="after_admin">بعد المصروفات الإدارية (يُخصم من الإجمالي بعدها)</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small fw-bold" for="free-disc-max">أقصى نسبة خصم %</label>
+                  <input type="text" inputmode="decimal" class="form-control form-control-sm fw-bold" id="free-disc-max">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label small fw-bold" for="free-disc-who">من يمكنه الخصم</label>
+                  <select class="form-select form-select-sm fw-bold" id="free-disc-who">
+                    <option value="all">كل الموظفين</option>
+                    <option value="reviewer">المراجع المالي ومدير النظام فقط</option>
+                  </select>
+                </div>
+              </div>
               <button type="button" class="btn btn-success fw-bold" id="fees-save-btn">حفظ</button>
             </div>
           </div>
@@ -2511,22 +2534,22 @@
   </div><!-- app-container -->
 
   <script src="/vendor/bootstrap/bootstrap.bundle.min.js?v=5.3.3"></script>
-  <script src="/js/action-guard.js?v=20261111a"></script>
-  <script src="/js/enter-add-row.js?v=20261111a"></script>
-  <script src="/js/auto-save.js?v=20261111a"></script>
-  <script src="/js/api-client.js?v=20261111a"></script>
-  <script src="/js/daily-section-bundles.js?v=20261111a"></script>
-  <script src="/js/app.js?v=20261111a"></script>
-  <script src="/js/nationality-pricing.js?v=20261111a"></script>
-  <script src="/js/daily-picker.js?v=20261111a"></script>
-  <script src="/js/daily-charges.js?v=20261111a"></script>
-  <script src="/js/notifications.js?v=20261111a"></script>
-  <script src="/js/audit-admin.js?v=20261111a"></script>
-  <script src="/js/ops-center.js?v=20261111a"></script>
-  <script src="/js/assistant.js?v=20261111a"></script>
-  <script src="/js/analytics-dashboard.js?v=20261111a"></script>
-  <script src="/js/item-catalog-settings.js?v=20261111a"></script>
-  <script src="/js/doctor-settings.js?v=20261111a"></script>
-  <script src="/js/daily-entries-browser.js?v=20261111a"></script>
+  <script src="/js/action-guard.js?v=20261111b"></script>
+  <script src="/js/enter-add-row.js?v=20261111b"></script>
+  <script src="/js/auto-save.js?v=20261111b"></script>
+  <script src="/js/api-client.js?v=20261111b"></script>
+  <script src="/js/daily-section-bundles.js?v=20261111b"></script>
+  <script src="/js/app.js?v=20261111b"></script>
+  <script src="/js/nationality-pricing.js?v=20261111b"></script>
+  <script src="/js/daily-picker.js?v=20261111b"></script>
+  <script src="/js/daily-charges.js?v=20261111b"></script>
+  <script src="/js/notifications.js?v=20261111b"></script>
+  <script src="/js/audit-admin.js?v=20261111b"></script>
+  <script src="/js/ops-center.js?v=20261111b"></script>
+  <script src="/js/assistant.js?v=20261111b"></script>
+  <script src="/js/analytics-dashboard.js?v=20261111b"></script>
+  <script src="/js/item-catalog-settings.js?v=20261111b"></script>
+  <script src="/js/doctor-settings.js?v=20261111b"></script>
+  <script src="/js/daily-entries-browser.js?v=20261111b"></script>
 </body>
 </html>

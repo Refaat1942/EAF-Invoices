@@ -112,6 +112,31 @@ const ADMIN_SECTIONS = [
   ['__manual__', 'البنود الحرة'],
 ];
 
+router.get('/free-items-discount', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const { getFreeItemsDiscountSettings } = require('../services/invoiceService');
+    res.json(await getFreeItemsDiscountSettings());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/free-items-discount', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const { setSetting } = require('../services/settingsService');
+    const max = Number(req.body?.max_percent);
+    const value = {
+      mode: req.body?.mode === 'after_admin' ? 'after_admin' : 'before_admin',
+      max_percent: Number.isFinite(max) ? Math.min(100, Math.max(0, max)) : 100,
+      who: req.body?.who === 'reviewer' ? 'reviewer' : 'all',
+    };
+    await setSetting('free_items_discount', JSON.stringify(value));
+    res.json(value);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/contracted-admin-sections', requirePermission('invoices.view'), async (req, res) => {
   try {
     const { getContractedAdminExcludedBundles } = require('../services/invoiceService');

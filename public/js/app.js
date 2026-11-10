@@ -1490,6 +1490,9 @@ function fillInvoiceItemRow(row, item = {}, pay = {}) {
   }
   const pctField = row.querySelector('[data-field="discount_percent"]');
   if (pctField) pctField.value = `${item.item_discount_percent || 0}%`;
+  // Free-item discount travels with the row so saving from this screen keeps it.
+  if (Number(item.free_discount_percent) > 0) row.dataset.freeDiscount = String(item.free_discount_percent);
+  else delete row.dataset.freeDiscount;
   const receiptDateEl = row.querySelector('[data-field="receipt_date"]');
   const receiptNumEl = row.querySelector('[data-field="receipt_number"]');
   const payAmtEl = row.querySelector('[data-field="pay_amount"]');
@@ -3073,6 +3076,7 @@ function collectFormData() {
       const itemIdEl = row.querySelector('[data-field="invoice_item_id"]');
       const item = { description: desc, quantity: qty, amount: amt };
       if (itemIdEl?.value) item.id = Number(itemIdEl.value);
+      if (Number(row.dataset.freeDiscount) > 0) item.free_discount_percent = Number(row.dataset.freeDiscount);
       const returnedQty = Number(row.dataset.returnedQty) || 0;
       if (returnedQty > 0) item.returned_quantity = returnedQty;
       if (creditAmt > 0) item.patient_credit_applied = creditAmt;
@@ -7811,6 +7815,17 @@ async function loadInvoiceFeesSection() {
     const markup = String(settings.default_supplies_markup_percent ?? '').trim();
     document.getElementById('fees-supplies-markup').value = formatAmountInput(markup === '' ? 20 : Number(markup));
     bindCommaAmountInputs(document.getElementById('settings-panel-invoice-fees'));
+    try {
+      const fd = await apiJson(`${SETTINGS_API}/free-items-discount`);
+      const modeEl = document.getElementById('free-disc-mode');
+      if (modeEl) modeEl.value = fd.mode;
+      const maxEl = document.getElementById('free-disc-max');
+      if (maxEl) maxEl.value = String(fd.max_percent);
+      const whoEl = document.getElementById('free-disc-who');
+      if (whoEl) whoEl.value = fd.who;
+    } catch {
+      /* optional */
+    }
     const box = document.getElementById('contracted-admin-sections-list');
     if (box) {
       const sections = await apiJson(`${SETTINGS_API}/contracted-admin-sections`);
@@ -7845,6 +7860,19 @@ async function saveInvoiceFeesSettings() {
       }),
     });
     if (typeof dailySuppliesMarkupPercent !== 'undefined') dailySuppliesMarkupPercent = markup;
+    if (document.getElementById('free-disc-mode')) {
+      const max = parseDisplayAmount(document.getElementById('free-disc-max')?.value);
+      if (!(max >= 0) || max > 100) throw new Error('أقصى نسبة خصم للبنود الحرة بين 0 و 100');
+      await apiJson(`${SETTINGS_API}/free-items-discount`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: document.getElementById('free-disc-mode').value,
+          max_percent: max,
+          who: document.getElementById('free-disc-who').value,
+        }),
+      });
+    }
     if (document.getElementById('contracted-admin-sections-list')) {
       const excluded = [...document.querySelectorAll('.contracted-admin-section-check:checked')].map((el) => el.value);
       await apiJson(`${SETTINGS_API}/contracted-admin-sections`, {

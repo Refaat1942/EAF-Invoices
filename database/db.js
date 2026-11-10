@@ -515,6 +515,9 @@ async function runMigrations() {
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS returned_at TIMESTAMPTZ`);
   // Identity: Egyptian national ID (14 digits) or a foreigner's passport / residence / ID card.
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS id_type VARCHAR(20) DEFAULT ''`);
+  // Discount typed on a free item (البنود الحرة), in percent.
+  await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS free_discount_percent NUMERIC(6,2) DEFAULT 0`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS free_items_discount_mode VARCHAR(20) DEFAULT 'before_admin'`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS id_number VARCHAR(40) DEFAULT ''`);
   // Cancelled by the admin: the invoice keeps its serial and stays in the books as «ملغاة».
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`);
