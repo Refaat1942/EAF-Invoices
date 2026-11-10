@@ -69,7 +69,41 @@ async function createContractedEntity(data) {
   return rows[0];
 }
 
+const DISCOUNT_SECTION_KEYS = ['stay', 'sessions', 'medicines', 'supplies', 'exams', 'lab', 'radiology', 'other', 'operations', '__manual__'];
+
+/**
+ * The sections an entity's discount does not apply to: its own choice, else its parent's,
+ * else null (the caller then uses the general default from الإعدادات).
+ */
+async function getEntityDiscountExcludedSections(id) {
+  let current = id ? await getContractedEntityById(Number(id)) : null;
+  let guard = 0;
+  while (current && guard < 20) {
+    if (Array.isArray(current.discount_excluded_sections)) return current.discount_excluded_sections.map(String);
+    if (!current.parent_id) break;
+    current = await getContractedEntityById(current.parent_id);
+    guard += 1;
+  }
+  return null;
+}
+
+async function setEntityDiscountExcludedSections(id, sections) {
+  const value =
+    sections === null || sections === undefined
+      ? null
+      : JSON.stringify((Array.isArray(sections) ? sections : []).map(String).filter((k) => DISCOUNT_SECTION_KEYS.includes(k)));
+  const { rows } = await query(
+    `UPDATE contracted_entities SET discount_excluded_sections = $2::jsonb WHERE id = $1 RETURNING *`,
+    [id, value]
+  );
+  if (!rows.length) throw new Error('الجهة غير موجودة');
+  return rows[0];
+}
+
 async function updateContractedEntity(id, data) {
+  if (data.discount_excluded_sections !== undefined) {
+    await setEntityDiscountExcludedSections(id, data.discount_excluded_sections);
+  }
   const { rows } = await query(
     `UPDATE contracted_entities SET
       name = COALESCE($2, name),
@@ -104,6 +138,9 @@ async function deleteContractedEntity(id) {
 }
 
 module.exports = {
+  getEntityDiscountExcludedSections,
+  setEntityDiscountExcludedSections,
+  DISCOUNT_SECTION_KEYS,
   listContractedEntities,
   listContractedEntitiesTree,
   getContractedEntityById,

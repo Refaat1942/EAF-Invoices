@@ -2741,6 +2741,42 @@ function updatePatientRegIdentityFields() {
   if (hint) hint.textContent = egyptian ? '14 رقمًا من بطاقة الرقم القومي' : 'اختر النوع واكتب الرقم';
 }
 
+async function findPatientsWithSameIdentity(number) {
+  const n = String(number || '').trim();
+  if (n.length < 4) return [];
+  try {
+    const params = new URLSearchParams({ number: n, exclude: patientRegEditMode ? patientRegEditFileNumber || '' : '' });
+    return await apiJson(`/api/patients/by-identity?${params}`);
+  } catch {
+    return [];
+  }
+}
+
+// Warn as soon as the number is typed (registration and edit).
+async function warnDuplicatePatientIdentity() {
+  const hint = document.getElementById('patient-reg-id-dup');
+  if (!hint) return;
+  const identity = readPatientRegIdentity();
+  const matches = identity.error ? [] : await findPatientsWithSameIdentity(identity.id_number);
+  if (!matches.length) {
+    hint.classList.add('d-none');
+    hint.innerHTML = '';
+    return;
+  }
+  hint.innerHTML = `⚠ هذا الرقم مسجل بالفعل: ${matches
+    .map(
+      (m) =>
+        `<button type="button" class="btn btn-link btn-sm p-0 fw-bold align-baseline patient-reg-dup-open" data-file="${dailyEscapeAttr(m.file_number)}">${dailyEscapeHtml(m.name || '')} (ملف ${dailyEscapeHtml(m.file_number)})</button>`
+    )
+    .join('، ')}`;
+  hint.classList.remove('d-none');
+  hint.querySelectorAll('.patient-reg-dup-open').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (typeof switchView === 'function') switchView('daily', { openFileNumber: btn.dataset.file });
+    });
+  });
+}
+
 function readPatientRegIdentity() {
   const egyptian = isEgyptianNationalityValue(document.getElementById('patient-reg-nationality')?.value);
   const raw = document.getElementById('patient-reg-id-number')?.value || '';
@@ -3501,6 +3537,7 @@ function clearPatientRegisterForm(options = {}) {
     'patient-reg-discharge',
     'patient-reg-id-number',
     'patient-reg-id-type',
+    'patient-reg-id-dup',
     'patient-reg-balance',
     'patient-reg-age',
     'patient-reg-room-insurance',
@@ -3526,6 +3563,10 @@ function clearPatientRegisterForm(options = {}) {
       el.value = 'مصري';
     } else {
       el.value = '';
+    }
+    if (el.tagName === 'DIV') {
+      el.innerHTML = '';
+      el.classList.add('d-none');
     }
     delete el.dataset.selectedStayType;
   });
@@ -3617,6 +3658,27 @@ async function savePatientRegistration(event) {
     showToast(identity.error, 'warning');
     document.getElementById('patient-reg-id-number')?.focus();
     return;
+  }
+  // Same national ID / passport on another file: open that patient, or confirm a new file.
+  const sameIdentity = await findPatientsWithSameIdentity(identity.id_number);
+  if (sameIdentity.length) {
+    const first = sameIdentity[0];
+    const openExisting = window.confirm(
+      `⚠ الرقم ${identity.id_number} مسجل بالفعل للمريض «${first.name || ''}» — ملف ${first.file_number}.\n\nاضغط «موافق» لفتح ملف هذا المريض بدل تسجيل ملف جديد،\nأو «إلغاء» للمتابعة.`
+    );
+    if (openExisting) {
+      if (typeof switchView === 'function') switchView('daily', { openFileNumber: first.file_number });
+      return;
+    }
+    const proceed = window.confirm(
+      patientRegEditMode
+        ? 'حفظ نفس الرقم على هذا المريض رغم وجوده على ملف آخر؟'
+        : 'تسجيل مريض جديد بنفس الرقم رغم وجود ملف آخر به؟ (سيظهر الملفان عند البحث بالرقم)'
+    );
+    if (!proceed) {
+      document.getElementById('patient-reg-id-number')?.focus();
+      return;
+    }
   }
   const todayStr = getLocalDateString();
   if (admission_date > todayStr || (discharge_date && discharge_date > todayStr)) {
@@ -3723,6 +3785,8 @@ function initPatientRegistration(options = {}) {
       void checkPatientRegisterFileDuplicate();
     });
     document.getElementById('patient-reg-nationality')?.addEventListener('change', updatePatientRegNationalityHint);
+    document.getElementById('patient-reg-id-number')?.addEventListener('blur', () => void warnDuplicatePatientIdentity());
+    document.getElementById('patient-reg-id-type')?.addEventListener('change', () => void warnDuplicatePatientIdentity());
   }
   updatePatientRegNationalityHint();
   void loadDailyStayTypes().then(async () => {

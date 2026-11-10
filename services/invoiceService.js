@@ -169,7 +169,7 @@ async function prepareCalculationData(data, client = null) {
   await ensurePatientCreditMethod();
   calcData.patient_credit_method_id = await getPaymentMethodIdByCode('patient_credit');
   calcData.discount_exclusions = await listDiscountExclusions(true);
-  calcData.discount_excluded_bundles = await getDiscountExcludedBundles();
+  calcData.discount_excluded_bundles = await getDiscountExcludedBundlesForEntity(calcData.contracted_entity_id);
   calcData.admin_excluded_bundles = await getContractedAdminExcludedBundles();
   calcData.free_items_discount_mode = (await getFreeItemsDiscountSettings()).mode;
   const adminRateSetting = String(await getSetting('administrative_fee_rate', '12')).trim();
@@ -776,7 +776,7 @@ async function getInvoiceById(id, client = null) {
   } else {
     calcRules = {
       admin_excluded_bundles: await getContractedAdminExcludedBundles(),
-      discount_excluded_bundles: await getDiscountExcludedBundles(),
+      discount_excluded_bundles: await getDiscountExcludedBundlesForEntity(invoice.contracted_entity_id),
       free_items_discount_mode: (await getFreeItemsDiscountSettings()).mode,
     };
   }
@@ -1893,6 +1893,20 @@ async function getContractedAdminExcludedBundles() {
   } catch {
     return DEFAULT_CONTRACTED_ADMIN_EXCLUDED;
   }
+}
+
+// The entity's own choice (or its parent's) wins over the general default.
+async function getDiscountExcludedBundlesForEntity(entityId) {
+  if (entityId) {
+    try {
+      const { getEntityDiscountExcludedSections } = require('./contractedEntityService');
+      const own = await getEntityDiscountExcludedSections(entityId);
+      if (Array.isArray(own)) return own;
+    } catch {
+      /* fall back to the default */
+    }
+  }
+  return getDiscountExcludedBundles();
 }
 
 async function getDiscountExcludedBundles() {

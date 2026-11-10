@@ -30,6 +30,28 @@ router.get('/check-file-number', requireAnyPermission('patients.view', 'daily_ch
   }
 });
 
+// Registration: is this national ID / passport number already on another patient's file?
+router.get('/by-identity', requireAnyPermission('patients.view', 'daily_charges.manage'), async (req, res) => {
+  try {
+    const { query } = require('../database/db');
+    const number = String(req.query.number || '')
+      .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+      .replace(/\s+/g, '')
+      .trim();
+    if (number.length < 4) return res.json([]);
+    const { rows } = await query(
+      `SELECT file_number, name, patient_type, id_type FROM patients
+       WHERE UPPER(REPLACE(COALESCE(id_number, ''), ' ', '')) = UPPER($1)
+         AND TRIM(file_number) <> TRIM($2)
+       ORDER BY updated_at DESC NULLS LAST LIMIT 5`,
+      [number, String(req.query.exclude || '')]
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/next-file-number', requireAnyPermission('patients.view', 'daily_charges.manage'), async (req, res) => {
   try {
     const patientType = req.query.patient_type || 'internal';

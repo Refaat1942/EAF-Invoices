@@ -517,6 +517,9 @@ async function runMigrations() {
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS id_type VARCHAR(20) DEFAULT ''`);
   // Discount typed on a free item (البنود الحرة), in percent.
   await query(`ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS free_discount_percent NUMERIC(6,2) DEFAULT 0`);
+  // Per contracted entity: sections its discount does NOT apply to (NULL = as its parent /
+  // the general default).
+  await query(`ALTER TABLE contracted_entities ADD COLUMN IF NOT EXISTS discount_excluded_sections JSONB`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS free_items_discount_mode VARCHAR(20) DEFAULT 'before_admin'`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS id_number VARCHAR(40) DEFAULT ''`);
   // Cancelled by the admin: the invoice keeps its serial and stays in the books as «ملغاة».

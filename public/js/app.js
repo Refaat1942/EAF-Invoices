@@ -4449,7 +4449,13 @@ function renderInvoiceReturnBanner(inv) {
 
 async function cancelCurrentInvoice() {
   if (!currentInvoiceId) return;
-  const serial = lastLoadedInvoice?.serial_number || `#${currentInvoiceId}`;
+  await cancelApprovedInvoice(currentInvoiceId, lastLoadedInvoice?.serial_number || '');
+}
+
+// Admin: cancel («delete») an approved invoice — never removed, keeps its serial, shows as
+// «ملغاة» in lists and reports and leaves the totals. Reason required.
+async function cancelApprovedInvoice(invoiceId, serialNumber = '') {
+  const serial = serialNumber || `#${invoiceId}`;
   const reason = window.prompt(
     `إلغاء الفاتورة ${serial}\n\nالفاتورة لن تُحذف: تحتفظ برقمها وتظهر «ملغاة» في القوائم والتقارير ولا تُحسب في الإجماليات.\n\nاكتب سبب الإلغاء:`
   );
@@ -4459,7 +4465,7 @@ async function cancelCurrentInvoice() {
     return;
   }
   try {
-    const res = await apiFetch(`${API}/${currentInvoiceId}/cancel`, {
+    const res = await apiFetch(`${API}/${invoiceId}/cancel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason: String(reason).trim() }),
@@ -4467,7 +4473,11 @@ async function cancelCurrentInvoice() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'تعذر إلغاء الفاتورة');
     showToast(`أُلغيت الفاتورة ${serial} — رقمها محفوظ`, 'success');
-    await loadInvoiceForEdit(currentInvoiceId);
+    if (Number(currentInvoiceId) === Number(invoiceId) && document.getElementById('view-create')?.style.display !== 'none') {
+      await loadInvoiceForEdit(invoiceId);
+    } else if (typeof loadInvoicesList === 'function') {
+      await loadInvoicesList();
+    }
   } catch (err) {
     showToast(err.message, 'danger');
   }
@@ -6059,7 +6069,13 @@ function renderContractedEntitiesList(items) {
       <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
         <div class="flex-grow-1">
           <div class="fw-bold">${indent}${escapeHtml(item.name)}</div>
-          <small class="text-muted">خصم: ${item.discount_percent || 0}%</small>
+          <small class="text-muted">خصم: ${item.discount_percent || 0}% — ${
+            Array.isArray(item.discount_excluded_sections)
+              ? item.discount_excluded_sections.length
+                ? `لا يشمل: ${item.discount_excluded_sections.map(entityDiscountSectionLabel).join('، ')}`
+                : 'على كل الأقسام'
+              : 'أقسام الخصم: مثل الجهة الرئيسية / الافتراضي'
+          }</small>
         </div>
         <div class="d-flex gap-1 align-items-center flex-wrap">
           <input type="text" class="form-control form-control-sm fw-bold admin-lookup-name" style="max-width:180px"
@@ -6067,15 +6083,85 @@ function renderContractedEntitiesList(items) {
           <input type="text" inputmode="decimal" class="form-control form-control-sm comma-amount" style="width:80px"
             id="entity-discount-${item.id}" value="${formatAmountInput(item.discount_percent || 0)}">
           <button type="button" class="btn btn-sm btn-outline-primary" onclick="saveEntityItem(${item.id})">💾</button>
+          <button type="button" class="btn btn-sm btn-outline-dark fw-bold" onclick="toggleEntityDiscountSections(${item.id})" title="الأقسام التي يُطبَّق عليها خصم هذه الجهة">⚙️ أقسام الخصم</button>
           <button type="button" class="btn btn-sm btn-outline-${item.is_active ? 'warning' : 'success'}"
             onclick="toggleLookupItem('entity', ${item.id}, ${!item.is_active})">${item.is_active ? '⏸️' : '▶️'}</button>
           <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteLookupItem('entity', ${item.id})">🗑️</button>
         </div>
       </div>
+      <div class="entity-discount-sections d-none mt-2 p-2 border rounded bg-light" id="entity-sections-${item.id}"></div>
     </li>`;
     })
     .join('');
 }
+
+const ENTITY_DISCOUNT_SECTIONS = [
+  ['stay', 'إقامة ورعاية'],
+  ['sessions', 'الجلسات'],
+  ['medicines', 'الأدوية'],
+  ['supplies', 'المستلزمات'],
+  ['exams', 'الكشوفات'],
+  ['lab', 'التحاليل'],
+  ['radiology', 'الأشعة'],
+  ['other', 'خدمات متنوعة'],
+  ['operations', 'العمليات'],
+  ['__manual__', 'البنود الحرة'],
+];
+
+function entityDiscountSectionLabel(key) {
+  return (ENTITY_DISCOUNT_SECTIONS.find(([k]) => k === key) || [key, key])[1];
+}
+
+// Per-entity discount sections, right under the entity in «الجهات المتعاقدة».
+async function toggleEntityDiscountSections(id) {
+  const box = document.getElementById(`entity-sections-${id}`);
+  if (!box) return;
+  if (!box.classList.contains('d-none')) {
+    box.classList.add('d-none');
+    return;
+  }
+  const entities = await apiJson(`${SETTINGS_API}/contracted-entities/tree?all=1`).catch(() => []);
+  const entity = (entities || []).find((e) => Number(e.id) === Number(id)) || {};
+  const own = Array.isArray(entity.discount_excluded_sections) ? entity.discount_excluded_sections : null;
+  box.innerHTML = `
+    <label class="form-check d-flex align-items-center gap-2 fw-bold mb-2">
+      <input type="checkbox" class="form-check-input entity-sections-inherit"${own ? '' : ' checked'}>
+      <span>مثل الجهة الرئيسية / الافتراضي العام</span>
+    </label>
+    <div class="small text-muted mb-1">الأقسام التي يُطبَّق عليها خصم «${escapeHtml(entity.name || '')}»:</div>
+    <div class="d-flex flex-wrap gap-3 mb-2 entity-sections-checks">
+      ${ENTITY_DISCOUNT_SECTIONS.map(
+        ([key, label]) => `<label class="form-check d-flex align-items-center gap-2 fw-bold">
+          <input type="checkbox" class="form-check-input entity-section-check" value="${key}"${own && own.includes(key) ? '' : ' checked'}${own ? '' : ' disabled'}>
+          <span>${label}</span></label>`
+      ).join('')}
+    </div>
+    <button type="button" class="btn btn-sm btn-success fw-bold entity-sections-save">💾 حفظ أقسام الجهة</button>`;
+  const inherit = box.querySelector('.entity-sections-inherit');
+  inherit.addEventListener('change', () => {
+    box.querySelectorAll('.entity-section-check').forEach((el) => {
+      el.disabled = inherit.checked;
+    });
+  });
+  box.querySelector('.entity-sections-save').addEventListener('click', async () => {
+    const excluded = inherit.checked
+      ? null
+      : [...box.querySelectorAll('.entity-section-check')].filter((el) => !el.checked).map((el) => el.value);
+    try {
+      await apiJson(`${SETTINGS_API}/contracted-entities/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ discount_excluded_sections: excluded }),
+      });
+      showToast('تم حفظ أقسام خصم الجهة — تُطبَّق على فواتيرها غير المعتمدة', 'success');
+      loadSettingsPage();
+    } catch (err) {
+      showToast(err.message, 'danger');
+    }
+  });
+  box.classList.remove('d-none');
+}
+window.toggleEntityDiscountSections = toggleEntityDiscountSections;
 
 async function saveEntityItem(id) {
   const nameInput = document.querySelector(`.admin-lookup-name[data-kind="entity"][data-id="${id}"]`);
@@ -6751,8 +6837,8 @@ async function loadInvoicesList() {
           .map((inv) => {
             const statusInfo = STATUS_BADGES[inv.status] || { text: inv.status_label || inv.status, class: 'bg-secondary' };
             const serialCell =
-              inv.status === 'approved' && inv.serial_number
-                ? `<span class="fw-black text-primary">${inv.serial_number}</span>`
+              (inv.status === 'approved' || inv.status === 'cancelled') && inv.serial_number
+                ? `<span class="fw-black ${inv.status === 'cancelled' ? 'text-decoration-line-through text-muted' : 'text-primary'}">${inv.serial_number}</span>`
                 : `<span class="text-muted">—</span>`;
             return `
         <tr>
@@ -6771,7 +6857,8 @@ async function loadInvoicesList() {
             <button class="btn btn-sm btn-outline-info" onclick="openInvoicePrintPreview({ invoiceId: ${inv.id}, forceSaved: true })" title="معاينة الفاتورة الكبيرة">🖨️</button>
             ${inv.status === 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="window.open('${API}/${inv.id}/pdf')">📄</button>` : ''}
             ${canApprove && inv.status === 'pending_review' ? `<button class="btn btn-sm btn-outline-success" onclick="quickApproveInvoice(${inv.id})">✅</button>` : ''}
-            ${canDelete && inv.status !== 'approved' ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})" title="حذف المسودة">🗑️</button>` : ''}
+            ${canDelete && ['draft', 'pending_review'].includes(inv.status) && !inv.serial_number ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteInvoice(${inv.id})" title="حذف المسودة">🗑️</button>` : ''}
+            ${currentUser?.role === 'admin' && inv.status === 'approved' ? `<button class="btn btn-sm btn-outline-dark" onclick="cancelApprovedInvoice(${inv.id}, '${escapeAttr(inv.serial_number || '')}')" title="إلغاء / حذف فاتورة معتمدة — تحتفظ برقمها وتظهر «ملغاة» في التقارير">🚫</button>` : ''}
           </td>
         </tr>`;
           })

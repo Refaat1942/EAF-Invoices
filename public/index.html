@@ -297,6 +297,7 @@
                     <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-id-number" inputmode="numeric" maxlength="14" autocomplete="off" dir="ltr" placeholder="14 رقمًا">
                   </div>
                   <small class="text-muted" id="patient-reg-id-hint">14 رقمًا من بطاقة الرقم القومي</small>
+                  <div class="small text-danger fw-bold d-none" id="patient-reg-id-dup"></div>
                 </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold">الجنس</label>
@@ -1542,6 +1543,12 @@
                 <div class="col-md-2"><input type="text" inputmode="decimal" class="form-control fw-bold comma-amount" id="new-entity-discount" placeholder="الخصم %"></div>
                 <div class="col-md-2"><button class="btn btn-primary fw-bold w-100" id="add-entity-btn">إضافة</button></div>
               </div>
+              <div class="border rounded p-2 mb-3 bg-light">
+                <h6 class="fw-black mb-1">الأقسام التي يُطبَّق عليها الخصم — الافتراضي لكل الجهات</h6>
+                <p class="small text-muted mb-2">أي جهة بدون اختيار خاص بها تتبع جهتها الرئيسية، ثم هذا الافتراضي. الدمغات لا يُطبَّق عليها خصم في كل الأحوال. لاختيار أقسام جهة بعينها اضغط «⚙️ أقسام الخصم» بجانبها.</p>
+                <div class="d-flex flex-wrap gap-3 mb-2" id="discount-sections-list"></div>
+                <button type="button" class="btn btn-success btn-sm fw-bold" id="discount-sections-save-btn">💾 حفظ الافتراضي</button>
+              </div>
               <ul class="list-group admin-lookup-list" id="contracted-entities-list"></ul>
             </div>
           </div>
@@ -1995,10 +2002,7 @@
           <div class="card shadow-sm">
             <div class="card-header bg-danger text-white fw-black">🚫 البنود المستثناة من الخصم</div>
             <div class="card-body">
-              <h6 class="fw-black mb-2">الأقسام التي يُطبَّق عليها خصم الجهات المتعاقدة</h6>
-              <p class="small text-muted mb-2">أزل العلامة عن القسم الذي لا يُطبَّق عليه الخصم (مثل الأدوية أو الكشوفات). الدمغات لا يُطبَّق عليها خصم في كل الأحوال.</p>
-              <div class="d-flex flex-wrap gap-3 mb-2" id="discount-sections-list"></div>
-              <button type="button" class="btn btn-success btn-sm fw-bold mb-4" id="discount-sections-save-btn">💾 حفظ الأقسام</button>
+              <p class="small text-muted mb-2">أقسام خصم كل جهة تُضبط من شاشة «الجهات المتعاقدة».</p>
               <h6 class="fw-black mb-2">بنود مستثناة بالاسم</h6>
               <div class="input-group mb-3">
                 <input type="text" class="form-control fw-bold" id="new-exclusion-name" placeholder="بند مستثنى جديد (مثل: الأدوية)...">
@@ -2543,23 +2547,23 @@
   </div><!-- app-container -->
 
   <script src="/vendor/bootstrap/bootstrap.bundle.min.js?v=5.3.3"></script>
-  <script src="/js/action-guard.js?v=20261111c"></script>
-  <script src="/js/enter-add-row.js?v=20261111c"></script>
-  <script src="/js/auto-save.js?v=20261111c"></script>
-  <script src="/js/api-client.js?v=20261111c"></script>
-  <script src="/js/daily-section-bundles.js?v=20261111c"></script>
-  <script src="/js/app.js?v=20261111c"></script>
-  <script src="/js/nationality-pricing.js?v=20261111c"></script>
-  <script src="/js/daily-picker.js?v=20261111c"></script>
-  <script src="/js/daily-charges.js?v=20261111c"></script>
-  <script src="/js/notifications.js?v=20261111c"></script>
-  <script src="/js/audit-admin.js?v=20261111c"></script>
-  <script src="/js/ops-center.js?v=20261111c"></script>
-  <script src="/js/assistant.js?v=20261111c"></script>
-  <script src="/js/analytics-dashboard.js?v=20261111c"></script>
-  <script src="/js/item-catalog-settings.js?v=20261111c"></script>
-  <script src="/js/doctor-settings.js?v=20261111c"></script>
-  <script src="/js/daily-entries-browser.js?v=20261111c"></script>
-  <script src="/js/quick-patient.js?v=20261111c"></script>
+  <script src="/js/action-guard.js?v=20261111d"></script>
+  <script src="/js/enter-add-row.js?v=20261111d"></script>
+  <script src="/js/auto-save.js?v=20261111d"></script>
+  <script src="/js/api-client.js?v=20261111d"></script>
+  <script src="/js/daily-section-bundles.js?v=20261111d"></script>
+  <script src="/js/app.js?v=20261111d"></script>
+  <script src="/js/nationality-pricing.js?v=20261111d"></script>
+  <script src="/js/daily-picker.js?v=20261111d"></script>
+  <script src="/js/daily-charges.js?v=20261111d"></script>
+  <script src="/js/notifications.js?v=20261111d"></script>
+  <script src="/js/audit-admin.js?v=20261111d"></script>
+  <script src="/js/ops-center.js?v=20261111d"></script>
+  <script src="/js/assistant.js?v=20261111d"></script>
+  <script src="/js/analytics-dashboard.js?v=20261111d"></script>
+  <script src="/js/item-catalog-settings.js?v=20261111d"></script>
+  <script src="/js/doctor-settings.js?v=20261111d"></script>
+  <script src="/js/daily-entries-browser.js?v=20261111d"></script>
+  <script src="/js/quick-patient.js?v=20261111d"></script>
 </body>
 </html>
