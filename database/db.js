@@ -513,6 +513,13 @@ async function runMigrations() {
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopened_by_name TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopen_reason TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS returned_at TIMESTAMPTZ`);
+  await query(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      sid VARCHAR(255) PRIMARY KEY,
+      sess JSONB NOT NULL,
+      expire TIMESTAMPTZ NOT NULL
+    )`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_expire ON user_sessions (expire)`);
   // Identity: Egyptian national ID (14 digits) or a foreigner's passport / residence / ID card.
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS id_type VARCHAR(20) DEFAULT ''`);
   // Discount typed on a free item (البنود الحرة), in percent.

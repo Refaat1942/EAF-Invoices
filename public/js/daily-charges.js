@@ -7328,7 +7328,7 @@ function renderDailySectionsTable() {
         if (block.type === 'consultations') {
           return '<th colspan="3" class="text-center daily-group-th" data-section-group="exams">الكشوفات</th>';
         }
-        return `<th rowspan="2" class="daily-section-th" data-section="${block.section.code}" title="${block.section.category_code || block.section.catalog_category || ''}">${block.section.name}</th>`;
+        return `<th rowspan="2" class="daily-section-th" data-section="${block.section.code}" title="${dailyEscapeAttr(block.section.category_code || block.section.catalog_category || '')}">${dailyEscapeHtml(block.section.name)}</th>`;
       })
       .join('') +
     '<th rowspan="2" class="daily-meta-th">إجمالي</th><th rowspan="2" class="daily-meta-th"></th>';
@@ -7338,7 +7338,7 @@ function renderDailySectionsTable() {
       .map((block) => {
         if (block.type === 'consultations') {
           return block.sections
-            .map((s) => `<th class="daily-section-th" data-section="${s.code}" data-section-group="exams">${s.name}</th>`)
+            .map((s) => `<th class="daily-section-th" data-section="${s.code}" data-section-group="exams">${dailyEscapeHtml(s.name)}</th>`)
             .join('');
         }
         return '';

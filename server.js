@@ -54,6 +54,9 @@ if (cookieSecure) {
 app.use(
   session({
     secret: process.env.SESSION_SECRET || process.env.APP_SECRET || 'eaf-session-secret',
+    // Sessions in PostgreSQL: they survive restarts / updates (the memory store logged
+    // everyone out and grew without limit).
+    store: new (require('./middleware/pgSessionStore').PgSessionStore)({ ttlMs: 8 * 60 * 60 * 1000 }),
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -70,7 +73,19 @@ app.use(express.urlencoded({ extended: true }));
 // isn't lost before the route handlers run.
 app.use(require('./middleware/clientDate').clientDateMiddleware);
 
-app.use('/assets', express.static(path.join(__dirname, 'public', 'assets'), { maxAge: '7d' }));
+app.use(
+  '/assets',
+  express.static(path.join(__dirname, 'public', 'assets'), {
+    maxAge: '7d',
+    // An uploaded SVG logo opened directly must never run script on the app's origin.
+    setHeaders(res, filePath) {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (filePath.toLowerCase().endsWith('.svg')) {
+        res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox");
+      }
+    },
+  })
+);
 const { compressedStatic, compressJson } = require('./middleware/staticAssets');
 app.use(compressedStatic(path.join(__dirname, 'public')));
 app.use('/api', compressJson);

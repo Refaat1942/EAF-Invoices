@@ -1052,7 +1052,7 @@ function buildSummaryRows(inv) {
     <tr class="summary-row">
       <td class="num">${fmtDual(rawVal, roundedVal)}</td>
       <td></td><td></td><td></td>
-      <td class="summary-label">${label}</td>
+      <td class="summary-label">${escapeHtml(label)}</td>
       <td class="num">${payVal}</td>
       <td></td><td></td><td></td>
     </tr>`

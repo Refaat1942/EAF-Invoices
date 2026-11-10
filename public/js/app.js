@@ -5546,7 +5546,7 @@ function buildPaymentMethodLineHtml(method, lineIndex, line = {}, options = {}) 
   const depositorReadonly = '';
   const depositorExtraClass = '';
   const labelContent = isFirstLine
-    ? `${methodIndex} - ${method.name}`
+    ? `${methodIndex} - ${escapeHtml(method.name || '')}`
     : `<span class="text-muted small">↳ سطر ${lineIndex + 1}</span>`;
 
   const isRoomInsurance = method.code === ROOM_INSURANCE_PAYMENT_CODE;
@@ -5878,7 +5878,7 @@ async function loadPaymentMethodsForm(methodLinesByCode = {}, prefetched = null)
 
     if (infoMethods.length) {
       html += infoMethods
-        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="6">ℹ️ ${m.name}</td></tr>`)
+        .map((m) => `<tr class="table-light"><td class="fw-bold text-muted" colspan="6">ℹ️ ${escapeHtml(m.name || '')}</td></tr>`)
         .join('');
     }
 
@@ -7222,7 +7222,7 @@ async function loadReports() {
         <tbody>${rows || '<tr><td colspan="12" class="text-center py-4">لا توجد بيانات</td></tr>'}</tbody>
       </table></div></div></div>`;
   } catch (err) {
-    container.innerHTML = `<div class="col-12 text-center text-danger py-5">${err.message || 'خطأ في تحميل التقارير'}</div>`;
+    container.innerHTML = `<div class="col-12 text-center text-danger py-5">${escapeHtml(err.message || 'خطأ في تحميل التقارير')}</div>`;
   }
 }
 
@@ -7291,7 +7291,7 @@ function renderPatientStatusReport(data) {
       const paymentLines = (inv.payments || [])
         .map(
           (pay) =>
-            `<div class="small text-muted">📄 ${pay.receipt_date ? new Date(pay.receipt_date).toLocaleDateString('ar-EG') : '—'} — ${pay.receipt_number || 'بدون رقم'} — ${fmt(pay.amount)}</div>`
+            `<div class="small text-muted">📄 ${pay.receipt_date ? new Date(pay.receipt_date).toLocaleDateString('ar-EG') : '—'} — ${escapeHtml(pay.receipt_number || 'بدون رقم')} — ${fmt(pay.amount)}</div>`
         )
         .join('');
       return `<tr>

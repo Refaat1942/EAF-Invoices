@@ -19,6 +19,11 @@ router.get('/:token', async (req, res) => {
   try {
     const invoice = await getInvoiceByToken(req.params.token);
     if (!invoice) return res.status(404).send(renderNotFound());
+    // The printed QR shows only the issued invoice (or its cancellation): while it is back
+    // in correction (returned / reopened) its content is not final and is not published.
+    if (!['approved', 'cancelled'].includes(invoice.status)) {
+      return res.status(409).send(renderUnderReview(invoice.serial_number));
+    }
 
     const format = (req.query.format || 'pdf').toLowerCase();
     const baseUrl = getBaseUrl(req);
@@ -83,6 +88,13 @@ function wrapDownloadPage(invoiceHtml, invoice, baseUrl, notice = '') {
   ${invoiceHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] || invoiceHtml}
 </body>
 </html>`;
+}
+
+function renderUnderReview(serial) {
+  const safe = String(serial || '').replace(/[<>&"']/g, '');
+  return `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>قيد المراجعة</title></head>
+<body style="font-family:sans-serif;text-align:center;padding:40px;direction:rtl"><h1>الفاتورة ${safe} قيد المراجعة</h1>
+<p>أُعيدت الفاتورة للتصحيح وستظهر هنا بعد اعتمادها من جديد.</p></body></html>`;
 }
 
 function renderNotFound() {

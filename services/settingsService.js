@@ -75,6 +75,14 @@ async function saveLogo(file) {
   const allowed = ['.png', '.jpg', '.jpeg', '.svg', '.webp'];
   if (!allowed.includes(ext)) throw new Error('صيغة الصورة غير مدعومة');
 
+  if (ext === '.svg') {
+    // Refuse SVGs carrying script / event handlers / embedded HTML (stored XSS).
+    const text = file.buffer.toString('utf8');
+    if (/<script|<foreignObject|\son[a-z]+\s*=|javascript:|<iframe|<embed|<object/i.test(text)) {
+      throw new Error('ملف SVG يحتوي على أكواد غير مسموح بها — استخدم PNG أو JPG');
+    }
+  }
+
   const filename = `logo${ext}`;
   const dest = path.join(ASSETS_DIR, filename);
 
