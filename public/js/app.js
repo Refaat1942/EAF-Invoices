@@ -66,6 +66,7 @@ const STATUS_BADGES = {
   draft: { text: 'مسودة', class: 'bg-secondary' },
   pending_review: { text: 'قيد المراجعة', class: 'bg-warning text-dark' },
   approved: { text: 'معتمدة', class: 'bg-success' },
+  cancelled: { text: 'ملغاة', class: 'bg-dark' },
 };
 
 const REPORT_TILES = [
@@ -191,9 +192,20 @@ function bindCommaAmountInputs(root = document) {
       if (input.value !== next) input.value = next;
     });
     input.addEventListener('focus', () => {
-      const raw = parseDisplayAmount(input.value);
+      const before = input.value;
+      const raw = parseDisplayAmount(before);
       if (raw === 0 && isBlankZeroInput(input)) input.value = '';
-      else if (input.value && !Number.isNaN(raw)) input.value = String(raw);
+      else if (before && !Number.isNaN(raw)) input.value = String(raw);
+      // Removing the commas ("1,000" → "1000") drops the selection, so typing after Tab
+      // appended to the old amount ("1000700"). Keep the whole amount selected: typing
+      // replaces it, as everyone expects.
+      if (input.value && input.value !== before) {
+        try {
+          input.select();
+        } catch {
+          /* not selectable */
+        }
+      }
     });
   });
 }
@@ -1548,6 +1560,7 @@ function bindEvents() {
   });
   document.getElementById('submit-review-btn').addEventListener('click', () => saveInvoiceWithMode('submit'));
   document.getElementById('approve-invoice-btn').addEventListener('click', approveCurrentInvoice);
+  document.getElementById('cancel-invoice-btn')?.addEventListener('click', cancelCurrentInvoice);
   document.getElementById('return-invoice-btn')?.addEventListener('click', () => {
     if (currentInvoiceId) openReturnInvoiceModal(currentInvoiceId, () => loadInvoiceForEdit(currentInvoiceId));
   });
@@ -2951,7 +2964,9 @@ function updateInvoiceStatusUI(status, serialNumber = null) {
 
 function updateInvoiceActionButtons() {
   const canEdit = can('invoices.create') || can('invoices.edit');
-  const isApproved = currentInvoiceStatus === 'approved';
+  const isCancelled = currentInvoiceStatus === 'cancelled';
+  // A cancelled invoice is as locked as an approved one (it only shows / prints as «ملغاة»).
+  const isApproved = currentInvoiceStatus === 'approved' || isCancelled;
   const isPending = currentInvoiceStatus === 'pending_review';
 
   document.getElementById('save-draft-btn').style.display = canEdit && !isApproved ? '' : 'none';
@@ -2966,7 +2981,12 @@ function updateInvoiceActionButtons() {
   const returnBtn2 = document.getElementById('return-invoice-btn');
   if (returnBtn2) {
     returnBtn2.style.display =
-      currentInvoiceId && (isApproved || isPending) && can('invoices.approve') ? '' : 'none';
+      currentInvoiceId && !isCancelled && (isApproved || isPending) && can('invoices.approve') ? '' : 'none';
+  }
+  const cancelBtn = document.getElementById('cancel-invoice-btn');
+  if (cancelBtn) {
+    cancelBtn.style.display =
+      currentInvoiceId && currentInvoiceStatus === 'approved' && currentUser?.role === 'admin' ? '' : 'none';
   }
 
   const showExports = isApproved && currentInvoiceId;
@@ -2983,7 +3003,11 @@ function updateInvoiceActionButtons() {
   const deleteBtn = document.getElementById('delete-invoice-btn');
   if (deleteBtn) {
     const canDelete =
-      can('invoices.delete') && currentInvoiceId && currentInvoiceStatus && currentInvoiceStatus !== 'approved';
+      can('invoices.delete') &&
+      currentInvoiceId &&
+      currentInvoiceStatus &&
+      currentInvoiceStatus !== 'approved' &&
+      currentInvoiceStatus !== 'cancelled';
     deleteBtn.style.display = canDelete ? '' : 'none';
   }
 }
@@ -3552,9 +3576,12 @@ function refreshInvoicePatientSummaryFromTotals(totals) {
     admission_date: document.getElementById('admission_date')?.value || base.admission_date,
     discharge_date: document.getElementById('discharge_date')?.value || base.discharge_date,
     invoice_type: document.getElementById('invoice_type')?.value || base.invoice_type,
+    // Only a real chosen entity (not the «-- اختر الجهة --» placeholder) replaces the stored
+    // name — a typed non-contracted entity has no option in this list.
     contracted_entity_name:
-      document.getElementById('contracted_entity_id')?.selectedOptions?.[0]?.textContent?.trim() ||
-      base.contracted_entity_name,
+      (document.getElementById('contracted_entity_id')?.value
+        ? document.getElementById('contracted_entity_id')?.selectedOptions?.[0]?.textContent?.trim()
+        : '') || base.contracted_entity_name,
     final_total: totals?.final_total ?? base.final_total,
     total_collected: totals?.total_collected ?? base.total_collected,
     remaining: totals?.remaining ?? totals?.outstanding_amount ?? base.remaining,
@@ -4388,12 +4415,48 @@ function invoiceReturnBannerHtml(inv) {
 }
 window.invoiceReturnBannerHtml = invoiceReturnBannerHtml;
 
+function invoiceCancelledBannerHtml(inv) {
+  if (!inv || inv.status !== 'cancelled') return '';
+  return `<div class="alert alert-dark fw-bold mb-0">
+    🚫 فاتورة ملغاة${inv.serial_number ? ` — رقم ${escapeHtml(inv.serial_number)} محفوظ في التسلسل` : ''}.
+    ${inv.cancelled_by_name ? `ألغاها ${escapeHtml(inv.cancelled_by_name)}` : ''}${inv.cancelled_at ? ` في ${escapeHtml(new Date(inv.cancelled_at).toLocaleString('ar-EG'))}` : ''}.
+    ${inv.cancel_reason ? `<div class="mt-1">السبب: ${escapeHtml(inv.cancel_reason)}</div>` : ''}
+    <div class="small fw-normal mt-1">لا تُحسب في الإجماليات والتحصيل، وتظهر في التقارير كـ «ملغاة».</div>
+  </div>`;
+}
+
 function renderInvoiceReturnBanner(inv) {
   const box = document.getElementById('invoice-return-banner');
   if (!box) return;
-  const html = invoiceReturnBannerHtml(inv);
+  const html = invoiceCancelledBannerHtml(inv) || invoiceReturnBannerHtml(inv);
   box.innerHTML = html;
   box.classList.toggle('d-none', !html);
+}
+
+async function cancelCurrentInvoice() {
+  if (!currentInvoiceId) return;
+  const serial = lastLoadedInvoice?.serial_number || `#${currentInvoiceId}`;
+  const reason = window.prompt(
+    `إلغاء الفاتورة ${serial}\n\nالفاتورة لن تُحذف: تحتفظ برقمها وتظهر «ملغاة» في القوائم والتقارير ولا تُحسب في الإجماليات.\n\nاكتب سبب الإلغاء:`
+  );
+  if (reason === null) return;
+  if (String(reason).trim().length < 3) {
+    showToast('اكتب سبب الإلغاء (3 أحرف على الأقل)', 'warning');
+    return;
+  }
+  try {
+    const res = await apiFetch(`${API}/${currentInvoiceId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: String(reason).trim() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'تعذر إلغاء الفاتورة');
+    showToast(`أُلغيت الفاتورة ${serial} — رقمها محفوظ`, 'success');
+    await loadInvoiceForEdit(currentInvoiceId);
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
 }
 
 async function reopenCurrentInvoice() {
@@ -6891,6 +6954,11 @@ async function loadReports() {
           <div class="report-label">إجمالي المحصل</div><div class="report-stat text-primary">${fmt(data.grand_collected)}</div></div></div></div>
         <div class="col-md-3"><div class="card report-card shadow-sm"><div class="card-body text-center">
           <div class="report-label">إجمالي المتبقي</div><div class="report-stat text-danger">${fmt(data.grand_remaining)}</div></div></div></div>
+        ${
+          data.cancelled?.count
+            ? `<div class="col-12"><div class="alert alert-secondary fw-bold mb-0">🚫 فواتير ملغاة في الفترة: ${data.cancelled.count} — بقيمة ${fmt(data.cancelled.total)} (غير محسوبة في الإجماليات أعلاه)</div></div>`
+            : ''
+        }
         ${typeCards}
         <div class="col-12"><div class="card shadow-sm mt-2"><div class="card-header bg-dark text-white fw-black">التقرير الشهري (فواتير معتمدة)</div>
           <div class="card-body p-0"><table class="table table-striped mb-0">
@@ -7164,7 +7232,7 @@ function renderPatientStatusReport(data) {
             <div class="col-md-3"><div class="patient-stat-box"><span>أيام الإقامة (مجموع)</span><strong>${data.stay.total_stay_days || 0} يوم</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>رصيد الحساب</span><strong class="${patientBalanceClass(data.patient.account_balance)}">${fmt(data.patient.account_balance)}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>عدد الفواتير</span><strong>${data.totals.invoices_count}</strong></div></div>
-            <div class="col-md-3"><div class="patient-stat-box"><span>معتمدة / مسودة / مراجعة</span><strong>${data.totals.approved_count} / ${data.totals.draft_count} / ${data.totals.pending_count}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>معتمدة / مسودة / مراجعة${data.totals.cancelled_count ? ' / ملغاة' : ''}</span><strong>${data.totals.approved_count} / ${data.totals.draft_count} / ${data.totals.pending_count}${data.totals.cancelled_count ? ` / ${data.totals.cancelled_count}` : ''}</strong></div></div>
           </div>
         </div>
       </div>

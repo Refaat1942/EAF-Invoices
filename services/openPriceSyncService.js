@@ -17,7 +17,7 @@ async function findOpenEntries(whereSql, params) {
      JOIN patient_daily_entries e ON e.id = l.entry_id
      JOIN patients p ON p.id = e.patient_id
      LEFT JOIN invoices i ON i.id = e.invoice_id
-     WHERE (e.invoice_id IS NULL OR i.status <> 'approved')
+     WHERE (e.invoice_id IS NULL OR i.status NOT IN ('approved', 'cancelled'))
        AND (${whereSql})`,
     params
   );

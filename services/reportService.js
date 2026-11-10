@@ -15,6 +15,7 @@ const STATUS_LABELS = {
   draft: 'مسودة',
   pending_review: 'قيد المراجعة',
   approved: 'معتمدة',
+  cancelled: 'ملغاة',
 };
 
 function daysBetween(fromDate, toDate) {
@@ -164,6 +165,20 @@ async function getSummaryReport(filters = {}) {
      GROUP BY status`
   );
 
+  // Cancelled invoices in the same period: shown on their own, never in the totals above.
+  const cancelledParams = [];
+  let cancelledSql = `SELECT COUNT(*)::int AS count, COALESCE(SUM(final_total), 0) AS total
+                      FROM invoices WHERE status = 'cancelled'`;
+  if (filters.from_date) {
+    cancelledParams.push(filters.from_date);
+    cancelledSql += ` AND COALESCE(issue_date, created_at::date) >= $${cancelledParams.length}::date`;
+  }
+  if (filters.to_date) {
+    cancelledParams.push(filters.to_date);
+    cancelledSql += ` AND COALESCE(issue_date, created_at::date) <= $${cancelledParams.length}::date`;
+  }
+  const cancelledResult = await query(cancelledSql, cancelledParams);
+
   return {
     total_invoices: invoices.length,
     grand_total: Math.round(grandTotal * 100) / 100,
@@ -178,6 +193,10 @@ async function getSummaryReport(filters = {}) {
       status_label: STATUS_LABELS[inv.status] || inv.status,
     })),
     pending_counts: pendingResult.rows,
+    cancelled: {
+      count: cancelledResult.rows[0]?.count || 0,
+      total: Math.round((Number(cancelledResult.rows[0]?.total) || 0) * 100) / 100,
+    },
     filters,
   };
 }
@@ -1118,6 +1137,7 @@ async function getPatientStatusReport(filters = {}) {
     approved_count: 0,
     draft_count: 0,
     pending_count: 0,
+    cancelled_count: 0,
     total_billed: 0,
     total_collected: 0,
     total_remaining: 0,
@@ -1131,11 +1151,16 @@ async function getPatientStatusReport(filters = {}) {
     if (inv.status === 'approved') totals.approved_count += 1;
     if (inv.status === 'draft') totals.draft_count += 1;
     if (inv.status === 'pending_review') totals.pending_count += 1;
-    totals.total_billed += Number(inv.final_total) || 0;
-    totals.total_collected += Number(inv.total_collected) || 0;
-    totals.total_remaining += Number(inv.remaining) || 0;
-    totals.total_credit_applied += Number(inv.patient_credit_applied) || 0;
-    totals.total_stay_days += Number(inv.stay_days) || 0;
+    // A cancelled invoice is listed (as «ملغاة») but never counted in the money totals.
+    const counted = inv.status !== 'cancelled';
+    if (!counted) totals.cancelled_count += 1;
+    if (counted) {
+      totals.total_billed += Number(inv.final_total) || 0;
+      totals.total_collected += Number(inv.total_collected) || 0;
+      totals.total_remaining += Number(inv.remaining) || 0;
+      totals.total_credit_applied += Number(inv.patient_credit_applied) || 0;
+      totals.total_stay_days += Number(inv.stay_days) || 0;
+    }
 
     const { rows: payments } = await query(
       `SELECT receipt_date, receipt_number, amount

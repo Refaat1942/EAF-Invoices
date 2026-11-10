@@ -2033,8 +2033,12 @@ async function persistEntryInTransaction(client, data, user, context = null) {
 
   if (existing?.invoice_id && data.allow_invoiced_edit !== true) {
     const invRes = await client.query('SELECT status FROM invoices WHERE id = $1', [existing.invoice_id]);
-    if (invRes.rows[0]?.status === 'approved') {
-      throw new Error('لا يمكن تعديل حركة يوم مرتبطة بفاتورة معتمدة');
+    if (['approved', 'cancelled'].includes(invRes.rows[0]?.status)) {
+      throw new Error(
+        invRes.rows[0].status === 'cancelled'
+          ? 'لا يمكن تعديل حركة يوم مرتبطة بفاتورة ملغاة'
+          : 'لا يمكن تعديل حركة يوم مرتبطة بفاتورة معتمدة'
+      );
     }
   }
 
@@ -2516,8 +2520,8 @@ async function deleteStayEntriesForDate(fileNumber, entryDate, meta = {}) {
     const snapshot = await getEntryById(id);
     if (!snapshot?.invoice_id) continue;
     const invRes = await query(`SELECT status FROM invoices WHERE id = $1`, [snapshot.invoice_id]);
-    if (invRes.rows[0]?.status === 'approved') {
-      throw new Error('لا يمكن حذف حركة مرتبطة بفاتورة معتمدة');
+    if (['approved', 'cancelled'].includes(invRes.rows[0]?.status)) {
+      throw new Error('لا يمكن حذف حركة مرتبطة بفاتورة معتمدة أو ملغاة');
     }
     linkedInvoiceId = snapshot.invoice_id;
   }
@@ -2594,8 +2598,8 @@ async function deleteEntry(entryId) {
 
   if (snapshot.invoice_id) {
     const invRes = await query(`SELECT status FROM invoices WHERE id = $1`, [snapshot.invoice_id]);
-    if (invRes.rows[0]?.status === 'approved') {
-      throw new Error('لا يمكن حذف حركة مرتبطة بفاتورة معتمدة');
+    if (['approved', 'cancelled'].includes(invRes.rows[0]?.status)) {
+      throw new Error('لا يمكن حذف حركة مرتبطة بفاتورة معتمدة أو ملغاة');
     }
   }
 

@@ -266,6 +266,19 @@ router.post('/:id/submit', requirePermission('invoices.submit'), async (req, res
   }
 });
 
+// System admin only: cancel an approved invoice (kept with its serial, shown as «ملغاة»).
+router.post('/:id/cancel', requirePermission('invoices.approve'), async (req, res) => {
+  try {
+    if (String(req.session?.user?.role || '') !== 'admin') {
+      return res.status(403).json({ error: 'إلغاء الفاتورة المعتمدة لمدير النظام فقط' });
+    }
+    const { cancelInvoice } = require('../services/invoiceService');
+    res.json(await cancelInvoice(Number(req.params.id), req.session.user, req.body?.reason));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Financial reviewer / admin: send the invoice back to its employee for correction.
 router.post('/:id/return', requirePermission('invoices.approve'), async (req, res) => {
   try {

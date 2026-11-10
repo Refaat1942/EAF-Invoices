@@ -512,6 +512,10 @@ async function runMigrations() {
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopened_by_name TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopen_reason TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS returned_at TIMESTAMPTZ`);
+  // Cancelled by the admin: the invoice keeps its serial and stays in the books as «ملغاة».
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cancelled_by_name TEXT DEFAULT ''`);
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cancel_reason TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS returned_by_name TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS return_note TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS return_sections JSONB DEFAULT '[]'::jsonb`);

@@ -2611,7 +2611,15 @@ function togglePatientRegEntityFields() {
   const milFrom = document.getElementById('patient-reg-military-wrap');
   const milTo = document.getElementById('patient-reg-military-wrap-end');
   const milAmount = document.getElementById('patient-reg-military-amount-wrap');
-  if (entityWrap) entityWrap.style.display = showEntity ? '' : 'none';
+  // Non-contracted: the employee types the entity's name; contracted: chosen from the list.
+  const isNonContracted = type === 'non_contracted';
+  if (entityWrap) entityWrap.style.display = showEntity && !isNonContracted ? '' : 'none';
+  const entityTextWrap = document.getElementById('patient-reg-entity-text-wrap');
+  if (entityTextWrap) entityTextWrap.style.display = isNonContracted ? '' : 'none';
+  if (!isNonContracted) {
+    const entityText = document.getElementById('patient-reg-entity-text');
+    if (entityText) entityText.value = '';
+  }
   if (discountWrap) discountWrap.style.display = isContracted ? '' : 'none';
   if (letterWrap) letterWrap.style.display = showEntity ? '' : 'none';
   if (letterEnd) letterEnd.style.display = showEntity ? '' : 'none';
@@ -2963,9 +2971,16 @@ function collectInternalStayPayload(patientType) {
 
   if (isEntityInvoiceType(invoice_type)) {
     payload.contracted_entity_id =
-      document.getElementById('patient-reg-entity')?.value ||
-      document.getElementById('daily-stay-entity')?.value ||
-      null;
+      invoice_type === 'non_contracted'
+        ? null
+        : document.getElementById('patient-reg-entity')?.value ||
+          document.getElementById('daily-stay-entity')?.value ||
+          null;
+    if (invoice_type === 'non_contracted') {
+      payload.non_contracted_entity_name = String(
+        document.getElementById('patient-reg-entity-text')?.value || ''
+      ).trim();
+    }
     payload.letter_from_date =
       document.getElementById('patient-reg-letter-from')?.value ||
       document.getElementById('daily-stay-letter-from')?.value ||
@@ -3333,6 +3348,10 @@ async function fillPatientRegisterFormFromContext(ctx) {
   }
   togglePatientRegEntityFields();
   await loadPatientEntitySelects(inv.contracted_entity_id || null);
+  const entityTextEl = document.getElementById('patient-reg-entity-text');
+  if (entityTextEl) {
+    entityTextEl.value = inv.invoice_type === 'non_contracted' ? inv.contracted_entity_name || '' : '';
+  }
   const regDiscountEl = document.getElementById('patient-reg-discount-percent');
   if (regDiscountEl && inv.invoice_type === 'contracted') {
     regDiscountEl.value = String(
@@ -3438,6 +3457,7 @@ function clearPatientRegisterForm(options = {}) {
     'patient-reg-nursing',
     'patient-reg-assistant',
     'patient-reg-entity',
+    'patient-reg-entity-text',
     'patient-reg-discount-percent',
     'patient-reg-letter-from',
     'patient-reg-letter-to',
@@ -3586,7 +3606,12 @@ async function savePatientRegistration(event) {
       payload.stay_type_id = dailyStayContext.room_assignment.stay_type_id;
     }
   }
-  if (isEntityInvoiceType(payload.invoice_type) && !payload.contracted_entity_id) {
+  if (payload.invoice_type === 'non_contracted' && !payload.non_contracted_entity_name) {
+    showToast('اكتب اسم الجهة غير المتعاقدة', 'warning');
+    document.getElementById('patient-reg-entity-text')?.focus();
+    return;
+  }
+  if (payload.invoice_type === 'contracted' && !payload.contracted_entity_id) {
     showToast('اختر الجهة', 'warning');
     return;
   }
@@ -3920,7 +3945,7 @@ async function saveOpenPatientStay() {
     if (patient_type !== 'external') {
       payload.account_balance = dailyParseAmount(document.getElementById('daily-stay-balance')?.value);
     }
-    if (isEntityInvoiceType(payload.invoice_type) && !payload.contracted_entity_id) {
+    if (payload.invoice_type === 'contracted' && !payload.contracted_entity_id) {
       showToast('اختر الجهة', 'warning');
       return;
     }
@@ -4664,14 +4689,15 @@ function updateStayAccUnitPriceDisplay(tr) {
   const display = tr?.querySelector('.daily-stay-acc-unit-price');
   if (!display) return;
   const accInput = tr.querySelector('.daily-amount[data-section="accommodation"]');
-  let unit = Number(accInput?.dataset.unitPrice) || 0;
-  if (!unit && accInput) unit = dailyParseAmount(accInput.value);
-  if (!unit) {
+  // The row's accommodation input already holds the DISPLAY price (× 2 for a foreigner);
+  // only the room's list rate still needs converting. Converting both doubled it twice.
+  let displayUnit = Number(accInput?.dataset.unitPrice) || 0;
+  if (!displayUnit && accInput) displayUnit = dailyParseAmount(accInput.value);
+  if (!displayUnit) {
     const staySel = tr.querySelector('.daily-row-stay-type');
     const rate = Number(staySel?.selectedOptions[0]?.dataset.rate) || 0;
-    if (rate > 0) unit = rate;
+    if (rate > 0) displayUnit = dailyAmountForDisplay(rate);
   }
-  const displayUnit = dailyAmountForDisplay(unit);
   if (displayUnit > 0 && accInput && dailyParseAmount(accInput.value) <= 0) {
     accInput.value = String(displayUnit);
     accInput.dataset.unitPrice = String(displayUnit);
@@ -5004,7 +5030,12 @@ function createStayDailyEntryRow(entry = {}) {
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry))}
-    <td class="daily-col-date"><input type="date" class="form-control form-control-sm daily-row-date fw-bold" value="${dateVal}" title="يوم الإقامة"></td>
+    <td class="daily-col-date">${
+      entry.id
+        ? // A saved day keeps its date (it is the day of the stay); amounts and room type are edited.
+          `<input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1" title="يوم إقامة محفوظ — التاريخ لا يتغير، عدّل المبالغ أو نوع الإقامة">`
+        : `<input type="date" class="form-control form-control-sm daily-row-date fw-bold" value="${dateVal}" title="يوم الإقامة">`
+    }</td>
     <td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeSelectVal)}</select></td>
     <td class="daily-col-amount">
       <div class="input-group input-group-sm">
@@ -8307,6 +8338,12 @@ function applySavedEntriesToDomRows(savedEntries = []) {
     if (tr.classList.contains('daily-stay-row')) {
       tr._entryLinesSnapshot = (entry.lines || []).map((line) => ({ ...line }));
       if (entry.stay_type_id) tr.dataset.stayTypeId = String(entry.stay_type_id);
+      const savedDate = tr.querySelector('.daily-row-date');
+      if (savedDate) {
+        savedDate.readOnly = true;
+        savedDate.tabIndex = -1;
+        savedDate.classList.add('bg-light');
+      }
     }
     applySavedLineIdsToRow(tr, entry);
     if (tr.classList.contains('daily-lab-row')) {

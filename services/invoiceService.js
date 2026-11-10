@@ -233,6 +233,10 @@ async function prepareCalculationData(data, client = null) {
       calcData.contracted_entity_name = entity.name;
       calcData.discount_percent = 0;
     }
+  } else if (calcData.invoice_type === 'non_contracted') {
+    // A typed name: no discount, the name is kept as written.
+    calcData.contracted_entity_name = String(calcData.contracted_entity_name || '').trim();
+    calcData.discount_percent = 0;
   } else if (calcData.invoice_type !== 'contracted' && calcData.invoice_type !== 'non_contracted') {
     calcData.contracted_entity_id = null;
     calcData.contracted_entity_name = '';
@@ -890,6 +894,23 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
         : calculateStayDays(calcData.admission_date, calcData.discharge_date);
   if (totals.stay_entries?.length) {
     stayDays = totals.stay_entries.reduce((sum, entry) => sum + (Number(entry.days) || 0), 0);
+  } else if (periodFrom && !(periodTo && periodTo > periodFrom) && data.file_number) {
+    // Still in (no «إلى» yet): the stay runs to its last posted day, not «1 day».
+    try {
+      const { rows: last } = await query(
+        `SELECT MAX(e.entry_date)::text AS d
+         FROM patient_daily_entries e
+         JOIN patients p ON p.id = e.patient_id
+         JOIN patient_daily_entry_lines l ON l.entry_id = e.id AND l.section_code = 'accommodation'
+         WHERE TRIM(p.file_number) = TRIM($1) AND e.entry_date >= $2::date
+           AND (e.invoice_id IS NULL OR e.invoice_id = $3)`,
+        [data.file_number, periodFrom, Number(existingId) || 0]
+      );
+      const lastDay = fmtDateOnly(last[0]?.d);
+      if (lastDay && lastDay > periodFrom) stayDays = calculateStayDays(periodFrom, lastDay);
+    } catch {
+      /* keep the computed count */
+    }
   }
 
   const manualItems = totals.items.filter((item) => !item.is_stay_entry);
@@ -935,6 +956,9 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
       const current = existing.rows[0];
       if (current.status === 'approved') {
         throw new Error('لا يمكن تعديل فاتورة معتمدة — تواصل مع المراجع');
+      }
+      if (current.status === 'cancelled') {
+        throw new Error('الفاتورة ملغاة — لا يمكن تعديلها');
       }
 
       const existingFull = await getInvoiceById(existingId, client);
@@ -1242,6 +1266,82 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
  * patient's account is undone: the admission balance deducted by the invoice is given back
  * and the recorded collections are removed (approval records them again).
  */
+// Gives back what approval did: the patient's deducted balance and the recorded collections.
+async function reverseApprovalEffects(client, invoice, note) {
+  const credit = Math.round((Number(invoice.patient_credit_applied) || 0) * 100) / 100;
+  if (invoice.patient_credit_deducted && credit > 0 && invoice.file_number) {
+    const pRes = await client.query('SELECT * FROM patients WHERE TRIM(file_number) = TRIM($1) FOR UPDATE', [
+      invoice.file_number,
+    ]);
+    const patient = pRes.rows[0];
+    if (patient) {
+      const newBalance = Math.round(((Number(patient.account_balance) || 0) + credit) * 100) / 100;
+      await client.query(
+        'UPDATE patients SET account_balance = $2, account_balance_raw = $2, updated_at = NOW() WHERE id = $1',
+        [patient.id, newBalance]
+      );
+      await client.query(
+        `INSERT INTO patient_transactions (patient_id, invoice_id, amount, balance_after, note, transaction_kind)
+         VALUES ($1, $2, $3, $4, $5, 'prepaid_restore')`,
+        [patient.id, invoice.id, credit, newBalance, note]
+      );
+    }
+  }
+  await client.query(`DELETE FROM patient_transactions WHERE invoice_id = $1 AND transaction_kind = 'collection'`, [
+    invoice.id,
+  ]);
+}
+
+/**
+ * The system admin cancels an approved invoice. It is NOT deleted: it keeps its serial,
+ * issue date and approval details, shows as «ملغاة» everywhere (lists, print, reports)
+ * and leaves every total. The patient's deducted balance is given back.
+ */
+async function cancelInvoice(id, actor, reason = '') {
+  const why = String(reason || '').trim();
+  if (why.length < 3) throw new Error('اكتب سبب إلغاء الفاتورة');
+  const actorName = actor?.full_name || actor?.username || '';
+  const cancelled = await withTransaction(async (client) => {
+    const { rows } = await client.query('SELECT * FROM invoices WHERE id = $1 FOR UPDATE', [id]);
+    if (!rows.length) throw new Error('الفاتورة غير موجودة');
+    const invoice = rows[0];
+    if (invoice.status === 'cancelled') throw new Error('الفاتورة ملغاة بالفعل');
+    if (invoice.status !== 'approved') throw new Error('الإلغاء للفواتير المعتمدة فقط — المسودة تُحذف أو تُعدَّل');
+    await reverseApprovalEffects(
+      client,
+      invoice,
+      `إرجاع خصم الرصيد — إلغاء الفاتورة ${invoice.serial_number || ''}`.trim()
+    );
+    await client.query(
+      `UPDATE invoices SET
+         status = 'cancelled',
+         patient_credit_deducted = FALSE,
+         cancelled_at = NOW(),
+         cancelled_by_name = $2,
+         cancel_reason = $3,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [invoice.id, actorName, why]
+    );
+    return invoice;
+  });
+  try {
+    const { writeAuditLog } = require('./auditLogService');
+    await writeAuditLog({
+      user: actor,
+      action: 'invoice.cancel',
+      entity_type: 'invoice',
+      entity_id: String(id),
+      entity_label: `فاتورة ${cancelled.serial_number || `#${id}`} — ${cancelled.patient_name || ''}`.trim(),
+      severity: 'warning',
+      details: { reason: why, serial_number: cancelled.serial_number, final_total: cancelled.final_total },
+    });
+  } catch (err) {
+    console.error('[audit] invoice cancel:', err.message);
+  }
+  return getInvoiceById(id);
+}
+
 async function reopenInvoice(id, actor, reason = '') {
   const why = String(reason || '').trim();
   if (why.length < 3) throw new Error('اكتب سبب إعادة فتح الفاتورة');
@@ -1252,28 +1352,10 @@ async function reopenInvoice(id, actor, reason = '') {
     const invoice = rows[0];
     if (invoice.status !== 'approved') throw new Error('الفاتورة ليست معتمدة');
 
-    const credit = Math.round((Number(invoice.patient_credit_applied) || 0) * 100) / 100;
-    if (invoice.patient_credit_deducted && credit > 0 && invoice.file_number) {
-      const pRes = await client.query('SELECT * FROM patients WHERE TRIM(file_number) = TRIM($1) FOR UPDATE', [
-        invoice.file_number,
-      ]);
-      const patient = pRes.rows[0];
-      if (patient) {
-        const newBalance = Math.round(((Number(patient.account_balance) || 0) + credit) * 100) / 100;
-        await client.query(
-          'UPDATE patients SET account_balance = $2, account_balance_raw = $2, updated_at = NOW() WHERE id = $1',
-          [patient.id, newBalance]
-        );
-        await client.query(
-          `INSERT INTO patient_transactions (patient_id, invoice_id, amount, balance_after, note, transaction_kind)
-           VALUES ($1, $2, $3, $4, $5, 'prepaid_restore')`,
-          [patient.id, invoice.id, credit, newBalance, `إرجاع خصم الرصيد — إعادة فتح الفاتورة ${invoice.serial_number || ''}`.trim()]
-        );
-      }
-    }
-    await client.query(
-      `DELETE FROM patient_transactions WHERE invoice_id = $1 AND transaction_kind = 'collection'`,
-      [invoice.id]
+    await reverseApprovalEffects(
+      client,
+      invoice,
+      `إرجاع خصم الرصيد — إعادة فتح الفاتورة ${invoice.serial_number || ''}`.trim()
     );
     await client.query(
       `UPDATE invoices SET
@@ -1397,6 +1479,9 @@ async function approveInvoice(id, reviewer) {
     if (invoice.status === 'approved') {
       throw new Error('الفاتورة معتمدة بالفعل');
     }
+    if (invoice.status === 'cancelled') {
+      throw new Error('الفاتورة ملغاة — لا يمكن اعتمادها');
+    }
     if (invoice.status === 'draft') {
       throw new Error('يجب إرسال الفاتورة للمراجعة أولًا');
     }
@@ -1501,8 +1586,8 @@ async function deleteInvoice(id, actor = null) {
     [id]
   );
   if (!rows.length) return false;
-  if (rows[0].status === 'approved') {
-    throw new Error('لا يمكن حذف فاتورة معتمدة');
+  if (rows[0].status === 'approved' || rows[0].status === 'cancelled') {
+    throw new Error('لا يمكن حذف فاتورة معتمدة أو ملغاة — يحتفظ رقمها بمكانه في التسلسل');
   }
   if (rows[0].serial_number) {
     throw new Error('لا يمكن حذف فاتورة لها رقم رسمي (أُعيد فتحها للتعديل) — عدّلها ثم أعد اعتمادها');
@@ -1788,6 +1873,8 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
     balance: invoice.balance,
     admin_expenses_percent: invoice.admin_expenses_percent,
     contracted_entity_id: invoice.contracted_entity_id,
+    // Kept on every re-save: a typed non-contracted entity has no id to look it up again.
+    contracted_entity_name: invoice.contracted_entity_name || '',
     discount_percent: invoice.discount_percent,
     letter_from_date: invoice.letter_from_date,
     letter_to_date: invoice.letter_to_date,
@@ -1814,7 +1901,7 @@ function invoiceToSavePayload(invoice, manualItems, dateOverrides = {}) {
 async function verifyInvoiceDailyLineSync(invoiceId, fileNumber, fromDate, toDate) {
   const invoice = await getInvoiceById(invoiceId);
   if (!invoice) throw new Error('الفاتورة غير موجودة بعد مزامنة الحركة اليومية');
-  if (invoice.status === 'approved') return { skipped: true, reason: 'approved' };
+  if (invoice.status === 'approved' || invoice.status === 'cancelled') return { skipped: true, reason: invoice.status };
 
   const dailyItems = (invoice.items || []).filter((item) => item.daily_entry_line_id);
   const lineIds = dailyItems.map((item) => Number(item.daily_entry_line_id));
@@ -1914,7 +2001,7 @@ async function resolveOpenInvoiceForDailyEntry(fileNumber) {
 
 async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) {
   const invoice = await getInvoiceById(invoiceId);
-  if (!invoice || invoice.status === 'approved') return null;
+  if (!invoice || invoice.status === 'approved' || invoice.status === 'cancelled') return null;
 
   const { cleanOrphanDailyInvoiceItems } = require('./dailyChargeService');
   await cleanOrphanDailyInvoiceItems(invoiceId);
@@ -1987,7 +2074,7 @@ async function syncInvoiceAfterDailyChange(invoiceId, fileNumber, options = {}) 
 
 async function syncInvoiceDailyCharges(invoiceId, options = {}) {
   const invoice = await getInvoiceById(invoiceId);
-  if (!invoice || invoice.status === 'approved') return null;
+  if (!invoice || invoice.status === 'approved' || invoice.status === 'cancelled') return null;
 
   if (options.rebuild_from_daily && invoice.file_number) {
     return syncInvoiceAfterDailyChange(invoiceId, invoice.file_number, options);
@@ -2199,7 +2286,9 @@ async function saveFreeInvoiceItems(fileNumber, manualItemsInput = [], user = nu
   const stay = await getOpenPatientStay(fn);
   if (!stay?.invoice?.id) throw new Error('لا توجد فاتورة مفتوحة لهذا المريض');
   const invoice = await getInvoiceById(stay.invoice.id);
-  if (invoice.status === 'approved') throw new Error('الفاتورة معتمدة — لا يمكن تعديل البنود');
+  if (invoice.status === 'approved' || invoice.status === 'cancelled') {
+    throw new Error(invoice.status === 'cancelled' ? 'الفاتورة ملغاة — لا يمكن تعديل البنود' : 'الفاتورة معتمدة — لا يمكن تعديل البنود');
+  }
 
   const manualItems = dedupeFreeInvoiceItemsForSave(
     (Array.isArray(manualItemsInput) ? manualItemsInput : [])
@@ -2469,6 +2558,14 @@ async function openPatientStay(data, user = null) {
     payload.letter_from_date = data.letter_from_date || null;
     payload.letter_to_date = data.letter_to_date || null;
   }
+  if (data.invoice_type === 'non_contracted') {
+    // Typed by the employee (no list of non-contracted entities).
+    const typed = String(data.non_contracted_entity_name || '').trim().slice(0, 200);
+    if (typed) {
+      payload.contracted_entity_id = null;
+      payload.contracted_entity_name = typed;
+    }
+  }
   if (data.invoice_type === 'contracted' && payload.contracted_entity_id) {
     payload.discount_percent =
       Number(data.discount_percent) > 0
@@ -2556,7 +2653,7 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
   const violationsRes = await query(
     `SELECT id, status, serial_number, patient_name, file_number, fiscal_year, serial_sequence
      FROM invoices
-     WHERE serial_number IS NOT NULL AND status <> 'approved' AND reopened_at IS NULL
+     WHERE serial_number IS NOT NULL AND status NOT IN ('approved', 'cancelled') AND reopened_at IS NULL
      ORDER BY id DESC
      LIMIT 100`
   );
@@ -2586,7 +2683,7 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
     display_number: row.serial_number || `#${row.id}`,
     status_label: statusLabels[row.status] || row.status,
     serial_assigned: Boolean(row.serial_number),
-    serial_on_approve_only: !row.serial_number || row.status === 'approved',
+    serial_on_approve_only: !row.serial_number || row.status === 'approved' || row.status === 'cancelled',
   }));
 
   return {
@@ -2609,6 +2706,7 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
 
 module.exports = {
   reopenInvoice,
+  cancelInvoice,
   returnInvoiceForCorrection,
   RETURN_SECTION_LABELS,
   getInvoiceById,

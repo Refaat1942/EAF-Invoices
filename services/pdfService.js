@@ -633,14 +633,24 @@ async function buildInvoiceHtml(invoice, options = {}) {
       .page.print-compact { zoom: 0.88; }
       .page.print-ultra { zoom: 0.8; }
     }
+    .cancelled-stamp { position: fixed; top: 38%; left: 0; right: 0; text-align: center; pointer-events: none;
+      font-size: 120px; font-weight: 900; color: rgba(200, 0, 0, 0.16); transform: rotate(-24deg); z-index: 50; }
+    .cancelled-bar { background: #fde8e8; color: #9b1c1c; border: 2px solid #9b1c1c; font-weight: 900;
+      text-align: center; padding: 4px 8px; margin-bottom: 4px; }
   </style>
 </head>
 <body>
   <div class="page ${printProfile.className}">
+    ${
+      inv.status === 'cancelled'
+        ? `<div class="cancelled-stamp">ملغاة</div>
+    <div class="cancelled-bar">فاتورة ملغاة${inv.cancelled_at ? ` بتاريخ ${formatDate(inv.cancelled_at)}` : ''}${inv.cancel_reason ? ` — السبب: ${escapeHtml(inv.cancel_reason)}` : ''}</div>`
+        : ''
+    }
     <div class="serial-bar">
       رقم الفاتورة: ${inv.serial_number ? escapeHtml(inv.serial_number) : 'يُصدر عند الاعتماد'}
       ${inv.fiscal_year_label ? `&nbsp;|&nbsp; السنة المالية: ${escapeHtml(inv.fiscal_year_label)}` : ''}
-      &nbsp;|&nbsp; تاريخ الإصدار: ${inv.status === 'approved' ? formatDate(inv.issue_date || inv.reviewed_at || inv.created_at) : 'يُحدد عند الاعتماد'}
+      &nbsp;|&nbsp; تاريخ الإصدار: ${inv.status === 'approved' || inv.status === 'cancelled' ? formatDate(inv.issue_date || inv.reviewed_at || inv.created_at) : 'يُحدد عند الاعتماد'}
       &nbsp;|&nbsp; النوع: ${escapeHtml(inv.invoice_type_label)}
       ${inv._daily_kind_label ? `&nbsp;|&nbsp; معاينة القسم: ${escapeHtml(inv._daily_kind_label)}` : ''}
     </div>

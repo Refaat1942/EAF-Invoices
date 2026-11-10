@@ -309,6 +309,10 @@
                     <option value="">-- اختر الجهة --</option>
                   </select>
                 </div>
+                <div class="col-md-3" id="patient-reg-entity-text-wrap" style="display:none">
+                  <label class="form-label fw-bold" for="patient-reg-entity-text">اسم الجهة غير المتعاقدة *</label>
+                  <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-entity-text" maxlength="200" autocomplete="off" placeholder="اكتب اسم الجهة">
+                </div>
                 <div class="col-md-2" id="patient-reg-discount-wrap" style="display:none">
                   <label class="form-label fw-bold">نسبة الخصم %</label>
                   <input type="text" class="form-control fw-bold text-center bg-light patient-reg-field" id="patient-reg-discount-percent" readonly value="0" tabindex="-1">
@@ -649,6 +653,7 @@
                   <button type="button" class="btn btn-outline-secondary btn-lg fw-black" id="save-draft-btn" data-guard-key="invoice:save" data-guard-busy="جاري الحفظ…" data-guard-siblings="submit-review-btn">💾 حفظ مؤقت</button>
                   <button type="button" class="btn btn-outline-danger btn-lg fw-black" id="delete-invoice-btn" style="display:none" title="حذف المسودة أو الفاتورة قيد المراجعة" data-guard-key="invoice:delete" data-guard-busy="جاري الحذف…">🗑️ حذف</button>
                   <button type="button" class="btn btn-warning btn-lg fw-black" id="submit-review-btn" style="display:none" data-guard-key="invoice:save" data-guard-busy="جاري الإرسال…" data-guard-siblings="save-draft-btn">📤 إرسال للمراجعة</button>
+                  <button type="button" class="btn btn-outline-dark btn-lg fw-black" id="cancel-invoice-btn" style="display:none" title="إلغاء الفاتورة المعتمدة — لا تُحذف: تحتفظ برقمها وتظهر «ملغاة» في التقارير (مدير النظام فقط)">🚫 إلغاء الفاتورة</button>
                   <button type="button" class="btn btn-outline-warning btn-lg fw-black" id="return-invoice-btn" style="display:none" title="إرجاع الفاتورة للموظف لتصحيح أجزاء محددة — تحتفظ برقمها وتحتاج اعتمادًا جديدًا">↩ إرجاع للموظف للتصحيح</button>
                   <button type="button" class="btn btn-success btn-lg fw-black" id="approve-invoice-btn" style="display:none" data-guard-key="invoice:approve" data-guard-busy="جاري الاعتماد…">✅ اعتماد نهائي</button>
                   <button type="button" class="btn btn-outline-secondary fw-bold" id="reset-form-btn">← الرئيسية</button>
@@ -876,6 +881,7 @@
                 <option value="draft">مسودة</option>
                 <option value="pending_review">قيد المراجعة</option>
                 <option value="approved">معتمدة</option>
+                <option value="cancelled">ملغاة</option>
               </select>
             </div>
             <div class="col-lg-2 col-md-4 d-flex gap-2 flex-wrap">
@@ -2076,6 +2082,7 @@
                 <option value="draft">مسودة</option>
                 <option value="pending_review">قيد المراجعة</option>
                 <option value="approved">معتمدة</option>
+                <option value="cancelled">ملغاة</option>
               </select>
             </div>
           </div>
@@ -2487,22 +2494,22 @@
   </div><!-- app-container -->
 
   <script src="/vendor/bootstrap/bootstrap.bundle.min.js?v=5.3.3"></script>
-  <script src="/js/action-guard.js?v=20261110a"></script>
-  <script src="/js/enter-add-row.js?v=20261110a"></script>
-  <script src="/js/auto-save.js?v=20261110a"></script>
-  <script src="/js/api-client.js?v=20261110a"></script>
-  <script src="/js/daily-section-bundles.js?v=20261110a"></script>
-  <script src="/js/app.js?v=20261110a"></script>
-  <script src="/js/nationality-pricing.js?v=20261110a"></script>
-  <script src="/js/daily-picker.js?v=20261110a"></script>
-  <script src="/js/daily-charges.js?v=20261110a"></script>
-  <script src="/js/notifications.js?v=20261110a"></script>
-  <script src="/js/audit-admin.js?v=20261110a"></script>
-  <script src="/js/ops-center.js?v=20261110a"></script>
-  <script src="/js/assistant.js?v=20261110a"></script>
-  <script src="/js/analytics-dashboard.js?v=20261110a"></script>
-  <script src="/js/item-catalog-settings.js?v=20261110a"></script>
-  <script src="/js/doctor-settings.js?v=20261110a"></script>
-  <script src="/js/daily-entries-browser.js?v=20261110a"></script>
+  <script src="/js/action-guard.js?v=20261110b"></script>
+  <script src="/js/enter-add-row.js?v=20261110b"></script>
+  <script src="/js/auto-save.js?v=20261110b"></script>
+  <script src="/js/api-client.js?v=20261110b"></script>
+  <script src="/js/daily-section-bundles.js?v=20261110b"></script>
+  <script src="/js/app.js?v=20261110b"></script>
+  <script src="/js/nationality-pricing.js?v=20261110b"></script>
+  <script src="/js/daily-picker.js?v=20261110b"></script>
+  <script src="/js/daily-charges.js?v=20261110b"></script>
+  <script src="/js/notifications.js?v=20261110b"></script>
+  <script src="/js/audit-admin.js?v=20261110b"></script>
+  <script src="/js/ops-center.js?v=20261110b"></script>
+  <script src="/js/assistant.js?v=20261110b"></script>
+  <script src="/js/analytics-dashboard.js?v=20261110b"></script>
+  <script src="/js/item-catalog-settings.js?v=20261110b"></script>
+  <script src="/js/doctor-settings.js?v=20261110b"></script>
+  <script src="/js/daily-entries-browser.js?v=20261110b"></script>
 </body>
 </html>
