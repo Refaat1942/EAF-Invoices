@@ -36,7 +36,7 @@ router.get('/logs', requirePermission('settings.*'), async (req, res) => {
 router.get('/alerts', requireAnyPermission('invoices.view', 'daily_charges.view', 'settings.*'), async (req, res) => {
   try {
     const result = await listAlerts({
-      user_id: req.session?.user?.id,
+      user_id: req.session?.user || null,
       unread_only: req.query.unread_only,
       severity: req.query.severity,
       limit: req.query.limit,
@@ -50,7 +50,7 @@ router.get('/alerts', requireAnyPermission('invoices.view', 'daily_charges.view'
 
 router.get('/alerts/count', requireAnyPermission('invoices.view', 'daily_charges.view', 'settings.*'), async (req, res) => {
   try {
-    const count = await getUnreadAlertCount(req.session?.user?.id);
+    const count = await getUnreadAlertCount(req.session?.user || null);
     res.json({ count });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -69,7 +69,7 @@ router.post('/alerts/:id/read', requireAnyPermission('invoices.view', 'daily_cha
 
 router.post('/alerts/read-all', requireAnyPermission('invoices.view', 'daily_charges.view', 'settings.*'), async (req, res) => {
   try {
-    await markAllAlertsRead(req.session?.user?.id || req.user?.id);
+    await markAllAlertsRead(req.session?.user || req.user || null);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -79,7 +79,7 @@ router.post('/alerts/read-all', requireAnyPermission('invoices.view', 'daily_cha
 router.post('/health-check', requirePermission('settings.*'), async (req, res) => {
   try {
     const { created, orphaned_cleaned } = await runSystemHealthChecks();
-    const count = await getUnreadAlertCount(req.session?.user?.id);
+    const count = await getUnreadAlertCount(req.session?.user || null);
     res.json({ created: created.length, orphaned_cleaned, unread_count: count });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -114,7 +114,7 @@ router.get('/approvals/count', requireAnyPermission('invoices.approve', 'setting
 router.post('/alerts/cleanup-orphans', requirePermission('settings.*'), async (req, res) => {
   try {
     const cleaned = await cleanupOrphanedAlerts();
-    const count = await getUnreadAlertCount(req.session?.user?.id);
+    const count = await getUnreadAlertCount(req.session?.user || null);
     res.json({ cleaned, unread_count: count });
   } catch (err) {
     res.status(500).json({ error: err.message });

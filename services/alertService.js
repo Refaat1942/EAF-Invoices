@@ -39,10 +39,15 @@ async function createAlert(alert = {}, client = null) {
   return rows[0];
 }
 
-// Alerts for everyone, plus the ones addressed to this user.
-function viewerFilterSql(params, userId) {
-  if (!Number(userId)) return 'target_user_id IS NULL';
-  params.push(Number(userId));
+// Admin / reviewer: the system alerts plus their own. An employee: only the ones
+// addressed to them (e.g. «فاتورة مُرجعة للتصحيح») — system alerts are not their concern.
+// `viewer` is the session user (or just an id, treated as admin-like for old callers).
+function viewerFilterSql(params, viewer) {
+  const userId = Number(typeof viewer === 'object' && viewer ? viewer.id : viewer) || 0;
+  const role = typeof viewer === 'object' && viewer ? String(viewer.role || 'user') : 'admin';
+  if (!userId) return 'target_user_id IS NULL';
+  params.push(userId);
+  if (role !== 'admin' && role !== 'reviewer') return `target_user_id = $${params.length}`;
   return `(target_user_id IS NULL OR target_user_id = $${params.length})`;
 }
 
@@ -125,12 +130,16 @@ async function markAlertRead(id, userId = null) {
   return rows[0] || null;
 }
 
-async function markAllAlertsRead(userId = null) {
+async function markAllAlertsRead(viewer = null) {
+  const params = [];
+  const scope = viewerFilterSql(params, viewer);
+  const userId = Number(typeof viewer === 'object' && viewer ? viewer.id : viewer) || null;
+  params.push(userId);
   await query(
     `UPDATE system_alerts
-     SET is_read = TRUE, read_at = NOW(), read_by_user_id = $1
-     WHERE is_read = FALSE AND (target_user_id IS NULL OR target_user_id = $1)`,
-    [userId || null]
+     SET is_read = TRUE, read_at = NOW(), read_by_user_id = $${params.length}
+     WHERE is_read = FALSE AND ${scope}`,
+    params
   );
 }
 

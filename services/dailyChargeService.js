@@ -242,14 +242,36 @@ async function getOpenStayFirstEditableDate(fileNumber) {
   const fn = String(fileNumber || '').trim();
   if (!fn) return '';
   const { rows } = await query(
-    `SELECT admission_date::text AS admission_date FROM invoices
+    `SELECT admission_date::text AS admission_date, discharge_date::text AS discharge_date FROM invoices
      WHERE TRIM(file_number) = TRIM($1) AND status IN ('draft', 'pending_review')
      ORDER BY updated_at DESC LIMIT 1`,
     [fn]
   );
-  return normalizeCalendarDate(rows[0]?.admission_date) || '';
+  const first = normalizeCalendarDate(rows[0]?.admission_date) || '';
+  if (!first) return '';
+  // «إلى» (discharge / end of the period) caps the window; discharge == admission means
+  // the stay / visit is still open, so it runs up to today.
+  const to = normalizeCalendarDate(rows[0]?.discharge_date) || '';
+  const today = getCurrentBusinessDateString();
+  const last = to && to > first && to < today ? to : today;
+  return { first, last, toString: () => first };
 }
 
+function editWindow(firstEditableDate) {
+  if (firstEditableDate && typeof firstEditableDate === 'object') {
+    return {
+      first: normalizeCalendarDate(firstEditableDate.first),
+      last: normalizeCalendarDate(firstEditableDate.last) || getCurrentBusinessDateString(),
+    };
+  }
+  return { first: normalizeCalendarDate(firstEditableDate), last: getCurrentBusinessDateString() };
+}
+
+/**
+ * The date a daily entry may be recorded on: any day of the patient's open invoice period
+ * («من» … «إلى», or up to today while it is still open) — employees often record
+ * procedures after the fact. Without an open invoice only today is accepted.
+ */
 function resolveAllowedDailyEntryDate(submittedDate, firstEditableDate = '') {
   const allowed = getCurrentBusinessDateString();
   const hasSubmitted =
@@ -259,12 +281,12 @@ function resolveAllowedDailyEntryDate(submittedDate, firstEditableDate = '') {
     if (!submitted) {
       throw new Error('تاريخ اليوم غير صالح');
     }
-    if (submitted === allowed) return allowed;
-    const first = normalizeCalendarDate(firstEditableDate);
-    if (first && submitted >= first && submitted < allowed) return submitted;
+    const { first, last } = editWindow(firstEditableDate);
+    if (first && submitted >= first && submitted <= last) return submitted;
+    if (submitted === allowed && (!first || allowed <= last)) return allowed;
     throw new Error(
       first
-        ? `التاريخ (${submitted}) خارج فترة إقامة المريض المفتوحة (${first} إلى ${allowed})`
+        ? `التاريخ (${submitted}) خارج فترة المريض (${first} إلى ${last})`
         : `لا يمكن تسجيل الحركة اليومية إلا لتاريخ اليوم (${allowed}) — التاريخ المُرسَل (${submitted}) غير مقبول`
     );
   }
@@ -274,12 +296,12 @@ function resolveAllowedDailyEntryDate(submittedDate, firstEditableDate = '') {
 function assertExistingEntryDateIsToday(existingEntryDate, firstEditableDate = '') {
   const allowed = getCurrentBusinessDateString();
   const existing = normalizeCalendarDate(existingEntryDate);
-  const first = normalizeCalendarDate(firstEditableDate);
-  if (existing && first && existing >= first && existing <= allowed) return;
+  const { first, last } = editWindow(firstEditableDate);
+  if (existing && first && existing >= first && existing <= last) return;
   if (!existing || existing !== allowed) {
     const shown = existing || '—';
     throw new Error(
-      `لا يمكن تعديل حركة يوم سابق (${shown}) — التسجيل والتعديل متاح لليوم الحالي فقط (${allowed})`
+      `لا يمكن تعديل حركة يوم (${shown}) — خارج فترة المريض المفتوحة`
     );
   }
 }

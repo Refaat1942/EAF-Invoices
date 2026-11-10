@@ -203,9 +203,11 @@ router.get('/reports/export', requirePermission('reports.export'), async (req, r
 router.get('/', requirePermission('invoices.view'), async (req, res) => {
   try {
     const user = req.session?.user;
-    const onlyMine =
-      req.query.only_mine === 'true' ||
-      (!userHasPermission(user, 'settings.*') && !userHasPermission(user, 'invoices.edit_original'));
+    // An employee sees only the invoices they created; the admin and the financial
+    // reviewer see everyone's.
+    const role = String(user?.role || 'user');
+    const seesAll = role === 'admin' || role === 'reviewer';
+    const onlyMine = req.query.only_mine === 'true' || !seesAll;
     const invoices = await listInvoices({
       invoice_type: req.query.type,
       from_date: req.query.from,

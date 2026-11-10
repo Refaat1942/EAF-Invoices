@@ -772,7 +772,7 @@ function entryHasExamActivityOnDate(entry, dateKey) {
 
 function getExamSheetEntries(allEntries = dailySheetEntriesCache) {
   const list = allEntries || [];
-  const today = getLocalDateString();
+  const today = getDailyWorkDate();
   if (!dailySheetScopeSupported() || dailySheetDateScope === 'today') {
     return list.filter((entry) => entryHasExamActivityOnDate(entry, today));
   }
@@ -784,7 +784,7 @@ function getExamSheetEntries(allEntries = dailySheetEntriesCache) {
 
 function getClinicalSheetEntries(allEntries = dailySheetEntriesCache) {
   const list = allEntries || [];
-  const today = getLocalDateString();
+  const today = getDailyWorkDate();
   if (activeDailyTab === 'exams') {
     return getExamSheetEntries(list);
   }
@@ -798,7 +798,7 @@ function getClinicalSheetEntries(allEntries = dailySheetEntriesCache) {
 }
 
 function markDailySheetRowsByEntryDate() {
-  const today = getLocalDateString();
+  const today = getDailyWorkDate();
   document.querySelectorAll('#daily-sections-body .daily-entry-row').forEach((tr) => {
     const entryId = Number(tr.dataset.entryId);
     let entryDate = '';
@@ -2318,15 +2318,16 @@ function renderDailyEntryTabs() {
 }
 
 function setDailyTodayDate() {
-  const today = getLocalDateString();
-  const headerDate = document.getElementById('daily-entry-date');
-  if (headerDate) headerDate.value = today;
+  applyDailyWorkDateLimits();
+  const workDate = getDailyWorkDate();
   document.querySelectorAll('.daily-row-date').forEach((input) => {
     if (activeDailyTab === 'stay') {
-      if (!input.value) input.value = today;
+      if (!input.value) input.value = workDate;
       return;
     }
-    input.value = today;
+    // Saved rows keep their own day; new rows follow «تاريخ الحركة».
+    if (input.closest('tr')?.dataset?.entryId) return;
+    input.value = workDate;
   });
 }
 
@@ -2771,22 +2772,28 @@ async function loadPatientEntitySelects(selectedId = null) {
   }
 }
 
-function populateStayTypeSelects(selectedId = '') {
+function populateStayTypeSelects(selectedId) {
+  // undefined = just reload the list (keep each select's choice); '' = clear it.
+  const keep = selectedId === undefined;
   const grades = getRoomAssignmentGradeOptions();
   const html =
     '<option value="">-- اختر من اللائحة --</option>' +
     grades
       .map((grade) => {
-        const selected = String(selectedId) === String(grade.stay_type_id) ? ' selected' : '';
+        const selected = !keep && String(selectedId) === String(grade.stay_type_id) ? ' selected' : '';
         return `<option value="${grade.stay_type_id}"${selected}>${formatStayGradeOptionLabel(grade)}</option>`;
       })
       .join('');
   ['patient-reg-room', 'daily-stay-room', 'change-room-stay-type'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
-    const cur = id === 'change-room-stay-type' ? '' : selectedId;
+    // A reload of the list (no id given) must keep what the user / the edit form already chose.
+    const cur =
+      id === 'change-room-stay-type' ? '' : keep ? el.value || el.dataset.selectedStayType || '' : selectedId || '';
     el.innerHTML = html;
     if (cur) el.value = String(cur);
+    if (cur && el.value !== String(cur)) el.dataset.selectedStayType = String(cur);
+    else delete el.dataset.selectedStayType;
   });
 }
 
@@ -3216,6 +3223,20 @@ function showPatientRegisterForm(patientType, options = {}) {
   if (balanceWrap) balanceWrap.style.display = type === 'external' ? 'none' : '';
   const regInternal = document.getElementById('patient-reg-internal-wrap');
   if (regInternal) regInternal.style.display = type === 'internal' ? '' : 'none';
+  // Same «من / إلى» for every patient type, with the wording that fits it.
+  const fromLabel = document.getElementById('patient-reg-admission-label');
+  const toLabel = document.getElementById('patient-reg-discharge-label');
+  const toHint = document.getElementById('patient-reg-discharge-hint');
+  if (fromLabel) fromLabel.textContent = type === 'internal' ? 'تاريخ الدخول (من) *' : 'تاريخ الحركة (من) *';
+  if (toLabel) toLabel.textContent = type === 'internal' ? 'تاريخ الخروج (إلى)' : 'تاريخ الحركة (إلى)';
+  if (toHint) {
+    toHint.textContent =
+      type === 'internal' ? 'اتركه فارغًا ما دام المريض بالمستشفى' : 'اتركه فارغًا إن كانت الحركة مستمرة حتى اليوم';
+  }
+  ['patient-reg-admission', 'patient-reg-discharge'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.max = getLocalDateString();
+  });
   updatePatientRegNationalityHint();
   const saveBtn = document.getElementById('patient-reg-save-btn');
   if (saveBtn) saveBtn.textContent = isEdit ? '💾 حفظ التعديلات' : '💾 حفظ تسجيل المريض';
@@ -3268,6 +3289,13 @@ async function fillPatientRegisterFormFromContext(ctx) {
   if (ageEl && p.age != null) ageEl.value = String(p.age);
   const admissionEl = document.getElementById('patient-reg-admission');
   if (admissionEl) admissionEl.value = fmtStayDate(inv.admission_date) || '';
+  // discharge == admission is how an open stay / visit is stored: show it as «not set».
+  const dischargeEl = document.getElementById('patient-reg-discharge');
+  if (dischargeEl) {
+    const from = fmtStayDate(inv.admission_date) || '';
+    const to = fmtStayDate(inv.discharge_date) || '';
+    dischargeEl.value = to && to !== from ? to : '';
+  }
   const balanceEl = document.getElementById('patient-reg-balance');
   if (balanceEl && typeof setCommaAmountValue === 'function') {
     setCommaAmountValue(balanceEl, p.account_balance || 0);
@@ -3396,12 +3424,23 @@ function clearPatientRegisterForm(options = {}) {
     'patient-reg-other-phone',
     'patient-reg-nationality',
     'patient-reg-admission',
+    'patient-reg-discharge',
     'patient-reg-balance',
     'patient-reg-age',
     'patient-reg-room-insurance',
     'patient-reg-military-from',
     'patient-reg-military-to',
     'patient-reg-military-amount',
+    // Stay / entity fields: a new registration must never show the previous patient's.
+    'patient-reg-room',
+    'patient-reg-floor',
+    'patient-reg-companion',
+    'patient-reg-nursing',
+    'patient-reg-assistant',
+    'patient-reg-entity',
+    'patient-reg-discount-percent',
+    'patient-reg-letter-from',
+    'patient-reg-letter-to',
   ];
   ids.forEach((id) => {
     const el = document.getElementById(id);
@@ -3411,6 +3450,7 @@ function clearPatientRegisterForm(options = {}) {
     } else {
       el.value = '';
     }
+    delete el.dataset.selectedStayType;
   });
   const genderEl = document.getElementById('patient-reg-gender');
   if (genderEl) genderEl.value = '';
@@ -3490,8 +3530,18 @@ async function savePatientRegistration(event) {
   const invoice_type = document.getElementById('patient-reg-invoice-type')?.value || 'civil';
   const financial_treatment = getDailyInvoiceTypeLabel(invoice_type);
   const balanceRaw = document.getElementById('patient-reg-balance')?.value;
+  const discharge_date = document.getElementById('patient-reg-discharge')?.value || '';
   if (!patient_name || !admission_date) {
     showToast('اسم المريض وتاريخ الدخول مطلوبان', 'warning');
+    return;
+  }
+  const todayStr = getLocalDateString();
+  if (admission_date > todayStr || (discharge_date && discharge_date > todayStr)) {
+    showToast('لا يمكن اختيار تاريخ بعد تاريخ اليوم', 'warning');
+    return;
+  }
+  if (discharge_date && discharge_date < admission_date) {
+    showToast('تاريخ «إلى» يجب أن يكون بعد تاريخ «من» أو مساويًا له', 'warning');
     return;
   }
   const storedPatient = patientRegEditMode ? dailyStayContext?.patient || {} : {};
@@ -3520,7 +3570,7 @@ async function savePatientRegistration(event) {
     nationality,
     gender,
     admission_date,
-    discharge_date: null,
+    discharge_date: discharge_date || null,
     financial_treatment,
     patient_type,
     ...collectPatientDemographics('register'),
@@ -3601,8 +3651,20 @@ function applyStayExcludedDatesFromContext(ctx) {
 }
 
 function applyDailyStayContext(ctx) {
+  // Another patient: «تاريخ الحركة» starts again on their latest day (today / «إلى»).
+  if (String(dailyStayContext?.patient?.file_number || '') !== String(ctx?.patient?.file_number || '')) {
+    const workDateEl = document.getElementById('daily-entry-date');
+    if (workDateEl) workDateEl.value = '';
+  }
   dailyStayContext = ctx;
   applyStayExcludedDatesFromContext(ctx);
+  // Returned for correction: show the reviewer's sections and note on the patient's screens.
+  const returnBox = document.getElementById('daily-return-banner');
+  if (returnBox) {
+    const html = typeof window.invoiceReturnBannerHtml === 'function' ? window.invoiceReturnBannerHtml(ctx?.invoice) : '';
+    returnBox.innerHTML = html;
+    returnBox.classList.toggle('d-none', !html);
+  }
   const hasOpenInvoice = Boolean(ctx?.invoice?.id);
   setDailyWorkflowSteps(hasOpenInvoice);
 
@@ -3737,7 +3799,7 @@ async function ensurePatientDataReconciled(fileNumber) {
   const fn = String(fileNumber || '').trim();
   if (!fn) return;
   try {
-    await apiJson(`${DAILY_API}/reconcile-patient`, {
+    return await apiJson(`${DAILY_API}/reconcile-patient`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -3749,6 +3811,7 @@ async function ensurePatientDataReconciled(fileNumber) {
     });
   } catch {
     /* optional reconcile */
+    return null;
   }
 }
 
@@ -3792,8 +3855,12 @@ async function loadOpenPatientStay(fileNumber) {
       data = await ensureOpenStayInvoice(data);
     }
     dailyStayContext = data;
-    await ensurePatientDataReconciled(fn);
-    data = await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
+    // The reconcile answer already carries the refreshed stay — no second round trip.
+    const reconciled = await ensurePatientDataReconciled(fn);
+    data =
+      reconciled && (reconciled.invoice || reconciled.patient)
+        ? reconciled
+        : await apiJson(`${DAILY_API}/open-stay?file_number=${encodeURIComponent(fn)}`);
     applyDailyStayContext(data);
     const refDataFresh = isDailyRefDataFresh();
     await Promise.all([
@@ -4966,7 +5033,7 @@ function createStayDailyEntryRow(entry = {}) {
       </div>
     </td>
     <td class="daily-col-total daily-row-total fw-bold text-nowrap"></td>
-    <td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-danger daily-row-delete" title="حذف اليوم">×</button></td>`;
+    <td class="daily-col-action text-center" title="أيام الإقامة لا تُحذف — عدّل المبالغ أو نوع الإقامة"></td>`;
 
   const accHidden = tr.querySelector('.daily-amount[data-section="accommodation"]');
   if (accHidden && accLine.amount > 0) {
@@ -6272,7 +6339,11 @@ function createStayAddonRow(parentTr, sectionCode, line = {}) {
     assistantAmt +
     nursingAmt +
     '<td class="daily-col-total"></td>' +
-    '<td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-secondary daily-stay-addon-remove" title="إزالة">×</button></td>';
+    // Stay lines are never deleted once saved (edit them instead); an extra line added
+    // by mistake and not saved yet can still be taken off.
+    (line.id
+      ? '<td class="daily-col-action text-center"></td>'
+      : '<td class="daily-col-action text-center"><button type="button" class="btn btn-sm btn-outline-secondary daily-stay-addon-remove" title="إزالة (غير محفوظ)">×</button></td>');
 
   if (sectionCode === 'accommodation') {
     const accHidden = tr.querySelector('.daily-amount[data-section="accommodation"]');
@@ -6453,15 +6524,19 @@ function buildClientLinesFingerprint(lines = []) {
 }
 
 function resolveTodayDailyEntryId() {
-  const today = getLocalDateString();
+  return resolveDailyEntryIdForDate(getLocalDateString());
+}
+
+function resolveDailyEntryIdForDate(date) {
+  const day = fmtStayDate(date);
   for (const entry of dailySheetEntriesCache || []) {
-    if (fmtStayDate(entry.entry_date) === today && entry.id) return Number(entry.id);
+    if (fmtStayDate(entry.entry_date) === day && entry.id) return Number(entry.id);
   }
   for (const tr of document.querySelectorAll(
     '#daily-sections-body .daily-entry-row[data-entry-id]'
   )) {
     const id = Number(tr.dataset.entryId) || 0;
-    if (id > 0) return id;
+    if (id > 0 && cachedEntryDateForRow(id) === day) return id;
   }
   return 0;
 }
@@ -6508,35 +6583,41 @@ function enrichSaveEntriesWithPreservedLines(entries = []) {
   return entries.map((row) => mergePreservedLinesIntoSaveRow(row));
 }
 
+// One entry per day for these tabs: rows of the same date go into that day's entry
+// (rows of a past day of the patient's period stay on their own day).
 function mergeTodayTabSaveRows(rows = []) {
   if (!rows.length) return rows;
   const today = getLocalDateString();
-  let entryId = 0;
+  const byDate = new Map();
   for (const row of rows) {
-    const id = Number(row.entry_id) || 0;
-    if (id > 0) entryId = id;
+    const date = fmtStayDate(row.entry_date) || today;
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date).push(row);
   }
-  if (!entryId) entryId = resolveTodayDailyEntryId();
-
-  const lineMap = new Map();
-  let notes = '';
-  let stayTypeId = null;
-  for (const row of rows) {
-    if (row.notes) notes = row.notes;
-    if (row.stay_type_id) stayTypeId = row.stay_type_id;
-    for (const line of row.lines || []) {
-      lineMap.set(dailyLineMergeKey(line), line);
+  const out = [];
+  for (const [date, group] of byDate) {
+    let entryId = 0;
+    for (const row of group) {
+      const id = Number(row.entry_id) || 0;
+      if (id > 0) entryId = id;
     }
+    if (!entryId) entryId = resolveDailyEntryIdForDate(date);
+    const lineMap = new Map();
+    let notes = '';
+    let stayTypeId = null;
+    for (const row of group) {
+      if (row.notes) notes = row.notes;
+      if (row.stay_type_id) stayTypeId = row.stay_type_id;
+      for (const line of row.lines || []) {
+        lineMap.set(dailyLineMergeKey(line), line);
+      }
+    }
+    const merged = { entry_date: date, lines: [...lineMap.values()], notes };
+    if (entryId > 0) merged.entry_id = entryId;
+    if (stayTypeId) merged.stay_type_id = stayTypeId;
+    if (merged.lines.length) out.push(mergePreservedLinesIntoSaveRow(merged));
   }
-  const merged = {
-    entry_date: today,
-    lines: [...lineMap.values()],
-    notes,
-  };
-  if (entryId > 0) merged.entry_id = entryId;
-  if (stayTypeId) merged.stay_type_id = stayTypeId;
-  if (!merged.lines.length) return [];
-  return [mergePreservedLinesIntoSaveRow(merged)];
+  return out;
 }
 
 function catalogRowDedupeKey(tr, sectionCode) {
@@ -7528,7 +7609,7 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     } else {
       const startedAt = Date.now();
       entries = await apiJson(
-        `${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&include_lines=1&limit=120`
+        dailySheetEntriesUrl(fileNumber)
       );
       if (loadId !== dailyEntriesLoadSeq) return;
       dailySheetEntriesFetchedAt = startedAt;
@@ -7537,7 +7618,8 @@ async function loadDailyEntriesIntoSheet(options = {}) {
     dailySheetEntriesCache = entries || [];
     rebuildDailySheetSerialState(entries);
     dailySheetSerialNext = 1;
-    const today = getLocalDateString();
+    applyDailyWorkDateLimits();
+    const today = getDailyWorkDate();
     const todayEntries = entries.filter((entry) => fmtStayDate(entry.entry_date) === today);
     const sheetEntries =
       activeDailyTab === 'stay' ? todayEntries : getClinicalSheetEntries(entries);
@@ -7665,7 +7747,7 @@ async function revalidateDailySheetEntries(fileNumber, loadId) {
   try {
     const startedAt = Date.now();
     const fresh = await apiJson(
-      `${DAILY_API}/entries?file_number=${encodeURIComponent(fileNumber)}&include_lines=1&limit=120`
+      dailySheetEntriesUrl(fileNumber)
     );
     if (loadId !== dailyEntriesLoadSeq || getStayFileNumber() !== fileNumber) return;
     const changed = JSON.stringify(fresh || []) !== JSON.stringify(dailySheetEntriesCache || []);
@@ -8289,6 +8371,62 @@ function applySavedEntriesToDomRows(savedEntries = []) {
 
 let dailyLastSkippedPastRows = 0;
 
+/** Days of the patient's open period that can be recorded: «من» … «إلى» (or today). */
+function getDailyEditWindow() {
+  const today = getLocalDateString();
+  const inv = dailyStayContext?.invoice || {};
+  const status = String(inv.status || '');
+  const first = fmtStayDate(inv.admission_date) || '';
+  if (!first || (status && !['draft', 'pending_review'].includes(status))) return { first: today, last: today };
+  const to = fmtStayDate(inv.discharge_date) || '';
+  const last = to && to > first && to < today ? to : today;
+  return { first: first < today ? first : today, last };
+}
+
+function isDateInDailyEditWindow(date) {
+  const d = fmtStayDate(date);
+  if (!d) return false;
+  const { first, last } = getDailyEditWindow();
+  return d >= first && d <= last;
+}
+
+/** «تاريخ الحركة» from the header: the day new rows are recorded on. */
+function getDailyWorkDate() {
+  const { first, last } = getDailyEditWindow();
+  const picked = fmtStayDate(document.getElementById('daily-entry-date')?.value) || '';
+  if (picked && picked >= first && picked <= last) return picked;
+  return last;
+}
+
+function applyDailyWorkDateLimits() {
+  const el = document.getElementById('daily-entry-date');
+  if (!el) return;
+  const { first, last } = getDailyEditWindow();
+  el.min = first;
+  el.max = last;
+  const cur = fmtStayDate(el.value);
+  if (!cur || cur < first || cur > last) el.value = last;
+  const editable = first < last;
+  el.readOnly = !editable;
+  el.tabIndex = editable ? 0 : -1;
+  el.classList.toggle('bg-light', !editable);
+  el.classList.toggle('border-primary', editable);
+  el.title = editable
+    ? `اختر يوم الحركة من فترة المريض (${first} إلى ${last}) — الصفوف الجديدة تُسجَّل على هذا اليوم`
+    : 'تاريخ اليوم';
+}
+
+// Every entry of the patient's current period (no cap: a month-long stay with several
+// entries a day used to lose its days past the first 120 entries).
+function dailySheetEntriesUrl(fileNumber) {
+  const params = new URLSearchParams({ file_number: fileNumber, include_lines: '1' });
+  const from = fmtStayDate(dailyStayContext?.invoice?.admission_date);
+  if (from && String(dailyStayContext?.patient?.file_number || '') === String(fileNumber)) {
+    params.set('from_date', from);
+  }
+  return `${DAILY_API}/entries?${params}`;
+}
+
 function cachedEntryDateForRow(entryId) {
   if (!entryId) return '';
   const entry = (dailySheetEntriesCache || []).find((e) => Number(e.id) === Number(entryId));
@@ -8298,6 +8436,7 @@ function cachedEntryDateForRow(entryId) {
 function collectDailyRowsForSave() {
   const notes = document.getElementById('daily-notes')?.value || '';
   const today = getLocalDateString();
+  const workDate = getDailyWorkDate();
   const rows = [];
   dailyLastSkippedPastRows = 0;
   const rowSelector =
@@ -8310,11 +8449,12 @@ function collectDailyRowsForSave() {
     const entryId = tr.dataset.entryId ? Number(tr.dataset.entryId) : null;
     const rowDate = tr.querySelector('.daily-row-date')?.value || today;
     if (activeDailyTab === 'stay' && isDailyStayDateSuppressed(rowDate)) return;
-    // The server only accepts business-today and rejects the whole batch for any
-    // prior-day row, so saved rows from earlier days stay read-only here.
+    // A saved row keeps its own day; a new row goes on «تاريخ الحركة» chosen in the
+    // header. Any day of the patient's period («من» … «إلى» / today) can be saved.
     const existingDate =
       cachedEntryDateForRow(entryId) || (activeDailyTab === 'stay' ? fmtStayDate(rowDate) : '');
-    if (existingDate && existingDate !== today) {
+    const saveDate = existingDate || (activeDailyTab === 'stay' ? fmtStayDate(rowDate) : workDate);
+    if (!isDateInDailyEditWindow(saveDate)) {
       dailyLastSkippedPastRows += 1;
       return;
     }
@@ -8325,7 +8465,7 @@ function collectDailyRowsForSave() {
     // preserved separately on the line's extra_date by collectExamLinesFromRow.
     rows.push({
       entry_id: entryId,
-      entry_date: activeDailyTab === 'stay' ? rowDate : today,
+      entry_date: saveDate,
       stay_type_id: resolveStayTypeIdForSave(null, tr),
       doctor_specialty:
         tr.querySelector('.daily-row-specialty')?.value || tr.dataset.doctorSpecialty || '',
@@ -8589,7 +8729,7 @@ async function saveDailyEntryNow(options = {}) {
     if (!silent) {
       showToast(
         dailyLastSkippedPastRows > 0
-          ? 'الصفوف المعروضة من أيام سابقة ولا يمكن تعديلها — أضف صفاً جديداً لتاريخ اليوم'
+          ? 'الصفوف المعروضة خارج فترة المريض (من / إلى) ولا يمكن حفظها'
           : 'أضف صفًا واحدًا على الأقل مع بيانات',
         'warning'
       );
@@ -9205,6 +9345,27 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('daily-add-row-btn')?.addEventListener('click', handleDailySheetAddRow);
   document.getElementById('daily-sheet-add-row-btn')?.addEventListener('click', handleDailySheetAddRow);
   document.getElementById('daily-stay-extra-acc-btn')?.addEventListener('click', addStayAccommodationAddonForDay);
+  const workDateEl = document.getElementById('daily-entry-date');
+  if (workDateEl) {
+    workDateEl.dataset.prev = workDateEl.value;
+    workDateEl.addEventListener('change', () => {
+      const prev = workDateEl.dataset.prev || '';
+      if (
+        typeof dailyTabHasUnsavedChanges === 'function' &&
+        dailyTabHasUnsavedChanges() &&
+        !window.confirm('توجد بيانات لم تُحفظ في هذا اليوم — تغيير التاريخ سيُلغيها. متابعة؟')
+      ) {
+        workDateEl.value = prev;
+        return;
+      }
+      applyDailyWorkDateLimits();
+      workDateEl.dataset.prev = workDateEl.value;
+      if (workDateEl.value !== getLocalDateString()) {
+        showToast(`تسجيل الحركة على يوم ${workDateEl.value}`, 'info');
+      }
+      void loadDailyEntriesIntoSheet();
+    });
+  }
   document.getElementById('daily-sheet-scope')?.addEventListener('change', (e) => {
     dailySheetDateScope = e.target.value === 'period' ? 'period' : 'today';
     void loadDailyEntriesIntoSheet();

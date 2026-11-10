@@ -62,6 +62,15 @@
     const entityId = String(alert.entity_id || '').trim();
     const alertType = String(alert.alert_type || '').trim();
 
+    // A returned invoice is corrected from the patient's screens: open them directly.
+    if (alertType === 'invoice_returned') {
+      const fileNumber = String(alert.details?.file_number || '').trim();
+      if (fileNumber && typeof window.switchView === 'function') {
+        window.switchView('daily', { openFileNumber: fileNumber });
+        return true;
+      }
+    }
+
     if (entityType === 'invoice' && entityId) {
       if (typeof window.loadInvoiceForEdit === 'function') {
         await window.loadInvoiceForEdit(Number(entityId));
@@ -120,7 +129,7 @@
       body.innerHTML = rows
         .map(
           (row) => `
-        <button type="button" class="dropdown-item text-wrap nav-alert-item${row.is_read ? '' : ' fw-bold'}" data-id="${row.id}" data-entity-type="${escapeHtml(row.entity_type || '')}" data-entity-id="${escapeHtml(row.entity_id || '')}" data-alert-type="${escapeHtml(row.alert_type || '')}" title="فتح">
+        <button type="button" class="dropdown-item text-wrap nav-alert-item${row.is_read ? '' : ' fw-bold'}" data-id="${row.id}" data-entity-type="${escapeHtml(row.entity_type || '')}" data-entity-id="${escapeHtml(row.entity_id || '')}" data-alert-type="${escapeHtml(row.alert_type || '')}" data-file-number="${escapeHtml(row.details?.file_number || '')}" title="فتح">
           <div class="small text-muted">${escapeHtml(row.created_at ? new Date(row.created_at).toLocaleString('ar-EG') : '')}</div>
           <div>${escapeHtml(row.title || 'تنبيه')}</div>
           <div class="small text-muted">${escapeHtml(row.message || '')}</div>
@@ -134,6 +143,7 @@
             is_read: !btn.classList.contains('fw-bold'),
             entity_type: btn.dataset.entityType,
             entity_id: btn.dataset.entityId,
+            details: { file_number: btn.dataset.fileNumber || '' },
             alert_type: btn.dataset.alertType,
           });
         });

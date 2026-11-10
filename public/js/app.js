@@ -438,6 +438,8 @@ function showApp() {
   }
   try {
     if (typeof initAuditAdmin === 'function') initAuditAdmin();
+    // The bell is for everyone (an employee gets «فاتورة مُرجعة للتصحيح» here).
+    if (typeof window.startNotificationPolling === 'function') window.startNotificationPolling();
     if (typeof initOpsCenter === 'function') initOpsCenter();
     if (typeof initAssistant === 'function') initAssistant();
     applyPermissions();

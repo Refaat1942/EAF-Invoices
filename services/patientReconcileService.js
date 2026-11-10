@@ -94,10 +94,14 @@ async function reconcilePatientDailyData(fileNumber, options = {}, user = null) 
     stay_post = { posted: 0, skipped: true, reason: 'no_open_invoice' };
   }
 
-  const invoice_sync = await syncPatientDailyChargesToInvoice(
-    fn,
-    patient?.name || stay?.patient?.name || ''
-  );
+  // Re-saving the whole invoice is the slow part of opening a patient. Skip it when the
+  // invoice is already newer than everything it is computed from: the patient's daily
+  // entries, operations and the prices / settings / balances («calc_inputs_changed_at»).
+  const postedNow = Number(stay_post?.posted) || 0;
+  const upToDate = postedNow === 0 && options.force_sync !== true && (await isInvoiceUpToDate(fn, stay?.invoice?.id));
+  const invoice_sync = upToDate
+    ? { synced: true, skipped: true, reason: 'up_to_date', invoice_id: stay.invoice.id }
+    : await syncPatientDailyChargesToInvoice(fn, patient?.name || stay?.patient?.name || '');
 
   return {
     file_number: fn,
@@ -105,6 +109,32 @@ async function reconcilePatientDailyData(fileNumber, options = {}, user = null) 
     stay_post,
     invoice_sync,
   };
+}
+
+async function isInvoiceUpToDate(fileNumber, invoiceId) {
+  if (!invoiceId) return false;
+  try {
+    const { rows } = await query(
+      `SELECT i.updated_at AS inv_at,
+              (SELECT MAX(e.updated_at) FROM patient_daily_entries e
+                 JOIN patients p ON p.id = e.patient_id
+                WHERE TRIM(p.file_number) = TRIM($1)) AS entries_at,
+              (SELECT updated_at FROM app_settings WHERE key = 'calc_inputs_changed_at') AS inputs_at,
+              (SELECT MAX(o.updated_at) FROM patient_operations o
+                 JOIN patients p ON p.id = o.patient_id
+                WHERE TRIM(p.file_number) = TRIM($1)) AS ops_at
+       FROM invoices i WHERE i.id = $2`,
+      [fileNumber, invoiceId]
+    );
+    const r = rows[0];
+    if (!r?.inv_at) return false;
+    const inv = new Date(r.inv_at).getTime();
+    return [r.entries_at, r.inputs_at, r.ops_at]
+      .filter(Boolean)
+      .every((t) => new Date(t).getTime() <= inv);
+  } catch {
+    return false;
+  }
 }
 
 async function reconcileAllOpenPatients(options = {}, user = null) {

@@ -672,6 +672,10 @@ router.post('/entries/batch', requirePermission('daily_charges.manage'), async (
 
 router.delete('/entries/stay-by-date', requirePermission('daily_charges.manage'), async (req, res) => {
   try {
+    // Stay days are edited, never deleted, from the screens (system admin only).
+    if (String(req.session?.user?.role || '') !== 'admin') {
+      return res.status(403).json({ error: 'لا يمكن حذف يوم إقامة — عدّل المبالغ أو نوع الإقامة بدلًا من الحذف' });
+    }
     const file_number = req.query.file_number?.trim();
     const entry_date = req.query.entry_date?.trim();
     if (!file_number || !entry_date) {

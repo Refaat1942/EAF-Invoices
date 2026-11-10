@@ -299,6 +299,24 @@ async function buildInvoiceHtml(invoice, options = {}) {
     inv.discharge_date = lastStayDay;
     inv.stay_days = calculateStayDays(admissionDay, lastStayDay);
   }
+  // External / clinic patients: the same «من / إلى» period, worded as a period of
+  // procedures; while it is still open it runs to the last day with a charge.
+  const isExternalPatient = String(inv.patient_type || '').toLowerCase() === 'external';
+  if (isExternalPatient && admissionDay) {
+    const lastChargeDay = (inv.items || [])
+      .map((item) => String(item.daily_entry_date || '').slice(0, 10))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort()
+      .pop();
+    if ((!dischargeDay || dischargeDay <= admissionDay) && lastChargeDay && lastChargeDay > admissionDay) {
+      inv.discharge_date = lastChargeDay;
+    }
+    if (!inv.discharge_date) inv.discharge_date = admissionDay;
+    inv.stay_days = calculateStayDays(admissionDay, String(inv.discharge_date).slice(0, 10));
+  }
+  const periodLabels = isExternalPatient
+    ? ['الفترة من', 'الفترة إلى', 'عدد الأيام']
+    : ['تاريخ الدخول (من)', 'تاريخ الخروج (إلى)', 'عدد أيام الإقامة'];
 
   const itemLineCount = realItems.filter((item) => !item._section_header).length;
   const printProfile = resolveInvoicePrintProfile(itemLineCount);
@@ -653,9 +671,9 @@ async function buildInvoiceHtml(invoice, options = {}) {
         <th>نوع الفاتورة</th>
         <th>رقم الملف</th>
         <th>إسم المريض</th>
-        <th>تاريخ الدخول</th>
-        <th>تاريخ الخروج</th>
-        <th>عدد أيام الإقامة</th>
+        <th>${periodLabels[0]}</th>
+        <th>${periodLabels[1]}</th>
+        <th>${periodLabels[2]}</th>
       </tr>
       <tr>
         <td class="value">${escapeHtml(inv.invoice_type_label || inv.invoice_type)}</td>

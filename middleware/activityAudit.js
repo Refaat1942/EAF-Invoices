@@ -49,6 +49,8 @@ const ROUTES = [
   [null, /^\/api\/users/, 'users.change', 'تعديل المستخدمين', 'الإعدادات — المستخدمين'],
 ];
 
+const CALC_INPUT_ACTIONS = new Set(['settings.change', 'pricing.change', 'catalog.change', 'doctors.change', 'patient.save']);
+
 const VERB = { POST: 'إضافة', PUT: 'تعديل', PATCH: 'تعديل', DELETE: 'حذف' };
 
 function matchRoute(method, path) {
@@ -240,14 +242,36 @@ async function loadBeforeContext(method, path, req) {
 function activityAuditMiddleware(req, res, next) {
   const method = req.method;
   const path = String(req.originalUrl || req.url || '').split('?')[0];
+  if (MUTATING.has(method) && path === '/api/patients/balance') {
+    // A balance change alters the credit applied on the open invoice.
+    res.on('finish', () => {
+      query(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES ('calc_inputs_changed_at', NOW()::text, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+      ).catch(() => {});
+    });
+  }
   if (!MUTATING.has(method) || !path.startsWith('/api/') || SKIP.some((re) => re.test(path))) {
     return next();
   }
   const user = req.session?.user;
   if (!user) return next();
 
+  // Settings / prices / catalog changed: invoices must be fully recalculated the next
+  // time their patient is opened (see patientReconcileService).
+  // Marked before AND after the change, so a recalculation racing with it never counts
+  // as up to date.
+  const route0 = matchRoute(method, path);
+  const marksCalcInputs = CALC_INPUT_ACTIONS.has(route0.action);
+  const markCalcInputs = () =>
+    query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ('calc_inputs_changed_at', NOW()::text, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`
+    ).catch(() => {});
+  if (marksCalcInputs) res.on('finish', () => void markCalcInputs());
   const wantsDiff = DIFF_PATHS.some((re) => re.test(path));
-  const before = loadBeforeContext(method, path, req).then(async (ctx) => {
+  const marked = marksCalcInputs ? markCalcInputs() : Promise.resolve();
+  const before = marked.then(() => loadBeforeContext(method, path, req)).then(async (ctx) => {
     if (!wantsDiff) return { ctx };
     const fileNumber = ctx.file_number || req.body?.file_number || req.query?.file_number;
     const dates = datesOfBody(req.body, ctx);

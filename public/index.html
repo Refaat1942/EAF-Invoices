@@ -289,8 +289,13 @@
                   <input type="text" inputmode="numeric" class="form-control fw-bold patient-reg-field" id="patient-reg-age" autocomplete="off">
                 </div>
                 <div class="col-md-3">
-                  <label class="form-label fw-bold">تاريخ الدخول *</label>
+                  <label class="form-label fw-bold" id="patient-reg-admission-label" for="patient-reg-admission">تاريخ الدخول (من) *</label>
                   <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-admission" autocomplete="off">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label fw-bold" id="patient-reg-discharge-label" for="patient-reg-discharge">تاريخ الخروج (إلى)</label>
+                  <input type="date" class="form-control fw-bold patient-reg-field" id="patient-reg-discharge" autocomplete="off">
+                  <small class="text-muted" id="patient-reg-discharge-hint">اتركه فارغًا ما دام المريض بالمستشفى</small>
                 </div>
                 <div class="col-md-3" id="patient-reg-invoice-type-wrap">
                   <label class="form-label fw-bold">نوع التعامل والجهة المتعاقدة *</label>
@@ -979,11 +984,12 @@
           <button type="button" class="btn btn-outline-secondary fw-bold d-none" id="daily-invoice-pdf-btn">🖨️ طباعة PDF</button>
         </div>
 
+        <div class="d-none mb-2" id="daily-return-banner"></div>
         <div id="daily-section-workspace">
           <div id="daily-section-toolbar" class="daily-section-toolbar">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
               <div class="d-flex flex-wrap gap-2 align-items-center">
-                <span class="small fw-bold text-muted">تاريخ اليوم:</span>
+                <label class="small fw-bold text-muted mb-0" for="daily-entry-date">تاريخ الحركة:</label>
                 <input type="date" class="form-control form-control-sm fw-bold bg-light" id="daily-entry-date" readonly tabindex="-1" style="width:auto">
                 <div class="d-flex align-items-center gap-1 d-none" id="daily-sheet-scope-wrap">
                   <span class="small fw-bold text-muted">عرض الحركة:</span>
@@ -2481,22 +2487,22 @@
   </div><!-- app-container -->
 
   <script src="/vendor/bootstrap/bootstrap.bundle.min.js?v=5.3.3"></script>
-  <script src="/js/action-guard.js?v=20261108b"></script>
-  <script src="/js/enter-add-row.js?v=20261108b"></script>
-  <script src="/js/auto-save.js?v=20261108b"></script>
-  <script src="/js/api-client.js?v=20261108b"></script>
-  <script src="/js/daily-section-bundles.js?v=20261108b"></script>
-  <script src="/js/app.js?v=20261108b"></script>
-  <script src="/js/nationality-pricing.js?v=20261108b"></script>
-  <script src="/js/daily-picker.js?v=20261108b"></script>
-  <script src="/js/daily-charges.js?v=20261108b"></script>
-  <script src="/js/notifications.js?v=20261108b"></script>
-  <script src="/js/audit-admin.js?v=20261108b"></script>
-  <script src="/js/ops-center.js?v=20261108b"></script>
-  <script src="/js/assistant.js?v=20261108b"></script>
-  <script src="/js/analytics-dashboard.js?v=20261108b"></script>
-  <script src="/js/item-catalog-settings.js?v=20261108b"></script>
-  <script src="/js/doctor-settings.js?v=20261108b"></script>
-  <script src="/js/daily-entries-browser.js?v=20261108b"></script>
+  <script src="/js/action-guard.js?v=20261110a"></script>
+  <script src="/js/enter-add-row.js?v=20261110a"></script>
+  <script src="/js/auto-save.js?v=20261110a"></script>
+  <script src="/js/api-client.js?v=20261110a"></script>
+  <script src="/js/daily-section-bundles.js?v=20261110a"></script>
+  <script src="/js/app.js?v=20261110a"></script>
+  <script src="/js/nationality-pricing.js?v=20261110a"></script>
+  <script src="/js/daily-picker.js?v=20261110a"></script>
+  <script src="/js/daily-charges.js?v=20261110a"></script>
+  <script src="/js/notifications.js?v=20261110a"></script>
+  <script src="/js/audit-admin.js?v=20261110a"></script>
+  <script src="/js/ops-center.js?v=20261110a"></script>
+  <script src="/js/assistant.js?v=20261110a"></script>
+  <script src="/js/analytics-dashboard.js?v=20261110a"></script>
+  <script src="/js/item-catalog-settings.js?v=20261110a"></script>
+  <script src="/js/doctor-settings.js?v=20261110a"></script>
+  <script src="/js/daily-entries-browser.js?v=20261110a"></script>
 </body>
 </html>

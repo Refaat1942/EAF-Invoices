@@ -706,7 +706,10 @@ async function getInvoiceById(id, client = null) {
     `SELECT i.*,
             (SELECT p.nationality FROM patients p
               WHERE TRIM(p.file_number) = TRIM(i.file_number)
-              ORDER BY p.id LIMIT 1) AS patient_nationality
+              ORDER BY p.id LIMIT 1) AS patient_nationality,
+            (SELECT p.patient_type FROM patients p
+              WHERE TRIM(p.file_number) = TRIM(i.file_number)
+              ORDER BY p.id LIMIT 1) AS patient_type
      FROM invoices i WHERE i.id = $1`,
     [id]
   );
@@ -875,10 +878,16 @@ async function saveInvoice(data, existingId = null, createdBy = null, options = 
   const nextStatus = saveMode === 'submit' ? 'pending_review' : 'draft';
   const preserveStatus = options.preserve_status === true;
 
+  // With a real «إلى» date the count always follows the dates (a stale stay_days sent
+  // back by a screen must not survive a change of the period).
+  const periodFrom = fmtDateOnly(calcData.admission_date);
+  const periodTo = fmtDateOnly(calcData.discharge_date);
   let stayDays =
-    calcData.stay_days !== undefined && calcData.stay_days !== ''
-      ? Number(calcData.stay_days)
-      : calculateStayDays(calcData.admission_date, calcData.discharge_date);
+    periodFrom && periodTo && periodTo > periodFrom
+      ? calculateStayDays(periodFrom, periodTo)
+      : calcData.stay_days !== undefined && calcData.stay_days !== ''
+        ? Number(calcData.stay_days)
+        : calculateStayDays(calcData.admission_date, calcData.discharge_date);
   if (totals.stay_entries?.length) {
     stayDays = totals.stay_entries.reduce((sum, entry) => sum + (Number(entry.days) || 0), 0);
   }
@@ -2333,6 +2342,51 @@ async function getOpenPatientStay(fileNumber) {
   };
 }
 
+const STAY_LINE_CODES = ['accommodation', 'companion', 'nursing_point', 'patient_assistant'];
+
+/**
+ * «إلى» moved earlier: the stay days the system posted after the new end are removed.
+ * Anything else recorded after it (tests, medicines …) is real work, so the change is
+ * refused until those are moved or removed.
+ */
+async function trimChargesAfterPeriodEnd(fileNumber, endDate) {
+  const { rows: other } = await query(
+    `SELECT DISTINCT e.entry_date::text AS d
+     FROM patient_daily_entries e
+     JOIN patients p ON p.id = e.patient_id
+     JOIN patient_daily_entry_lines l ON l.entry_id = e.id
+     LEFT JOIN invoices i ON i.id = e.invoice_id
+     WHERE TRIM(p.file_number) = TRIM($1) AND e.entry_date > $2::date
+       AND (e.invoice_id IS NULL OR i.status IN ('draft', 'pending_review'))
+       AND l.section_code <> ALL($3::text[])
+     ORDER BY 1`,
+    [fileNumber, endDate, STAY_LINE_CODES]
+  );
+  if (other.length) {
+    throw new Error(
+      `توجد حركة مسجلة بعد تاريخ «إلى» (${endDate}) في يوم ${other.map((r) => r.d).join('، ')} — انقلها أو احذفها أولًا ثم غيّر التاريخ`
+    );
+  }
+  await withTransaction(async (client) => {
+    await client.query(
+      `DELETE FROM patient_daily_entry_lines l
+       USING patient_daily_entries e, patients p
+       WHERE l.entry_id = e.id AND p.id = e.patient_id
+         AND TRIM(p.file_number) = TRIM($1) AND e.entry_date > $2::date
+         AND l.section_code = ANY($3::text[])
+         AND (e.invoice_id IS NULL OR e.invoice_id IN (SELECT id FROM invoices WHERE status IN ('draft', 'pending_review')))`,
+      [fileNumber, endDate, STAY_LINE_CODES]
+    );
+    await client.query(
+      `DELETE FROM patient_daily_entries e
+       USING patients p
+       WHERE p.id = e.patient_id AND TRIM(p.file_number) = TRIM($1) AND e.entry_date > $2::date
+         AND NOT EXISTS (SELECT 1 FROM patient_daily_entry_lines l WHERE l.entry_id = e.id)`,
+      [fileNumber, endDate]
+    );
+  });
+}
+
 async function openPatientStay(data, user = null) {
   const { resolvePatientFileNumberForStay, bumpPatientFileCounter } = require('./patientService');
   const patientType = String(data.patient_type || 'internal').trim().toLowerCase() === 'external' ? 'external' : 'internal';
@@ -2394,6 +2448,10 @@ async function openPatientStay(data, user = null) {
     const createdInvoice = await createDraftInvoiceForDailyEntry(fileNumber, patientName, admissionDate, user);
     invoiceId = createdInvoice.id;
     created = true;
+  }
+
+  if (dischargeDate && dischargeDate > admissionDate) {
+    await trimChargesAfterPeriodEnd(fileNumber, dischargeDate);
   }
 
   const invoice = await getInvoiceById(invoiceId);
