@@ -3749,6 +3749,9 @@ function applyDailyStayContext(ctx) {
   }
   dailyStayContext = ctx;
   applyStayExcludedDatesFromContext(ctx);
+  if (ctx?.patient?.file_number && typeof window.eafRememberPatient === 'function') {
+    window.eafRememberPatient(ctx.patient.file_number, ctx.patient.name || ctx.invoice?.patient_name || '');
+  }
   // Returned for correction: show the reviewer's sections and note on the patient's screens.
   const returnBox = document.getElementById('daily-return-banner');
   if (returnBox) {

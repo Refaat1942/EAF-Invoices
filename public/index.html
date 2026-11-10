@@ -142,6 +142,10 @@
         <span class="fw-black navbar-brand-text" id="navbar-brand-text">مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</span>
       </button>
       <div class="d-flex gap-2 align-items-center">
+        <form class="d-none position-relative" id="nav-patient-search-form" role="search" autocomplete="off">
+          <input type="search" class="form-control form-control-sm fw-bold" id="nav-patient-search" placeholder="🔎 مريض: اسم / ملف / بطاقة / جواز (Ctrl+K)" style="width:21rem" aria-label="بحث عن مريض">
+          <div class="dropdown-menu dropdown-menu-end shadow" id="nav-patient-results" style="max-height:24rem;overflow:auto;min-width:24rem"></div>
+        </form>
         <div class="dropdown position-relative">
           <button type="button" class="btn btn-outline-light btn-sm fw-bold position-relative nav-alerts-btn" id="nav-alerts-btn" style="display:none" title="إشعارات النظام">🔔 <span class="nav-alerts-badge" id="nav-alerts-badge" style="display:none">0</span></button>
           <div class="dropdown-menu dropdown-menu-end shadow nav-alerts-dropdown" id="nav-alerts-dropdown" style="min-width:22rem;max-height:24rem;overflow:auto">
@@ -168,6 +172,11 @@
         <h1 class="hub-title fw-black" id="hub-center-name">مركز الطب الطبيعي والتأهيل وعلاج الروماتيزم بالقوات المسلحة</h1>
         <p class="hub-subtitle">حسابات المرضى</p>
         <p class="hub-welcome small text-muted mb-0" id="hub-welcome-text"></p>
+      </div>
+      <div class="mx-auto mb-3 px-2" id="hub-quick-patient" style="max-width:44rem;display:none">
+        <input type="search" class="form-control form-control-lg fw-bold" id="hub-patient-search" placeholder="🔎 ابحث عن مريض: الاسم أو رقم الملف أو الرقم القومي أو الجواز" autocomplete="off" aria-label="بحث عن مريض">
+        <div class="list-group mt-1 shadow-sm" id="hub-patient-results"></div>
+        <div class="d-flex flex-wrap gap-2 mt-2" id="hub-recent-patients"></div>
       </div>
       <div class="hub-grid" id="hub-tiles">
         <button type="button" class="hub-tile hub-tile--primary" data-view="patient-register" data-hub-action="new-patient" id="hub-tile-new-patient">
@@ -948,7 +957,7 @@
             <div class="row g-3 align-items-end">
               <div class="col-lg-9">
                 <label class="form-label fw-bold mb-1" for="daily-patient-search">بحث برقم الملف أو اسم المريض</label>
-                <input type="search" class="form-control form-control-lg fw-bold" id="daily-patient-search" placeholder="رقم الملف أو اسم المريض — أو امسح QR الفاتورة" autocomplete="off">
+                <input type="search" class="form-control form-control-lg fw-bold" id="daily-patient-search" placeholder="اسم المريض أو رقم الملف أو الرقم القومي / الجواز — أو امسح QR الفاتورة" autocomplete="off">
               </div>
               <div class="col-lg-3">
                 <button type="button" class="btn btn-primary btn-lg fw-bold w-100" id="daily-patient-search-btn">بحث</button>
@@ -2534,22 +2543,23 @@
   </div><!-- app-container -->
 
   <script src="/vendor/bootstrap/bootstrap.bundle.min.js?v=5.3.3"></script>
-  <script src="/js/action-guard.js?v=20261111b"></script>
-  <script src="/js/enter-add-row.js?v=20261111b"></script>
-  <script src="/js/auto-save.js?v=20261111b"></script>
-  <script src="/js/api-client.js?v=20261111b"></script>
-  <script src="/js/daily-section-bundles.js?v=20261111b"></script>
-  <script src="/js/app.js?v=20261111b"></script>
-  <script src="/js/nationality-pricing.js?v=20261111b"></script>
-  <script src="/js/daily-picker.js?v=20261111b"></script>
-  <script src="/js/daily-charges.js?v=20261111b"></script>
-  <script src="/js/notifications.js?v=20261111b"></script>
-  <script src="/js/audit-admin.js?v=20261111b"></script>
-  <script src="/js/ops-center.js?v=20261111b"></script>
-  <script src="/js/assistant.js?v=20261111b"></script>
-  <script src="/js/analytics-dashboard.js?v=20261111b"></script>
-  <script src="/js/item-catalog-settings.js?v=20261111b"></script>
-  <script src="/js/doctor-settings.js?v=20261111b"></script>
-  <script src="/js/daily-entries-browser.js?v=20261111b"></script>
+  <script src="/js/action-guard.js?v=20261111c"></script>
+  <script src="/js/enter-add-row.js?v=20261111c"></script>
+  <script src="/js/auto-save.js?v=20261111c"></script>
+  <script src="/js/api-client.js?v=20261111c"></script>
+  <script src="/js/daily-section-bundles.js?v=20261111c"></script>
+  <script src="/js/app.js?v=20261111c"></script>
+  <script src="/js/nationality-pricing.js?v=20261111c"></script>
+  <script src="/js/daily-picker.js?v=20261111c"></script>
+  <script src="/js/daily-charges.js?v=20261111c"></script>
+  <script src="/js/notifications.js?v=20261111c"></script>
+  <script src="/js/audit-admin.js?v=20261111c"></script>
+  <script src="/js/ops-center.js?v=20261111c"></script>
+  <script src="/js/assistant.js?v=20261111c"></script>
+  <script src="/js/analytics-dashboard.js?v=20261111c"></script>
+  <script src="/js/item-catalog-settings.js?v=20261111c"></script>
+  <script src="/js/doctor-settings.js?v=20261111c"></script>
+  <script src="/js/daily-entries-browser.js?v=20261111c"></script>
+  <script src="/js/quick-patient.js?v=20261111c"></script>
 </body>
 </html>

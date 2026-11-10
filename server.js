@@ -177,6 +177,10 @@ async function start() {
       `);
       console.log(`[startup] ${pkg.name} v${pkg.version} listening on ${HOST}:${PORT}`);
     });
+    // One-time data update after an upgrade: Arabic names for the laboratory tests.
+    require('./services/labArabicNamesService')
+      .applyLabArabicNames()
+      .catch((err) => console.error('[lab-ar] failed:', err.message));
     server.timeout = 15 * 60 * 1000;
     server.keepAliveTimeout = 15 * 60 * 1000 + 5000;
     server.headersTimeout = 15 * 60 * 1000 + 10000;

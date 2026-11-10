@@ -347,7 +347,7 @@ async function searchPatientsForDaily(search = '', limit = 50) {
     ) AS has_open_invoice`;
   if (!term) {
     const { rows } = await query(
-      `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
+      `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at, p.id_type, p.id_number,
               ${openInvoiceSql}
        FROM patients p
        ORDER BY p.updated_at DESC NULLS LAST, p.file_number
@@ -360,7 +360,7 @@ async function searchPatientsForDaily(search = '', limit = 50) {
   if (digitsOnly) {
     if (term.length < 10) {
       const { rows } = await query(
-        `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
+        `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at, p.id_type, p.id_number,
                 ${openInvoiceSql}
          FROM patients p
          WHERE TRIM(p.file_number) = TRIM($1)
@@ -372,12 +372,13 @@ async function searchPatientsForDaily(search = '', limit = 50) {
     }
     const phonePattern = `%${term}%`;
     const { rows } = await query(
-      `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
+      `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at, p.id_type, p.id_number,
               ${openInvoiceSql}
        FROM patients p
        WHERE TRIM(p.file_number) = TRIM($1)
          OR COALESCE(p.phone, '') ILIKE $2
          OR COALESCE(p.other_phone, '') ILIKE $2
+         OR COALESCE(p.id_number, '') ILIKE $2
        ORDER BY p.updated_at DESC NULLS LAST, p.file_number
        LIMIT $3`,
       [term, phonePattern, lim]
@@ -388,11 +389,12 @@ async function searchPatientsForDaily(search = '', limit = 50) {
   const pattern = `%${term}%`;
   const normName = sqlNormalizeArabic('p.name');
   const { rows } = await query(
-    `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at,
+    `SELECT p.file_number, p.name, p.patient_type, p.phone, p.account_balance, p.updated_at, p.id_type, p.id_number,
             ${openInvoiceSql}
      FROM patients p
      WHERE p.name ILIKE $1
        OR ${normName} LIKE $2
+       OR COALESCE(p.id_number, '') ILIKE $1
      ORDER BY p.updated_at DESC NULLS LAST, p.file_number
      LIMIT $3`,
     [pattern, `%${term.toLowerCase()}%`, lim]

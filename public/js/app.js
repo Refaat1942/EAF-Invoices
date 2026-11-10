@@ -452,6 +452,7 @@ function showApp() {
     if (typeof initAuditAdmin === 'function') initAuditAdmin();
     // The bell is for everyone (an employee gets «فاتورة مُرجعة للتصحيح» here).
     if (typeof window.startNotificationPolling === 'function') window.startNotificationPolling();
+    if (typeof window.initQuickPatient === 'function') window.initQuickPatient();
     if (typeof initOpsCenter === 'function') initOpsCenter();
     if (typeof initAssistant === 'function') initAssistant();
     applyPermissions();
@@ -4754,6 +4755,8 @@ function switchView(view, options = {}) {
 
   if (view === 'home') {
     if (typeof window.refreshApprovalsBadge === 'function') window.refreshApprovalsBadge();
+    if (typeof window.renderRecentPatients === 'function') window.renderRecentPatients();
+    setTimeout(() => document.getElementById('hub-patient-search')?.focus(), 50);
     return;
   }
   if (view === 'live-activity' && typeof window.loadLiveActivityView === 'function') {
