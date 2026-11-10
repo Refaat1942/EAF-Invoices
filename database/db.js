@@ -1205,6 +1205,33 @@ async function runMigrations() {
   `);
 
   await seedLookupTables();
+
+  // Lookups the screens do on every open / save. Without them each was a full table scan
+  // that grows with every invoice (invoice_items only had a partial index the planner
+  // cannot use for «WHERE invoice_id = …»).
+  for (const ddl of [
+    `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice ON invoice_items (invoice_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_invoice_items_daily_line ON invoice_items (daily_entry_line_id) WHERE daily_entry_line_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice ON invoice_payments (invoice_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_invoice_payment_amounts_invoice ON invoice_payment_amounts (invoice_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_invoices_file_trim ON invoices (TRIM(file_number))`,
+    `CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices (status)`,
+    `CREATE INDEX IF NOT EXISTS idx_invoices_created_by ON invoices (created_by_user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_patients_file_trim ON patients (TRIM(file_number))`,
+    `CREATE INDEX IF NOT EXISTS idx_patients_id_number ON patients (UPPER(REPLACE(COALESCE(id_number, ''), ' ', '')))`,
+    `CREATE INDEX IF NOT EXISTS idx_daily_entry_history_entry ON patient_daily_entry_history (entry_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_patient_transactions_patient ON patient_transactions (patient_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_patient_transactions_invoice ON patient_transactions (invoice_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_service_price_components_service ON service_price_components (service_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_service_price_history_service ON service_price_history (service_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_system_alerts_target ON system_alerts (target_user_id)`,
+  ]) {
+    try {
+      await query(ddl);
+    } catch (err) {
+      console.warn(`[db] index skipped: ${err.message}`);
+    }
+  }
 }
 
 // Room grades and daily rates live in Settings > أنواع الإقامة, not in the price list.
