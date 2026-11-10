@@ -686,8 +686,9 @@ function applyDailyTabColumnVisibility() {
   updateDailyAddRowButtons();
   const saveBtn = document.getElementById('daily-save-btn');
   const saveAllBtn = document.getElementById('daily-save-all-btn');
-  if (saveBtn) saveBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
-  if (saveAllBtn) saveAllBtn.classList.toggle('d-none', activeDailyTab === 'free-items');
+  const readOnlyUser = !dailyCan('daily_charges.manage');
+  if (saveBtn) saveBtn.classList.toggle('d-none', readOnlyUser || activeDailyTab === 'free-items');
+  if (saveAllBtn) saveAllBtn.classList.toggle('d-none', readOnlyUser || activeDailyTab === 'free-items');
 
   updateDailySheetScopeUi();
 
@@ -4310,7 +4311,11 @@ function openDailyInvoicePdf() {
 }
 
 function dailyCan(view) {
-  return typeof can === 'function' && (can(view) || can('daily_charges.view') || can('daily_charges.manage'));
+  if (typeof can !== 'function') return false;
+  // Writing needs «manage» itself: a view-only user (the reviewer) used to pass every
+  // manage check here and then hit 403s from the server.
+  if (view === 'daily_charges.manage') return can('daily_charges.manage');
+  return can(view) || can('daily_charges.view') || can('daily_charges.manage');
 }
 
 function dailyFormatNumber(n, decimals = 2) {

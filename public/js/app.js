@@ -844,7 +844,8 @@ function applyPermissions() {
   const hubNewPatient = document.getElementById('hub-tile-new-patient');
   const showDaily = can('daily_charges.view');
   if (hubDaily) hubDaily.style.display = showDaily ? '' : 'none';
-  if (hubNewPatient) hubNewPatient.style.display = showDaily ? '' : 'none';
+  // Registering needs «manage» (the server refuses a view-only reviewer).
+  if (hubNewPatient) hubNewPatient.style.display = can('daily_charges.manage') ? '' : 'none';
 
   const hubList = document.getElementById('hub-tile-list');
   const showInvoices = can('invoices.create') || can('invoices.edit') || can('invoices.view');
