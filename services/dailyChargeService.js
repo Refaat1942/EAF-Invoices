@@ -1,4 +1,5 @@
 const { query, withTransaction } = require('../database/db');
+const { withPatientLock } = require('./patientLock');
 const { getDefaultPriceList } = require('./priceListService');
 const { listServices, resolveServiceForInvoice, getServiceById, enrichServicesWithResolvedPrices } = require('./serviceCatalogService');
 const { upsertPatient } = require('./patientService');
@@ -2218,6 +2219,10 @@ async function persistEntryInTransaction(client, data, user, context = null) {
 }
 
 async function saveEntry(data, user = null, options = {}) {
+  return withPatientLock(data?.file_number, () => saveEntryUnlocked(data, user, options));
+}
+
+async function saveEntryUnlocked(data, user = null, options = {}) {
   const context = await prepareEntrySaveContext(data);
   const isNewEntry = context.isNewEntry;
 
@@ -2252,6 +2257,10 @@ async function saveEntry(data, user = null, options = {}) {
 }
 
 async function saveEntriesBatch(data, user = null) {
+  return withPatientLock(data?.file_number, () => saveEntriesBatchUnlocked(data, user));
+}
+
+async function saveEntriesBatchUnlocked(data, user = null) {
   const entries = Array.isArray(data.entries) ? data.entries : [];
   if (!entries.length) throw new Error('لا توجد أيام للحفظ');
 
@@ -2400,6 +2409,10 @@ const STAY_MOVE_CODES = ['accommodation', 'companion', 'nursing_point', 'patient
  * changing a medicine's date. The old date is marked «no stay» so it is not re-posted.
  */
 async function moveStayDay(fileNumber, fromDate, toDate, user = null) {
+  return withPatientLock(fileNumber, () => moveStayDayUnlocked(fileNumber, fromDate, toDate, user));
+}
+
+async function moveStayDayUnlocked(fileNumber, fromDate, toDate, user = null) {
   const from = normalizeCalendarDate(fromDate);
   const to = normalizeCalendarDate(toDate);
   if (!from || !to) throw new Error('تاريخ غير صالح');
@@ -2591,6 +2604,10 @@ async function stripStayChargeLinesForDate(patientId, entryDate, client = null) 
 }
 
 async function deleteStayEntriesForDate(fileNumber, entryDate, meta = {}) {
+  return withPatientLock(fileNumber, () => deleteStayEntriesForDateUnlocked(fileNumber, entryDate, meta));
+}
+
+async function deleteStayEntriesForDateUnlocked(fileNumber, entryDate, meta = {}) {
   const fn = String(fileNumber || '').trim();
   if (!fn) throw new Error('file_number مطلوب');
   const normalizedDate = normalizeCalendarDate(entryDate);

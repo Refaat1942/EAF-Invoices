@@ -3631,8 +3631,23 @@ function bindPatientPhoneInputs() {
 document.addEventListener('DOMContentLoaded', bindPatientPhoneInputs);
 if (document.readyState !== 'loading') bindPatientPhoneInputs();
 
+// A double click / double Enter on «حفظ» registered the same patient twice (two files).
+let patientRegistrationInFlight = null;
 async function savePatientRegistration(event) {
   if (event) event.preventDefault();
+  if (patientRegistrationInFlight) return patientRegistrationInFlight;
+  const submitBtn = document.querySelector('#patient-register-form [type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+  patientRegistrationInFlight = savePatientRegistrationNow();
+  try {
+    return await patientRegistrationInFlight;
+  } finally {
+    patientRegistrationInFlight = null;
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function savePatientRegistrationNow() {
   if (!dailyCan('daily_charges.manage')) {
     showToast('ليس لديك صلاحية تسجيل المريض', 'warning');
     return;

@@ -2257,6 +2257,11 @@ async function syncDailyEntryToInvoices(entry, meta = {}) {
 }
 
 async function syncPatientDailyChargesToInvoice(fileNumber, patientName = '') {
+  const { withPatientLock } = require('./patientLock');
+  return withPatientLock(fileNumber, () => syncPatientDailyChargesToInvoiceUnlocked(fileNumber, patientName));
+}
+
+async function syncPatientDailyChargesToInvoiceUnlocked(fileNumber, patientName = '') {
   const fn = fileNumber?.trim();
   if (!fn) return { synced: false, reason: 'missing_file_number' };
 
@@ -2575,6 +2580,25 @@ async function trimChargesAfterPeriodEnd(fileNumber, endDate) {
 }
 
 async function openPatientStay(data, user = null) {
+  const idNumber = String(data?.id_number || '').replace(/\s+/g, '').toUpperCase();
+  if (String(data?.file_number || '').trim() || !idNumber) return openPatientStayNow(data, user);
+  // A double submit of the registration form opened two files for one patient: the same
+  // ID + name registered moments ago is the same registration — update it instead.
+  const { withPatientLock } = require('./patientLock');
+  return withPatientLock(`register:${idNumber}`, async () => {
+    const { rows } = await query(
+      `SELECT file_number FROM patients
+       WHERE UPPER(REPLACE(COALESCE(id_number, ''), ' ', '')) = $1
+         AND TRIM(name) = TRIM($2)
+         AND created_at > NOW() - INTERVAL '2 minutes'
+       ORDER BY id DESC LIMIT 1`,
+      [idNumber, String(data.patient_name || '')]
+    );
+    return openPatientStayNow(rows.length ? { ...data, file_number: rows[0].file_number } : data, user);
+  });
+}
+
+async function openPatientStayNow(data, user = null) {
   const { resolvePatientFileNumberForStay, bumpPatientFileCounter } = require('./patientService');
   const patientType = String(data.patient_type || 'internal').trim().toLowerCase() === 'external' ? 'external' : 'internal';
   const fileNumber = await resolvePatientFileNumberForStay(patientType, data.file_number?.trim());
