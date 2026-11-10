@@ -142,6 +142,7 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+app.use(require('./middleware/sessionUserRefresh').sessionUserRefreshMiddleware);
 app.use(require('./middleware/activityAudit').activityAuditMiddleware);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);

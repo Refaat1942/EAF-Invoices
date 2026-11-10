@@ -276,6 +276,19 @@
                   </select>
                   <small class="text-muted d-none" id="patient-reg-nationality-hint">الأجنبي: أسعار اللائحة × 2</small>
                 </div>
+                <div class="col-md-4" id="patient-reg-id-wrap">
+                  <label class="form-label fw-bold" id="patient-reg-id-label" for="patient-reg-id-number">الرقم القومي *</label>
+                  <div class="input-group">
+                    <select class="form-select fw-bold patient-reg-field d-none" id="patient-reg-id-type" style="max-width:9.5rem" autocomplete="off">
+                      <option value="">-- النوع --</option>
+                      <option value="passport">جواز سفر</option>
+                      <option value="residence">إقامة</option>
+                      <option value="id_card">بطاقة هوية</option>
+                    </select>
+                    <input type="text" class="form-control fw-bold patient-reg-field" id="patient-reg-id-number" inputmode="numeric" maxlength="14" autocomplete="off" dir="ltr" placeholder="14 رقمًا">
+                  </div>
+                  <small class="text-muted" id="patient-reg-id-hint">14 رقمًا من بطاقة الرقم القومي</small>
+                </div>
                 <div class="col-md-2">
                   <label class="form-label fw-bold">الجنس</label>
                   <select class="form-select fw-bold patient-reg-field" id="patient-reg-gender" autocomplete="off">
@@ -1411,6 +1424,10 @@
               </div>
               <p class="small text-muted mt-3 mb-1">المصروفات الإدارية والمهن تُحسب تلقائيًا في الفاتورة الكبيرة والطباعة لكل الفواتير غير المعتمدة. الفواتير المعتمدة تحتفظ بقيمها وقت الاعتماد.</p>
               <p class="small text-muted mb-3">هامش المستلزمات يُضاف على سعر تكلفة الصنف عند تسجيل المستلزمات في حركة المريض (البنود المسجّلة قبل التعديل تحتفظ بسعرها).</p>
+              <hr>
+              <h6 class="fw-black mb-1">الجهات المتعاقدة: أقسام خارج المصروفات الإدارية</h6>
+              <p class="small text-muted mb-2">الأقسام المعلَّمة لا تُحسب عليها مصروفات إدارية في فواتير الجهات المتعاقدة. الدمغات والمهن خارج المصروفات الإدارية دائمًا.</p>
+              <div class="d-flex flex-wrap gap-3 mb-3" id="contracted-admin-sections-list"></div>
               <button type="button" class="btn btn-success fw-bold" id="fees-save-btn">حفظ</button>
             </div>
           </div>
@@ -2494,22 +2511,22 @@
   </div><!-- app-container -->
 
   <script src="/vendor/bootstrap/bootstrap.bundle.min.js?v=5.3.3"></script>
-  <script src="/js/action-guard.js?v=20261110c"></script>
-  <script src="/js/enter-add-row.js?v=20261110c"></script>
-  <script src="/js/auto-save.js?v=20261110c"></script>
-  <script src="/js/api-client.js?v=20261110c"></script>
-  <script src="/js/daily-section-bundles.js?v=20261110c"></script>
-  <script src="/js/app.js?v=20261110c"></script>
-  <script src="/js/nationality-pricing.js?v=20261110c"></script>
-  <script src="/js/daily-picker.js?v=20261110c"></script>
-  <script src="/js/daily-charges.js?v=20261110c"></script>
-  <script src="/js/notifications.js?v=20261110c"></script>
-  <script src="/js/audit-admin.js?v=20261110c"></script>
-  <script src="/js/ops-center.js?v=20261110c"></script>
-  <script src="/js/assistant.js?v=20261110c"></script>
-  <script src="/js/analytics-dashboard.js?v=20261110c"></script>
-  <script src="/js/item-catalog-settings.js?v=20261110c"></script>
-  <script src="/js/doctor-settings.js?v=20261110c"></script>
-  <script src="/js/daily-entries-browser.js?v=20261110c"></script>
+  <script src="/js/action-guard.js?v=20261111a"></script>
+  <script src="/js/enter-add-row.js?v=20261111a"></script>
+  <script src="/js/auto-save.js?v=20261111a"></script>
+  <script src="/js/api-client.js?v=20261111a"></script>
+  <script src="/js/daily-section-bundles.js?v=20261111a"></script>
+  <script src="/js/app.js?v=20261111a"></script>
+  <script src="/js/nationality-pricing.js?v=20261111a"></script>
+  <script src="/js/daily-picker.js?v=20261111a"></script>
+  <script src="/js/daily-charges.js?v=20261111a"></script>
+  <script src="/js/notifications.js?v=20261111a"></script>
+  <script src="/js/audit-admin.js?v=20261111a"></script>
+  <script src="/js/ops-center.js?v=20261111a"></script>
+  <script src="/js/assistant.js?v=20261111a"></script>
+  <script src="/js/analytics-dashboard.js?v=20261111a"></script>
+  <script src="/js/item-catalog-settings.js?v=20261111a"></script>
+  <script src="/js/doctor-settings.js?v=20261111a"></script>
+  <script src="/js/daily-entries-browser.js?v=20261111a"></script>
 </body>
 </html>

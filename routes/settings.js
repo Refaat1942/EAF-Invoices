@@ -98,6 +98,42 @@ const DISCOUNT_SECTIONS = [
   ['__manual__', 'البنود الحرة'],
 ];
 
+// Contracted entities: which sections are billed without administrative expenses.
+const ADMIN_SECTIONS = [
+  ['stay', 'إقامة ورعاية'],
+  ['sessions', 'الجلسات'],
+  ['medicines', 'الأدوية'],
+  ['supplies', 'المستلزمات'],
+  ['exams', 'الكشوفات'],
+  ['lab', 'التحاليل'],
+  ['radiology', 'الأشعة'],
+  ['other', 'خدمات متنوعة'],
+  ['operations', 'العمليات'],
+  ['__manual__', 'البنود الحرة'],
+];
+
+router.get('/contracted-admin-sections', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const { getContractedAdminExcludedBundles } = require('../services/invoiceService');
+    const excluded = await getContractedAdminExcludedBundles();
+    res.json(ADMIN_SECTIONS.map(([key, label]) => ({ key, label, excluded: excluded.includes(key) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/contracted-admin-sections', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const { setSetting } = require('../services/settingsService');
+    const known = new Set(ADMIN_SECTIONS.map(([key]) => key));
+    const excluded = (Array.isArray(req.body?.excluded) ? req.body.excluded : []).map(String).filter((k) => known.has(k));
+    await setSetting('contracted_admin_excluded_sections', JSON.stringify(excluded));
+    res.json({ excluded });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/discount-sections', requirePermission('invoices.view'), async (req, res) => {
   try {
     const { getSetting } = require('../services/settingsService');

@@ -694,6 +694,18 @@ async function buildInvoiceHtml(invoice, options = {}) {
         <td class="value">${inv.stay_days ?? ''}</td>
       </tr>
       ${
+        inv.patient_id_number
+          ? `<tr>
+        <th colspan="2">${escapeHtml(
+          { national: 'الرقم القومي', passport: 'رقم جواز السفر', residence: 'رقم الإقامة', id_card: 'رقم بطاقة الهوية' }[
+            inv.patient_id_type
+          ] || 'رقم إثبات الشخصية'
+        )}</th>
+        <td class="value" colspan="4" style="letter-spacing:1px">${escapeHtml(inv.patient_id_number)}</td>
+      </tr>`
+          : ''
+      }
+      ${
         (inv.invoice_type === 'contracted' || inv.invoice_type === 'non_contracted') &&
         inv.contracted_entity_name
           ? `<tr>

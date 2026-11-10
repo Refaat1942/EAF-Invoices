@@ -170,6 +170,7 @@ async function prepareCalculationData(data, client = null) {
   calcData.patient_credit_method_id = await getPaymentMethodIdByCode('patient_credit');
   calcData.discount_exclusions = await listDiscountExclusions(true);
   calcData.discount_excluded_bundles = await getDiscountExcludedBundles();
+  calcData.admin_excluded_bundles = await getContractedAdminExcludedBundles();
   const adminRateSetting = String(await getSetting('administrative_fee_rate', '12')).trim();
   calcData.administrative_fee_rate =
     adminRateSetting !== '' && Number(adminRateSetting) >= 0 ? Number(adminRateSetting) : 12;
@@ -713,7 +714,13 @@ async function getInvoiceById(id, client = null) {
               ORDER BY p.id LIMIT 1) AS patient_nationality,
             (SELECT p.patient_type FROM patients p
               WHERE TRIM(p.file_number) = TRIM(i.file_number)
-              ORDER BY p.id LIMIT 1) AS patient_type
+              ORDER BY p.id LIMIT 1) AS patient_type,
+            (SELECT p.id_type FROM patients p
+              WHERE TRIM(p.file_number) = TRIM(i.file_number)
+              ORDER BY p.id LIMIT 1) AS patient_id_type,
+            (SELECT p.id_number FROM patients p
+              WHERE TRIM(p.file_number) = TRIM(i.file_number)
+              ORDER BY p.id LIMIT 1) AS patient_id_number
      FROM invoices i WHERE i.id = $1`,
     [id]
   );
@@ -748,8 +755,31 @@ async function getInvoiceById(id, client = null) {
   const { listInvoiceReturns } = require('./invoiceReturnService');
   const returns = await listInvoiceReturns(id, client);
 
+  // Every recalculation of this invoice (screen, print, approval) must use the same rules.
+  // An approved / cancelled invoice keeps what it was approved with: a line that carried
+  // no administrative fee then keeps carrying none, whatever the settings say today.
+  const frozen = invoice.status === 'approved' || invoice.status === 'cancelled';
+  let calcRules = {};
+  if (frozen) {
+    calcRules = { admin_rules_frozen: true };
+    const percent = Number(invoice.admin_expenses_percent) || 0;
+    if (invoice.invoice_type === 'contracted' && percent > 0) {
+      for (const item of enrichedItems) {
+        if (item.admin_fee_amount_snapshot != null && Number(item.admin_fee_amount_snapshot) === 0 && Number(item.total) > 0) {
+          item.admin_excluded_for_entity = true;
+        }
+      }
+    }
+  } else {
+    calcRules = {
+      admin_excluded_bundles: await getContractedAdminExcludedBundles(),
+      discount_excluded_bundles: await getDiscountExcludedBundles(),
+    };
+  }
+
   return {
     ...(await attachInvoiceLabels(invoice, typeMap)),
+    ...calcRules,
     items: enrichedItems,
     payments: payments.rows,
     method_payments: methodPayments,
@@ -1827,6 +1857,20 @@ async function recalculateAndPersistInvoiceTotals(invoiceId, client = null) {
  * but calculateInvoiceTotals multiplies its input. Feeding stored amounts back unconverted
  * doubles foreign lines on every save, sync, approve and print.
  */
+// Contracted entities: sections billed WITHOUT administrative expenses (setting, with a
+// default of medicines, supplies and free items; stamps and professional fees never carry it).
+const DEFAULT_CONTRACTED_ADMIN_EXCLUDED = ['medicines', 'supplies', '__manual__'];
+async function getContractedAdminExcludedBundles() {
+  try {
+    const raw = await getSetting('contracted_admin_excluded_sections', '');
+    if (!raw) return DEFAULT_CONTRACTED_ADMIN_EXCLUDED;
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.map(String) : DEFAULT_CONTRACTED_ADMIN_EXCLUDED;
+  } catch {
+    return DEFAULT_CONTRACTED_ADMIN_EXCLUDED;
+  }
+}
+
 async function getDiscountExcludedBundles() {
   try {
     const raw = await getSetting('discount_excluded_sections', '[]');
@@ -2489,6 +2533,12 @@ async function openPatientStay(data, user = null) {
   const { assertValidPatientPhones } = require('./patientService');
   assertValidPatientPhones(data, await getPatientByFileNumber(fileNumber));
 
+  // The registration screen always sends the patient's identity, and it is mandatory there.
+  const { validatePatientIdentity, setPatientIdentity } = require('./patientService');
+  const identity =
+    data.require_identity === true || data.id_number !== undefined
+      ? validatePatientIdentity({ nationality: data.nationality, id_type: data.id_type, id_number: data.id_number })
+      : null;
   await upsertPatient(fileNumber, {
     name: patientName,
     phone: data.phone || '',
@@ -2509,6 +2559,7 @@ async function openPatientStay(data, user = null) {
     glasses_price: data.glasses_price,
     glasses_discount_percent: data.glasses_discount_percent,
   });
+  if (identity) await setPatientIdentity(fileNumber, identity);
   await bumpPatientFileCounter(patientType, fileNumber);
   if (patientType === 'internal') {
     if (data.account_balance !== undefined && data.account_balance !== null && data.account_balance !== '') {
@@ -2706,6 +2757,7 @@ async function getInvoiceSerialNumberingAudit({ limit = 500 } = {}) {
 
 module.exports = {
   reopenInvoice,
+  getContractedAdminExcludedBundles,
   cancelInvoice,
   returnInvoiceForCorrection,
   RETURN_SECTION_LABELS,

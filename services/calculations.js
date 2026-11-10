@@ -81,6 +81,9 @@ function matchesExclusion(description, exclusion) {
 }
 
 function isItemAdminApplicable(item) {
+  // Contracted entity: sections set outside the administrative expenses in الإعدادات
+  // (by default medicines, supplies and free items).
+  if (item.admin_excluded_for_entity) return false;
   if (item.is_stay_entry) return true;
   // Stamps (دمغة) are billed on their own line, outside إجمالي البنود: no administrative fee.
   if (require('./dailySectionBundles').isStampLineItem(item)) return false;
@@ -332,6 +335,13 @@ function calculateInvoiceTotals(data) {
     data.invoice_type === 'contracted' && discountPercent > 0 && Number(data.contracted_entity_id);
   const exclusions = data.discount_exclusions || [];
   const excludedDiscountBundles = data.discount_excluded_bundles || [];
+  const adminExcludedBundles =
+    data.invoice_type === 'contracted' && Array.isArray(data.admin_excluded_bundles) ? data.admin_excluded_bundles : [];
+  const isAdminExcludedForEntity = (item) => {
+    if (!adminExcludedBundles.length || item.is_stay_entry) return false;
+    const { inferBundleKeyFromItem } = require('./dailySectionBundles');
+    return adminExcludedBundles.includes(inferBundleKeyFromItem(item));
+  };
 
   const stampDutyD = dualValue(data.stamp_duty);
   const professionalFeesD = dualValue(data.professional_fees);
@@ -371,9 +381,17 @@ function calculateInvoiceTotals(data) {
       discountActive,
       excludedDiscountBundles
     );
-    const adminFeeRaw = computeItemAdminFeeRaw({ ...item, total_raw: calc.raw }, adminPercentResolved);
+    // Approved invoice: keep what each line was approved with; otherwise follow the settings.
+    const adminExcludedForEntity = data.admin_rules_frozen
+      ? item.admin_excluded_for_entity === true
+      : isAdminExcludedForEntity(item);
+    const adminFeeRaw = computeItemAdminFeeRaw(
+      { ...item, total_raw: calc.raw, admin_excluded_for_entity: adminExcludedForEntity },
+      adminPercentResolved
+    );
     return {
       ...item,
+      admin_excluded_for_entity: adminExcludedForEntity,
       quantity: originalQuantity,
       original_quantity: originalQuantity,
       returned_quantity: returnedQuantity,
@@ -543,6 +561,11 @@ function calculateInvoiceTotals(data) {
     admin_applicable_subtotal: adminApplicableSubtotal,
     admin_applicable_subtotal_raw: adminApplicableSubtotalRaw,
     admin_expenses_percent: adminPercentResolved,
+    admin_excluded_note: adminExcludedBundles.length
+      ? `لا تشمل ${adminExcludedBundles
+          .map((k) => (k === '__manual__' ? 'البنود الحرة' : require('./dailySectionBundles').getBundleLabel(k)))
+          .join('، ')} والدمغات والمهن`
+      : '',
     admin_expenses: adminExpenses,
     admin_expenses_raw: adminExpensesRaw,
     total_after_admin: totalAfterAdmin,
@@ -679,7 +702,9 @@ function buildCalculationSteps(totals) {
     },
     {
       key: 'admin_expenses',
-      label: `مصروفات إدارية (${totals.admin_expenses_percent}%)`,
+      label: `مصروفات إدارية (${totals.admin_expenses_percent}%)${
+        totals.admin_excluded_note ? ` — ${totals.admin_excluded_note}` : ''
+      }`,
       raw: totals.admin_expenses_raw,
       rounded: totals.admin_expenses,
     },

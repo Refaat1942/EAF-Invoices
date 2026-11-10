@@ -177,6 +177,54 @@ function validatePermissionsList(list) {
   return cleaned;
 }
 
+/**
+ * A user whose ticked permissions are exactly their role's defaults stores NO custom list,
+ * so they follow the role — including permissions added in later versions. A frozen copy
+ * is what made employees with the same role behave differently.
+ */
+function customPermissionsForRole(role, list) {
+  const cleaned = validatePermissionsList(list) || [];
+  const defaults = getRoleDefaultPermissions(role);
+  const same = cleaned.length === defaults.length && defaults.every((p) => cleaned.includes(p));
+  return same || !cleaned.length ? [] : cleaned;
+}
+
+let usersVersion = 0;
+function bumpUsersVersion() {
+  usersVersion += 1;
+}
+function getUsersVersion() {
+  return usersVersion;
+}
+
+async function isUsernameTaken(username, exceptId = 0) {
+  const { rows } = await query(`SELECT id FROM users WHERE LOWER(TRIM(username)) = LOWER(TRIM($1)) AND id <> $2`, [
+    username,
+    Number(exceptId) || 0,
+  ]);
+  return rows.length > 0;
+}
+
+/**
+ * One-time clean-up at start-up: an employee / reviewer whose stored list holds nothing
+ * beyond the role's defaults (a stale copy from an older version) follows the role again.
+ */
+async function normalizeStoredUserPermissions() {
+  const { rows } = await query(`SELECT id, role, custom_permissions FROM users WHERE role IN ('user', 'reviewer')`);
+  let fixed = 0;
+  for (const u of rows) {
+    const custom = parseCustomPermissions(u.custom_permissions) || [];
+    if (!custom.length) continue;
+    const defaults = getRoleDefaultPermissions(u.role);
+    if (custom.every((p) => defaults.includes(p))) {
+      await query(`UPDATE users SET custom_permissions = '[]'::jsonb WHERE id = $1`, [u.id]);
+      fixed += 1;
+    }
+  }
+  if (fixed) console.log(`[auth] ${fixed} user(s) now follow their role's current permissions`);
+  return fixed;
+}
+
 async function createUser(data) {
   const username = String(data.username || '').toLowerCase().trim();
   const password = String(data.password || '');
@@ -186,8 +234,12 @@ async function createUser(data) {
     throw new Error('اسم المستخدم وكلمة المرور (6 أحرف على الأقل) مطلوبان');
   }
   if (!ROLES[role]) throw new Error('الصلاحية غير صالحة');
+  // Only the very same name (ignoring capitals / spaces) is refused; similar names are fine.
+  if (await isUsernameTaken(username)) {
+    throw new Error(`اسم المستخدم «${username}» مستخدم بالفعل — اختر اسمًا آخر (يمكن إضافة رقم مثل ${username}2)`);
+  }
 
-  const customPermissions = validatePermissionsList(data.custom_permissions);
+  const customPermissions = customPermissionsForRole(role, data.custom_permissions);
   const hash = await bcrypt.hash(password, 10);
   const { rows } = await query(
     `INSERT INTO users (username, password_hash, full_name, role, custom_permissions)
@@ -195,6 +247,7 @@ async function createUser(data) {
      RETURNING id, username, full_name, role, custom_permissions, is_active, created_at`,
     [username, hash, data.full_name || '', role, JSON.stringify(customPermissions || [])]
   );
+  bumpUsersVersion();
   return sanitizeUser(rows[0]);
 }
 
@@ -216,7 +269,12 @@ async function updateUser(id, data, actor) {
   }
   if (data.custom_permissions !== undefined) {
     if (!userHasPermission(actor, 'users.*')) throw new Error('فقط مدير النظام يغير الصلاحيات');
-    const cleaned = validatePermissionsList(data.custom_permissions) || [];
+    let role = data.role;
+    if (role === undefined) {
+      const { rows: cur } = await query('SELECT role FROM users WHERE id = $1', [id]);
+      role = cur[0]?.role;
+    }
+    const cleaned = customPermissionsForRole(normalizeRole(role), data.custom_permissions);
     fields.push(`custom_permissions = $${i++}::jsonb`);
     params.push(JSON.stringify(cleaned));
   }
@@ -238,6 +296,7 @@ async function updateUser(id, data, actor) {
     params
   );
   if (!rows.length) throw new Error('المستخدم غير موجود');
+  bumpUsersVersion();
   return sanitizeUser(rows[0]);
 }
 
@@ -319,4 +378,7 @@ module.exports = {
   deleteUser,
   seedAdminUser,
   sanitizeUser,
+  normalizeStoredUserPermissions,
+  getUsersVersion,
+  bumpUsersVersion,
 };

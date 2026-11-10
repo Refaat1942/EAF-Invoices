@@ -576,7 +576,53 @@ async function bumpPatientFileCounter(patientType, fileNumber, client = null) {
   );
 }
 
+const PATIENT_ID_TYPES = {
+  national: 'الرقم القومي',
+  passport: 'جواز السفر',
+  residence: 'الإقامة',
+  id_card: 'بطاقة الهوية',
+};
+
+function normalizeIdDigits(value) {
+  return String(value ?? '')
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .trim();
+}
+
+/**
+ * Checks the identity a registration must carry: an Egyptian gives the 14-digit national
+ * ID; a foreigner gives a passport / residence / ID card number. Returns the cleaned values.
+ */
+function validatePatientIdentity({ nationality, id_type, id_number } = {}) {
+  const egyptian = /مصر|egypt/i.test(String(nationality || '')) || !String(nationality || '').trim();
+  const number = normalizeIdDigits(id_number);
+  if (egyptian) {
+    const digits = number.replace(/\D/g, '');
+    if (!/^[23]\d{13}$/.test(digits)) {
+      throw new Error('الرقم القومي مطلوب: 14 رقمًا ويبدأ بـ 2 أو 3');
+    }
+    return { id_type: 'national', id_number: digits };
+  }
+  const type = String(id_type || '').trim();
+  if (!['passport', 'residence', 'id_card'].includes(type)) {
+    throw new Error('اختر نوع إثبات الشخصية للأجنبي: جواز سفر أو إقامة أو بطاقة هوية');
+  }
+  if (number.length < 4) throw new Error(`اكتب رقم ${PATIENT_ID_TYPES[type]}`);
+  return { id_type: type, id_number: number.slice(0, 40) };
+}
+
+async function setPatientIdentity(fileNumber, identity = {}) {
+  await query(
+    `UPDATE patients SET id_type = $2, id_number = $3, updated_at = NOW() WHERE TRIM(file_number) = TRIM($1)`,
+    [String(fileNumber || '').trim(), identity.id_type || '', identity.id_number || '']
+  );
+}
+
 module.exports = {
+  PATIENT_ID_TYPES,
+  validatePatientIdentity,
+  setPatientIdentity,
   getPatientByFileNumber,
   upsertPatient,
   setPatientBalance,

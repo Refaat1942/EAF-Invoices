@@ -17,9 +17,15 @@ function buildReturnLineAudit(invoiceItem, returnQty, discountPercent, adminPerc
   const marginReversal =
     marginSnapshot > 0 && originalQty > 0 ? round2(marginSnapshot * ratio) : round2(returnAmount - costReversal);
 
-  const adminReversal = isItemAdminApplicable(invoiceItem)
-    ? round2(returnAmount * (Number(adminPercent) || 0) / 100)
-    : 0;
+  // A line billed without administrative expenses (snapshot 0, e.g. medicines of a
+  // contracted entity) gives none back either.
+  const adminSnapshot = invoiceItem.admin_fee_amount_snapshot;
+  const adminReversal =
+    adminSnapshot != null && Number(adminSnapshot) === 0
+      ? 0
+      : isItemAdminApplicable(invoiceItem)
+        ? round2(returnAmount * (Number(adminPercent) || 0) / 100)
+        : 0;
 
   const itemDiscountPct = round2(invoiceItem.item_discount_percent ?? discountPercent ?? 0);
   const discountReversal =

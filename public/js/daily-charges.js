@@ -2710,7 +2710,48 @@ function updateDailyForeignPricingHint() {
   }
 }
 
+// Egyptian: 14-digit national ID; foreigner: passport / residence / ID card number.
+function isEgyptianNationalityValue(value) {
+  if (window.NationalityPricing?.isEgyptianNationality) return NationalityPricing.isEgyptianNationality(value);
+  return /مصر/.test(String(value || '')) || !String(value || '').trim();
+}
+
+function updatePatientRegIdentityFields() {
+  const egyptian = isEgyptianNationalityValue(document.getElementById('patient-reg-nationality')?.value);
+  const typeEl = document.getElementById('patient-reg-id-type');
+  const numEl = document.getElementById('patient-reg-id-number');
+  const label = document.getElementById('patient-reg-id-label');
+  const hint = document.getElementById('patient-reg-id-hint');
+  if (typeEl) typeEl.classList.toggle('d-none', egyptian);
+  if (numEl) {
+    numEl.maxLength = egyptian ? 14 : 40;
+    numEl.inputMode = egyptian ? 'numeric' : 'text';
+    numEl.placeholder = egyptian ? '14 رقمًا' : 'رقم الجواز / الإقامة / الهوية';
+  }
+  if (label) label.textContent = egyptian ? 'الرقم القومي *' : 'إثبات الشخصية (جواز / إقامة / هوية) *';
+  if (hint) hint.textContent = egyptian ? '14 رقمًا من بطاقة الرقم القومي' : 'اختر النوع واكتب الرقم';
+}
+
+function readPatientRegIdentity() {
+  const egyptian = isEgyptianNationalityValue(document.getElementById('patient-reg-nationality')?.value);
+  const raw = document.getElementById('patient-reg-id-number')?.value || '';
+  const number = String(raw)
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .trim();
+  if (egyptian) {
+    const digits = number.replace(/\D/g, '');
+    if (!/^[23]\d{13}$/.test(digits)) return { error: 'اكتب الرقم القومي: 14 رقمًا ويبدأ بـ 2 أو 3' };
+    return { id_type: 'national', id_number: digits };
+  }
+  const type = document.getElementById('patient-reg-id-type')?.value || '';
+  if (!type) return { error: 'اختر نوع إثبات الشخصية: جواز سفر أو إقامة أو بطاقة هوية' };
+  if (number.length < 4) return { error: 'اكتب رقم جواز السفر / الإقامة / الهوية' };
+  return { id_type: type, id_number: number };
+}
+
 function updatePatientRegNationalityHint() {
+  updatePatientRegIdentityFields();
   const hint = document.getElementById('patient-reg-nationality-hint');
   const val = document.getElementById('patient-reg-nationality')?.value;
   if (!hint) return;
@@ -3304,6 +3345,11 @@ async function fillPatientRegisterFormFromContext(ctx) {
   if (ageEl && p.age != null) ageEl.value = String(p.age);
   const admissionEl = document.getElementById('patient-reg-admission');
   if (admissionEl) admissionEl.value = fmtStayDate(inv.admission_date) || '';
+  updatePatientRegIdentityFields();
+  const idTypeEl = document.getElementById('patient-reg-id-type');
+  if (idTypeEl) idTypeEl.value = p.id_type && p.id_type !== 'national' ? p.id_type : '';
+  const idNumEl = document.getElementById('patient-reg-id-number');
+  if (idNumEl) idNumEl.value = p.id_number || '';
   // discharge == admission is how an open stay / visit is stored: show it as «not set».
   const dischargeEl = document.getElementById('patient-reg-discharge');
   if (dischargeEl) {
@@ -3444,6 +3490,8 @@ function clearPatientRegisterForm(options = {}) {
     'patient-reg-nationality',
     'patient-reg-admission',
     'patient-reg-discharge',
+    'patient-reg-id-number',
+    'patient-reg-id-type',
     'patient-reg-balance',
     'patient-reg-age',
     'patient-reg-room-insurance',
@@ -3555,6 +3603,12 @@ async function savePatientRegistration(event) {
     showToast('اسم المريض وتاريخ الدخول مطلوبان', 'warning');
     return;
   }
+  const identity = readPatientRegIdentity();
+  if (identity.error) {
+    showToast(identity.error, 'warning');
+    document.getElementById('patient-reg-id-number')?.focus();
+    return;
+  }
   const todayStr = getLocalDateString();
   if (admission_date > todayStr || (discharge_date && discharge_date > todayStr)) {
     showToast('لا يمكن اختيار تاريخ بعد تاريخ اليوم', 'warning');
@@ -3592,6 +3646,9 @@ async function savePatientRegistration(event) {
     admission_date,
     discharge_date: discharge_date || null,
     financial_treatment,
+    require_identity: true,
+    id_type: identity.id_type,
+    id_number: identity.id_number,
     patient_type,
     ...collectPatientDemographics('register'),
     ...collectInternalStayPayload(patient_type),
@@ -8835,7 +8892,7 @@ async function saveDailyEntryNow(options = {}) {
         file_number,
         patient_name: getStayPatientName(),
         entries,
-        operations: activeDailyTab === 'operations' ? [] : collectOperationsFromTable(),
+        // Operations are saved from their own screen only (never re-sent from other tabs).
         glasses_total: getGlassesFinalAmount(),
         patient_fields: {
           ...collectPatientDemographics('daily'),

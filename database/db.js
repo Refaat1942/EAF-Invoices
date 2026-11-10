@@ -286,6 +286,7 @@ async function initDatabase() {
   const { seedAdminUser } = require('../services/authService');
   await runMigrations();
   await seedAdminUser();
+  await require('../services/authService').normalizeStoredUserPermissions();
 
   console.log('✅ PostgreSQL connected and schema ready');
 }
@@ -512,6 +513,9 @@ async function runMigrations() {
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopened_by_name TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS reopen_reason TEXT DEFAULT ''`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS returned_at TIMESTAMPTZ`);
+  // Identity: Egyptian national ID (14 digits) or a foreigner's passport / residence / ID card.
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS id_type VARCHAR(20) DEFAULT ''`);
+  await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS id_number VARCHAR(40) DEFAULT ''`);
   // Cancelled by the admin: the invoice keeps its serial and stays in the books as «ملغاة».
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cancelled_by_name TEXT DEFAULT ''`);

@@ -2268,13 +2268,10 @@ async function saveEntriesBatch(data, user = null) {
       });
     }
     if (Array.isArray(data.operations)) {
-      const { saveOperationsForDate, getOperationsTotal } = require('./patientOperationService');
-      // Other tabs send whatever the (often unloaded) operations table holds; an empty
-      // array must not replace-all and wipe today's operations. Deleting operations goes
-      // through the dedicated /operations endpoint.
-      if (data.operations.length) {
-        await saveOperationsForDate(patient.id, primaryDate, data.operations);
-      }
+      // Operations are saved ONLY from the operations screen (/operations, each on its own
+      // date). Saving them here wrote every operation of every day onto the save day — the
+      // «operations duplicated» bug — so whatever another screen sends is ignored.
+      const { getOperationsTotal } = require('./patientOperationService');
       supplemental.operations = await getOperationsTotal(patient.id, primaryDate);
     }
     if (data.glasses_total != null && data.glasses_total !== '') {

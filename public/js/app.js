@@ -1674,7 +1674,12 @@ function bindEvents() {
   document.getElementById('file_number').addEventListener('blur', loadPatientBalance);
   document.getElementById('edit-patient-balance-btn').addEventListener('click', editPatientBalance);
   document.getElementById('new-user-role').addEventListener('change', () => {
-    renderPermissionCheckboxes('new-user-permissions', getDefaultPermissionsForRole(document.getElementById('new-user-role').value));
+    // Same prefix as the one addUser() reads (it used another and lost the ticks).
+    renderPermissionCheckboxes(
+      'new-user-permissions',
+      getDefaultPermissionsForRole(document.getElementById('new-user-role').value),
+      'new'
+    );
   });
 
   document.getElementById('upload-logo-btn').addEventListener('click', uploadLogo);
@@ -2583,7 +2588,9 @@ async function loadPermissionCatalog() {
     roles.forEach((r) => {
       roleDefaults[r.id] = r.default_permissions || [];
     });
-    renderPermissionCheckboxes('new-user-permissions', getDefaultPermissionsForRole('user'), 'new');
+    // Keep the boxes in step with the role currently chosen in the «add user» form.
+    const newRole = document.getElementById('new-user-role')?.value || 'user';
+    renderPermissionCheckboxes('new-user-permissions', getDefaultPermissionsForRole(newRole), 'new');
   } catch (err) {
     console.error(err);
   }
@@ -2682,16 +2689,18 @@ function getPatientBalanceAfterInvoice(totals = lastCalculationTotals) {
 // a refund). refundable_amount alone (from /calculate) only ever covers this
 // invoice's own payment overage and never includes room_insurance_amount.
 function getDischargeRefundableAmount(totals = lastCalculationTotals) {
-  const prepaid = getPatientPrepaidBalanceLocal();
-  const outstanding =
-    Math.round((Number(totals?.outstanding_amount ?? totals?.remaining) || 0) * 100) / 100;
-  const refundable = resolveRefundableFromTotals(totals);
+  // What the patient gets back = everything they handed in (balance paid at admission +
+  // room insurance + any cash / transfer / cheque) − the invoice total, never below 0.
+  // Money from the balance or the insurance that is entered as a payment is the SAME money
+  // as the prepaid balance, so it is not counted a second time (60,000 − 40,004 = 19,996,
+  // not 29,996).
   const finalTotal = Number(totals?.final_total_raw ?? totals?.final_total) || 0;
-  const credit = Math.round(computeInvoicePatientCredit(finalTotal) * 100) / 100;
-  const balance = isPatientCreditAlreadyDeducted()
-    ? Math.round((prepaid - outstanding + refundable) * 100) / 100
-    : Math.round((prepaid - credit - outstanding + refundable) * 100) / 100;
-  return Math.max(0, balance);
+  const savedCredit = isPatientCreditAlreadyDeducted() ? Number(lastLoadedInvoice?.patient_credit_applied) || 0 : 0;
+  const prepaid = getPatientPrepaidBalanceLocal() + savedCredit;
+  const mt = sumPaymentMethodsByCode();
+  const collected = Number(totals?.total_collected_raw ?? totals?.total_collected) || sumAllPaymentInputs();
+  const cashPaid = Math.max(0, collected - (Number(mt.patient_credit) || 0) - (Number(mt.room_insurance) || 0));
+  return Math.max(0, Math.round((prepaid + cashPaid - finalTotal) * 100) / 100);
 }
 
 // Room insurance is held until discharge (then refunded) and approval deducts
@@ -5060,18 +5069,22 @@ async function editUserPermissions(userId) {
       renderPermissionCheckboxes(`${modalId}-permissions`, getDefaultPermissionsForRole(document.getElementById(`${modalId}-role`).value), `u${userId}`);
     };
     document.getElementById(`${modalId}-save`).onclick = async () => {
-      const role = document.getElementById(`${modalId}-role`).value;
-      const custom_permissions = collectSelectedPermissions(`${modalId}-permissions`, `u${userId}`);
-      const updateRes = await apiFetch(`${USERS_API}/${userId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role, custom_permissions }),
-      });
-      const data = await updateRes.json();
-      if (!updateRes.ok) throw new Error(data.error);
-      bootstrap.Modal.getInstance(modal).hide();
-      showToast('تم تحديث الصلاحيات', 'success');
-      loadUsers();
+      try {
+        const role = document.getElementById(`${modalId}-role`).value;
+        const custom_permissions = collectSelectedPermissions(`${modalId}-permissions`, `u${userId}`);
+        const updateRes = await apiFetch(`${USERS_API}/${userId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role, custom_permissions }),
+        });
+        const data = await updateRes.json();
+        if (!updateRes.ok) throw new Error(data.error || 'تعذر حفظ الصلاحيات');
+        bootstrap.Modal.getInstance(modal).hide();
+        showToast(`تم الحفظ — ${data.role_label || ''}: تُطبَّق على الموظف من أول عملية يقوم بها`, 'success');
+        loadUsers();
+      } catch (err) {
+        showToast(err.message, 'danger');
+      }
     };
 
     new bootstrap.Modal(modal).show();
@@ -5098,7 +5111,9 @@ async function addUser() {
     document.getElementById('new-user-name').value = '';
     document.getElementById('new-user-fullname').value = '';
     document.getElementById('new-user-pass').value = '';
-    showToast('تم إضافة المستخدم', 'success');
+    // Back to a clean «مستخدم» form (role and boxes together).
+    document.getElementById('new-user-role').value = 'user';
+    showToast(`تم إضافة المستخدم (${data.role_label || ''})`, 'success');
     loadUsers();
   } catch (err) {
     showToast(err.message, 'danger');
@@ -7796,6 +7811,17 @@ async function loadInvoiceFeesSection() {
     const markup = String(settings.default_supplies_markup_percent ?? '').trim();
     document.getElementById('fees-supplies-markup').value = formatAmountInput(markup === '' ? 20 : Number(markup));
     bindCommaAmountInputs(document.getElementById('settings-panel-invoice-fees'));
+    const box = document.getElementById('contracted-admin-sections-list');
+    if (box) {
+      const sections = await apiJson(`${SETTINGS_API}/contracted-admin-sections`);
+      box.innerHTML = sections
+        .map(
+          (s) => `<label class="form-check d-flex align-items-center gap-2 fw-bold">
+            <input type="checkbox" class="form-check-input contracted-admin-section-check" value="${escapeAttr(s.key)}"${s.excluded ? ' checked' : ''}>
+            <span>${escapeHtml(s.label)}</span></label>`
+        )
+        .join('');
+    }
   } catch (err) {
     showToast(err.message || 'خطأ في تحميل المصروفات الإدارية', 'danger');
   }
@@ -7819,6 +7845,14 @@ async function saveInvoiceFeesSettings() {
       }),
     });
     if (typeof dailySuppliesMarkupPercent !== 'undefined') dailySuppliesMarkupPercent = markup;
+    if (document.getElementById('contracted-admin-sections-list')) {
+      const excluded = [...document.querySelectorAll('.contracted-admin-section-check:checked')].map((el) => el.value);
+      await apiJson(`${SETTINGS_API}/contracted-admin-sections`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ excluded }),
+      });
+    }
     showToast('تم حفظ المصروفات الإدارية والمهن وهامش المستلزمات', 'success');
   } catch (err) {
     showToast(err.message || 'تعذر الحفظ', 'danger');
