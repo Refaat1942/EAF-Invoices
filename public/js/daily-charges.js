@@ -4864,6 +4864,44 @@ function getStayAccommodationAmount(primaryTr) {
   return dailyParseAmount(hidden?.value) || dailyParseAmount(display?.value);
 }
 
+/** A saved stay day's date was changed: move that day's stay to the new date. */
+async function moveSavedStayDay(tr, dateInput) {
+  const from = dateInput.dataset.savedDate;
+  const to = fmtStayDate(dateInput.value);
+  const fileNumber = getStayFileNumber();
+  if (!to || !fileNumber) {
+    dateInput.value = from;
+    return;
+  }
+  if (!isDateInDailyEditWindow(to)) {
+    const { first, last } = getDailyEditWindow();
+    showToast(`التاريخ ${to} خارج فترة المريض (${first} إلى ${last})`, 'warning');
+    dateInput.value = from;
+    return;
+  }
+  if (!window.confirm(`نقل إقامة يوم ${from} إلى يوم ${to}؟\n(تُحفظ أولًا أي تعديلات أخرى في الشاشة)`)) {
+    dateInput.value = from;
+    return;
+  }
+  dateInput.value = from; // save the other edits with the row still on its day
+  try {
+    if (typeof dailyTabHasUnsavedChanges === 'function' && dailyTabHasUnsavedChanges()) {
+      const ok = await saveDailyEntryNow({ silent: true });
+      if (ok === false) throw new Error('تعذر حفظ التعديلات قبل نقل اليوم');
+    }
+    await apiJson(`${DAILY_API}/stay/move-day`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_number: fileNumber, from_date: from, to_date: to }),
+    });
+    showToast(`نُقلت إقامة ${from} إلى ${to}`, 'success');
+    dailySheetEntriesFetchedAt = 0;
+    await loadOpenPatientStay(fileNumber);
+  } catch (err) {
+    showToast(sanitizeApiErrorMessage(err.message), 'danger');
+  }
+}
+
 function bindStayRowEvents(tr) {
   const staySel = tr.querySelector('.daily-row-stay-type');
   if (staySel) staySel.addEventListener('change', () => onStayTypeChangeForRow(staySel));
@@ -4873,6 +4911,10 @@ function bindStayRowEvents(tr) {
   if (dateInput && dateInput.dataset.stayDateBound !== '1') {
     dateInput.dataset.stayDateBound = '1';
     dateInput.addEventListener('change', () => {
+      if (dateInput.dataset.savedDate && dateInput.value !== dateInput.dataset.savedDate) {
+        void moveSavedStayDay(tr, dateInput);
+        return;
+      }
       pruneDuplicateStayDomRows();
       updateDailyGrandTotal();
       updateSectionTabTotal();
@@ -5030,12 +5072,9 @@ function createStayDailyEntryRow(entry = {}) {
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry))}
-    <td class="daily-col-date">${
-      entry.id
-        ? // A saved day keeps its date (it is the day of the stay); amounts and room type are edited.
-          `<input type="date" class="form-control form-control-sm daily-row-date fw-bold bg-light" value="${dateVal}" readonly tabindex="-1" title="يوم إقامة محفوظ — التاريخ لا يتغير، عدّل المبالغ أو نوع الإقامة">`
-        : `<input type="date" class="form-control form-control-sm daily-row-date fw-bold" value="${dateVal}" title="يوم الإقامة">`
-    }</td>
+    <td class="daily-col-date"><input type="date" class="form-control form-control-sm daily-row-date fw-bold" value="${dateVal}" data-saved-date="${entry.id ? dateVal : ''}" title="${
+      entry.id ? 'يوم الإقامة — تغيير التاريخ ينقل إقامة هذا اليوم إلى التاريخ الجديد' : 'يوم الإقامة'
+    }"></td>
     <td class="daily-col-stay-type"><select class="form-select form-select-sm daily-row-stay-type">${buildDailyStayTypeOptions(stayTypeSelectVal)}</select></td>
     <td class="daily-col-amount">
       <div class="input-group input-group-sm">
@@ -5160,7 +5199,7 @@ function createExamDailyEntryRow(entry = {}, examLine = null, options = {}) {
     ? fmtStayDate(line.extra_date)
     : entry.entry_date
       ? fmtStayDate(entry.entry_date)
-      : getLocalDateString();
+      : getDailyWorkDate();
   const patientName = getDailyPatientDisplayName();
   const priceVal = line.amount > 0 ? formatAmountFieldValue(dailyAmountForDisplay(line.amount)) : '';
   const stampVal =
@@ -5406,7 +5445,7 @@ function createSessionsRow(entry = {}, sessionsLine = null) {
     ? fmtStayDate(dateLine.extra_date)
     : entry.entry_date
       ? fmtStayDate(entry.entry_date)
-      : getLocalDateString();
+      : getDailyWorkDate();
   const patientName = getDailyPatientDisplayName();
   const unitVal =
     line.unit_price > 0
@@ -5668,7 +5707,7 @@ function createMedicineCatalogRow(entry = {}, catalogLine = null) {
     ? fmtStayDate(line.extra_date)
     : entry.entry_date
       ? fmtStayDate(entry.entry_date)
-      : getLocalDateString();
+      : getDailyWorkDate();
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
@@ -5729,7 +5768,7 @@ function createSupplyCatalogRow(entry = {}, catalogLine = null, defaultSectionCo
     ? fmtStayDate(line.extra_date)
     : entry.entry_date
       ? fmtStayDate(entry.entry_date)
-      : getLocalDateString();
+      : getDailyWorkDate();
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
@@ -5942,7 +5981,7 @@ function createLabRow(entry = {}, analysisLine = null) {
     ? fmtStayDate(line.extra_date)
     : entry.entry_date
       ? fmtStayDate(entry.entry_date)
-      : getLocalDateString();
+      : getDailyWorkDate();
 
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
@@ -5998,7 +6037,7 @@ function createRadiologyRow(entry = {}, xrayLine = null) {
       ? fmtStayDate(typeLine.extra_date)
       : entry.entry_date
         ? fmtStayDate(entry.entry_date)
-        : getLocalDateString();
+        : getDailyWorkDate();
   const unitVal =
     line.unit_price > 0
       ? formatAmountFieldValue(line.unit_price)
@@ -6055,8 +6094,14 @@ function createMiscServiceRow(entry = {}, serviceLine = null, defaultSectionCode
 
   const qtyVal = line.quantity != null && line.quantity !== '' ? formatAmountFieldValue(line.quantity, 0) : '1';
 
+  const miscDateVal = line.extra_date
+    ? fmtStayDate(line.extra_date)
+    : entry.entry_date
+      ? fmtStayDate(entry.entry_date)
+      : getDailyWorkDate();
   tr.innerHTML = `
     ${dailyRowSerialCellHtml(resolveDailyRowSerial(entry, line))}
+    <td><input type="date" class="form-control form-control-sm daily-misc-date" value="${dailyEscapeAttr(miscDateVal)}" autocomplete="off"></td>
     <td class="daily-misc-name-cell">${pickerSection ? buildCatalogPickerCell(pickerSection) : ''}
       <input type="hidden" class="daily-field daily-amount" data-section="other" data-type="amount"></td>
     <td><input type="text" inputmode="decimal" class="form-control form-control-sm daily-catalog-qty comma-amount" data-section="other" data-decimals="0" value="${dailyEscapeAttr(qtyVal)}" autocomplete="off"></td>
@@ -6159,6 +6204,8 @@ function collectMiscLinesFromRow(tr) {
   const line = collectLineForSection(tr, pickerSection);
   const picker = tr.querySelector('.daily-picker[data-section="other"]');
   line.section_code = resolveMiscSectionCodeFromItem(picker?._selectedItem, 'other');
+  const miscDate = tr.querySelector('.daily-misc-date')?.value;
+  if (miscDate) line.extra_date = miscDate;
   const snapshot = tr._entryLinesSnapshot || [];
   const preserved = snapshot.filter((l) => !tabCodes.includes(l.section_code) && lineHasChargeData(l));
   if (!lineHasChargeData(line)) return preserved;
@@ -7102,6 +7149,7 @@ function renderDailySectionsTable() {
   if (activeDailyTab === 'other') {
     head.innerHTML =
       '<th class="daily-meta-th daily-col-serial">مسلسل</th>' +
+      '<th class="daily-meta-th">تاريخ الخدمة</th>' +
       '<th class="daily-meta-th">اسم الخدمة</th>' +
       '<th class="daily-meta-th">العدد <span class="text-muted fw-normal small">(عدد)</span></th>' +
       '<th class="daily-meta-th">السعر <span class="text-muted fw-normal small">(ج.م)</span></th>' +
@@ -7111,7 +7159,7 @@ function renderDailySectionsTable() {
       subhead.innerHTML = '';
       subhead.style.display = 'none';
     }
-    configureDailyTableFooter(6, 'إجمالي الخدمات المتنوعة (كل الأيام)');
+    configureDailyTableFooter(7, 'إجمالي الخدمات المتنوعة (كل الأيام)');
     syncDailySheetTableLayout();
     applyDailyTabColumnVisibility();
     return;
@@ -8339,11 +8387,7 @@ function applySavedEntriesToDomRows(savedEntries = []) {
       tr._entryLinesSnapshot = (entry.lines || []).map((line) => ({ ...line }));
       if (entry.stay_type_id) tr.dataset.stayTypeId = String(entry.stay_type_id);
       const savedDate = tr.querySelector('.daily-row-date');
-      if (savedDate) {
-        savedDate.readOnly = true;
-        savedDate.tabIndex = -1;
-        savedDate.classList.add('bg-light');
-      }
+      if (savedDate) savedDate.dataset.savedDate = fmtStayDate(entry.entry_date) || savedDate.value;
     }
     applySavedLineIdsToRow(tr, entry);
     if (tr.classList.contains('daily-lab-row')) {

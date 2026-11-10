@@ -722,7 +722,7 @@ async function getInvoiceById(id, client = null) {
 
   const items = await run(
     `SELECT ii.*,
-            pde.entry_date AS daily_entry_date,
+            COALESCE(l.extra_date, pde.entry_date) AS daily_entry_date,
             l.section_code,
             l.extra_text AS daily_extra_text,
             dcs.sort_order AS section_sort_order,
@@ -732,7 +732,7 @@ async function getInvoiceById(id, client = null) {
      LEFT JOIN patient_daily_entries pde ON pde.id = ii.daily_entry_id
      LEFT JOIN daily_charge_sections dcs ON dcs.code = l.section_code
      WHERE ii.invoice_id = $1
-     ORDER BY pde.entry_date NULLS LAST, dcs.sort_order NULLS LAST, ii.sort_order, ii.id`,
+     ORDER BY COALESCE(l.extra_date, pde.entry_date) NULLS LAST, dcs.sort_order NULLS LAST, ii.sort_order, ii.id`,
     [id]
   );
   const payments = await run(

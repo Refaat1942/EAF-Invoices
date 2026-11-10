@@ -670,6 +670,16 @@ router.post('/entries/batch', requirePermission('daily_charges.manage'), async (
   }
 });
 
+// Stay screen: the date of a saved stay day was changed — move that day's stay to it.
+router.post('/stay/move-day', requirePermission('daily_charges.manage'), async (req, res) => {
+  try {
+    const { moveStayDay } = require('../services/dailyChargeService');
+    res.json(await moveStayDay(req.body?.file_number, req.body?.from_date, req.body?.to_date, req.session?.user || null));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.delete('/entries/stay-by-date', requirePermission('daily_charges.manage'), async (req, res) => {
   try {
     // Stay days are edited, never deleted, from the screens (system admin only).

@@ -372,7 +372,10 @@ async function loadDailyLineContextMap(lineIds = []) {
             l.unit_price, l.amount, l.quantity, l.cost_price, l.markup_percent,
             l.catalog_unit, l.catalog_unit_level, l.description AS line_description,
             s.name AS service_name, c.name AS catalog_item_name,
-            e.entry_date, e.id AS entry_id, dcs.sort_order AS section_sort_order
+            -- The date written on the row (medicine / test / X-ray … date) is the item's
+            -- date on the invoice; the entry's day only when the row has none.
+            COALESCE(l.extra_date, e.entry_date) AS entry_date, e.entry_date AS posted_date,
+            e.id AS entry_id, dcs.sort_order AS section_sort_order
      FROM patient_daily_entry_lines l
      JOIN patient_daily_entries e ON e.id = l.entry_id
      LEFT JOIN services s ON s.id = l.service_id
@@ -1637,6 +1640,19 @@ async function prepareEntrySaveContext(data) {
     }
   }
 
+  // A row's own date (medicine / test / X-ray / exam …) must fall inside the patient's
+  // period («من» … «إلى» / today), or it would leave the invoice.
+  if (firstEditableDate && typeof firstEditableDate === 'object') {
+    const { first, last } = editWindow(firstEditableDate);
+    for (const line of lines) {
+      const d = normalizeCalendarDate(line.extra_date);
+      if (!d || line.section_code === 'sessions_date') continue;
+      if ((first && d < first) || (last && d > last)) {
+        throw new Error(`تاريخ البند (${d}) خارج فترة المريض (${first} إلى ${last}) — صحّح التاريخ`);
+      }
+    }
+  }
+
   if (linesIncludeStay(lines) && patientType === 'external') {
     throw new Error('المريض الخارجي لا يُسجَّل عليه إقامة — احذف بنود الإقامة أو غيّر نوع المريض');
   }
@@ -2379,6 +2395,94 @@ async function saveEntriesBatch(data, user = null) {
   }
 }
 
+const STAY_MOVE_CODES = ['accommodation', 'companion', 'nursing_point', 'patient_assistant'];
+
+/**
+ * Moves one stay day (room, companion, nursing, assistant) to another date of the
+ * patient's period — the stay screen's answer to «the date on this row is wrong», like
+ * changing a medicine's date. The old date is marked «no stay» so it is not re-posted.
+ */
+async function moveStayDay(fileNumber, fromDate, toDate, user = null) {
+  const from = normalizeCalendarDate(fromDate);
+  const to = normalizeCalendarDate(toDate);
+  if (!from || !to) throw new Error('تاريخ غير صالح');
+  if (from === to) return { moved: 0 };
+  const patient = await resolvePatient(String(fileNumber || '').trim());
+  const window = editWindow(await getOpenStayFirstEditableDate(patient.file_number));
+  if (!window.first) throw new Error('لا توجد فاتورة مفتوحة لهذا المريض');
+  if (to < window.first || to > window.last) {
+    throw new Error(`التاريخ (${to}) خارج فترة المريض (${window.first} إلى ${window.last})`);
+  }
+  const result = await withTransaction(async (client) => {
+    const locked = await client.query(
+      `SELECT e.id, e.stay_type_id, i.status FROM patient_daily_entries e
+       LEFT JOIN invoices i ON i.id = e.invoice_id
+       WHERE e.patient_id = $1 AND e.entry_date = $2::date
+         AND EXISTS (SELECT 1 FROM patient_daily_entry_lines l WHERE l.entry_id = e.id AND l.section_code = ANY($3::text[]))`,
+      [patient.id, from, STAY_MOVE_CODES]
+    );
+    if (!locked.rows.length) throw new Error(`لا توجد إقامة مسجلة يوم ${from}`);
+    if (locked.rows.some((r) => ['approved', 'cancelled'].includes(r.status))) {
+      throw new Error('يوم الإقامة مرتبط بفاتورة معتمدة أو ملغاة');
+    }
+    const busy = await client.query(
+      `SELECT 1 FROM patient_daily_entries e
+       JOIN patient_daily_entry_lines l ON l.entry_id = e.id
+       WHERE e.patient_id = $1 AND e.entry_date = $2::date AND l.section_code = ANY($3::text[]) LIMIT 1`,
+      [patient.id, to, STAY_MOVE_CODES]
+    );
+    if (busy.rows.length) {
+      throw new Error(`يوم ${to} عليه إقامة بالفعل — عدّل مبالغه بدلًا من نقل يوم آخر إليه`);
+    }
+    const source = locked.rows[0];
+    // The target day's own entry (if any), otherwise a new entry for that day.
+    const target = await client.query(
+      `SELECT id FROM patient_daily_entries WHERE patient_id = $1 AND entry_date = $2::date
+       ORDER BY (doctor_id IS NULL) DESC, id LIMIT 1`,
+      [patient.id, to]
+    );
+    let targetId = target.rows[0]?.id;
+    if (!targetId) {
+      const created = await client.query(
+        `INSERT INTO patient_daily_entries (patient_id, entry_date, stay_type_id, daily_total, notes, invoice_id,
+           created_by_user_id, created_by_name, updated_by_user_id, updated_by_name)
+         SELECT patient_id, $2::date, stay_type_id, 0, '', invoice_id, $3, $4, $3, $4
+         FROM patient_daily_entries WHERE id = $1
+         RETURNING id`,
+        [source.id, to, user?.id || null, user?.full_name || user?.username || '']
+      );
+      targetId = created.rows[0].id;
+    } else if (source.stay_type_id) {
+      await client.query(`UPDATE patient_daily_entries SET stay_type_id = $2 WHERE id = $1`, [targetId, source.stay_type_id]);
+    }
+    const moved = await client.query(
+      `UPDATE patient_daily_entry_lines SET entry_id = $2
+       WHERE entry_id = ANY($1::int[]) AND section_code = ANY($3::text[])`,
+      [locked.rows.map((r) => r.id), targetId, STAY_MOVE_CODES]
+    );
+    for (const id of [...locked.rows.map((r) => r.id), targetId]) {
+      await client.query(
+        `UPDATE patient_daily_entries e SET
+           daily_total = COALESCE((SELECT SUM(amount) FROM patient_daily_entry_lines WHERE entry_id = e.id), 0),
+           updated_at = NOW()
+         WHERE id = $1`,
+        [id]
+      );
+    }
+    await client.query(
+      `DELETE FROM patient_daily_entries e WHERE e.id = ANY($1::int[])
+         AND NOT EXISTS (SELECT 1 FROM patient_daily_entry_lines l WHERE l.entry_id = e.id)`,
+      [locked.rows.map((r) => r.id)]
+    );
+    await markStayDateExcluded(patient.id, from, { userId: user?.id, userName: user?.full_name || user?.username || '' }, client);
+    await clearStayDateExcluded(patient.id, to, client);
+    return { moved: moved.rowCount };
+  });
+  const { syncPatientDailyChargesToInvoice } = require('./invoiceService');
+  const invoice_sync = await syncPatientDailyChargesToInvoice(patient.file_number, patient.name || '');
+  return { ...result, from, to, invoice_sync };
+}
+
 async function markStayDateExcluded(patientId, entryDate, meta = {}, client = null) {
   const pid = Number(patientId);
   const date = normalizeCalendarDate(entryDate);
@@ -2747,7 +2851,8 @@ async function attachServiceSnapshotsForInvoice(item, serviceId) {
 
 function lineToInvoiceItem(line, entry, sections = []) {
   const section = sections.find((s) => s.code === line.section_code);
-  const entryDate = formatDailyEntryDateLabel(entry.entry_date);
+  // The row's own date (as typed on the screen) wins over the day it was posted on.
+  const entryDate = formatDailyEntryDateLabel(line.extra_date || entry.entry_date);
   const serviceName = line.service_name || line.description || section?.name || line.section_code;
   // Doctor metadata on entry is internal only — never included in customer invoice descriptions.
   const description = buildDailyItemDescription(entryDate, serviceName, line.extra_text);
@@ -3340,6 +3445,7 @@ async function listAccommodationStayGrades() {
 }
 
 module.exports = {
+  moveStayDay,
   listSections,
   getSectionsWithServices,
   listAccommodationStayGrades,
