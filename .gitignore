@@ -11,3 +11,4 @@ Thumbs.db
 backups/
 dist/
 EAF-Invoices-Update-*.zip
+/*.xlsx
