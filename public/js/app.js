@@ -7917,6 +7917,17 @@ async function loadInvoiceFeesSection() {
     } catch {
       /* optional */
     }
+    const typesBox = document.getElementById('entity-layout-types-list');
+    if (typesBox) {
+      const types = await apiJson(`${SETTINGS_API}/entity-layout-types`);
+      typesBox.innerHTML = types
+        .map(
+          (t) => `<label class="form-check d-flex align-items-center gap-2 fw-bold">
+            <input type="checkbox" class="form-check-input entity-layout-type-check" value="${escapeAttr(t.code)}"${t.selected ? ' checked' : ''}>
+            <span>${escapeHtml(t.name)}</span></label>`
+        )
+        .join('');
+    }
     const box = document.getElementById('contracted-admin-sections-list');
     if (box) {
       const sections = await apiJson(`${SETTINGS_API}/contracted-admin-sections`);
@@ -7970,6 +7981,14 @@ async function saveInvoiceFeesSettings() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ excluded }),
+      });
+    }
+    if (document.getElementById('entity-layout-types-list')) {
+      const codes = [...document.querySelectorAll('.entity-layout-type-check:checked')].map((el) => el.value);
+      await apiJson(`${SETTINGS_API}/entity-layout-types`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codes }),
       });
     }
     showToast('تم حفظ المصروفات الإدارية والمهن وهامش المستلزمات', 'success');

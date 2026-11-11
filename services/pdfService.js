@@ -1,5 +1,6 @@
 const { formatDual, round2, calculateInvoiceTotals, calculateStayDays } = require('./calculations');
 const { buildCustomerPrintLines } = require('./invoicePresentationService');
+const { amountInArabicWords } = require('./arabicAmountWords');
 const { normalizeCaptainName } = require('./invoiceService');
 const { CENTER_NAME } = require('../config/branding');
 
@@ -279,6 +280,31 @@ async function buildInvoiceHtml(invoice, options = {}) {
     sourceItems = sourceItems.filter((item) => !item.is_stay_entry);
     inv.stay_entries = [];
   }
+  // Contracted entities and the types billed like them (المصنع، الأجهزة التعويضية):
+  // the sections outside the administrative expenses (medicines, supplies …) are listed
+  // after them, and the patient balance / payment-order tables are left out.
+  const entityLayout =
+    !dailyKind &&
+    !inv._daily_kind_preview &&
+    (Array.isArray(inv.entity_layout_types) ? inv.entity_layout_types : ['contracted']).includes(inv.invoice_type);
+  let afterAdminLines = [];
+  let afterAdminRaw = 0;
+  let afterAdminRounded = 0;
+  if (entityLayout) {
+    const { isStampLineItem } = require('./dailySectionBundles');
+    const afterItems = sourceItems.filter(
+      (item) => item.admin_excluded_for_entity === true && !item.is_stay_entry && !isStampLineItem(item)
+    );
+    if (afterItems.length) {
+      const afterSet = new Set(afterItems);
+      sourceItems = sourceItems.filter((item) => !afterSet.has(item));
+      afterAdminLines = buildCustomerPrintLines(afterItems).filter((line) => !line._section_header);
+      for (const item of afterItems) {
+        afterAdminRaw = round2(afterAdminRaw + (Number(item.total_raw ?? item.total) || 0));
+        afterAdminRounded = round2(afterAdminRounded + (Number(item.total) || 0));
+      }
+    }
+  }
   const displayItems = buildCustomerPrintLines(sourceItems);
 
   const realItems = displayItems.filter((i) => {
@@ -518,6 +544,14 @@ async function buildInvoiceHtml(invoice, options = {}) {
     .num-main { font-weight: 900; }
     .num-raw { font-size: 8px; color: #666; font-weight: 700; display: block; margin-top: 1px; }
     .dual-wrap { display: inline-block; line-height: 1.2; }
+    .amount-words {
+      border: 1.5px solid #000;
+      border-top: none;
+      padding: 4px 8px;
+      font-weight: 900;
+      font-size: 11px;
+      text-align: right;
+    }
     .bottom-tables {
       display: flex;
       direction: ltr;
@@ -768,11 +802,16 @@ async function buildInvoiceHtml(invoice, options = {}) {
       </thead>
       <tbody>
         ${buildCombinedRows(items, payments)}
-        ${buildSummaryRows(inv)}
+        ${buildSummaryRows(inv, { entityLayout, afterAdminLines, afterAdminRaw, afterAdminRounded })}
       </tbody>
     </table>
+    ${
+      entityLayout
+        ? `<div class="amount-words">${escapeHtml(amountInArabicWords(inv.final_total))}</div>`
+        : ''
+    }
 
-    <div class="bottom-tables">
+    ${entityLayout ? '' : `<div class="bottom-tables">
       <div class="bottom-table-wrap">
         <table class="bottom-table">
           <thead>
@@ -806,7 +845,7 @@ async function buildInvoiceHtml(invoice, options = {}) {
         </table>
       </div>`
       }
-    </div>
+    </div>`}
 
     <div class="signatures">
       <div class="sig-block"><div class="sig-title">المدير المالي</div><div class="sig-line">${escapeHtml(formatManagerNameForSignature(inv.manager_name))}</div></div>
@@ -1001,7 +1040,43 @@ function buildStayDetailsTable(inv) {
   </table>`;
 }
 
-function buildSummaryRows(inv) {
+function buildEntitySummaryRows(inv, { afterAdminLines = [], afterAdminRaw = 0, afterAdminRounded = 0 } = {}) {
+  const adminLabel = `مصروفات إدارية ${Number(inv.admin_expenses_percent ?? 12)}%`;
+  const hasDiscount = Number(inv.discount_amount) > 0 || Number(inv.discount_percent) > 0;
+  const freeAfterAdmin = Number(inv.free_items_discount_after_admin_raw) || 0;
+  const baseRaw = round2((Number(inv.items_subtotal_raw) || 0) - afterAdminRaw);
+  const base = round2((Number(inv.items_subtotal) || 0) - afterAdminRounded);
+  const afterAdminTotalRaw = round2(baseRaw + (Number(inv.admin_expenses_raw) || 0));
+  const afterAdminTotal = round2(base + (Number(inv.admin_expenses) || 0));
+  const collected = fmtDual(inv.total_collected_raw, inv.total_collected);
+
+  const rows = [];
+  if (Number(inv.stay_subtotal) > 0) rows.push(['إجمالي تكلفة الإقامة', inv.stay_subtotal_raw, inv.stay_subtotal, '']);
+  rows.push(
+    ['إجمالي البنود', baseRaw, base, ''],
+    [adminLabel, inv.admin_expenses_raw, inv.admin_expenses, ''],
+    ['الإجمالي بعد المصروفات الإدارية', afterAdminTotalRaw, afterAdminTotal, '']
+  );
+  for (const line of afterAdminLines) {
+    const label = line._customer_display_aggregate ? line.description : formatInvoiceLineDescription(line);
+    rows.push([label, line.total_raw ?? line.total, line.total, '']);
+  }
+  rows.push(['دمغة', inv.stamp_duty_raw, inv.stamp_duty, ''], ['مهن', inv.professional_fees_raw, inv.professional_fees, '']);
+  if (hasDiscount || freeAfterAdmin > 0) {
+    rows.push(['الإجمالي', inv.total_after_admin_raw, inv.total_after_admin, '']);
+    if (freeAfterAdmin > 0) rows.push(['خصم البنود الحرة', freeAfterAdmin, freeAfterAdmin, '']);
+    if (hasDiscount) {
+      rows.push([`خصم جهة متعاقدة ${inv.discount_percent || 0}%`, inv.discount_amount_raw, inv.discount_amount, '']);
+    }
+    rows.push(['الصافي المستحق', inv.final_total_raw, inv.final_total, collected]);
+  } else {
+    rows.push(['الإجمالي', inv.final_total_raw, inv.final_total, collected]);
+  }
+  return rows;
+}
+
+function buildSummaryRows(inv, layout = {}) {
+  if (layout.entityLayout) return renderSummaryRows(buildEntitySummaryRows(inv, layout));
   const sectionPreview = Boolean(inv._daily_kind_preview);
   const adminLabel = `مصروفات إدارية ${Number(inv.admin_expenses_percent ?? 12)}%${
     inv.admin_excluded_note ? ` (${inv.admin_excluded_note})` : ''
@@ -1046,6 +1121,10 @@ function buildSummaryRows(inv) {
     );
   }
 
+  return renderSummaryRows(rows);
+}
+
+function renderSummaryRows(rows) {
   return rows
     .map(
       ([label, rawVal, roundedVal, payVal]) => `

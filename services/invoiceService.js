@@ -171,6 +171,7 @@ async function prepareCalculationData(data, client = null) {
   calcData.discount_exclusions = await listDiscountExclusions(true);
   calcData.discount_excluded_bundles = await getDiscountExcludedBundlesForEntity(calcData.contracted_entity_id);
   calcData.admin_excluded_bundles = await getContractedAdminExcludedBundles();
+  calcData.entity_layout_types = await getEntityLayoutInvoiceTypes();
   calcData.free_items_discount_mode = (await getFreeItemsDiscountSettings()).mode;
   const adminRateSetting = String(await getSetting('administrative_fee_rate', '12')).trim();
   calcData.administrative_fee_rate =
@@ -764,9 +765,14 @@ async function getInvoiceById(id, client = null) {
   const frozen = invoice.status === 'approved' || invoice.status === 'cancelled';
   let calcRules = {};
   if (frozen) {
-    calcRules = { admin_rules_frozen: true, free_items_discount_mode: invoice.free_items_discount_mode || 'before_admin' };
+    const entityLayoutTypes = await getEntityLayoutInvoiceTypes();
+    calcRules = {
+      admin_rules_frozen: true,
+      free_items_discount_mode: invoice.free_items_discount_mode || 'before_admin',
+      entity_layout_types: entityLayoutTypes,
+    };
     const percent = Number(invoice.admin_expenses_percent) || 0;
-    if (invoice.invoice_type === 'contracted' && percent > 0) {
+    if (entityLayoutTypes.includes(invoice.invoice_type) && percent > 0) {
       for (const item of enrichedItems) {
         if (item.admin_fee_amount_snapshot != null && Number(item.admin_fee_amount_snapshot) === 0 && Number(item.total) > 0) {
           item.admin_excluded_for_entity = true;
@@ -776,6 +782,7 @@ async function getInvoiceById(id, client = null) {
   } else {
     calcRules = {
       admin_excluded_bundles: await getContractedAdminExcludedBundles(),
+      entity_layout_types: await getEntityLayoutInvoiceTypes(),
       discount_excluded_bundles: await getDiscountExcludedBundlesForEntity(invoice.contracted_entity_id),
       free_items_discount_mode: (await getFreeItemsDiscountSettings()).mode,
     };
@@ -1884,6 +1891,33 @@ async function getFreeItemsDiscountSettings() {
     return { mode: 'before_admin', max_percent: 100, who: 'all' };
   }
 }
+/**
+ * Invoice types billed like a contracted entity: medicines / supplies (and the other
+ * sections chosen in الإعدادات) outside the administrative expenses, and the entity
+ * layout of the big invoice (no patient-balance tables, amount in words). Default:
+ * contracted + any type named «مصنع» / «تعويضي» (المصنع، الأجهزة التعويضية).
+ */
+async function getEntityLayoutInvoiceTypes() {
+  try {
+    const raw = await getSetting('entity_layout_invoice_types', '');
+    if (raw) {
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) return list.map(String);
+    }
+  } catch {
+    /* default below */
+  }
+  try {
+    const { rows } = await query(
+      `SELECT code FROM invoice_types WHERE code = 'contracted' OR name LIKE '%مصنع%' OR name LIKE '%تعويضي%'`
+    );
+    const codes = rows.map((r) => String(r.code));
+    return codes.includes('contracted') ? codes : ['contracted', ...codes];
+  } catch {
+    return ['contracted'];
+  }
+}
+
 async function getContractedAdminExcludedBundles() {
   try {
     const raw = await getSetting('contracted_admin_excluded_sections', '');
@@ -2837,6 +2871,7 @@ module.exports = {
   reopenInvoice,
   getFreeItemsDiscountSettings,
   getContractedAdminExcludedBundles,
+  getEntityLayoutInvoiceTypes,
   cancelInvoice,
   returnInvoiceForCorrection,
   RETURN_SECTION_LABELS,

@@ -159,6 +159,33 @@ router.put('/contracted-admin-sections', requirePermission('settings.*'), async 
   }
 });
 
+// Invoice types billed like a contracted entity (المصنع، الأجهزة التعويضية …).
+router.get('/entity-layout-types', requirePermission('invoices.view'), async (req, res) => {
+  try {
+    const { query } = require('../database/db');
+    const { getEntityLayoutInvoiceTypes } = require('../services/invoiceService');
+    const selected = await getEntityLayoutInvoiceTypes();
+    const { rows } = await query(`SELECT code, name FROM invoice_types WHERE is_active = TRUE OR code = ANY($1) ORDER BY sort_order, id`, [selected]);
+    res.json(rows.map((r) => ({ code: r.code, name: r.name, selected: selected.includes(r.code) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/entity-layout-types', requirePermission('settings.*'), async (req, res) => {
+  try {
+    const { query } = require('../database/db');
+    const { setSetting } = require('../services/settingsService');
+    const { rows } = await query(`SELECT code FROM invoice_types`);
+    const known = new Set(rows.map((r) => r.code));
+    const codes = (Array.isArray(req.body?.codes) ? req.body.codes : []).map(String).filter((c) => known.has(c));
+    await setSetting('entity_layout_invoice_types', JSON.stringify(codes));
+    res.json({ codes });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get('/discount-sections', requirePermission('invoices.view'), async (req, res) => {
   try {
     const { getSetting } = require('../services/settingsService');

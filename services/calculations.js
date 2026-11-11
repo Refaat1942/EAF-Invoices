@@ -335,8 +335,12 @@ function calculateInvoiceTotals(data) {
     data.invoice_type === 'contracted' && discountPercent > 0 && Number(data.contracted_entity_id);
   const exclusions = data.discount_exclusions || [];
   const excludedDiscountBundles = data.discount_excluded_bundles || [];
+  // Contracted entities and the types billed like them (المصنع، الأجهزة التعويضية …).
+  const entityLayoutTypes = Array.isArray(data.entity_layout_types) ? data.entity_layout_types : ['contracted'];
   const adminExcludedBundles =
-    data.invoice_type === 'contracted' && Array.isArray(data.admin_excluded_bundles) ? data.admin_excluded_bundles : [];
+    entityLayoutTypes.includes(data.invoice_type) && Array.isArray(data.admin_excluded_bundles)
+      ? data.admin_excluded_bundles
+      : [];
   const isAdminExcludedForEntity = (item) => {
     if (!adminExcludedBundles.length || item.is_stay_entry) return false;
     const { inferBundleKeyFromItem } = require('./dailySectionBundles');
