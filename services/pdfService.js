@@ -1052,6 +1052,38 @@ function buildEntitySummaryRows(inv, { afterAdminLines = [], afterAdminRaw = 0, 
 
   const rows = [];
   if (Number(inv.stay_subtotal) > 0) rows.push(['إجمالي تكلفة الإقامة', inv.stay_subtotal_raw, inv.stay_subtotal, '']);
+  if (inv.discount_before_admin && hasDiscount) {
+    // Discount on the items first, then the administrative expenses on what is left.
+    const netRaw = round2(baseRaw - (Number(inv.discount_amount_raw) || 0));
+    const net = round2(base - (Number(inv.discount_amount) || 0));
+    rows.push(
+      ['إجمالي البنود', baseRaw, base, ''],
+      [`خصم جهة متعاقدة ${inv.discount_percent || 0}%`, inv.discount_amount_raw, inv.discount_amount, ''],
+      ['صافي بعد الخصم', netRaw, net, ''],
+      [adminLabel, inv.admin_expenses_raw, inv.admin_expenses, ''],
+      [
+        'الإجمالي بعد المصروفات الإدارية',
+        round2(netRaw + (Number(inv.admin_expenses_raw) || 0)),
+        round2(net + (Number(inv.admin_expenses) || 0)),
+        '',
+      ]
+    );
+    for (const line of afterAdminLines) {
+      const label = line._customer_display_aggregate ? line.description : formatInvoiceLineDescription(line);
+      rows.push([label, line.total_raw ?? line.total, line.total, '']);
+    }
+    rows.push(['دمغة', inv.stamp_duty_raw, inv.stamp_duty, ''], ['مهن', inv.professional_fees_raw, inv.professional_fees, '']);
+    if (freeAfterAdmin > 0) {
+      rows.push(
+        ['الإجمالي', round2((Number(inv.final_total_raw) || 0) + freeAfterAdmin), round2((Number(inv.final_total) || 0) + freeAfterAdmin), ''],
+        ['خصم البنود الحرة', freeAfterAdmin, freeAfterAdmin, ''],
+        ['الصافي المستحق', inv.final_total_raw, inv.final_total, collected]
+      );
+    } else {
+      rows.push(['الإجمالي', inv.final_total_raw, inv.final_total, collected]);
+    }
+    return rows;
+  }
   rows.push(
     ['إجمالي البنود', baseRaw, base, ''],
     [adminLabel, inv.admin_expenses_raw, inv.admin_expenses, ''],

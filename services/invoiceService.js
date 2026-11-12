@@ -172,6 +172,11 @@ async function prepareCalculationData(data, client = null) {
   calcData.discount_excluded_bundles = await getDiscountExcludedBundlesForEntity(calcData.contracted_entity_id);
   calcData.admin_excluded_bundles = await getContractedAdminExcludedBundles();
   calcData.entity_layout_types = await getEntityLayoutInvoiceTypes();
+  // Entity discount before the administrative expenses: today's rule for every invoice
+  // still open; an approved / cancelled invoice keeps the rule it was approved with.
+  calcData.discount_before_admin =
+    typeof calcData.discount_before_admin_frozen === 'boolean' ? calcData.discount_before_admin_frozen : true;
+  delete calcData.discount_before_admin_frozen;
   calcData.free_items_discount_mode = (await getFreeItemsDiscountSettings()).mode;
   const adminRateSetting = String(await getSetting('administrative_fee_rate', '12')).trim();
   calcData.administrative_fee_rate =
@@ -533,7 +538,8 @@ async function saveDiscountFields(client, invoiceId, data, totals, createdBy = n
       letter_to_date = $12,
       created_by_user_id = COALESCE(created_by_user_id, $13),
       created_by_name = CASE WHEN COALESCE(created_by_name, '') = '' THEN $14 ELSE created_by_name END,
-      free_items_discount_mode = COALESCE($15, free_items_discount_mode)
+      free_items_discount_mode = COALESCE($15, free_items_discount_mode),
+      discount_before_admin = $16
      WHERE id = $1`,
     [
       invoiceId,
@@ -551,6 +557,7 @@ async function saveDiscountFields(client, invoiceId, data, totals, createdBy = n
       createdBy?.id || null,
       createdBy?.name || '',
       totals.free_items_discount_mode || null,
+      totals.discount_before_admin === true,
     ]
   );
 }
@@ -770,6 +777,7 @@ async function getInvoiceById(id, client = null) {
       admin_rules_frozen: true,
       free_items_discount_mode: invoice.free_items_discount_mode || 'before_admin',
       entity_layout_types: entityLayoutTypes,
+      discount_before_admin: invoice.discount_before_admin === true,
     };
     const percent = Number(invoice.admin_expenses_percent) || 0;
     if (entityLayoutTypes.includes(invoice.invoice_type) && percent > 0) {
@@ -783,6 +791,7 @@ async function getInvoiceById(id, client = null) {
     calcRules = {
       admin_excluded_bundles: await getContractedAdminExcludedBundles(),
       entity_layout_types: await getEntityLayoutInvoiceTypes(),
+      discount_before_admin: true,
       discount_excluded_bundles: await getDiscountExcludedBundlesForEntity(invoice.contracted_entity_id),
       free_items_discount_mode: (await getFreeItemsDiscountSettings()).mode,
     };
@@ -1788,6 +1797,10 @@ function buildCalcDataFromInvoice(invoice) {
     include_daily_charges: Boolean(fileNumber && admissionDate),
     excluded_daily_line_ids: normalizeExcludedLineIds(invoice),
     excluded_section_codes: normalizeExcludedSectionCodes(invoice),
+    // Approved / cancelled: recalculate with the discount rule it was approved with.
+    ...(['approved', 'cancelled'].includes(invoice.status)
+      ? { discount_before_admin_frozen: invoice.discount_before_admin === true }
+      : {}),
   };
 }
 

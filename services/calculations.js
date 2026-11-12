@@ -95,7 +95,10 @@ function isItemAdminApplicable(item) {
 
 function computeItemAdminFeeRaw(item, adminPercent) {
   if (!isItemAdminApplicable(item)) return 0;
-  return round2((Number(item.total_raw) || 0) * (Number(adminPercent) || 0) / 100);
+  // Entity discount taken before the administrative expenses: the fee is on the line
+  // after its discount.
+  const base = item.admin_base_raw != null ? Number(item.admin_base_raw) : Number(item.total_raw);
+  return round2((base || 0) * (Number(adminPercent) || 0) / 100);
 }
 
 function sumSuppliesMarkup(items = []) {
@@ -459,6 +462,32 @@ function calculateInvoiceTotals(data) {
   const itemsSubtotalRaw = round2(manualItemsSubtotalRaw + staySubtotalRaw);
   const itemsSubtotal = roundNearest(itemsSubtotalRaw);
 
+  // Contracted entities (and the types billed like them): the entity discount is taken
+  // off the items subject to the administrative expenses, BEFORE those expenses — the
+  // sections billed after them (medicines, supplies …) carry no discount. Approved
+  // invoices keep the rule they were approved with (discount_before_admin).
+  const discountBeforeAdmin =
+    discountActive && entityLayoutTypes.includes(data.invoice_type) && data.discount_before_admin === true;
+  if (discountBeforeAdmin) {
+    for (const item of items) {
+      if (!item.is_discount_eligible) continue;
+      if (!isItemAdminApplicable(item)) {
+        Object.assign(item, {
+          is_discount_eligible: false,
+          item_discount_percent: 0,
+          item_discount_amount: 0,
+          item_discount_amount_raw: 0,
+        });
+        continue;
+      }
+      item.admin_base_raw = round2((Number(item.total_raw) || 0) * (1 - discountPercent / 100));
+      if (!item.is_stay_entry) {
+        item.admin_fee_amount_raw = computeItemAdminFeeRaw(item, adminPercentResolved);
+        item.admin_fee_amount = roundNearest(item.admin_fee_amount_raw);
+      }
+    }
+  }
+
   const discountEligibleSubtotalRaw = round2(
     items.filter((item) => item.is_discount_eligible).reduce((sum, item) => sum + item.total_raw, 0)
   );
@@ -583,6 +612,7 @@ function calculateInvoiceTotals(data) {
     admin_applicable_subtotal: adminApplicableSubtotal,
     admin_applicable_subtotal_raw: adminApplicableSubtotalRaw,
     free_items_discount_mode: freeDiscountMode,
+    discount_before_admin: discountBeforeAdmin,
     free_items_discount_raw: freeItemsDiscountRaw,
     free_items_discount: roundNearest(freeItemsDiscountRaw),
     free_items_discount_after_admin_raw: freeDiscountAfterAdminRaw,
@@ -764,7 +794,9 @@ function buildCalculationSteps(totals) {
     steps.push(
       {
         key: 'entity_discount',
-        label: `خصم الجهة المتعاقدة (${totals.discount_percent}%)`,
+        label: `خصم الجهة المتعاقدة (${totals.discount_percent}%)${
+          totals.discount_before_admin ? ' — قبل المصروفات الإدارية' : ''
+        }`,
         raw: totals.discount_amount_raw,
         rounded: totals.discount_amount,
         is_deduction: true,

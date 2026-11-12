@@ -528,6 +528,9 @@ async function runMigrations() {
   // the general default).
   await query(`ALTER TABLE contracted_entities ADD COLUMN IF NOT EXISTS discount_excluded_sections JSONB`);
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS free_items_discount_mode VARCHAR(20) DEFAULT 'before_admin'`);
+  // Entity discount before the administrative expenses (contracted & alike). Invoices
+  // approved before this rule keep FALSE, so their totals do not change.
+  await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_before_admin BOOLEAN NOT NULL DEFAULT FALSE`);
   await query(`ALTER TABLE patients ADD COLUMN IF NOT EXISTS id_number VARCHAR(40) DEFAULT ''`);
   // Cancelled by the admin: the invoice keeps its serial and stays in the books as «ملغاة».
   await query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ`);
