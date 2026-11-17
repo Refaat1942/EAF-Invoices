@@ -36,7 +36,12 @@ function compressedStatic(root) {
   const rootResolved = path.resolve(root);
   return (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-    let rel = decodeURIComponent(req.path);
+    let rel;
+    try {
+      rel = decodeURIComponent(req.path);
+    } catch {
+      return next(); // malformed %-encoding: not one of our files
+    }
     if (rel === '/') rel = '/index.html';
     const ext = path.extname(rel).toLowerCase();
     if (!TYPES[ext]) return next();

@@ -12,7 +12,7 @@
   function fmtDateTime(value) {
     if (!value) return '—';
     try {
-      return new Date(value).toLocaleString('ar-EG');
+      return formatDateTimeDMY(value);
     } catch {
       return value;
     }

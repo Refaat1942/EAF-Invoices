@@ -457,7 +457,7 @@ router.put('/companion-kinds', requirePermission('settings.*'), async (req, res)
 
 router.get('/companion-kinds/template', requirePermission('settings.*'), async (req, res) => {
   try {
-    const buffer = buildTemplateWorkbook();
+    const buffer = Buffer.from(await buildTemplateWorkbook());
     res.setHeader(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'

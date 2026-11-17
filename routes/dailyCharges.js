@@ -525,7 +525,8 @@ router.post('/change-room', requirePermission('daily_charges.manage'), async (re
       patient_assistant_amount: req.body.patient_assistant_amount,
       effective_from: req.body.effective_from,
     });
-    if (patient.floor && req.body.floor) {
+    // Save the new floor even when the patient had none before.
+    if (String(req.body.floor ?? '').trim()) {
       await upsertPatient(file_number, { floor: req.body.floor, name: patient.name });
     }
     let backfill = null;

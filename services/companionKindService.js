@@ -37,7 +37,9 @@ async function getCompanionKinds() {
       .map((row, i) => normalizeKind(row, i))
       .filter(Boolean)
       .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-    return [...DEFAULT_KINDS.filter((d) => d.code === 'none'), ...custom.filter((c) => c.code !== 'none')];
+    // The built-in kinds («بدون», «نقطة تمريض») always stay; saving a custom list used to
+    // drop «نقطة تمريض» for good.
+    return [...DEFAULT_KINDS, ...custom.filter((c) => !DEFAULT_KINDS.some((d) => d.code === c.code))];
   } catch {
     return [...DEFAULT_KINDS];
   }

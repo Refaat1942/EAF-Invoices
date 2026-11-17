@@ -270,7 +270,8 @@ async function prepareCalculationData(data, client = null) {
         calcData.file_number,
         fromDate,
         toDate,
-        calcData.invoice_id || calcData.id || null
+        calcData.invoice_id || calcData.id || null,
+        { only_linked: calcData.invoice_frozen === true }
       )
     );
     let sectionCodesForFilter = excludedSectionCodes;
@@ -303,7 +304,7 @@ async function prepareCalculationData(data, client = null) {
 
 function isStaleDailyInvoiceItem(item) {
   const desc = String(item?.description || '');
-  return /^\[\d{2}-\d{2}-\d{4}\]/.test(desc) || /GMT|Coordinated Universal Time/i.test(desc);
+  return /^\[\d{2}[-/]\d{2}[-/]\d{4}\]/.test(desc) || /GMT|Coordinated Universal Time/i.test(desc);
 }
 
 function normalizeExcludedLineIds(data = {}) {
@@ -1543,7 +1544,17 @@ async function approveInvoice(id, reviewer) {
       ...calcData,
       items: itemsToListPrices(calcData.items, calcData.patient_nationality, { dailyLinesAtList: true }),
     });
-    const paymentValidation = validatePaymentBalance(totals);
+    // Check the payments against the total the invoice was saved with (what the reviewer
+    // sees). Re-pricing the lines here halved a foreign patient's price-list lines twice
+    // (getInvoiceById already returns them at list price), so the check could refuse a
+    // correct invoice or pass a wrong one.
+    const storedFinalRaw = Number(invoice.final_total_raw ?? invoice.final_total);
+    const paymentValidation = validatePaymentBalance({
+      ...totals,
+      ...(Number.isFinite(storedFinalRaw)
+        ? { final_total_raw: storedFinalRaw, final_total: Number(invoice.final_total) }
+        : {}),
+    });
     if (paymentValidation.has_payments && !paymentValidation.is_balanced) {
       throw new Error('مجموع طرق الدفع لا يساوي إجمالي الفاتورة — راجع المدفوعات قبل الاعتماد');
     }
@@ -1799,7 +1810,7 @@ function buildCalcDataFromInvoice(invoice) {
     excluded_section_codes: normalizeExcludedSectionCodes(invoice),
     // Approved / cancelled: recalculate with the discount rule it was approved with.
     ...(['approved', 'cancelled'].includes(invoice.status)
-      ? { discount_before_admin_frozen: invoice.discount_before_admin === true }
+      ? { discount_before_admin_frozen: invoice.discount_before_admin === true, invoice_frozen: true }
       : {}),
   };
 }

@@ -86,9 +86,10 @@ async function saveLogo(file) {
   const filename = `logo${ext}`;
   const dest = path.join(ASSETS_DIR, filename);
 
-  // Remove old logo files
+  // Replace the previous uploaded logo, but keep the default logo.svg that ships with the
+  // program (the fallback) unless the new logo is itself an SVG.
   for (const old of fs.readdirSync(ASSETS_DIR)) {
-    if (old.startsWith('logo.')) {
+    if (old.startsWith('logo.') && (old !== 'logo.svg' || filename === 'logo.svg')) {
       try {
         fs.unlinkSync(path.join(ASSETS_DIR, old));
       } catch {

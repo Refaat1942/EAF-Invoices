@@ -119,13 +119,18 @@ async function getUnreadAlertCount(userId = null) {
   return rows[0]?.c || 0;
 }
 
-async function markAlertRead(id, userId = null) {
+async function markAlertRead(id, viewer = null) {
+  // Only an alert this user may see (an employee: the ones addressed to them).
+  const params = [Number(id)];
+  const scope = viewer && typeof viewer === 'object' ? viewerFilterSql(params, viewer) : 'TRUE';
+  const userId = Number(typeof viewer === 'object' && viewer ? viewer.id : viewer) || null;
+  params.push(userId);
   const { rows } = await query(
     `UPDATE system_alerts
-     SET is_read = TRUE, read_at = NOW(), read_by_user_id = $2
-     WHERE id = $1
+     SET is_read = TRUE, read_at = NOW(), read_by_user_id = $${params.length}
+     WHERE id = $1 AND ${scope}
      RETURNING *`,
-    [Number(id), userId || null]
+    params
   );
   return rows[0] || null;
 }

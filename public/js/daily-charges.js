@@ -4262,8 +4262,8 @@ function renderDailyInvoiceReviewPanel() {
           ? `<div class="col-md-3"><span class="text-muted d-block mb-1">${inv.invoice_type === 'non_contracted' ? 'الجهة غير المتعاقدة' : 'الجهة المتعاقدة'}</span><div class="review-field fw-bold text-primary">${dailyEscapeHtml(inv.contracted_entity_name)}</div></div>`
           : ''
       }
-      <div class="col-md-3"><span class="text-muted d-block mb-1">تاريخ الدخول</span><div class="review-field">${dailyEscapeHtml(fmtStayDate(inv.admission_date) || '—')}</div></div>
-      <div class="col-md-3"><span class="text-muted d-block mb-1">تاريخ الخروج</span><div class="review-field">${dailyEscapeHtml(fmtStayDate(inv.discharge_date) || '—')}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">تاريخ الدخول</span><div class="review-field">${dailyEscapeHtml(formatDateDMY(fmtStayDate(inv.admission_date)) || '—')}</div></div>
+      <div class="col-md-3"><span class="text-muted d-block mb-1">تاريخ الخروج</span><div class="review-field">${dailyEscapeHtml(formatDateDMY(fmtStayDate(inv.discharge_date)) || '—')}</div></div>
       <div class="col-12 mt-2"><h6 class="fw-black text-primary mb-2">ملخص الفاتورة</h6></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">رقم الفاتورة</span><div class="review-field fw-bold">${dailyEscapeHtml(inv.serial_number ? inv.serial_number : `#${inv.id}`)}</div></div>
       <div class="col-md-3"><span class="text-muted d-block mb-1">الحالة</span><div class="review-field"><span class="badge ${statusClass}">${dailyEscapeHtml(inv.status_label || inv.status || '—')}</span></div></div>
@@ -8806,11 +8806,11 @@ async function loadDailyPatientHistory() {
     tbody.innerHTML = entries
       .map(
         (entry) => `<tr>
-          <td>${fmtStayDate(entry.entry_date)}</td>
+          <td>${formatDateDMY(fmtStayDate(entry.entry_date))}</td>
           <td class="fw-bold">${dailyFmt(entry.daily_total)}</td>
           <td>${entry.stay_type_name || '—'}</td>
           <td>${entry.invoice_id ? `#${entry.invoice_id}` : '—'}</td>
-          <td>${entry.updated_at ? new Date(entry.updated_at).toLocaleString('ar-EG') : '—'}</td>
+          <td>${entry.updated_at ? formatDateTimeDMY(entry.updated_at) : '—'}</td>
           <td class="text-nowrap">
             <button type="button" class="btn btn-sm btn-outline-primary daily-open-entry" data-date="${fmtStayDate(entry.entry_date)}">فتح</button>
             ${
@@ -9159,7 +9159,7 @@ async function showDailyEntryHistory() {
       return;
     }
     const lines = history
-      .map((row) => `${new Date(row.created_at).toLocaleString('ar-EG')} — ${row.action} — ${row.changed_by_name || '—'}`)
+      .map((row) => `${formatDateTimeDMY(row.created_at)} — ${row.action} — ${row.changed_by_name || '—'}`)
       .join('\n');
     alert(`سجل التعديلات:\n\n${lines}`);
   } catch (err) {

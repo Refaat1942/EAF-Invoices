@@ -31,14 +31,7 @@ function fmtPlain(n) {
 
 function formatDate(d) {
   if (!d) return '';
-  try {
-    const s = String(d).slice(0, 10);
-    const [y, m, day] = s.split('-');
-    if (y && m && day) return `${day}/${m}/${y}`;
-    return new Date(d).toLocaleDateString('ar-EG');
-  } catch {
-    return d;
-  }
+  return require('./dateFormat').formatDateDMY(d);
 }
 
 function escapeHtml(text) {
@@ -50,7 +43,7 @@ function escapeHtml(text) {
 }
 
 function isBracketDateOnlyDescription(text) {
-  return /^\[\d{2}-\d{2}-\d{4}\]\s*$/.test(String(text || '').trim());
+  return /^\[\d{2}[-/]\d{2}[-/]\d{4}\]\s*$/.test(String(text || '').trim());
 }
 
 function formatInvoiceLineDescription(item) {
@@ -58,7 +51,7 @@ function formatInvoiceLineDescription(item) {
   let desc = String(item?.description || '').trim();
 
   if (!desc || isBracketDateOnlyDescription(desc)) {
-    const dateMatch = desc.match(/^\[(\d{2}-\d{2}-\d{4})\]/);
+    const dateMatch = desc.match(/^\[(\d{2}[-/]\d{2}[-/]\d{4})\]/);
     if (dateMatch && snapshotName) {
       desc = `[${dateMatch[1]}] ${snapshotName}`;
     } else if (snapshotName) {
@@ -69,6 +62,7 @@ function formatInvoiceLineDescription(item) {
   if (!desc) {
     desc = snapshotName || String(item?.service_code_snapshot || '').trim();
   }
+  desc = desc.replace(/^\[(\d{2})-(\d{2})-(\d{4})\]/, '[$1/$2/$3]');
 
   const unit = String(item?.unit_snapshot || '').trim();
   if (unit && desc && !desc.includes(unit)) {
@@ -88,7 +82,7 @@ function formatInvoiceLineDescriptionHtml(item) {
   if (/[A-Za-z]/.test(text)) {
     return `<span class="desc-ltr">${escapeHtml(text)}</span>`;
   }
-  const dated = text.match(/^(\[\d{2}-\d{2}-\d{4}\])\s*(.+)$/);
+  const dated = text.match(/^(\[\d{2}[-/]\d{2}[-/]\d{4}\])\s*(.+)$/);
   if (dated) {
     return `${escapeHtml(dated[1])}<span class="desc-name">${escapeHtml(dated[2])}</span>`;
   }

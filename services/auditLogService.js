@@ -67,8 +67,14 @@ async function listAuditLogs(filters = {}) {
     where.push(`created_at >= $${params.length}::timestamptz`);
   }
   if (filters.to) {
-    params.push(filters.to);
-    where.push(`created_at <= $${params.length}::timestamptz`);
+    // «إلى» a calendar day includes that whole day (Cairo time).
+    const to = String(filters.to).trim();
+    params.push(to);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      where.push(`created_at < (($${params.length}::date + 1)::timestamp AT TIME ZONE 'Africa/Cairo')`);
+    } else {
+      where.push(`created_at <= $${params.length}::timestamptz`);
+    }
   }
   if (filters.q) {
     params.push(`%${String(filters.q).trim()}%`);

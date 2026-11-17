@@ -2334,12 +2334,15 @@ function shouldSkipLegacyStayEntries() {
   );
 }
 
+// Inclusive, like the server and the daily stay lines: 09 → 11 is 3 days, a same-day
+// stay is 1 day.
 function calcDaysBetween(fromDate, toDate) {
   if (!fromDate || !toDate) return 0;
   const start = new Date(fromDate);
   const end = new Date(toDate);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  return Math.max(Math.ceil((end - start) / 86400000), 0);
+  if (end < start) return 0;
+  return Math.round((end - start) / 86400000) + 1;
 }
 
 function buildStayTypeOptions(selectedId = '') {
@@ -3031,10 +3034,7 @@ function autoStayDays() {
   const discharge = document.getElementById('discharge_date')?.value;
   const stayDaysEl = document.getElementById('stay_days');
   if (!stayDaysEl || !admission || !discharge) return;
-  const start = new Date(admission);
-  const end = new Date(discharge);
-  const diff = Math.ceil((end - start) / 86400000);
-  stayDaysEl.value = Math.max(diff, 0);
+  stayDaysEl.value = calcDaysBetween(admission, discharge);
 }
 
 function collectFormData() {
@@ -3437,7 +3437,7 @@ function renderInvoiceReturnsHistory(returns = []) {
         )
         .join('');
       return `<div class="mb-2 border-bottom pb-2">
-        <div class="fw-bold small">${ret.return_date || ''} ${ret.created_by_name ? `— ${escapeHtml(ret.created_by_name)}` : ''}</div>
+        <div class="fw-bold small">${escapeHtml(formatDateDMY(ret.return_date))} ${ret.created_by_name ? `— ${escapeHtml(ret.created_by_name)}` : ''}</div>
         ${ret.notes ? `<div class="small text-muted">${escapeHtml(ret.notes)}</div>` : ''}
         <ul class="mb-0 ps-3">${lines}</ul>
       </div>`;
@@ -4422,7 +4422,7 @@ function invoiceReturnBannerHtml(inv) {
     .filter(Boolean);
   return `<div class="alert alert-warning fw-bold mb-0">
     ↩ هذه الفاتورة أُرجعت للتصحيح${inv.returned_by_name ? ` من ${escapeHtml(inv.returned_by_name)}` : ''}
-    (${escapeHtml(new Date(inv.returned_at).toLocaleString('ar-EG'))}).
+    (${escapeHtml(formatDateTimeDMY(inv.returned_at))}).
     ${labels.length ? `<div class="mt-1">المطلوب مراجعته: ${labels.map(escapeHtml).join('، ')}</div>` : ''}
     ${inv.return_note ? `<div class="mt-1">ملاحظة: ${escapeHtml(inv.return_note)}</div>` : ''}
     <div class="small mt-1 fw-normal">صحّح البيانات من شاشات حركة المريض ثم احفظ وأرسل الفاتورة للمراجعة مرة أخرى.</div>
@@ -4434,7 +4434,7 @@ function invoiceCancelledBannerHtml(inv) {
   if (!inv || inv.status !== 'cancelled') return '';
   return `<div class="alert alert-dark fw-bold mb-0">
     🚫 فاتورة ملغاة${inv.serial_number ? ` — رقم ${escapeHtml(inv.serial_number)} محفوظ في التسلسل` : ''}.
-    ${inv.cancelled_by_name ? `ألغاها ${escapeHtml(inv.cancelled_by_name)}` : ''}${inv.cancelled_at ? ` في ${escapeHtml(new Date(inv.cancelled_at).toLocaleString('ar-EG'))}` : ''}.
+    ${inv.cancelled_by_name ? `ألغاها ${escapeHtml(inv.cancelled_by_name)}` : ''}${inv.cancelled_at ? ` في ${escapeHtml(formatDateTimeDMY(inv.cancelled_at))}` : ''}.
     ${inv.cancel_reason ? `<div class="mt-1">السبب: ${escapeHtml(inv.cancel_reason)}</div>` : ''}
     <div class="small fw-normal mt-1">لا تُحسب في الإجماليات والتحصيل، وتظهر في التقارير كـ «ملغاة».</div>
   </div>`;
@@ -6478,7 +6478,7 @@ function formatBackupDate(value) {
   if (!value) return '—';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString('ar-EG');
+  return formatDateTimeDMY(d);
 }
 
 function invoiceSerialScopeLabel(scope) {
@@ -6851,7 +6851,7 @@ async function loadInvoicesList() {
           <td class="fw-bold">${fmtDual(inv.final_total_raw ?? inv.final_total, inv.final_total)}</td>
           <td>${fmtDual(inv.total_collected_raw ?? inv.total_collected, inv.total_collected)}</td>
           <td class="${inv.remaining > 0 ? 'text-danger fw-bold' : ''}">${fmtDual(inv.remaining_raw ?? inv.remaining, inv.remaining)}</td>
-          <td>${inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ar-EG') : new Date(inv.created_at).toLocaleDateString('ar-EG')}</td>
+          <td>${inv.issue_date ? formatDateDMY(inv.issue_date) : formatDateDMY(inv.created_at)}</td>
           <td class="small">${escapeHtml(inv.created_by_name || '-')}${inv.reviewed_by_name ? `<br><span class="text-muted">اعتمدها: ${escapeHtml(inv.reviewed_by_name)}</span>` : ''}</td>
           <td class="text-nowrap">
             <button class="btn btn-sm btn-outline-primary" onclick="loadInvoiceForEdit(${inv.id})">${canEdit ? '✏️' : '👁️'}</button>
@@ -6975,7 +6975,7 @@ async function loadReports() {
                         <td class="fw-black">${escapeHtml(m.file_number)}</td>
                         <td>${escapeHtml(m.patient_name || '-')}</td>
                         <td>${m.invoice_count}</td>
-                        <td>${m.first_admission ? new Date(m.first_admission).toLocaleDateString('ar-EG') : '—'}</td>
+                        <td>${m.first_admission ? formatDateDMY(m.first_admission) : '—'}</td>
                         <td><button class="btn btn-sm btn-primary fw-bold" onclick="selectPatientForReport('${escapeAttr(m.file_number)}', '${escapeAttr(m.patient_name || '')}')">عرض الموقف</button></td>
                       </tr>`
                       )
@@ -7082,7 +7082,7 @@ async function loadReports() {
       const rows = (data.rows || [])
         .map(
           (row) => `<tr>
-          <td>${row.entry_date ? new Date(row.entry_date).toLocaleDateString('ar-EG') : '—'}</td>
+          <td>${row.entry_date ? formatDateDMY(row.entry_date) : '—'}</td>
           <td class="fw-bold">${escapeHtml(row.file_number || '')}</td>
           <td>${escapeHtml(row.patient_name || '')}</td>
           <td>${reportNationalityHtml(row)}</td>
@@ -7202,12 +7202,12 @@ async function loadReports() {
         isPayments
           ? `<tr><td>${escapeHtml(r.serial_number)}</td><td>${escapeHtml(r.file_number || '-')}</td><td>${escapeHtml(r.patient_name || '-')}</td>
              <td>${reportNationalityHtml(r)}</td>
-             <td>${escapeHtml(r.issue_date || '-')}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.cash_private)}</td>
+             <td>${escapeHtml(formatDateDMY(r.issue_date) || '-')}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.cash_private)}</td>
              <td>${fmt(r.bank_private)}</td><td>${fmt(r.cash_external)}</td><td>${fmt(r.patient_credit_applied)}</td>
              <td>${fmt(r.total_collected)}</td><td class="text-danger">${fmt(r.remaining)}</td></tr>`
           : `<tr><td>${escapeHtml(r.serial_number)}</td><td>${escapeHtml(r.file_number || '-')}</td><td>${escapeHtml(r.patient_name || '-')}</td>
              <td>${reportNationalityHtml(r)}</td>
-             <td>${escapeHtml(r.issue_date || '-')}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.total_collected)}</td>
+             <td>${escapeHtml(formatDateDMY(r.issue_date) || '-')}</td><td>${fmt(r.final_total)}</td><td>${fmt(r.total_collected)}</td>
              <td class="text-danger fw-bold">${fmt(r.remaining)}</td></tr>`
       )
       .join('');
@@ -7229,7 +7229,7 @@ async function loadReports() {
 
 function renderAccountSummaryReport(data) {
   const t = data.totals || {};
-  const dateLabel = (v) => (v ? new Date(v).toLocaleDateString('ar-EG-u-nu-latn') : '—');
+  const dateLabel = (v) => (v ? formatDateDMY(v) : '—');
   const rows = (data.rows || [])
     .map((r) => {
       const st = STATUS_BADGES[r.status] || { text: r.status_label || r.status, class: 'bg-secondary' };
@@ -7292,16 +7292,16 @@ function renderPatientStatusReport(data) {
       const paymentLines = (inv.payments || [])
         .map(
           (pay) =>
-            `<div class="small text-muted">📄 ${pay.receipt_date ? new Date(pay.receipt_date).toLocaleDateString('ar-EG') : '—'} — ${escapeHtml(pay.receipt_number || 'بدون رقم')} — ${fmt(pay.amount)}</div>`
+            `<div class="small text-muted">📄 ${pay.receipt_date ? formatDateDMY(pay.receipt_date) : '—'} — ${escapeHtml(pay.receipt_number || 'بدون رقم')} — ${fmt(pay.amount)}</div>`
         )
         .join('');
       return `<tr>
         <td>${inv.serial_number || `<span class="text-muted">مسودة #${inv.id}</span>`}</td>
         <td><span class="badge ${st.class}">${st.text}</span></td>
         <td>${inv.invoice_type_label}</td>
-        <td>${inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ar-EG') : '—'}</td>
-        <td>${inv.admission_date ? new Date(inv.admission_date).toLocaleDateString('ar-EG') : '—'}</td>
-        <td>${inv.discharge_date ? new Date(inv.discharge_date).toLocaleDateString('ar-EG') : '—'}</td>
+        <td>${inv.issue_date ? formatDateDMY(inv.issue_date) : '—'}</td>
+        <td>${inv.admission_date ? formatDateDMY(inv.admission_date) : '—'}</td>
+        <td>${inv.discharge_date ? formatDateDMY(inv.discharge_date) : '—'}</td>
         <td>${inv.stay_days || 0}</td>
         <td class="fw-bold">${fmt(inv.final_total)}</td>
         <td>${fmt(inv.total_collected)}</td>
@@ -7315,7 +7315,7 @@ function renderPatientStatusReport(data) {
   const txRows = (data.transactions || [])
     .map(
       (tx) => `<tr>
-      <td>${new Date(tx.created_at).toLocaleDateString('ar-EG')}</td>
+      <td>${formatDateDMY(tx.created_at)}</td>
       <td><span class="badge bg-light text-dark border">${tx.transaction_kind_label || tx.transaction_kind || '—'}</span></td>
       <td class="${Number(tx.amount) < 0 ? 'text-danger' : 'text-success'} fw-bold">${fmt(tx.amount)}</td>
       <td>${fmt(tx.balance_after)}</td>
@@ -7336,8 +7336,8 @@ function renderPatientStatusReport(data) {
           <div class="row g-3">
             <div class="col-md-3"><div class="patient-stat-box"><span>رقم الملف</span><strong>${data.patient.file_number}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>الجنسية</span><strong>${escapeHtml(data.patient.nationality_label || data.patient.nationality || '—')}</strong><br><small class="text-muted">${escapeHtml(data.patient.price_path_label || '')}</small></div></div>
-            <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الدخول</span><strong>${data.stay.earliest_admission ? new Date(data.stay.earliest_admission).toLocaleDateString('ar-EG') : '—'}</strong></div></div>
-            <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الخروج</span><strong>${data.stay.latest_discharge ? new Date(data.stay.latest_discharge).toLocaleDateString('ar-EG') : '—'}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الدخول</span><strong>${data.stay.earliest_admission ? formatDateDMY(data.stay.earliest_admission) : '—'}</strong></div></div>
+            <div class="col-md-3"><div class="patient-stat-box"><span>تاريخ الخروج</span><strong>${data.stay.latest_discharge ? formatDateDMY(data.stay.latest_discharge) : '—'}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>مدة الإقامة</span><strong>${data.stay.duration_label}</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>أيام الإقامة (مجموع)</span><strong>${data.stay.total_stay_days || 0} يوم</strong></div></div>
             <div class="col-md-3"><div class="patient-stat-box"><span>رصيد الحساب</span><strong class="${patientBalanceClass(data.patient.account_balance)}">${fmt(data.patient.account_balance)}</strong></div></div>

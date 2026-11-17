@@ -130,7 +130,7 @@
         .map(
           (row) => `
         <button type="button" class="dropdown-item text-wrap nav-alert-item${row.is_read ? '' : ' fw-bold'}" data-id="${row.id}" data-entity-type="${escapeHtml(row.entity_type || '')}" data-entity-id="${escapeHtml(row.entity_id || '')}" data-alert-type="${escapeHtml(row.alert_type || '')}" data-file-number="${escapeHtml(row.details?.file_number || '')}" title="فتح">
-          <div class="small text-muted">${escapeHtml(row.created_at ? new Date(row.created_at).toLocaleString('ar-EG') : '')}</div>
+          <div class="small text-muted">${escapeHtml(row.created_at ? formatDateTimeDMY(row.created_at) : '')}</div>
           <div>${escapeHtml(row.title || 'تنبيه')}</div>
           <div class="small text-muted">${escapeHtml(row.message || '')}</div>
         </button>`

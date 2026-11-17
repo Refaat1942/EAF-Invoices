@@ -47,7 +47,8 @@ async function resaveEntries(entries, user, mapLines = (lines) => lines) {
           lines,
           allow_backfill: true,
         },
-        user
+        user,
+        { skip_invoice_sync: true } // synced once per patient below
       );
       saved += 1;
       files.set(String(row.file_number).trim(), row.patient_name);

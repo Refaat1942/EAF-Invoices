@@ -59,7 +59,7 @@ router.get('/alerts/count', requireAnyPermission('invoices.view', 'daily_charges
 
 router.post('/alerts/:id/read', requireAnyPermission('invoices.view', 'daily_charges.view', 'settings.*'), async (req, res) => {
   try {
-    const row = await markAlertRead(Number(req.params.id), req.session?.user?.id || req.user?.id);
+    const row = await markAlertRead(Number(req.params.id), req.session?.user || req.user || null);
     if (!row) return res.status(404).json({ error: 'التنبيه غير موجود' });
     res.json(row);
   } catch (err) {

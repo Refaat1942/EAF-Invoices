@@ -30,7 +30,7 @@ function extractQrToken(code) {
 }
 
 function looksLikeInvoiceSerial(code) {
-  return /^[A-Z]{2,}-[A-Z]{2,}-\d{4}-\d{3,}$/i.test(String(code || '').trim());
+  return /^[A-Z]{2,}-(?:[A-Z]{2,}-)?\d{4}-\d{3,}$/i.test(String(code || '').trim());
 }
 
 async function lookupInvoiceByQr(code) {
@@ -43,7 +43,8 @@ async function lookupInvoiceByQr(code) {
     ));
   }
   if (!rows.length) {
-    const serial = String(code || '').trim().toUpperCase();
+    let serial = String(code || '').trim().toUpperCase();
+    if (!looksLikeInvoiceSerial(serial)) serial = latinFromArabicKeyboard(String(code || '').trim()).toUpperCase();
     if (looksLikeInvoiceSerial(serial)) {
       ({ rows } = await query(
         `SELECT id, serial_number, status, file_number, patient_name FROM invoices WHERE UPPER(serial_number) = $1 LIMIT 1`,

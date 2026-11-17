@@ -41,7 +41,9 @@ async function getContractedEntityById(id) {
 
 async function getEffectiveDiscountPercent(id) {
   let current = await getContractedEntityById(id);
-  while (current) {
+  let guard = 0;
+  while (current && guard < 20) {
+    guard += 1;
     const rate = Number(current.discount_percent) || 0;
     if (rate > 0) return rate;
     if (!current.parent_id) break;
@@ -104,22 +106,27 @@ async function updateContractedEntity(id, data) {
   if (data.discount_excluded_sections !== undefined) {
     await setEntityDiscountExcludedSections(id, data.discount_excluded_sections);
   }
+  // parent_id sent as null / '' makes it a main entity again (COALESCE could never clear it).
+  const parentGiven = data.parent_id !== undefined;
+  const parentId = parentGiven && data.parent_id ? Number(data.parent_id) : null;
+  if (parentId) {
+    // No entity under itself, directly or through its own sub-entities (a loop).
+    let cursor = parentId;
+    for (let guard = 0; cursor && guard < 20; guard += 1) {
+      if (Number(cursor) === Number(id)) throw new Error('لا يمكن وضع الجهة تحت نفسها أو تحت جهة تابعة لها');
+      const parent = await getContractedEntityById(cursor);
+      cursor = parent?.parent_id || null;
+    }
+  }
   const { rows } = await query(
     `UPDATE contracted_entities SET
       name = COALESCE($2, name),
-      parent_id = COALESCE($3, parent_id),
+      parent_id = CASE WHEN $7::boolean THEN $3::int ELSE parent_id END,
       discount_percent = COALESCE($4, discount_percent),
       is_active = COALESCE($5, is_active),
       sort_order = COALESCE($6, sort_order)
      WHERE id = $1 RETURNING *`,
-    [
-      id,
-      data.name,
-      data.parent_id !== undefined ? data.parent_id || null : undefined,
-      data.discount_percent,
-      data.is_active,
-      data.sort_order,
-    ]
+    [id, data.name, parentId, data.discount_percent, data.is_active, data.sort_order, parentGiven]
   );
   if (!rows.length) throw new Error('الجهة غير موجودة');
   return rows[0];

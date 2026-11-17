@@ -21,9 +21,7 @@ function formatNumber(n) {
 
 function formatDate(d) {
   if (!d) return '-';
-  const date = new Date(d);
-  if (Number.isNaN(date.getTime())) return String(d);
-  return date.toLocaleDateString('ar-EG');
+  return require('./dateFormat').formatDateDMY(d);
 }
 
 function cell(text, opts = {}) {
@@ -203,9 +201,9 @@ async function buildWordDocument(invoice) {
     );
   }
 
-  if (invoice.stay_entries?.length) {
+  if (inv.stay_entries?.length) {
     metaLines.push(
-      `تفاصيل الإقامة: ${invoice.stay_entries
+      `تفاصيل الإقامة: ${inv.stay_entries
         .map(
           (entry) =>
             `${entry.stay_type_name || '-'} (${formatDate(entry.from_date)} → ${formatDate(entry.to_date)}, ${entry.days ?? 0} يوم)`
@@ -216,7 +214,7 @@ async function buildWordDocument(invoice) {
     metaLines.push(`أنواع الإقامة: ${invoice.stay_type}`);
   }
 
-  const stayTable = buildStayDetailsTable(invoice);
+  const stayTable = buildStayDetailsTable(inv);
 
   const doc = new Document({
     sections: [

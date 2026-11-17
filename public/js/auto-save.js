@@ -7,7 +7,7 @@
   const scopes = new Map();
 
   function formatTime(date = new Date()) {
-    return date.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString('ar-EG-u-nu-latn', { hour: '2-digit', minute: '2-digit' });
   }
 
   function applyStatusElement(scope, status, message) {

@@ -224,6 +224,10 @@ function normalizeCalendarDate(value) {
   const text = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
   if (/^\d{4}-\d{2}-\d{2}/.test(text) && !/^\d{4}-\d{2}-\d{2}T/.test(text)) return text.slice(0, 10);
+  // Display label «يوم/شهر/سنة» (or the older «يوم-شهر-سنة»): never let Date() read it
+  // as month-first.
+  const dmy = text.match(/^\[?(\d{2})[-/](\d{2})[-/](\d{4})\]?/);
+  if (dmy) return `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
   const parsed = new Date(text);
   if (!Number.isNaN(parsed.getTime())) {
     const y = parsed.getFullYear();
@@ -314,19 +318,20 @@ function formatDailyEntryDateLabel(value) {
     const y = value.getFullYear();
     const m = String(value.getMonth() + 1).padStart(2, '0');
     const d = String(value.getDate()).padStart(2, '0');
-    return `${d}-${m}-${y}`;
+    return `${d}/${m}/${y}`;
   }
   const text = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
     const [y, m, d] = text.slice(0, 10).split('-');
-    return `${d}-${m}-${y}`;
+    return `${d}/${m}/${y}`;
   }
   if (/GMT|Coordinated Universal Time/i.test(text)) {
     const parsed = new Date(text);
     if (!Number.isNaN(parsed.getTime())) return formatDailyEntryDateLabel(parsed);
     return '';
   }
-  if (/^\d{2}-\d{2}-\d{4}$/.test(text)) return text;
+  const dmy = text.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+  if (dmy) return `${dmy[1]}/${dmy[2]}/${dmy[3]}`;
   const parsed = new Date(text);
   if (!Number.isNaN(parsed.getTime())) return formatDailyEntryDateLabel(parsed);
   return text.slice(0, 10);
@@ -334,7 +339,7 @@ function formatDailyEntryDateLabel(value) {
 
 function buildDailyItemDescription(entryDate, name, extraText = '') {
   const dateLabel = formatDailyEntryDateLabel(entryDate);
-  let desc = String(name || '').trim().replace(/^(\[\d{2}-\d{2}-\d{4}\]\s*)+/, '');
+  let desc = String(name || '').trim().replace(/^(\[\d{2}[-/]\d{2}[-/]\d{4}\]\s*)+/, '');
   if (/GMT|Coordinated Universal Time/i.test(desc)) desc = '';
   if (STAY_TYPE_TAG_RE.test(String(extraText || '').trim())) extraText = '';
   // `stamp_for:<line id>` only ties a stamp to its test / exam / X-ray row — not for display.
@@ -1385,38 +1390,18 @@ async function normalizeCatalogLine(section, rawLine = {}, sectionsWithServices 
   }
 
   const fullSection = (sectionsWithServices || []).find((s) => s.code === section.code) || section;
-  const allowed = fullSection?.services || [];
-  const found = allowed.find((s) => Number(s.id) === Number(catalogItemId));
-
-  let catalogItem;
-  if (found) {
-    catalogItem = {
-      id: found.id,
-      name: found.name,
-      price: found.price,
-      unit: found.unit,
-      code: found.code,
-      category: found.category_name,
-      cost_price: found.cost_price,
-      markup_percent: found.markup_percent,
-      major_unit: found.major_unit || found.unit,
-      minor_unit: found.minor_unit || found.unit,
-      minor_quantity_per_major: found.minor_quantity_per_major,
-      major_unit_selling_price: found.major_unit_selling_price ?? found.price,
-      minor_unit_selling_price: found.minor_unit_selling_price ?? found.price,
-      unit_options: found.unit_options,
-    };
-  } else {
-    const { getCatalogItemById } = require('./dailyEntryCatalogService');
-    catalogItem = await getCatalogItemById(catalogItemId);
-    if (!catalogItem || !catalogItem.is_active) {
-      throw new Error(`قسم «${section.name}»: الصنف غير موجود في الكتالوج`);
-    }
-    const { catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
-    const allowedCategories = catalogSearchCategoriesForSection(fullSection);
-    if (allowedCategories.length && !allowedCategories.includes(catalogItem.category)) {
-      throw new Error(`قسم «${section.name}»: الصنف لا ينتمي لهذه الفئة`);
-    }
+  // catalog_item_id is always a row of daily_entry_catalog_items (the screen sends price-list
+  // services as service_id). Looking it up among the section's price-list services first
+  // picked the wrong name / price whenever the two numbers happened to match.
+  const { getCatalogItemById } = require('./dailyEntryCatalogService');
+  const catalogItem = await getCatalogItemById(catalogItemId);
+  if (!catalogItem || !catalogItem.is_active) {
+    throw new Error(`قسم «${section.name}»: الصنف غير موجود في الكتالوج`);
+  }
+  const { catalogSearchCategoriesForSection } = require('./dailyCatalogCategories');
+  const allowedCategories = catalogSearchCategoriesForSection(fullSection);
+  if (allowedCategories.length && !allowedCategories.includes(catalogItem.category)) {
+    throw new Error(`قسم «${section.name}»: الصنف لا ينتمي لهذه الفئة`);
   }
 
   const { resolveCatalogUnitPrice, computeSellingPrice } = require('./dailyEntryCatalogService');
@@ -2898,8 +2883,9 @@ function entriesToInvoiceItems(entries, sections = []) {
   const skipTypes = new Set(['date', 'text']);
   const items = [];
   const sortedEntries = [...entries].sort((a, b) => {
-    const da = formatDailyEntryDateLabel(a.entry_date);
-    const db = formatDailyEntryDateLabel(b.entry_date);
+    // Chronological: compare yyyy-mm-dd, not the «يوم/شهر/سنة» label.
+    const da = normalizeCalendarDate(a.entry_date);
+    const db = normalizeCalendarDate(b.entry_date);
     return da.localeCompare(db) || (Number(a.id) || 0) - (Number(b.id) || 0);
   });
 
@@ -2944,7 +2930,7 @@ async function enrichDailyInvoiceItems(items = []) {
       item.daily_entry_date ||
       item.entry_date ||
       (isGmtDescription(item.description) ? item.description : null) ||
-      (String(item.description || '').match(/\[(\d{2}-\d{2}-\d{4})\]/) || [])[1] ||
+      (String(item.description || '').match(/\[(\d{2}[-/]\d{2}[-/]\d{4})\]/) || [])[1] ||
       null;
     const formattedDate = formatDailyEntryDateLabel(entryDate);
     const extraText = ctx?.extra_text || item.daily_extra_text || '';
@@ -3209,8 +3195,9 @@ function sortDailyInvoiceItems(items = []) {
     if (dailyA && !dailyB) return -1;
     if (!dailyA && dailyB) return 1;
 
-    const dateA = formatDailyEntryDateLabel(a.entry_date || a.daily_entry_date || '');
-    const dateB = formatDailyEntryDateLabel(b.entry_date || b.daily_entry_date || '');
+    // Chronological: compare yyyy-mm-dd, not the «يوم/شهر/سنة» label.
+    const dateA = normalizeCalendarDate(a.entry_date || a.daily_entry_date || '');
+    const dateB = normalizeCalendarDate(b.entry_date || b.daily_entry_date || '');
     if (dateA !== dateB) return dateA.localeCompare(dateB);
     const orderA = Number(a.section_sort_order) || 999;
     const orderB = Number(b.section_sort_order) || 999;
@@ -3219,7 +3206,7 @@ function sortDailyInvoiceItems(items = []) {
   });
 }
 
-async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = null) {
+async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = null, options = {}) {
   if (!fileNumber?.trim()) return [];
   const patient = await resolvePatient(fileNumber);
   let sql = `
@@ -3238,12 +3225,26 @@ async function getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId = nu
     sql += ` AND e.entry_date <= $${i++}`;
     params.push(toDate);
   }
-  sql += ` AND (e.invoice_id IS NULL`;
-  if (invoiceId) {
-    sql += ` OR e.invoice_id = $${i++}`;
-    params.push(Number(invoiceId));
+  // An approved / cancelled invoice keeps its own lines only: a later unlinked line dated
+  // inside its period must not slip into it. (Older invoices whose lines were never linked
+  // keep the previous behaviour.)
+  let onlyLinked = false;
+  if (options.only_linked && invoiceId) {
+    const linked = await query(`SELECT 1 FROM patient_daily_entries WHERE invoice_id = $1 LIMIT 1`, [Number(invoiceId)]);
+    onlyLinked = linked.rows.length > 0;
   }
-  sql += `) ORDER BY e.entry_date, e.id`;
+  if (onlyLinked) {
+    sql += ` AND e.invoice_id = $${i++}`;
+    params.push(Number(invoiceId));
+  } else {
+    sql += ` AND (e.invoice_id IS NULL`;
+    if (invoiceId) {
+      sql += ` OR e.invoice_id = $${i++}`;
+      params.push(Number(invoiceId));
+    }
+    sql += `)`;
+  }
+  sql += ` ORDER BY e.entry_date, e.id`;
 
   const { rows } = await query(sql, params);
   const entries = [];
@@ -3258,7 +3259,7 @@ async function resolveStayTypeIdForDailyEntry(entry, patient = null) {
   const fromEntry = Number(entry?.stay_type_id) || 0;
   if (fromEntry) return fromEntry;
   if (!patient?.id) return 0;
-  const entryDate = formatDailyEntryDateLabel(entry.entry_date);
+  const entryDate = normalizeCalendarDate(entry.entry_date);
   if (entryDate) {
     const { getAssignmentForDate } = require('./patientRoomService');
     const assignment = await getAssignmentForDate(patient.id, entryDate);
@@ -3294,10 +3295,10 @@ async function ensureStayAccommodationOnEntries(entries = [], sections = [], pat
   }
 }
 
-async function getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, invoiceId = null) {
+async function getInvoiceItemsFromDailyCharges(fileNumber, fromDate, toDate, invoiceId = null, options = {}) {
   const sections = await listSections();
   const patient = await resolvePatient(fileNumber);
-  const entries = await getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId);
+  const entries = await getEntriesForInvoice(fileNumber, fromDate, toDate, invoiceId, options);
   await ensureStayAccommodationOnEntries(entries, sections, patient);
   const lineItems = entriesToInvoiceItems(entries, sections);
   const supplemental = await getSupplementalInvoiceItems(fileNumber, fromDate, toDate);
@@ -3499,6 +3500,7 @@ module.exports = {
   computeDailyTotal,
   getCurrentBusinessDateString,
   normalizeCalendarDate,
+  getSupplementalInvoiceItems,
   resolveAllowedDailyEntryDate,
   isManualAmountSection,
   MANUAL_AMOUNT_SECTION_CODES,

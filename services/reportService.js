@@ -19,16 +19,15 @@ const STATUS_LABELS = {
 };
 
 function daysBetween(fromDate, toDate) {
+  // Inclusive, like calculateStayDays: 09 → 11 is 3 days.
+  const { calculateStayDays } = require('./calculations');
   if (!fromDate || !toDate) return 0;
-  const start = new Date(fromDate);
-  const end = new Date(toDate);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  return Math.max(Math.ceil((end - start) / 86400000), 0);
+  return calculateStayDays(fromDate, toDate);
 }
 
 function formatDateLabel(value) {
   if (!value) return '—';
-  return new Date(value).toLocaleDateString('ar-EG');
+  return require('./dateFormat').formatDateDMY(value);
 }
 
 async function loadNationalityMapByFileNumbers(fileNumbers = []) {
@@ -313,6 +312,8 @@ async function getAccountSummaryReport(filters = {}) {
       remaining: num(inv.remaining),
       refundable,
     };
+    // A cancelled invoice stays listed (its serial is kept) but is not money owed.
+    if (inv.status === 'cancelled') return row;
     totals.invoice_count += 1;
     ['items_only', 'items_subtotal', 'stay_subtotal', 'fees', 'admin_expenses', 'total_after_admin', 'final_total', 'remaining', 'refundable'].forEach(
       (key) => {
@@ -679,13 +680,14 @@ async function getDailyFreeItemsReport(filters = {}) {
   const { rows } = await query(
     `SELECT ii.description,
             ii.quantity,
+            COALESCE(ii.returned_quantity, 0) AS returned_quantity,
             ii.amount,
             inv.admission_date AS entry_date,
-            p.file_number,
-            p.name AS patient_name
+            COALESCE(p.file_number, inv.file_number) AS file_number,
+            COALESCE(p.name, inv.patient_name) AS patient_name
      FROM invoice_items ii
      JOIN invoices inv ON inv.id = ii.invoice_id
-     JOIN patients p ON p.id = inv.patient_id
+     LEFT JOIN patients p ON p.id = inv.patient_id OR (inv.patient_id IS NULL AND TRIM(p.file_number) = TRIM(inv.file_number))
      WHERE inv.id = $1
        AND ii.daily_entry_line_id IS NULL
        AND ii.daily_entry_id IS NULL
@@ -699,17 +701,15 @@ async function getDailyFreeItemsReport(filters = {}) {
   let totalAmount = 0;
   const mappedRows = [];
   for (const row of rows) {
-    const qty = Number(row.quantity) || 1;
-    const unitPrice = Number(row.amount) || 0;
-    const lineTotal = unitPrice * qty;
     let description = String(row.description || '').trim();
-    let entryDate = row.entry_date;
-    const prefix = description.match(/^\[(\d{2})-(\d{2})-(\d{4})\]\s*/);
-    if (prefix) {
-      entryDate = `${prefix[3]}-${prefix[2]}-${prefix[1]}`;
-      description = description.slice(prefix[0].length).trim();
-      if ((fromDate && entryDate < fromDate) || (toDate && entryDate > toDate)) continue;
-    }
+    // A dated line with no daily link is an operation / glasses line posted from the patient
+    // file, not a free item (البنود الحرة are typed without a date).
+    if (/^\[\d{2}[-/]\d{2}[-/]\d{4}\]/.test(description)) continue;
+    const qty = Math.max(0, (Number(row.quantity) || 1) - (Number(row.returned_quantity) || 0));
+    if (!qty) continue;
+    const unitPrice = Number(row.amount) || 0;
+    const lineTotal = Math.round(unitPrice * qty * 100) / 100;
+    const entryDate = row.entry_date;
     totalAmount += lineTotal;
     mappedRows.push({
       patient_name: row.patient_name || '',
@@ -770,7 +770,11 @@ async function getDailyOperationsReport(filters = {}) {
   const { rows } = await query(sql, params);
   let totalAmount = 0;
   const mappedRows = rows.map((row) => {
-    const lineTotal = Number(row.final_amount ?? row.amount ?? 0) || 0;
+    // The whole operation charge as billed on the invoice: operation + companion + nursing
+    // point + patient assistant (there is no final_amount column — only the operation price
+    // was counted).
+    const { operationChargeTotal } = require('./patientOperationService');
+    const lineTotal = Math.round(operationChargeTotal(row) * 100) / 100;
     totalAmount += lineTotal;
     return {
       patient_name: patient.name || '',
@@ -855,6 +859,39 @@ async function getDailyAllSectionsReport(filters = {}) {
       section_code: row.section_code || '',
     };
   });
+  // Operations and glasses are billed on the invoice from the patient file, not from daily
+  // lines: add them so «كل الأقسام» matches the invoice.
+  try {
+    const { getSupplementalInvoiceItems, normalizeCalendarDate } = require('./dailyChargeService');
+    const supplemental = await getSupplementalInvoiceItems(
+      fileNumber,
+      filters.from_date || '1900-01-01',
+      filters.to_date || '2999-12-31'
+    );
+    for (const item of supplemental) {
+      const lineTotal = Math.round((Number(item.amount) || 0) * (Number(item.quantity) || 1) * 100) / 100;
+      if (!(lineTotal > 0)) continue;
+      const text = String(item.description || '').trim();
+      totalAmount += lineTotal;
+      mappedRows.push({
+        patient_name: mappedRows[0]?.patient_name || '',
+        file_number: fileNumber,
+        entry_date: normalizeCalendarDate(text) || null,
+        service_name: text.replace(/^\[\d{2}[-/]\d{2}[-/]\d{4}\]\s*/, '') || '—',
+        quantity: Number(item.quantity) || 1,
+        unit_price: Number(item.amount) || 0,
+        total: lineTotal,
+        section_code: item.section_code || '',
+      });
+    }
+    mappedRows.sort((a, b) =>
+      String(require('./dailyChargeService').normalizeCalendarDate(a.entry_date) || '').localeCompare(
+        String(require('./dailyChargeService').normalizeCalendarDate(b.entry_date) || '')
+      )
+    );
+  } catch (err) {
+    console.warn('[report] all sections: operations/glasses skipped:', err.message);
+  }
   const patient = await getPatientByFileNumber(fileNumber);
   return {
     report_type: 'service',
@@ -1124,8 +1161,10 @@ async function getPatientStatusReport(filters = {}) {
   }
 
   const patientName = patient?.name || invoices[0]?.patient_name || '';
-  const admissionDates = invoices.map((inv) => inv.admission_date).filter(Boolean);
-  const dischargeDates = invoices.map((inv) => inv.discharge_date).filter(Boolean);
+  // yyyy-mm-dd text, so sort() is chronological (Date objects sorted as «Mon Nov …» text).
+  const { normalizeCalendarDate } = require('./dailyChargeService');
+  const admissionDates = invoices.map((inv) => normalizeCalendarDate(inv.admission_date)).filter(Boolean);
+  const dischargeDates = invoices.map((inv) => normalizeCalendarDate(inv.discharge_date)).filter(Boolean);
   const earliestAdmission = admissionDates.length ? [...admissionDates].sort()[0] : null;
   const latestDischarge = dischargeDates.length ? [...dischargeDates].sort().reverse()[0] : null;
   const today = require('./dailyChargeService').getCurrentBusinessDateString();
@@ -1316,6 +1355,7 @@ async function getReconciliationReport(filters = {}) {
       );
     }
 
+    if (inv.status === 'cancelled') issues.length = 0;
     const hasIssues = issues.length > 0;
     if (hasIssues) mismatchCount += 1;
 
@@ -1651,7 +1691,8 @@ async function buildExcelWorkbook(reportType, filters = {}) {
       sheet.addRow([m.month, m.count, Number(m.total), Number(m.collected), Number(m.remaining)]);
     });
   } else if (reportType === 'invoices') {
-    const invoices = await enrichInvoiceList(await fetchInvoicesForReport(filters));
+    // Same rows as the invoices report on screen (not approved only).
+    const invoices = await enrichInvoiceList(await fetchInvoicesForReport({ ...filters, approved_only: false }));
     sheet.addRow([
       'الرقم التسلسلي',
       'رقم الملف',

@@ -206,10 +206,16 @@ async function isUsernameTaken(username, exceptId = 0) {
 }
 
 /**
- * One-time clean-up at start-up: an employee / reviewer whose stored list holds nothing
- * beyond the role's defaults (a stale copy from an older version) follows the role again.
+ * One-time clean-up (once per installation, not at every start-up): an employee / reviewer
+ * whose stored list holds nothing beyond the role's defaults — a stale copy from an older
+ * version — follows the role again. Running it at every start-up also wiped a restriction
+ * the admin set later on purpose (a subset of the role's permissions).
  */
+const PERMISSIONS_NORMALIZED_KEY = 'user_permissions_normalized_v1';
+
 async function normalizeStoredUserPermissions() {
+  const done = await query(`SELECT 1 FROM app_settings WHERE key = $1`, [PERMISSIONS_NORMALIZED_KEY]);
+  if (done.rows.length) return 0;
   const { rows } = await query(`SELECT id, role, custom_permissions FROM users WHERE role IN ('user', 'reviewer')`);
   let fixed = 0;
   for (const u of rows) {
@@ -222,6 +228,11 @@ async function normalizeStoredUserPermissions() {
     }
   }
   if (fixed) console.log(`[auth] ${fixed} user(s) now follow their role's current permissions`);
+  await query(
+    `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, '1', NOW())
+     ON CONFLICT (key) DO UPDATE SET value = '1', updated_at = NOW()`,
+    [PERMISSIONS_NORMALIZED_KEY]
+  );
   return fixed;
 }
 
