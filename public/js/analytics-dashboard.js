@@ -75,7 +75,7 @@
   function initAnalyticsDashboard() {
     const fromEl = document.getElementById('analytics-from');
     const toEl = document.getElementById('analytics-to');
-    const today = new Date();
+    const today = eafServerNow();
     const ym = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
     if (fromEl && !fromEl.value) fromEl.value = `${ym}-01`;
     if (toEl && !toEl.value) toEl.value = `${ym}-${String(today.getDate()).padStart(2, '0')}`;

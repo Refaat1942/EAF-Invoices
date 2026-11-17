@@ -424,9 +424,12 @@ router.get('/open-stay', requirePermission('daily_charges.view'), async (req, re
     const file_number = req.query.file_number?.trim();
     if (!file_number) return res.status(400).json({ error: 'file_number مطلوب' });
     let stay = await getOpenPatientStay(file_number);
-    if (stay?.invoice?.id && userHasPermission(req.user, 'daily_charges.manage')) {
+    if (stay?.invoice?.id) {
+      // Every PC / role sees the same complete stay: missing days are posted whoever opens
+      // the patient — as the system when the viewer may not edit.
       const { ensureAllStayDaysPosted } = require('../services/stayBatchPostingService');
-      const result = await ensureAllStayDaysPosted(file_number, req.user);
+      const poster = userHasPermission(req.user, 'daily_charges.manage') ? req.user : null;
+      const result = await ensureAllStayDaysPosted(file_number, poster);
       if (result?.posted > 0) stay = await getOpenPatientStay(file_number);
     }
     if (stay) return res.json(stay);
@@ -667,7 +670,8 @@ router.post('/entries/batch', requirePermission('daily_charges.manage'), async (
     const result = await saveEntriesBatch(req.body, req.session?.user || null);
     res.json(result);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    // 409: another PC saved this day after this screen loaded it.
+    res.status(err.status === 409 ? 409 : 400).json({ error: err.message, code: err.code || undefined });
   }
 });
 

@@ -279,20 +279,30 @@ function refreshDailyStayLiveTotals() {
   }
 }
 
-// Always the PC's current date: the server treats the PC date as "today" (X-Client-Date),
-// and a date cached at page load goes stale after midnight, showing yesterday's rows and
-// sending saves the server rejects.
+// «Today» = the server's date (Cairo), the same on every PC — never the PC's own clock.
+// Read fresh each time: a date cached at page load goes stale after midnight.
 function getLocalDateString() {
+  if (typeof window.eafToday === 'function') return window.eafToday();
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 let dailySheetSerialNext = 1;
 const dailySheetSerialMap = new Map();
 let dailySheetEntriesCache = [];
+// entry id → edit_seq of the copy drawn on screen (sent back on save: conflict check).
+const dailyRenderedEditSeq = new Map();
+function rememberEditSeq(entries = []) {
+  for (const e of entries || []) {
+    if (e && e.id) dailyRenderedEditSeq.set(Number(e.id), Number(e.edit_seq) || 0);
+  }
+}
+function withEditSeq(entries = []) {
+  return (entries || []).map((e) => {
+    const id = Number(e?.entry_id || e?.id) || 0;
+    return id && dailyRenderedEditSeq.has(id) ? { ...e, edit_seq: dailyRenderedEditSeq.get(id) } : e;
+  });
+}
 /** Tab switches reuse the last fetch; any patient/invoice write (see api-client) invalidates it. */
 let dailySheetEntriesFetchedAt = 0;
 let dailySheetEntriesFile = '';
@@ -7848,6 +7858,7 @@ async function loadDailyEntriesIntoSheet(options = {}) {
       dailySheetEntriesFile = fileNumber;
     }
     dailySheetEntriesCache = entries || [];
+    rememberEditSeq(entries);
     rebuildDailySheetSerialState(entries);
     dailySheetSerialNext = 1;
     applyDailyWorkDateLimits();
@@ -8075,6 +8086,7 @@ async function removeRowLinesFromEntry(tr, entryId) {
         entries: [
           {
             entry_id: entryId,
+            ...(dailyRenderedEditSeq.has(Number(entryId)) ? { edit_seq: dailyRenderedEditSeq.get(Number(entryId)) } : {}),
             // Keep the entry on its own day (it may be an earlier day of the stay).
             entry_date: fmtStayDate(cachedEntry?.entry_date) || getLocalDateString(),
             stay_type_id: cachedEntry?.stay_type_id || resolveStayTypeIdForSave(null, tr),
@@ -8987,7 +8999,7 @@ async function saveDailyEntryNow(options = {}) {
       body: JSON.stringify({
         file_number,
         patient_name: getStayPatientName(),
-        entries,
+        entries: withEditSeq(entries),
         // Operations are saved from their own screen only (never re-sent from other tabs).
         glasses_total: getGlassesFinalAmount(),
         patient_fields: {
@@ -9003,6 +9015,7 @@ async function saveDailyEntryNow(options = {}) {
     });
 
     dailyCurrentEntryId = data.saved?.[data.saved.length - 1]?.id || null;
+    rememberEditSeq(data.saved || []);
 
     const prevTab = activeDailyTab;
     const tabLabel = dailyTabLabel(prevTab);
@@ -9055,7 +9068,8 @@ async function saveDailyEntryNow(options = {}) {
     return true;
   } catch (err) {
     // Keep typed exam rows on failure — wiping them lost valid rows alongside the bad one.
-    if (!silent) {
+    const conflict = err?.status === 409 || /من جهاز آخر/.test(String(err?.message || ''));
+    if (!silent || conflict) {
       showToast(sanitizeApiErrorMessage(err.message), 'danger');
     } else if (window.AutoSave) {
       AutoSave.setStatus('daily', 'error', sanitizeApiErrorMessage(err.message));

@@ -270,6 +270,34 @@ async function batchPostStayCharges(fileNumber, options = {}, user = null) {
  * admission through discharge (or today while still admitted). Days that already have
  * stay lines or were excluded by the user are skipped.
  */
+/**
+ * Background job: posts the missing stay days of every patient still admitted, so the
+ * invoice is complete whoever opens it (the reviewer included) and whether or not an
+ * employee opened the patient today. Uses the server's date.
+ */
+async function postStayDaysForAllOpenStays() {
+  const { query } = require('../database/db');
+  const { rows } = await query(
+    `SELECT DISTINCT TRIM(i.file_number) AS file_number
+     FROM invoices i
+     JOIN patients p ON TRIM(p.file_number) = TRIM(i.file_number)
+     WHERE i.status IN ('draft', 'pending_review')
+       AND COALESCE(TRIM(i.file_number), '') <> ''
+       AND LOWER(COALESCE(p.patient_type, 'internal')) <> 'external'`
+  );
+  let posted = 0;
+  for (const row of rows) {
+    try {
+      const result = await ensureAllStayDaysPosted(row.file_number, null);
+      posted += Number(result?.posted) || 0;
+    } catch (err) {
+      console.warn(`[stay-post] file ${row.file_number}: ${err.message}`);
+    }
+  }
+  if (posted) console.log(`[stay-post] ${posted} stay day(s) posted for ${rows.length} open stay(s)`);
+  return { patients: rows.length, posted };
+}
+
 async function ensureAllStayDaysPosted(fileNumber, user = null) {
   const fn = String(fileNumber || '').trim();
   if (!fn) return { posted: 0, reason: 'missing_file_number' };
@@ -591,6 +619,7 @@ module.exports = {
   fillMissingStayDetailLines,
   applyRoomChangeToPostedDays,
   ensureAllStayDaysPosted,
+  postStayDaysForAllOpenStays,
   syncAdmissionDayRoomInsurance,
   admissionCompanionWithInsurance,
   resolveAccommodationRateForStayType,

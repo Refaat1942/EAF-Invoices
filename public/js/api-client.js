@@ -127,23 +127,9 @@ async function parseApiResponse(res) {
   return body;
 }
 
-/**
- * The server treats the PC's calendar date as "today". The cookie covers requests that
- * bypass apiFetch (window.open previews, downloads).
- */
-function stampClientDate() {
-  if (typeof document === 'undefined') return '';
-  const now = new Date();
-  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
-    now.getDate()
-  ).padStart(2, '0')}`;
-  document.cookie = `eaf_client_date=${date}; path=/; SameSite=Lax`;
-  return date;
-}
-
-if (typeof window !== 'undefined') {
-  stampClientDate();
-  setInterval(stampClientDate, 60 * 1000);
+// «Today» comes from the server clock (X-Server-Time on every answer), not from the PC.
+if (typeof document !== 'undefined') {
+  document.cookie = 'eaf_client_date=; path=/; max-age=0; SameSite=Lax'; // old builds' cookie
 }
 
 const REF_DATA_WRITE_RE =
@@ -176,12 +162,10 @@ async function apiFetch(url, options = {}) {
     });
   }
 
-  const clientDate = stampClientDate();
   const headers =
     typeof Headers !== 'undefined' && options.headers instanceof Headers
       ? Object.fromEntries(options.headers.entries())
       : { ...(options.headers || {}) };
-  if (clientDate) headers['X-Client-Date'] = clientDate;
   // Activity log: tell the server which screen the user was on.
   const method = String(options.method || 'GET').toUpperCase();
   if (method !== 'GET' && typeof window !== 'undefined' && typeof window.eafCurrentScreenLabel === 'function') {
@@ -194,7 +178,12 @@ async function apiFetch(url, options = {}) {
   }
 
   try {
-    return await fetchImpl(url, { credentials: 'include', ...options, headers });
+    const response = await fetchImpl(url, { credentials: 'include', ...options, headers });
+    const serverTime = response?.headers?.get?.('X-Server-Time');
+    if (serverTime && typeof window !== 'undefined' && typeof window.eafNoteServerTime === 'function') {
+      window.eafNoteServerTime(serverTime);
+    }
+    return response;
   } catch (err) {
     if (err instanceof ApiClientError) throw err;
     const isNetwork =

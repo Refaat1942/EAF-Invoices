@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
@@ -23,9 +24,35 @@ function loadEntry(filePath) {
     raw,
     gzip: zlib.gzipSync(raw, { level: 9 }),
     etag: `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`,
+    hash: crypto.createHash('sha1').update(raw).digest('hex').slice(0, 10),
   };
   cache.set(filePath, entry);
   return entry;
+}
+
+/**
+ * index.html as sent: every «/js/x.js?v=…» / «/css/x.css?v=…» carries the fingerprint of
+ * that file's content. A changed file gets a new URL on every PC by itself (no manual
+ * version bump that can be forgotten, no Ctrl+F5); an unchanged one stays cached.
+ */
+const htmlCache = new Map();
+function versionedHtmlEntry(rootResolved, htmlPath, entry) {
+  const text = entry.raw.toString('utf8');
+  const parts = [];
+  const body = text.replace(/((?:src|href)=")(\/(?:js|css)\/[^"?]+\.(?:js|css))\?v=[^"]*"/g, (all, attr, url) => {
+    const file = path.resolve(rootResolved, `.${url}`);
+    if (!file.startsWith(rootResolved + path.sep) || !fs.existsSync(file)) return all;
+    const hash = loadEntry(file).hash;
+    parts.push(hash);
+    return `${attr}${url}?v=${hash}"`;
+  });
+  const signature = `${entry.mtimeMs}:${parts.join('.')}`;
+  const hit = htmlCache.get(htmlPath);
+  if (hit && hit.signature === signature) return hit;
+  const raw = Buffer.from(body, 'utf8');
+  const out = { signature, raw, gzip: zlib.gzipSync(raw, { level: 9 }) };
+  htmlCache.set(htmlPath, out);
+  return out;
 }
 
 /**
@@ -53,6 +80,7 @@ function compressedStatic(root) {
     let entry;
     try {
       entry = loadEntry(filePath);
+      if (ext === '.html') entry = versionedHtmlEntry(rootResolved, filePath, entry);
     } catch {
       return next();
     }

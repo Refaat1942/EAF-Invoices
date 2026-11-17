@@ -3464,7 +3464,7 @@ async function openInvoiceReturnModal() {
     }
 
     const tbody = document.getElementById('invoice-return-lines-tbody');
-    const now = new Date();
+    const now = eafServerNow();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     document.getElementById('invoice-return-date').value = today;
     document.getElementById('invoice-return-notes').value = '';
@@ -4544,7 +4544,7 @@ function resetForm() {
   document.getElementById('invoice-form').reset();
   document.getElementById('invoice-id').value = '';
   document.getElementById('form-title').textContent = 'إنشاء فاتورة جديدة';
-  const now = new Date();
+  const now = eafServerNow();
   document.getElementById('issue_date').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   updateInvoiceStatusUI(null);
   document.getElementById('captain_name').value = 'نقيب عمرو صالح';
@@ -4847,7 +4847,7 @@ function initReportDefaultDates() {
   const toEl = document.getElementById('report-to');
   if (!fromEl || !toEl) return;
   if (!fromEl.value || !toEl.value) {
-    const today = new Date();
+    const today = eafServerNow();
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
     const fmt = (d) => {
       const y = d.getFullYear();
@@ -6769,7 +6769,7 @@ function initInvoicesListDefaultDates() {
   const toEl = document.getElementById('list-to');
   if (!fromEl || !toEl) return;
   if (!fromEl.value || !toEl.value) {
-    const today = new Date();
+    const today = eafServerNow();
     const start = new Date(today.getFullYear(), today.getMonth(), 1);
     const fmt = (d) => {
       const y = d.getFullYear();

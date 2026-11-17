@@ -201,9 +201,9 @@ function buildDailyLinesFingerprint(lines = []) {
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'Africa/Cairo';
 
 function getCurrentBusinessDateString() {
-  // Requests from the browser carry the PC's calendar date; background work falls back to BUSINESS_TIMEZONE.
-  const clientDate = require('../middleware/clientDate').getRequestClientDate();
-  if (clientDate) return clientDate;
+  // «Today» is the server's date in Cairo time — the same for every PC on the network.
+  // (It used to follow each PC's own clock: a PC a day ahead posted an extra stay day, one
+  // a day behind refused today's entries.)
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: BUSINESS_TIMEZONE,
     year: 'numeric',
@@ -2053,7 +2053,8 @@ async function persistEntryInTransaction(client, data, user, context = null) {
       `UPDATE patient_daily_entries SET
         stay_type_id = $1, daily_total = $2, notes = $3,
         doctor_id = $4, doctor_specialty = $5, doctor_name_snapshot = $6, doctor_department_snapshot = $7,
-        updated_by_user_id = $8, updated_by_name = $9, updated_at = NOW()
+        updated_by_user_id = $8, updated_by_name = $9, updated_at = NOW(),
+        edit_seq = COALESCE(edit_seq, 0) + 1
        WHERE id = $10`,
       [
         data.stay_type_id || null,
@@ -2288,6 +2289,23 @@ async function saveEntriesBatchUnlocked(data, user = null) {
     };
     const entryId = Number(entryData.entry_id || entryData.id) || 0;
     const snapshot = entryId ? await getEntryById(entryId) : null;
+    // Another PC saved this day after this screen loaded it: refuse rather than overwrite.
+    const loadedSeq = entryData.edit_seq;
+    if (
+      snapshot &&
+      loadedSeq !== undefined &&
+      loadedSeq !== null &&
+      loadedSeq !== '' &&
+      Number(loadedSeq) !== (Number(snapshot.edit_seq) || 0)
+    ) {
+      const who = snapshot.updated_by_name ? ` بواسطة ${snapshot.updated_by_name}` : '';
+      const err = new Error(
+        `حركة يوم ${formatDailyEntryDateLabel(snapshot.entry_date)} اتعدلت من جهاز آخر${who} بعد ما فتحت المريض — أعد فتح المريض لترى آخر تعديل ثم عدّل واحفظ`
+      );
+      err.status = 409;
+      err.code = 'EDIT_CONFLICT';
+      throw err;
+    }
     const context = await prepareEntrySaveContext(merged);
     const entryDate = normalizeCalendarDate(context.entryDate);
     if (entryDate === primaryDate && supplemental.operations + supplemental.glasses > 0) {

@@ -79,9 +79,10 @@ router.post('/calculate', requirePermission('invoices.view'), async (req, res) =
 
 async function postMissingStayDaysForPreview(req, fileNumber) {
   const fn = String(fileNumber || '').trim();
-  if (!fn || !userHasPermission(req.user, 'daily_charges.manage')) return;
+  if (!fn) return;
+  // Same complete stay on every PC / role: posted as the system when the viewer may not edit.
   const { ensureAllStayDaysPosted } = require('../services/stayBatchPostingService');
-  await ensureAllStayDaysPosted(fn, req.user);
+  await ensureAllStayDaysPosted(fn, userHasPermission(req.user, 'daily_charges.manage') ? req.user : null);
 }
 
 router.post('/preview', requirePermission('invoices.view'), async (req, res) => {

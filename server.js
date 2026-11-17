@@ -71,7 +71,11 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 // Mounted after the callback-based session/body parsers so the request's date context
 // isn't lost before the route handlers run.
-app.use(require('./middleware/clientDate').clientDateMiddleware);
+// Every API answer carries the server clock: the screens take «today» from it, not from the PC.
+app.use('/api', (req, res, next) => {
+  res.setHeader('X-Server-Time', String(Date.now()));
+  next();
+});
 
 app.use(
   '/assets',
@@ -192,6 +196,14 @@ async function start() {
       `);
       console.log(`[startup] ${pkg.name} v${pkg.version} listening on ${HOST}:${PORT}`);
     });
+    // Stay days of every admitted patient are posted by the server itself (its own date),
+    // shortly after start-up and every 30 minutes — not only when an employee opens them.
+    const postStays = () =>
+      require('./services/stayBatchPostingService')
+        .postStayDaysForAllOpenStays()
+        .catch((err) => console.error('[stay-post] failed:', err.message));
+    setTimeout(postStays, 60 * 1000).unref();
+    setInterval(postStays, 30 * 60 * 1000).unref();
     // One-time data update after an upgrade: Arabic names for the laboratory tests.
     require('./services/labArabicNamesService')
       .applyLabArabicNames()

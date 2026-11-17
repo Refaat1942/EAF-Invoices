@@ -1209,6 +1209,10 @@ async function runMigrations() {
 
   await seedLookupTables();
 
+  // Bumped on every edit of a day's entry: a save from a PC that loaded an older copy is
+  // refused instead of silently overwriting another PC's changes.
+  await query(`ALTER TABLE patient_daily_entries ADD COLUMN IF NOT EXISTS edit_seq INTEGER NOT NULL DEFAULT 0`);
+
   // Lookups the screens do on every open / save. Without them each was a full table scan
   // that grows with every invoice (invoice_items only had a partial index the planner
   // cannot use for «WHERE invoice_id = …»).

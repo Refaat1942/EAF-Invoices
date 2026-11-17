@@ -27,6 +27,7 @@ function dailyLogDate(value) {
 }
 
 function dailyLogLocalDate(offsetDays = 0) {
+  if (typeof window.eafToday === 'function') return window.eafToday(offsetDays);
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
